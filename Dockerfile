@@ -1,61 +1,22 @@
-FROM ubuntu:24.04
-
 # ============================================================
-# KasSigner — Reproducible Build Environment
+# KasSigner — Reproducible Build
 # ============================================================
-# Usage:
+# Uses the frozen toolchain base image. The base image never
+# changes, so the same source always produces the same binary.
+#
+# First time setup (once):
+#   docker build -f Dockerfile.base -t kassigner-toolchain:v1 .
+#
+# Verify a build (anytime):
 #   docker build -t kassigner-build .
 #   docker run --rm kassigner-build
 #
-# Compare the output SHA-256 hash with the published release hash.
-# If they match, the binary provably comes from this source.
+# Compare the SHA-256 hash with the published release hash.
 # ============================================================
 
-ENV DEBIAN_FRONTEND=noninteractive
+FROM kassigner-toolchain:v1
 
-# ---- Pinned versions ----
-ENV ESPUP_VERSION=0.16.0
-# Pin stable Rust to a specific version so rustup doesn't pull latest
-ENV RUST_STABLE_VERSION=1.84.0
-
-# ---- System dependencies (pinned base image handles OS pinning) ----
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    gcc \
-    g++ \
-    pkg-config \
-    libssl-dev \
-    libusb-1.0-0-dev \
-    libudev-dev \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# ---- Install rustup with a pinned stable toolchain ----
-ENV HOME=/root
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-    sh -s -- -y --default-toolchain ${RUST_STABLE_VERSION}
-ENV PATH="/root/.cargo/bin:${PATH}"
-
-# ---- Detect architecture and install espup (pinned version) ----
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then \
-        ESPUP_ARCH="x86_64-unknown-linux-gnu"; \
-    elif [ "$ARCH" = "aarch64" ]; then \
-        ESPUP_ARCH="aarch64-unknown-linux-gnu"; \
-    else \
-        echo "Unsupported architecture: $ARCH" && exit 1; \
-    fi && \
-    curl -L "https://github.com/esp-rs/espup/releases/download/v${ESPUP_VERSION}/espup-${ESPUP_ARCH}" \
-        -o /usr/local/bin/espup && \
-    chmod +x /usr/local/bin/espup
-
-# ---- Install Xtensa Rust toolchain via espup ----
-# espup 0.16.0 installs Rust 1.92.0.0 (esp fork) + Xtensa LLVM
-RUN espup install --export-file /root/esp-env.sh
-
-# ---- Source the ESP environment for all subsequent commands ----
 SHELL ["/bin/bash", "-c"]
-ENV PATH="/root/.rustup/toolchains/esp/bin:${PATH}"
 
 # ---- Copy project source ----
 WORKDIR /build/KasSigner
