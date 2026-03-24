@@ -297,9 +297,22 @@ A tampered binary fails verification and halts boot.
 ## Documentation
 
 - [SECURITY.md](SECURITY.md) — security model, threat analysis, responsible disclosure
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute, code standards
+- [CHANGELOG.md](CHANGELOG.md) — version history
 - [docs/STEGANOGRAPHY.md](docs/STEGANOGRAPHY.md) — JPEG EXIF steganographic backup system
 - [docs/KEY_DERIVATION.md](docs/KEY_DERIVATION.md) — BIP32/39/85 derivation tree explained
 - [docs/EFUSE_RUNBOOK.md](docs/EFUSE_RUNBOOK.md) — eFuse secure boot procedure (irreversible!)
+- [docs/REPRODUCIBLE_BUILD.md](docs/REPRODUCIBLE_BUILD.md) — verify builds with Docker
+
+## Hardware References
+
+KasSigner runs on the [Waveshare ESP32-S3-Touch-LCD-2](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-2). These are the datasheets and reference manuals for the components used:
+
+- [ESP32-S3 Technical Reference Manual](https://www.espressif.com/sites/default/files/documentation/esp32-s3_technical_reference_manual_en.pdf) — register-level peripheral documentation
+- [ESP32-S3 Datasheet](https://www.espressif.com/sites/default/files/documentation/esp32-s3_datasheet_en.pdf) — pinout, electrical characteristics, memory map
+- [Waveshare ESP32-S3-Touch-LCD-2 Wiki](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-2) — board schematic, GPIO assignments, setup guide
+- [OV5640 Datasheet](https://cdn.sparkfun.com/datasheets/Sensors/LightImaging/OV5640_datasheet.pdf) — camera sensor registers, PLL configuration, DVP interface
+- [ST7789 Datasheet](https://www.newhavendisplay.com/appnotes/datasheets/LCDs/ST7789V.pdf) — display controller commands, SPI protocol, initialization sequence
 
 ## Cryptographic Notice
 
@@ -314,11 +327,11 @@ Contributions welcome, especially:
 - **Hardware ports** to other ESP32-S3 boards
 - **UI/UX** refinements and accessibility
 
-Please read [SECURITY.md](SECURITY.md) before reporting security issues.
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [SECURITY.md](SECURITY.md) before reporting security issues.
 
 ## License
 
-[MIT](LICENSE)
+[GNU General Public License v3.0](LICENSE)
 
 ## Disclaimer
 
