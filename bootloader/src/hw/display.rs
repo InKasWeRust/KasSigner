@@ -68,7 +68,6 @@ pub(crate) const COLOR_DANGER: Rgb565 = Rgb565::new(0b11100, 0b001000, 0b00010);
 pub(crate) const COLOR_ORANGE: Rgb565 = Rgb565::new(0b11111, 0b100011, 0b00000);
 pub(crate) const COLOR_GREEN_BTN: Rgb565 = Rgb565::new(0b00000, 0b101000, 0b00000);
 pub(crate) const COLOR_RED_BTN: Rgb565 = Rgb565::new(0b01100, 0b000000, 0b00000);
-#[allow(dead_code)]
 pub(crate) const COLOR_ERR_TEXT: Rgb565 = Rgb565::new(0b11111, 0b000000, 0b00000);
 pub(crate) const COLOR_HINT: Rgb565 = Rgb565::new(0b01100, 0b011000, 0b01100);
 
@@ -140,8 +139,6 @@ pub(crate) fn measure_title(text: &str) -> i32 {
 pub(crate) fn measure_body(text: &str) -> i32 {
     prop_fonts::measure_prop_text(text, &prop_fonts::LATO_15_WIDTHS,
         prop_fonts::LATO_15_FIRST, prop_fonts::LATO_15_LAST, prop_fonts::LATO_15_HEIGHT)
-}
-#[allow(dead_code)]
 pub(crate) fn measure_18(text: &str) -> i32 {
     prop_fonts::measure_prop_text(text, &prop_fonts::LATO_18_WIDTHS,
         prop_fonts::LATO_18_FIRST, prop_fonts::LATO_18_LAST, prop_fonts::LATO_18_HEIGHT)
@@ -561,8 +558,6 @@ impl<'a> BootDisplay<'a> {
         }
     }
 }
-
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BootStatus {
     Verifying,

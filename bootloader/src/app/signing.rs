@@ -46,7 +46,6 @@ pub fn derive_all_pubkeys(
 
 /// Derive the private key for a specific address index (on-demand for signing).
 /// Returns the privkey in the output buffer.
-#[allow(dead_code)]
 #[inline(never)]
 pub fn derive_privkey(
     mnemonic_indices: &[u16; 24],

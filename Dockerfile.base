@@ -1,58 +1,30 @@
-FROM ubuntu:24.04
+FROM --platform=linux/amd64 ubuntu:24.04
 
 # ============================================================
 # KasSigner — Toolchain Base Image (build once, reuse forever)
 # ============================================================
-# This image freezes the entire build toolchain.
-# Build it ONCE and push to a registry. Never rebuild.
+# Forces x86_64 platform for identical hashes across all hosts.
 #
-#   docker build -f Dockerfile.base -t kassigner-toolchain:v1 .
-#   docker push kassigner-toolchain:v1
+#   docker build --platform linux/amd64 -f Dockerfile.base -t kassigner-toolchain:v1 .
 # ============================================================
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV HOME=/root
 
-# ---- System dependencies ----
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    gcc \
-    g++ \
-    pkg-config \
-    libssl-dev \
-    libusb-1.0-0-dev \
-    libudev-dev \
-    ca-certificates \
+    curl gcc g++ pkg-config libssl-dev libusb-1.0-0-dev libudev-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- Install rustup with pinned stable ----
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --default-toolchain 1.84.0
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# ---- Install espup (pinned version) ----
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then \
-        ESPUP_ARCH="x86_64-unknown-linux-gnu"; \
-    elif [ "$ARCH" = "aarch64" ]; then \
-        ESPUP_ARCH="aarch64-unknown-linux-gnu"; \
-    else \
-        echo "Unsupported architecture: $ARCH" && exit 1; \
-    fi && \
-    curl -L "https://github.com/esp-rs/espup/releases/download/v0.16.0/espup-${ESPUP_ARCH}" \
-        -o /usr/local/bin/espup && \
-    chmod +x /usr/local/bin/espup
+RUN curl -L "https://github.com/esp-rs/espup/releases/download/v0.16.0/espup-x86_64-unknown-linux-gnu" \
+    -o /usr/local/bin/espup && chmod +x /usr/local/bin/espup
 
-# ---- Install Xtensa Rust toolchain (frozen after this point) ----
 RUN espup install --export-file /root/esp-env.sh
 
-# ---- Record exact versions for audit ----
 SHELL ["/bin/bash", "-c"]
-RUN source /root/esp-env.sh && \
-    echo "=== TOOLCHAIN VERSIONS ===" && \
-    rustc --version && \
-    cargo --version && \
-    echo "espup 0.16.0" && \
-    echo "=========================="
-
 ENV PATH="/root/.rustup/toolchains/esp/bin:${PATH}"
+
+RUN source /root/esp-env.sh && rustc --version && cargo --version

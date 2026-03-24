@@ -1,42 +1,37 @@
 # ============================================================
-# KasSigner — Reproducible Build
+# KasSigner — Reproducible Build (x86_64 canonical)
 # ============================================================
-# Uses the frozen toolchain base image. The base image never
-# changes, so the same source always produces the same binary.
+# Anyone, anywhere, any OS → same hash.
 #
-# First time setup (once):
-#   docker build -f Dockerfile.base -t kassigner-toolchain:v1 .
-#
-# Verify a build (anytime):
-#   docker build -t kassigner-build .
+#   docker build --platform linux/amd64 -f Dockerfile.base -t kassigner-toolchain:v1 .
+#   docker build --platform linux/amd64 -t kassigner-build .
 #   docker run --rm kassigner-build
-#
-# Compare the SHA-256 hash with the published release hash.
 # ============================================================
 
-FROM kassigner-toolchain:v1
+FROM --platform=linux/amd64 kassigner-toolchain:v1
 
 SHELL ["/bin/bash", "-c"]
 
-# ---- Copy project source ----
 WORKDIR /build/KasSigner
 COPY . .
 
-# ---- Build firmware (release mode) ----
+ENV SOURCE_DATE_EPOCH=0
 RUN source /root/esp-env.sh && \
     cd bootloader && \
+    CARGO_BUILD_RUSTFLAGS="-Csymbol-mangling-version=v0" \
     cargo build --release 2>&1 | tail -5
 
-# ---- Output verification hash ----
+RUN source /root/esp-env.sh && \
+    xtensa-esp32s3-elf-objcopy -O binary \
+        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
+        /build/kassigner-raw.bin
+
 RUN echo "" && \
     echo "============================================" && \
     echo "  KasSigner Reproducible Build Complete" && \
     echo "============================================" && \
     echo "" && \
-    sha256sum bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader && \
-    echo "" && \
-    echo "Compare this hash with the published release hash." && \
-    echo "If they match, the binary is built from this source." && \
+    sha256sum /build/kassigner-raw.bin && \
     echo "============================================"
 
-CMD ["bash", "-c", "sha256sum /build/KasSigner/bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader"]
+CMD ["bash", "-c", "sha256sum /build/kassigner-raw.bin"]
