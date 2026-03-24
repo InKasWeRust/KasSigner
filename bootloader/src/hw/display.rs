@@ -139,6 +139,7 @@ pub(crate) fn measure_title(text: &str) -> i32 {
 pub(crate) fn measure_body(text: &str) -> i32 {
     prop_fonts::measure_prop_text(text, &prop_fonts::LATO_15_WIDTHS,
         prop_fonts::LATO_15_FIRST, prop_fonts::LATO_15_LAST, prop_fonts::LATO_15_HEIGHT)
+}
 pub(crate) fn measure_18(text: &str) -> i32 {
     prop_fonts::measure_prop_text(text, &prop_fonts::LATO_18_WIDTHS,
         prop_fonts::LATO_18_FIRST, prop_fonts::LATO_18_LAST, prop_fonts::LATO_18_HEIGHT)
