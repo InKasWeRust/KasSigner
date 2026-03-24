@@ -39,10 +39,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- Install espup (pinned version) ----
-RUN curl -L "https://github.com/esp-rs/espup/releases/download/v${ESPUP_VERSION}/espup-x86_64-unknown-linux-gnu" \
-    -o /usr/local/bin/espup \
-    && chmod +x /usr/local/bin/espup
+# ---- Detect architecture and install espup (pinned version) ----
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then \
+        ESPUP_ARCH="x86_64-unknown-linux-gnu"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+        ESPUP_ARCH="aarch64-unknown-linux-gnu"; \
+    else \
+        echo "Unsupported architecture: $ARCH" && exit 1; \
+    fi && \
+    curl -L "https://github.com/esp-rs/espup/releases/download/v${ESPUP_VERSION}/espup-${ESPUP_ARCH}" \
+        -o /usr/local/bin/espup && \
+    chmod +x /usr/local/bin/espup
 
 # ---- Install Xtensa Rust toolchain via espup ----
 # This installs the exact Rust fork (1.92.0.0) + Xtensa LLVM
@@ -50,9 +58,8 @@ ENV HOME=/root
 RUN espup install --export-file /root/esp-env.sh
 
 # ---- Source the ESP environment for all subsequent commands ----
-ENV PATH="/root/.rustup/toolchains/esp/bin:${PATH}"
-ENV LIBCLANG_PATH="/root/.rustup/toolchains/esp/lib"
 SHELL ["/bin/bash", "-c"]
+ENV PATH="/root/.rustup/toolchains/esp/bin:${PATH}"
 
 # ---- Install espflash (pinned version) ----
 RUN source /root/esp-env.sh && \
@@ -71,9 +78,6 @@ RUN source /root/esp-env.sh && \
     cargo build --release 2>&1 | tail -5
 
 # ---- Output verification hash ----
-# This hash must match the one published with the release.
-# The signed binary adds a signature sector but the unsigned
-# content before signing must be identical.
 RUN echo "" && \
     echo "============================================" && \
     echo "  KasSigner Reproducible Build Complete" && \
