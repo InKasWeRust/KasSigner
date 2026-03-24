@@ -3,23 +3,17 @@ FROM ubuntu:24.04
 # ============================================================
 # KasSigner — Reproducible Build Environment
 # ============================================================
-# This container produces byte-identical firmware binaries
-# from the public source code. Anyone can verify that the
-# released signed binary matches what this source builds.
-#
 # Usage:
 #   docker build -t kassigner-build .
 #   docker run --rm kassigner-build
 #
-# The output is the SHA-256 hash of the unsigned firmware.
-# Compare it with the hash published in the release notes.
+# Compare the output SHA-256 hash with the published release hash.
 # If they match, the binary provably comes from this source.
 # ============================================================
 
-# Prevent interactive prompts during package install
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ---- Pinned versions (DO NOT change without re-verifying reproducibility) ----
+# ---- Pinned versions ----
 ENV ESPUP_VERSION=0.16.0
 ENV ESPTOOL_VERSION=5.2.0
 ENV ESPFLASH_VERSION=4.1.0
@@ -39,6 +33,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# ---- Install rustup first (espup requires it) ----
+ENV HOME=/root
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+ENV PATH="/root/.cargo/bin:${PATH}"
+
 # ---- Detect architecture and install espup (pinned version) ----
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then \
@@ -53,8 +52,6 @@ RUN ARCH=$(uname -m) && \
     chmod +x /usr/local/bin/espup
 
 # ---- Install Xtensa Rust toolchain via espup ----
-# This installs the exact Rust fork (1.92.0.0) + Xtensa LLVM
-ENV HOME=/root
 RUN espup install --export-file /root/esp-env.sh
 
 # ---- Source the ESP environment for all subsequent commands ----
@@ -89,5 +86,4 @@ RUN echo "" && \
     echo "If they match, the binary is built from this source." && \
     echo "============================================"
 
-# Default command: print the hash
 CMD ["bash", "-c", "sha256sum /build/KasSigner/bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader"]
