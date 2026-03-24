@@ -15,8 +15,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # ---- Pinned versions ----
 ENV ESPUP_VERSION=0.16.0
-ENV ESPTOOL_VERSION=5.2.0
-ENV ESPFLASH_VERSION=4.1.0
 
 # ---- System dependencies ----
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -28,12 +26,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     libusb-1.0-0-dev \
     libudev-dev \
-    python3 \
-    python3-pip \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- Install rustup first (espup requires it) ----
+# ---- Install rustup (espup requires it) ----
 ENV HOME=/root
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
 ENV PATH="/root/.cargo/bin:${PATH}"
@@ -58,18 +54,11 @@ RUN espup install --export-file /root/esp-env.sh
 SHELL ["/bin/bash", "-c"]
 ENV PATH="/root/.rustup/toolchains/esp/bin:${PATH}"
 
-# ---- Install espflash (pinned version) ----
-RUN source /root/esp-env.sh && \
-    cargo install espflash@${ESPFLASH_VERSION}
-
-# ---- Install esptool (pinned version) ----
-RUN pip3 install --break-system-packages esptool==${ESPTOOL_VERSION}
-
 # ---- Copy project source ----
 WORKDIR /build/KasSigner
 COPY . .
 
-# ---- Build firmware ----
+# ---- Build firmware (release mode) ----
 RUN source /root/esp-env.sh && \
     cd bootloader && \
     cargo build --release 2>&1 | tail -5
