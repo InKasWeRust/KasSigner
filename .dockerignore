@@ -1,0 +1,9 @@
+bootloader/target/
+.git/
+*.bin
+*.elf
+*.map
+*.pem
+*.key
+dev_signing_key.bin
+screenshots/
