@@ -15,11 +15,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # ---- Pinned versions ----
 ENV ESPUP_VERSION=0.16.0
+# Pin stable Rust to a specific version so rustup doesn't pull latest
+ENV RUST_STABLE_VERSION=1.84.0
 
-# ---- System dependencies ----
+# ---- System dependencies (pinned base image handles OS pinning) ----
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    git \
     gcc \
     g++ \
     pkg-config \
@@ -29,9 +30,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- Install rustup (espup requires it) ----
+# ---- Install rustup with a pinned stable toolchain ----
 ENV HOME=/root
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --default-toolchain ${RUST_STABLE_VERSION}
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 # ---- Detect architecture and install espup (pinned version) ----
@@ -48,6 +50,7 @@ RUN ARCH=$(uname -m) && \
     chmod +x /usr/local/bin/espup
 
 # ---- Install Xtensa Rust toolchain via espup ----
+# espup 0.16.0 installs Rust 1.92.0.0 (esp fork) + Xtensa LLVM
 RUN espup install --export-file /root/esp-env.sh
 
 # ---- Source the ESP environment for all subsequent commands ----
