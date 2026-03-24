@@ -1,0 +1,51 @@
+[package]
+name = "kassigner-bootloader"
+version = "1.0.0"
+edition = "2021"
+authors = ["KasSigner Team"]
+
+[features]
+default = []
+production = ["silent"]
+silent = []
+verbose-boot = []
+skip-tests = []
+screenshot = []
+icon-browser = []
+nvs-write = []
+test-psram = []
+cam-tune = []
+
+[dependencies]
+esp-hal = { version = "1.0", features = ["esp32s3", "unstable", "psram"] }
+esp-backtrace = { version = "0.15", features = ["esp32s3", "panic-handler", "println"] }
+esp-println = { version = "0.13", default-features = false, features = ["esp32s3", "uart"] }
+esp-alloc = "0.7"
+esp-bootloader-esp-idf = { version = "0.2", features = ["esp32s3"] }
+esp32s3 = { version = "0.30", features = ["rt"] }
+
+# Display — ST7789 instead of ILI9342C (mipidsi supports both)
+mipidsi = "0.9"
+embedded-hal-bus = "0.3"
+static_cell = "2.1"
+embedded-hal = "1.0"
+embedded-graphics = "0.8"
+tinybmp = "0.6"
+embedded-iconoir = { version = "0.2", default-features = false, features = ["24px"] }
+
+# Crypto
+sha2 = { version = "0.10", default-features = false }
+heapless = "0.8"
+k256 = { version = "0.13.4", default-features = false, features = ["arithmetic", "ecdsa"] }
+aes-gcm = { version = "0.10.3", default-features = false, features = ["aes"] }
+blake2 = { version = "0.10.6", default-features = false }
+
+[profile.dev]
+opt-level = "s"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = false
+overflow-checks = true

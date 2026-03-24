@@ -1,0 +1,17 @@
+[package]
+name = "firmware-tools"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "gen-hash"
+path = "gen_hash.rs"
+
+[[bin]]
+name = "gen-keypair"
+path = "gen_keypair.rs"
+
+[dependencies]
+sha2 = "0.10"
+k256 = { version = "0.13", features = ["arithmetic", "ecdsa"] }
+rand_core = { version = "0.6", features = ["getrandom"] }

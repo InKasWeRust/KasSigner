@@ -1,0 +1,36 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Signing keys — NEVER commit these
+dev_signing_key.bin
+keys/*.bin
+*.pem
+*.key
+
+# ESP build artifacts
+*.bin
+*.elf
+*.map
+
+# Generated files (rebuilt by build system)
+bootloader/src/firmware_hash.rs
+bootloader/src/logo_data.rs
+
+# Screenshots (dev feature)
+screenshots/
+
+# SD card test files
+*.KAS
+*.jpg.bak
