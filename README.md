@@ -26,23 +26,23 @@ KasSigner is an open-source signing device built on ESP32-S3. It generates priva
 - **KRC-20 token detection** — recognizes KRC-20 token transactions during review
 - **kpub/xprv export** — account-level public key export for watch-only wallets, encrypted xprv via SD
 
-## Steganographic Backup — The Key Innovation
+## Steganographic Backup — A beautiful way
 
 KasSigner's steganographic backup hides your seed inside an ordinary JPEG photograph. Three layers of protection make this fundamentally different from a plaintext backup:
 
 **Layer 1 — Steganography.** The encrypted seed is stored in JPEG EXIF metadata fields. The image looks completely ordinary. Nobody knows which file matters — not a safe, not a metal plate, just a photo among thousands.
 
-**Layer 2 — Encryption.** The seed is encrypted with AES-256-GCM using a passphrase you choose, stored as the EXIF ImageDescription (looks like a photo caption). Even with the file, an attacker needs your passphrase to decrypt.
+**Layer 2 — Encryption.** The seed is encrypted with AES-256-GCM using a password you choose, stored as the EXIF ImageDescription (looks like a photo caption). Even with the file, an attacker needs your password to decrypt.
 
 **Layer 3 — BIP39 passphrase (25th word).** Even if someone decrypts the 24 words, the real wallet lives behind a passphrase that exists only in your memory — never written, never stored. The decrypted seed without it leads to a decoy wallet with trivial funds.
 
-The passphrase (ImageDescription) is the key. The 25th word is the lock. Neither is stored on the device.
+The password (ImageDescription) is the key. The 25th word is the lock. Neither is stored on the device.
 
 See [docs/STEGANOGRAPHY.md](docs/STEGANOGRAPHY.md) for the complete steganographic backup system design.
 
 ## Wallet Slot Types
 
-KasSigner stores wallets in 4 RAM slots (never persisted to flash). Each slot can hold:
+KasSigner stores wallets in up to 16 RAM slots (never persisted to flash). Each slot can hold:
 
 **Mnemonic (12 or 24 words)** — full BIP39 seed. Can derive unlimited addresses, sign transactions, export kpub/xprv, generate BIP85 children, create SeedQR backups. This is the most capable slot type.
 
@@ -99,21 +99,6 @@ cargo run --features skip-tests
 cargo build --release
 ```
 
-### Signed production build
-
-KasSigner verifies firmware integrity at boot using a Schnorr signature. The build system iterates compilation until the embedded hash converges:
-
-```bash
-# Generate a signing keypair (ONE TIME — back up the private key!)
-cargo run --manifest-path tools/Cargo.toml --bin gen-keypair
-
-# Build with hash convergence + signing
-./tools/build_with_hash.sh --key dev_signing_key.bin
-
-# Production build (enables silent mode + strict verification)
-./tools/build_production.sh --key dev_signing_key.bin
-```
-
 ### Feature flags
 
 | Flag | Purpose |
@@ -123,7 +108,6 @@ cargo run --manifest-path tools/Cargo.toml --bin gen-keypair
 | `verbose-boot` | Extra boot diagnostics on UART |
 | `screenshot` | Enable screenshot capture to SD card |
 | `icon-browser` | Enable icon browser debug screen |
-| `cam-tune` | Camera tuning overlay |
 
 ## Project Structure
 
