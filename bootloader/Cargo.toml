@@ -14,7 +14,6 @@ screenshot = []
 icon-browser = []
 nvs-write = []
 test-psram = []
-cam-tune = []
 
 [dependencies]
 esp-hal = { version = "1.0", features = ["esp32s3", "unstable", "psram"] }
