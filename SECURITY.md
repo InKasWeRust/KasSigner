@@ -37,13 +37,13 @@ KasSigner's backup system uses three independent layers. An attacker must defeat
 - **Key extraction from device** — private keys are XOR-masked in RAM, never stored in flash, and zeroized after each signing operation.
 - **Supply chain attacks** — firmware integrity is verified at every boot via SHA-256 hash + Schnorr signature against a build-time embedded public key.
 - **Side-channel timing** — cryptographic comparisons use constant-time operations. Key material is XOR-masked to prevent pattern analysis.
-- **Casual physical access** — without the SD card backup file, the EXIF passphrase, AND the BIP39 25th word, accessing funds is infeasible.
+- **Casual physical access** — without the SD card backup file, the EXIF password, AND the BIP39 25th word, accessing funds is infeasible.
 
 ### What KasSigner does NOT protect against
 
 - **Lab-grade physical attacks** — an attacker with a JTAG probe, electron microscope, or voltage glitching equipment may extract secrets from the ESP32-S3. This is inherent to consumer microcontrollers.
 - **Compromised build environment** — if the Rust toolchain or dependencies are backdoored, the binary may contain exfiltration paths. Always build from source and verify dependencies.
-- **Social engineering** — if you reveal your seed, EXIF passphrase, or 25th word to an attacker, the device cannot protect you.
+- **Social engineering** — if you reveal your seed, EXIF password, or 25th word to an attacker, the device cannot protect you.
 - **Clipboard/screen capture on companion device** — the watch-only wallet on your phone/PC handles the unsigned PSKT. If that device is compromised, transaction details could be manipulated before QR encoding. Always verify amounts and addresses on the KasSigner screen before signing.
 
 ### Cryptographic primitives
