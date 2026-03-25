@@ -64,7 +64,7 @@ Every Kaspa wallet starts from a seed phrase. Each level below is derived via on
 
 ### Account Key (xprv)
 - The "useful" export level — contains everything needed to manage one account
-- Wallets like Kaspa-NG use this for import/export
+- Some cold wallets use this for import/export
 - Hardened path (all ' levels) means: even if someone gets a child private key + the parent public key, they still can't compute the parent private key
 - Multiple accounts (0', 1', 2') can exist under the same seed — each is an independent wallet
 
@@ -97,7 +97,7 @@ This is why an xprv (which includes chain_code) can derive unlimited addresses, 
 
 ## KasSigner Slot Types
 
-KasSigner stores wallets in 4 RAM slots. Each slot can hold one of three types:
+KasSigner stores wallets in up to 16 RAM slots. Each slot can hold one of three types:
 
 ### Mnemonic Slot (word_count = 12 or 24)
 Stores the BIP39 word indices. Has everything.
