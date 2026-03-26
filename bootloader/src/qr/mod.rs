@@ -14,7 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+// qr/mod.rs — QR code module (encoder + platform-gated decoder)
 // qr/ — QR code encoding and decoding
 
+#![allow(unused_imports)]
 pub mod encoder;
+
+#[cfg(feature = "waveshare")]
+#[path = "decoder_ws.rs"]
+pub mod decoder;
+
+#[cfg(feature = "m5stack")]
+#[path = "decoder_m5.rs"]
 pub mod decoder;

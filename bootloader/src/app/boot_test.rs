@@ -18,6 +18,7 @@
 //
 // QR encoder/decoder round-trip (V1-V6) and BIP85 test vector.
 
+#![allow(dead_code)]
 extern crate alloc;
 
 use crate::log;
@@ -323,3 +324,69 @@ pub fn run_phase1_tests(delay: &mut esp_hal::delay::Delay) {
     }
 }
 
+/// Signing pipeline self-test — M5Stack only (called at boot)
+#[cfg(feature = "m5stack")]
+pub fn test_signing_pipeline(ad: &mut crate::app::data::AppData) -> bool {
+    use crate::app::signing::{derive_all_pubkeys, sign_and_serialize_multi, derive_seed};
+    use crate::wallet;
+
+    log!("[SIGN-TEST] Starting signing pipeline test...");
+
+    let pp = ad.seed_mgr.active_slot()
+        .map(|s: &crate::ui::seed_manager::SeedSlot| s.passphrase_str())
+        .unwrap_or("");
+    let mut pubkey_cache = [[0u8; 32]; 20];
+    let mut acct_key_raw = [0u8; 65];
+    derive_all_pubkeys(&ad.mnemonic_indices, ad.word_count, pp, &mut pubkey_cache, &mut acct_key_raw);
+
+    let pk = pubkey_cache[0];
+    if pk == [0u8; 32] {
+        log!("[SIGN-TEST] FAIL: pubkey derivation returned zeros");
+        return false;
+    }
+    log!("[SIGN-TEST] Derived pubkey[0]: {:02x}{:02x}{:02x}{:02x}...",
+        pk[0], pk[1], pk[2], pk[3]);
+
+    let mut tx = wallet::transaction::Transaction::new();
+    tx.version = 0;
+    tx.num_inputs = 1;
+    tx.num_outputs = 1;
+
+    tx.inputs[0].previous_outpoint.transaction_id = [0xDE; 32];
+    tx.inputs[0].previous_outpoint.index = 0;
+    tx.inputs[0].utxo_entry.amount = 100_000_000;
+    tx.inputs[0].sequence = u64::MAX;
+    tx.inputs[0].sig_op_count = 1;
+
+    tx.inputs[0].utxo_entry.script_public_key.version = 0;
+    tx.inputs[0].utxo_entry.script_public_key.script[0] = 0x20;
+    tx.inputs[0].utxo_entry.script_public_key.script[1..33].copy_from_slice(&pk);
+    tx.inputs[0].utxo_entry.script_public_key.script[33] = 0xAC;
+    tx.inputs[0].utxo_entry.script_public_key.script_len = 34;
+
+    tx.outputs[0].value = 99_000_000;
+    tx.outputs[0].script_public_key.version = 0;
+    tx.outputs[0].script_public_key.script[0] = 0x20;
+    tx.outputs[0].script_public_key.script[1..33].copy_from_slice(&pk);
+    tx.outputs[0].script_public_key.script[33] = 0xAC;
+    tx.outputs[0].script_public_key.script_len = 34;
+
+    let seed = derive_seed(&ad.mnemonic_indices, ad.word_count, pp);
+    let mut signed_buf = [0u8; 1024];
+    let signed_len = sign_and_serialize_multi(&mut tx, &seed.bytes, &mut signed_buf);
+
+    log!("[SIGN-TEST] Signed response: {} bytes", signed_len);
+    if signed_len == 0 {
+        log!("[SIGN-TEST] FAIL: signing produced 0 bytes");
+        return false;
+    }
+
+    if tx.inputs[0].sig_len > 0 {
+        log!("[SIGN-TEST] OK — signature {} bytes, response {} bytes",
+            tx.inputs[0].sig_len, signed_len);
+        true
+    } else {
+        log!("[SIGN-TEST] FAIL: no signature on input[0]");
+        false
+    }
+}

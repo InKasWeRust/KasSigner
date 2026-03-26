@@ -14,19 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-// hw/display.rs — ST7789T3 display driver for Waveshare ESP32-S3-Touch-LCD-2
-// Ported from ILI9342C (CoreS3). Same resolution (320×240), same color depth.
-//
-// Key differences from CoreS3:
-//   - Driver chip: ILI9342C → ST7789T3 (mipidsi supports both)
-//   - Backlight: AXP2101 DLDO1 → direct GPIO1 via transistor
-//   - Reset: AW9523B IO expander → direct GPIO0
-//   - Orientation: may differ (ST7789 native is 240×320 portrait)
-//   - Color order: may be RGB instead of BGR
-//
-// The display API (BootDisplay) remains identical — all UI code works unchanged.
 
+// hw/display.rs — ILI9342C display driver, BootDisplay struct, core draw primitives
 
+#![allow(dead_code)]
 use esp_hal::delay::Delay;
 use esp_hal::spi::master::Spi;
 use esp_hal::gpio::Output;
@@ -35,7 +26,7 @@ use embedded_hal_bus::spi::ExclusiveDevice;
 use mipidsi::{
     Builder,
     interface::SpiInterface,
-    models::ST7789,
+    models::ILI9342CRgb565,
     options::{Orientation, Rotation},
 };
 use embedded_graphics::{
@@ -50,32 +41,61 @@ use embedded_iconoir::prelude::*;
 use embedded_iconoir::icons::size24px;
 
 // ═══════════════════════════════════════════════════════════════
-// Display Constants (unchanged — same resolution)
+// Display Constants
+
+/// AXP2101 PMU I2C address
+/// AW9523B IO Expander I2C address
+
+// ═══════════════════════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════
 
+/// Voltage = 500mV + (value * 100mV), so 0x1C = 500 + 28*100 = 3300mV
+/// Bit 7 = DLDO1 enable
+
+// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════════════
+// Display Constants
+// ═══════════════════════════════════════════════════════════════
+
+/// Display width in pixels
 pub const DISPLAY_W: u32 = 320;
+/// Display height in pixels
 pub const DISPLAY_H: u32 = 240;
 
-// KasSigner color palette — identical to CoreS3 version
-pub(crate) const KASPA_TEAL: Rgb565 = Rgb565::new(0b01110, 0b110001, 0b10111);
-pub(crate) const KASPA_ACCENT: Rgb565 = Rgb565::new(0b01001, 0b111010, 0b11001);
-pub(crate) const COLOR_BG: Rgb565 = Rgb565::BLACK;
-pub(crate) const COLOR_CARD: Rgb565 = Rgb565::new(0b00001, 0b000010, 0b00001);
-pub(crate) const COLOR_CARD_BORDER: Rgb565 = Rgb565::new(0b01010, 0b010100, 0b01010);
-pub(crate) const COLOR_TEXT: Rgb565 = Rgb565::new(0b11111, 0b111111, 0b11111);
-pub(crate) const COLOR_TEXT_DIM: Rgb565 = Rgb565::new(0b10110, 0b101101, 0b10110);
-pub(crate) const COLOR_DANGER: Rgb565 = Rgb565::new(0b11100, 0b001000, 0b00010);
-pub(crate) const COLOR_ORANGE: Rgb565 = Rgb565::new(0b11111, 0b100011, 0b00000);
-pub(crate) const COLOR_GREEN_BTN: Rgb565 = Rgb565::new(0b00000, 0b101000, 0b00000);
-pub(crate) const COLOR_RED_BTN: Rgb565 = Rgb565::new(0b01100, 0b000000, 0b00000);
-pub(crate) const COLOR_ERR_TEXT: Rgb565 = Rgb565::new(0b11111, 0b000000, 0b00000);
-pub(crate) const COLOR_HINT: Rgb565 = Rgb565::new(0b01100, 0b011000, 0b01100);
+// KasSigner color palette (Kaspa brand: ~#49EACB)
+// Display uses Bgr color order (handled by mipidsi driver)
+// ── Official Kaspa Brand Colors ──────────────────────────────
+// Primary:   #70C7BA  RGB(112,199,186) — main teal
+// Dark:      #231F20  RGB(35,31,32)    — near-black
+// Gray:      #B6B6B6  RGB(182,182,182) — secondary text
+// Accent:    #49EACB  RGB(73,234,203)  — bright teal highlights
+// ─────────────────────────────────────────────────────────────
+pub(crate) const KASPA_TEAL: Rgb565 = Rgb565::new(0b01110, 0b110001, 0b10111);   // #70C7BA — primary brand teal
+pub(crate) const KASPA_ACCENT: Rgb565 = Rgb565::new(0b01001, 0b111010, 0b11001); // #49EACB — bright accent teal
+pub(crate) const COLOR_BG: Rgb565 = Rgb565::BLACK;                                        // pure black — cleanest on LCD
+pub(crate) const COLOR_CARD: Rgb565 = Rgb565::new(0b00001, 0b000010, 0b00001);   // #080808 — neutral near-black
+pub(crate) const COLOR_CARD_BORDER: Rgb565 = Rgb565::new(0b01010, 0b010100, 0b01010); // #505050 — subtle border
+pub(crate) const COLOR_TEXT: Rgb565 = Rgb565::new(0b11111, 0b111111, 0b11111);    // #FFFFFF — white
+pub(crate) const COLOR_TEXT_DIM: Rgb565 = Rgb565::new(0b10110, 0b101101, 0b10110); // #B6B6B6 — official gray
+pub(crate) const COLOR_DANGER: Rgb565 = Rgb565::new(0b11100, 0b001000, 0b00010);  // red
+pub(crate) const COLOR_ORANGE: Rgb565 = Rgb565::new(0b11111, 0b100011, 0b00000);  // orange
+// Button colors
+pub(crate) const COLOR_GREEN_BTN: Rgb565 = Rgb565::new(0b00000, 0b101000, 0b00000); // dark green
+pub(crate) const COLOR_RED_BTN: Rgb565 = Rgb565::new(0b01100, 0b000000, 0b00000); // dark red
+#[allow(dead_code)]
+pub(crate) const COLOR_ERR_TEXT: Rgb565 = Rgb565::new(0b11111, 0b000000, 0b00000); // bright red
+pub(crate) const COLOR_HINT: Rgb565 = Rgb565::new(0b01100, 0b011000, 0b01100); // dim gray for hints
 
+// Static SPI buffer — mipidsi needs a buffer for batched writes
 static SPI_BUF: StaticCell<[u8; 512]> = StaticCell::new();
 
-// ── Lato proportional font helpers (unchanged) ──────────────────
+// ── Lato proportional font helpers ──────────────────────────────
 use crate::ui::prop_fonts;
 
+/// Draw text using Lato Bold 18px (titles)
 pub(crate) fn draw_lato_title<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &str, x: i32, y: i32, color: Rgb565) -> i32 {
     prop_fonts::draw_prop_text(d, text, x, y, color,
         &prop_fonts::LATO_BOLD_18_WIDTHS, &prop_fonts::LATO_BOLD_18_OFFSETS,
@@ -83,6 +103,7 @@ pub(crate) fn draw_lato_title<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &s
         prop_fonts::LATO_BOLD_18_ASCENT, prop_fonts::LATO_BOLD_18_FIRST, prop_fonts::LATO_BOLD_18_LAST)
 }
 
+/// Draw text using Lato Regular 15px (body)
 pub(crate) fn draw_lato_body<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &str, x: i32, y: i32, color: Rgb565) -> i32 {
     prop_fonts::draw_prop_text(d, text, x, y, color,
         &prop_fonts::LATO_15_WIDTHS, &prop_fonts::LATO_15_OFFSETS,
@@ -90,6 +111,7 @@ pub(crate) fn draw_lato_body<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &st
         prop_fonts::LATO_15_ASCENT, prop_fonts::LATO_15_FIRST, prop_fonts::LATO_15_LAST)
 }
 
+/// Draw text using Lato Regular 18px (input fields)
 pub(crate) fn draw_lato_18<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &str, x: i32, y: i32, color: Rgb565) -> i32 {
     prop_fonts::draw_prop_text(d, text, x, y, color,
         &prop_fonts::LATO_18_WIDTHS, &prop_fonts::LATO_18_OFFSETS,
@@ -97,6 +119,7 @@ pub(crate) fn draw_lato_18<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &str,
         prop_fonts::LATO_18_ASCENT, prop_fonts::LATO_18_FIRST, prop_fonts::LATO_18_LAST)
 }
 
+/// Draw text using DejaVu Sans Regular ~22px (keyboard input text — clean, non-bold)
 pub(crate) fn draw_lato_22<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &str, x: i32, y: i32, color: Rgb565) -> i32 {
     prop_fonts::draw_prop_text(d, text, x, y, color,
         &prop_fonts::LATO_22_WIDTHS, &prop_fonts::LATO_22_OFFSETS,
@@ -104,6 +127,7 @@ pub(crate) fn draw_lato_22<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &str,
         prop_fonts::LATO_22_ASCENT, prop_fonts::LATO_22_FIRST, prop_fonts::LATO_22_LAST)
 }
 
+/// Draw text using Lato Regular 12px (hints)
 pub(crate) fn draw_lato_hint<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &str, x: i32, y: i32, color: Rgb565) -> i32 {
     prop_fonts::draw_prop_text(d, text, x, y, color,
         &prop_fonts::LATO_12_WIDTHS, &prop_fonts::LATO_12_OFFSETS,
@@ -111,6 +135,7 @@ pub(crate) fn draw_lato_hint<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &st
         prop_fonts::LATO_12_ASCENT, prop_fonts::LATO_12_FIRST, prop_fonts::LATO_12_LAST)
 }
 
+/// Draw text using Rubik Bold 22px (headers)
 pub(crate) fn draw_oswald_header<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &str, x: i32, y: i32, color: Rgb565) -> i32 {
     prop_fonts::draw_prop_text(d, text, x, y, color,
         &prop_fonts::OSWALD_BOLD_22_WIDTHS, &prop_fonts::OSWALD_BOLD_22_OFFSETS,
@@ -118,6 +143,7 @@ pub(crate) fn draw_oswald_header<D: DrawTarget<Color = Rgb565>>(d: &mut D, text:
         prop_fonts::OSWALD_BOLD_22_ASCENT, prop_fonts::OSWALD_BOLD_22_FIRST, prop_fonts::OSWALD_BOLD_22_LAST)
 }
 
+/// Draw text using Rubik Bold 26px (brand/logo ONLY)
 pub(crate) fn draw_rubik_big<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &str, x: i32, y: i32, color: Rgb565) -> i32 {
     prop_fonts::draw_prop_text(d, text, x, y, color,
         &prop_fonts::RUBIK_BOLD_26_WIDTHS, &prop_fonts::RUBIK_BOLD_26_OFFSETS,
@@ -125,6 +151,7 @@ pub(crate) fn draw_rubik_big<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &st
         prop_fonts::RUBIK_BOLD_26_ASCENT, prop_fonts::RUBIK_BOLD_26_FIRST, prop_fonts::RUBIK_BOLD_26_LAST)
 }
 
+/// Draw text using Oswald SemiBold 16px (sub-headers)
 pub(crate) fn draw_oswald_sub<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &str, x: i32, y: i32, color: Rgb565) -> i32 {
     prop_fonts::draw_prop_text(d, text, x, y, color,
         &prop_fonts::OSWALD_SB_16_WIDTHS, &prop_fonts::OSWALD_SB_16_OFFSETS,
@@ -132,42 +159,61 @@ pub(crate) fn draw_oswald_sub<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &s
         prop_fonts::OSWALD_SB_16_ASCENT, prop_fonts::OSWALD_SB_16_FIRST, prop_fonts::OSWALD_SB_16_LAST)
 }
 
+/// Measure title text width
 pub(crate) fn measure_title(text: &str) -> i32 {
     prop_fonts::measure_prop_text(text, &prop_fonts::LATO_BOLD_18_WIDTHS,
         prop_fonts::LATO_BOLD_18_FIRST, prop_fonts::LATO_BOLD_18_LAST, prop_fonts::LATO_BOLD_18_HEIGHT)
 }
+
+/// Measure body text width
 pub(crate) fn measure_body(text: &str) -> i32 {
     prop_fonts::measure_prop_text(text, &prop_fonts::LATO_15_WIDTHS,
         prop_fonts::LATO_15_FIRST, prop_fonts::LATO_15_LAST, prop_fonts::LATO_15_HEIGHT)
 }
+
+/// Measure Lato Regular 18px text width
+#[allow(dead_code)]
 pub(crate) fn measure_18(text: &str) -> i32 {
     prop_fonts::measure_prop_text(text, &prop_fonts::LATO_18_WIDTHS,
         prop_fonts::LATO_18_FIRST, prop_fonts::LATO_18_LAST, prop_fonts::LATO_18_HEIGHT)
 }
+
+/// Measure DejaVu Sans 22px width
 pub(crate) fn measure_22(text: &str) -> i32 {
     prop_fonts::measure_prop_text(text, &prop_fonts::LATO_22_WIDTHS,
         prop_fonts::LATO_22_FIRST, prop_fonts::LATO_22_LAST, prop_fonts::LATO_22_HEIGHT)
 }
+
+/// Measure Rubik header width
 pub(crate) fn measure_header(text: &str) -> i32 {
     prop_fonts::measure_prop_text(text, &prop_fonts::OSWALD_BOLD_22_WIDTHS,
         prop_fonts::OSWALD_BOLD_22_FIRST, prop_fonts::OSWALD_BOLD_22_LAST, prop_fonts::OSWALD_BOLD_22_HEIGHT)
 }
+
+/// Measure Rubik big width (brand/logo)
 pub(crate) fn measure_big(text: &str) -> i32 {
     prop_fonts::measure_prop_text(text, &prop_fonts::RUBIK_BOLD_26_WIDTHS,
         prop_fonts::RUBIK_BOLD_26_FIRST, prop_fonts::RUBIK_BOLD_26_LAST, prop_fonts::RUBIK_BOLD_26_HEIGHT)
 }
+
+/// Measure Oswald sub-header width
 pub(crate) fn measure_sub(text: &str) -> i32 {
     prop_fonts::measure_prop_text(text, &prop_fonts::OSWALD_SB_16_WIDTHS,
         prop_fonts::OSWALD_SB_16_FIRST, prop_fonts::OSWALD_SB_16_LAST, prop_fonts::OSWALD_SB_16_HEIGHT)
 }
+
+/// Measure hint text width
 pub(crate) fn measure_hint(text: &str) -> i32 {
     prop_fonts::measure_prop_text(text, &prop_fonts::LATO_12_WIDTHS,
         prop_fonts::LATO_12_FIRST, prop_fonts::LATO_12_LAST, prop_fonts::LATO_12_HEIGHT)
 }
 
-// Menu icon drawing (unchanged)
+/// Draw a 24×24 Iconoir icon matching a menu label.
+/// Matches on first few chars of the label to select an icon.
+/// Falls back to a generic circle if no match.
 pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &str, pos: Point) {
     let color = KASPA_TEAL;
+    // Match by label prefix to pick the right icon
     macro_rules! draw_icon {
         ($icon_type:ty) => {{
             let icon = <$icon_type>::new(color);
@@ -175,6 +221,7 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
         }};
     }
     match label {
+        // Tools menu
         s if s.starts_with("New Seed") && !s.contains("Dice") => draw_icon!(size24px::photos_and_videos::Camera),
         s if s.starts_with("Dice")        => {
             // Custom dice-five: teal filled square with black dots
@@ -204,6 +251,7 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
         s if s.starts_with("Stego Imp")   => draw_icon!(size24px::actions::EyeOff),
         s if s.starts_with("Sign TX")     => draw_icon!(size24px::editor::EditPencil),
         s if s.starts_with("Sign Mess")   => draw_icon!(size24px::editor::EditPencil),
+        // Export menu
         s if s.starts_with("Show Seed")   => draw_icon!(size24px::actions::OpenNewWindow),
         s if s.starts_with("CompactSeed") => draw_icon!(size24px::other::QrCode),
         s if s.starts_with("Standard Seed")=> draw_icon!(size24px::other::QrCode),
@@ -214,9 +262,12 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
         s if s.starts_with("Seed Backup") => draw_icon!(size24px::actions::Upload),
         s if s.starts_with("XPrv Backup") => draw_icon!(size24px::actions::UploadSquare),
         s if s.starts_with("JPEG Stego")  => draw_icon!(size24px::actions::EyeOff),
+        // Settings menu
         s if s.starts_with("Display")     => draw_icon!(size24px::devices::Laptop),
+        s if s.starts_with("Audio")       => draw_icon!(size24px::audio::SoundHigh),
         s if s.starts_with("SD Card")     => draw_icon!(size24px::devices::SaveFloppyDisk),
         s if s.starts_with("About")       => draw_icon!(size24px::actions::HelpCircle),
+        // Fallback — small teal circle
         _ => {
             Circle::new(pos + Point::new(4, 4), 16)
                 .into_styled(PrimitiveStyle::with_stroke(color, 1))
@@ -225,17 +276,23 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
     }
 }
 
+/// Assess password strength for descriptor text.
+/// Returns 0=weak, 1=fair, 2=strong.
 pub(crate) fn password_strength(text: &str) -> u8 {
     let len = text.len();
     if len < 8 { return 0; }
+
     let bytes = text.as_bytes();
     let has_upper = bytes.iter().any(|b| *b >= b'A' && *b <= b'Z');
     let has_lower = bytes.iter().any(|b| *b >= b'a' && *b <= b'z');
     let has_digit = bytes.iter().any(|b| *b >= b'0' && *b <= b'9');
     let has_space = bytes.iter().any(|b| *b == b' ');
     let variety = has_upper as u8 + has_lower as u8 + has_digit as u8 + has_space as u8;
+
+    // All same character?
     let all_same = bytes.iter().all(|b| *b == bytes[0]);
     if all_same { return 0; }
+
     if len >= 16 && variety >= 2 { return 2; }
     if len >= 12 { return if variety >= 2 { 2 } else { 1 }; }
     if variety >= 2 { return 1; }
@@ -243,27 +300,36 @@ pub(crate) fn password_strength(text: &str) -> u8 {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Display type alias — ST7789 instead of ILI9342C
+// PMU & IO Expander Init (raw I2C)
 // ═══════════════════════════════════════════════════════════════
 
+/// Initialize AXP2101 PMU — enable power rails for CoreS3
+// ═══════════════════════════════════════════════════════════════
+// Display type alias
+// ═══════════════════════════════════════════════════════════════
+
+/// Full display type for M5Stack CoreS3 ILI9342C
 pub(crate) type Ili9342Display<'a> = mipidsi::Display<
     SpiInterface<
         'a,
         ExclusiveDevice<Spi<'a, esp_hal::Blocking>, Output<'a>, embedded_hal_bus::spi::NoDelay>,
         Output<'a>,
     >,
-    ST7789,
+    ILI9342CRgb565,
     Output<'a>,
 >;
 
 // ═══════════════════════════════════════════════════════════════
-// TeeDisplay (screenshot feature — unchanged)
+// TeeDisplay — writes to both real display and screenshot buffer
 // ═══════════════════════════════════════════════════════════════
 
+/// When the `screenshot` feature is enabled, TeeDisplay wraps the real display
+/// and simultaneously copies all pixel writes to a PSRAM shadow buffer.
+/// When disabled, BootDisplayTarget is just the raw Ili9342Display (zero overhead).
 #[cfg(feature = "screenshot")]
 pub struct TeeDisplay<'a> {
     pub(crate) real: Ili9342Display<'a>,
-    pub(crate) shadow: *mut u8,
+    pub(crate) shadow: *mut u8,  // PSRAM buffer (320*240*2 bytes), null if not active
     pub(crate) shadow_active: bool,
 }
 
@@ -272,6 +338,8 @@ impl<'a> TeeDisplay<'a> {
     pub fn new(real: Ili9342Display<'a>) -> Self {
         Self { real, shadow: core::ptr::null_mut(), shadow_active: false }
     }
+
+    /// Enable shadow capture (call after PSRAM is ready)
     pub fn enable_shadow(&mut self) {
         if let Some(fb) = super::screenshot::fb_slice() {
             self.shadow = fb.as_mut_ptr();
@@ -286,66 +354,107 @@ impl<'a> embedded_graphics::prelude::DrawTarget for TeeDisplay<'a> {
     type Error = <Ili9342Display<'a> as embedded_graphics::prelude::DrawTarget>::Error;
 
     fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
-    where I: IntoIterator<Item = embedded_graphics::prelude::Pixel<Self::Color>> {
+    where
+        I: IntoIterator<Item = embedded_graphics::prelude::Pixel<Self::Color>>,
+    {
         use embedded_graphics::pixelcolor::raw::RawU16;
+
         if self.shadow_active && !self.shadow.is_null() {
             let px_vec: alloc::vec::Vec<embedded_graphics::prelude::Pixel<Rgb565>> =
                 pixels.into_iter().collect();
+
             for &embedded_graphics::prelude::Pixel(point, color) in &px_vec {
-                let x = point.x; let y = point.y;
+                let x = point.x;
+                let y = point.y;
                 if x >= 0 && x < 320 && y >= 0 && y < 240 {
                     let idx = ((y as usize) * 320 + (x as usize)) * 2;
                     let raw = RawU16::from(color).into_inner();
-                    unsafe { *self.shadow.add(idx) = (raw >> 8) as u8; *self.shadow.add(idx + 1) = (raw & 0xFF) as u8; }
+                    unsafe {
+                        *self.shadow.add(idx) = (raw >> 8) as u8;
+                        *self.shadow.add(idx + 1) = (raw & 0xFF) as u8;
+                    }
                 }
             }
+
             self.real.draw_iter(px_vec.into_iter())
-        } else { self.real.draw_iter(pixels) }
+        } else {
+            self.real.draw_iter(pixels)
+        }
     }
 
     fn fill_contiguous<I>(&mut self, area: &embedded_graphics::primitives::Rectangle, colors: I) -> Result<(), Self::Error>
-    where I: IntoIterator<Item = Self::Color> {
+    where
+        I: IntoIterator<Item = Self::Color>,
+    {
         use embedded_graphics::pixelcolor::raw::RawU16;
+
         if self.shadow_active && !self.shadow.is_null() {
             let color_vec: alloc::vec::Vec<Rgb565> = colors.into_iter().collect();
-            let mut px = area.top_left.x; let mut py = area.top_left.y;
+
+            // Write to shadow
+            let mut px = area.top_left.x;
+            let mut py = area.top_left.y;
             let x_end = area.top_left.x + area.size.width as i32;
             for &color in &color_vec {
                 if px >= 0 && px < 320 && py >= 0 && py < 240 {
                     let idx = ((py as usize) * 320 + (px as usize)) * 2;
                     let raw = RawU16::from(color).into_inner();
-                    unsafe { *self.shadow.add(idx) = (raw >> 8) as u8; *self.shadow.add(idx + 1) = (raw & 0xFF) as u8; }
+                    unsafe {
+                        *self.shadow.add(idx) = (raw >> 8) as u8;
+                        *self.shadow.add(idx + 1) = (raw & 0xFF) as u8;
+                    }
                 }
                 px += 1;
-                if px >= x_end { px = area.top_left.x; py += 1; }
+                if px >= x_end {
+                    px = area.top_left.x;
+                    py += 1;
+                }
             }
+
             self.real.fill_contiguous(area, color_vec.into_iter())
-        } else { self.real.fill_contiguous(area, colors) }
+        } else {
+            self.real.fill_contiguous(area, colors)
+        }
     }
 
-    fn fill_solid(&mut self, area: &embedded_graphics::primitives::Rectangle, color: Self::Color) -> Result<(), Self::Error> {
+    fn fill_solid(&mut self, area: &embedded_graphics::primitives::Rectangle, color: Self::Color) -> Result<(), Self::Error>
+    {
         use embedded_graphics::pixelcolor::raw::RawU16;
+
         if self.shadow_active && !self.shadow.is_null() {
             let raw = RawU16::from(color).into_inner();
-            let hi = (raw >> 8) as u8; let lo = (raw & 0xFF) as u8;
-            let x_start = area.top_left.x.max(0) as usize; let y_start = area.top_left.y.max(0) as usize;
+            let hi = (raw >> 8) as u8;
+            let lo = (raw & 0xFF) as u8;
+            let x_start = area.top_left.x.max(0) as usize;
+            let y_start = area.top_left.y.max(0) as usize;
             let x_end = (area.top_left.x + area.size.width as i32).min(320) as usize;
             let y_end = (area.top_left.y + area.size.height as i32).min(240) as usize;
-            for py in y_start..y_end { for px in x_start..x_end {
-                let idx = (py * 320 + px) * 2;
-                unsafe { *self.shadow.add(idx) = hi; *self.shadow.add(idx + 1) = lo; }
-            }}
+            for py in y_start..y_end {
+                for px in x_start..x_end {
+                    let idx = (py * 320 + px) * 2;
+                    unsafe {
+                        *self.shadow.add(idx) = hi;
+                        *self.shadow.add(idx + 1) = lo;
+                    }
+                }
+            }
         }
         self.real.fill_solid(area, color)
     }
 
-    fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
+    fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error>
+    {
         use embedded_graphics::pixelcolor::raw::RawU16;
+
         if self.shadow_active && !self.shadow.is_null() {
             let raw = RawU16::from(color).into_inner();
-            let hi = (raw >> 8) as u8; let lo = (raw & 0xFF) as u8;
+            let hi = (raw >> 8) as u8;
+            let lo = (raw & 0xFF) as u8;
             let fb = unsafe { core::slice::from_raw_parts_mut(self.shadow, 320 * 240 * 2) };
-            for i in (0..fb.len()).step_by(2) { fb[i] = hi; fb[i + 1] = lo; }
+            for i in (0..fb.len()).step_by(2) {
+                fb[i] = hi;
+                fb[i + 1] = lo;
+            }
         }
         self.real.clear(color)
     }
@@ -353,25 +462,29 @@ impl<'a> embedded_graphics::prelude::DrawTarget for TeeDisplay<'a> {
 
 #[cfg(feature = "screenshot")]
 impl<'a> embedded_graphics::prelude::OriginDimensions for TeeDisplay<'a> {
-    fn size(&self) -> embedded_graphics::prelude::Size { self.real.size() }
+    fn size(&self) -> embedded_graphics::prelude::Size {
+        self.real.size()
+    }
 }
 
+/// The type used as the display field in BootDisplay.
 #[cfg(feature = "screenshot")]
 pub(crate) type BootDisplayTarget<'a> = TeeDisplay<'a>;
 #[cfg(not(feature = "screenshot"))]
 pub(crate) type BootDisplayTarget<'a> = Ili9342Display<'a>;
 
 // ═══════════════════════════════════════════════════════════════
-// BootDisplay wrapper — ST7789T3 version
+// BootDisplay wrapper
 // ═══════════════════════════════════════════════════════════════
 
+/// BootDisplay for M5Stack CoreS3 — 320x240 IPS color LCD
 pub struct BootDisplay<'a> {
     pub(crate) display: BootDisplayTarget<'a>,
 }
 
 impl<'a> BootDisplay<'a> {
-    /// Create ST7789T3 display from SPI and GPIO pins.
-    /// No PMU init needed — backlight is controlled via separate GPIO.
+    /// Create display from already-initialized SPI and GPIO pins.
+    /// IMPORTANT: Call init_axp2101() and init_aw9523b() BEFORE this!
     pub fn new(
         spi: Spi<'a, esp_hal::Blocking>,
         cs_pin: Output<'a>,
@@ -386,16 +499,17 @@ impl<'a> BootDisplay<'a> {
 
         let spi_iface = SpiInterface::new(spi_dev, dc_pin, buffer);
 
-        // ST7789T3 on Waveshare — 240×320 native, rotated to 320×240 landscape
-        let orientation = Orientation::default().rotate(Rotation::Deg90);
-        let mut display = Builder::new(ST7789, spi_iface)
+        let mut display = Builder::new(ILI9342CRgb565, spi_iface)
             .reset_pin(reset_pin)
-            .color_order(mipidsi::options::ColorOrder::Rgb)
+            .color_order(mipidsi::options::ColorOrder::Bgr)
             .invert_colors(mipidsi::options::ColorInversion::Inverted)
-            .display_size(240, 320)
-            .orientation(orientation)
             .init(delay)
-            .map_err(|_| "Failed to init ST7789T3")?;
+            .map_err(|_| "Failed to init ILI9342C")?;
+
+        // Orientation: CoreS3 display is mounted landscape by default
+        display
+            .set_orientation(Orientation::default().rotate(Rotation::Deg180))
+            .map_err(|_| "Failed to set orientation")?;
 
         display
             .clear(COLOR_BG)
@@ -413,30 +527,40 @@ impl<'a> BootDisplay<'a> {
         Ok(Self { display })
     }
 
-    // ─── Boot sequence screens (identical to CoreS3) ────────────
+    // ─── Boot sequence screens ──────────────────────────────────
 
+    /// Show verification screen with version, hash, and status
     pub fn show_verification_screen(
-        &mut self, version: &str, hash: &str, status: BootStatus,
+        &mut self,
+        version: &str,
+        hash: &str,
+        status: BootStatus,
     ) -> Result<(), &'static str> {
         use embedded_graphics::image::{Image, ImageRawLE};
+
         self.display.clear(COLOR_BG).map_err(|_| "Clear failed")?;
 
+        // Kaspa coin logo 90x90, centered horizontally, top portion
         static KASCOIN: &[u8] = include_bytes!("../../assets/kascoin_90.raw");
         let raw_coin: ImageRawLE<Rgb565> = ImageRawLE::new(KASCOIN, 90);
-        Image::new(&raw_coin, Point::new(115, 10)).draw(&mut self.display).ok();
+        Image::new(&raw_coin, Point::new(115, 10))
+            .draw(&mut self.display).ok();
 
+        // Version — Lato Bold 18px, centered below coin
         let mut version_text = heapless::String::<48>::new();
         use core::fmt::Write;
         write!(&mut version_text, "Version: {}", version).ok();
         let vw = measure_title(version_text.as_str());
-        draw_lato_title(&mut self.display, version_text.as_str(), (320 - vw) / 2, 135, COLOR_TEXT);
+        draw_lato_title(&mut self.display, version_text.as_str(), (320 - vw) / 2, 125, COLOR_TEXT);
 
+        // Hash — Lato Regular 15px, centered
         let mut hash_text = heapless::String::<48>::new();
         let hash_display = &hash[..core::cmp::min(16, hash.len())];
         write!(&mut hash_text, "Hash: {}", hash_display).ok();
         let hw = measure_body(hash_text.as_str());
-        draw_lato_body(&mut self.display, hash_text.as_str(), (320 - hw) / 2, 165, COLOR_TEXT_DIM);
+        draw_lato_body(&mut self.display, hash_text.as_str(), (320 - hw) / 2, 155, COLOR_TEXT_DIM);
 
+        // Status — Lato Bold 18px, centered, colored
         let status_text = match status {
             BootStatus::Verifying => "Verifying...",
             BootStatus::Valid => "Verified OK",
@@ -450,49 +574,65 @@ impl<'a> BootDisplay<'a> {
         };
         let sw = measure_title(status_text);
         draw_lato_title(&mut self.display, status_text, (320 - sw) / 2, 215, status_color);
+
         Ok(())
     }
 
+    /// Show logo screen with BMP logo and firmware version
     pub fn show_logo_screen(&mut self) -> Result<(), &'static str> {
         use embedded_graphics::image::{Image, ImageRawLE};
+
         self.display.clear(COLOR_BG).map_err(|_| "Clear failed")?;
 
         static LOGO_DATA: &[u8] = include_bytes!("../../assets/logo_320x240.raw");
         let raw_img: ImageRawLE<Rgb565> = ImageRawLE::new(LOGO_DATA, 320);
-        Image::new(&raw_img, Point::zero()).draw(&mut self.display).ok();
+        Image::new(&raw_img, Point::new(0, -20))
+            .draw(&mut self.display).ok();
 
         let vw = measure_title("v1.0.0");
-        draw_lato_title(&mut self.display, "v1.0.0", (320 - vw) / 2, 160, COLOR_TEXT);
+        draw_lato_title(&mut self.display, "v1.0.0", (320 - vw) / 2, 122, COLOR_TEXT);
 
-        let sw = measure_body("Secure Hardware Wallet for Kaspa");
-        draw_lato_body(&mut self.display, "Secure Hardware Wallet for Kaspa", (320 - sw) / 2, 190, COLOR_TEXT_DIM);
+        let s1 = "Secure Hardware Wallet for Kaspa";
+        draw_lato_body(&mut self.display, s1, (320 - measure_body(s1)) / 2, 146, COLOR_TEXT_DIM);
 
-        let tl = "100% Rust | Air-Gapped | ESP32-S3";
-        let tlw = measure_body(tl);
-        draw_lato_body(&mut self.display, tl, (320 - tlw) / 2, 216, COLOR_TEXT_DIM);
+        let s2 = "100% Rust | Air-Gapped | no_std";
+        draw_lato_body(&mut self.display, s2, (320 - measure_body(s2)) / 2, 166, COLOR_TEXT_DIM);
+
+        let s3 = "M5Stack CoreS3 Lite";
+        draw_lato_hint(&mut self.display, s3, (320 - measure_hint(s3)) / 2, 186, COLOR_TEXT_DIM);
+
+        let s4 = "kaspa.org";
+        draw_lato_hint(&mut self.display, s4, (320 - measure_hint(s4)) / 2, 206, KASPA_TEAL);
+
         Ok(())
     }
-
-    #[allow(dead_code)]
-    pub fn show_boot_screen(&mut self, version: &str, hash: &str, status: BootStatus) -> Result<(), &'static str> {
-        self.show_verification_screen(version, hash, status)
-    }
-
+    /// Show panic/error screen
     pub fn show_panic_screen(&mut self, message: &str) -> Result<(), &'static str> {
         self.display.clear(COLOR_DANGER).map_err(|_| "Clear failed")?;
+
         let pw = measure_header("!!! PANIC !!!");
         draw_oswald_header(&mut self.display, "!!! PANIC !!!", (320 - pw) / 2, 60, COLOR_TEXT);
+
         let truncated = if message.len() > 35 { &message[..35] } else { message };
         let mw = measure_body(truncated);
         draw_lato_body(&mut self.display, truncated, (320 - mw) / 2, 120, COLOR_TEXT);
+
         let nw = measure_header("NO BOOT");
         draw_oswald_header(&mut self.display, "NO BOOT", (320 - nw) / 2, 180, COLOR_TEXT);
+
         Ok(())
     }
 
-    pub fn clear_screen(&mut self) { self.display.clear(COLOR_BG).ok(); }
+    // ─── Wallet UI methods ──────────────────────────────────────
 
+    /// Clear screen to black
+    pub fn clear_screen(&mut self) {
+        self.display.clear(COLOR_BG).ok();
+    }
+
+    /// Draw a frame counter overlay at bottom-right of screen (e.g. "1/3")
     pub fn draw_frame_counter(&mut self, text: &str) {
+        // Small dark rounded rect at bottom-right with white text
         let tw = measure_body(text);
         let pad = 8i32;
         let bx = 320 - tw - pad * 2 - 4;
@@ -500,66 +640,34 @@ impl<'a> BootDisplay<'a> {
         let bw = (tw + pad * 2) as u32;
         let bh = 14u32;
         let corner = CornerRadii::new(Size::new(4, 4));
-        RoundedRectangle::new(Rectangle::new(Point::new(bx, by), Size::new(bw, bh)), corner)
-            .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
-            .draw(&mut self.display).ok();
+        RoundedRectangle::new(
+            Rectangle::new(Point::new(bx, by), Size::new(bw, bh)),
+            corner,
+        )
+        .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
+        .draw(&mut self.display).ok();
         draw_lato_hint(&mut self.display, text, bx + pad, by + 11, KASPA_TEAL);
     }
 
+    /// Draw back button (top-left) and home button (top-right)
+    /// Both 34x34. Back at (0,0), Home at (286,0).
+    /// Touch zones: back x=0..36, y=0..36. Home x=284..320, y=0..36.
     pub fn draw_back_button(&mut self) {
         use embedded_graphics::image::{Image, ImageRawLE};
         let back: ImageRawLE<Rgb565> = ImageRawLE::new(
             crate::hw::icon_data::ICON_BACK, crate::hw::icon_data::ICON_BACK_W);
-        Image::new(&back, Point::new(0, 0)).draw(&mut self.display).ok();
+        Image::new(&back, Point::new(0, 0))
+            .draw(&mut self.display).ok();
         let home: ImageRawLE<Rgb565> = ImageRawLE::new(
             crate::hw::icon_data::ICON_HOME, crate::hw::icon_data::ICON_HOME_W);
-        Image::new(&home, Point::new(286, 0)).draw(&mut self.display).ok();
-    }
-
-    /// Draw settings icon at top-right (34x34 zone) using icon_settings.raw scaled 2:1.
-    pub fn draw_gear_icon(&mut self) {
-        use embedded_graphics::prelude::*;
-        use embedded_graphics::primitives::{Rectangle, PrimitiveStyle};
-        use embedded_graphics::draw_target::DrawTarget;
-
-        // Clear the 34x34 zone
-        Rectangle::new(Point::new(286, 0), Size::new(34, 34))
-            .into_styled(PrimitiveStyle::with_fill(Rgb565::new(1, 2, 1)))
+        Image::new(&home, Point::new(286, 0))
             .draw(&mut self.display).ok();
-
-        // icon_settings.raw is 56x56 RGB565 LE — scale to 28x28, draw at (289, 3)
-        static ICON_RAW: &[u8] = include_bytes!("../../assets/icon_settings.raw");
-        let src_w = 56usize;
-        let dst_x0 = 289i32;
-        let dst_y0 = 3i32;
-        let dst_sz = 28usize;
-
-        for dy in 0..dst_sz {
-            let sy = dy * 2;
-            let area = Rectangle::new(
-                Point::new(dst_x0, dst_y0 + dy as i32),
-                Size::new(dst_sz as u32, 1),
-            );
-            let _ = self.display.fill_contiguous(
-                &area,
-                (0..dst_sz).map(move |dx| {
-                    let sx = dx * 2;
-                    let off = (sy * src_w + sx) * 2;
-                    if off + 1 < ICON_RAW.len() {
-                        let lo = ICON_RAW[off];
-                        let hi = ICON_RAW[off + 1];
-                        Rgb565::from(embedded_graphics::pixelcolor::raw::RawU16::new(
-                            u16::from_le_bytes([lo, hi])
-                        ))
-                    } else {
-                        Rgb565::new(1, 2, 1)
-                    }
-                }),
-            );
-        }
     }
 }
+
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
+/// Boot verification status for the splash screen.
 pub enum BootStatus {
     Verifying,
     Valid,

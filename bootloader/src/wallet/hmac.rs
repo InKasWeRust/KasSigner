@@ -18,11 +18,12 @@
 // 100% Rust, no-std, no-alloc
 //
 // Manual HMAC-SHA512 implementation shared between
-// BIP39 (PBKDF2) y BIP32 (master key + child derivation).
+// BIP39 (PBKDF2) and BIP32 (master key + child derivation).
 //
 // Uses only the `sha2` crate — no additional dependencies.
 
 
+#![allow(dead_code)]
 use sha2::{Sha256, Sha512, Digest};
 
 const BLOCK_SIZE: usize = 128; // SHA-512 block size

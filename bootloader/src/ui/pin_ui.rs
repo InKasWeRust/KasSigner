@@ -41,6 +41,7 @@
 //
 //   Each key: ~100w × 40h with 5px gaps
 
+#![allow(dead_code)]
 /// Maximum PIN length
 pub const MAX_PIN_LEN: usize = 12;
 
@@ -113,22 +114,6 @@ pub fn new(title: &'static str) -> Self {
             false
         }
     }
-
-    /// Get PIN as byte slice
-    pub fn pin_bytes(&self) -> &[u8] {
-        // Convert digit values to ASCII for compatibility with storage module
-        // Actually, store as raw digits (0-9) — storage treats PIN as &[u8]
-        &self.digits[..self.len]
-    }
-
-    /// Get PIN as ASCII string bytes (for display/debug)
-    pub fn pin_ascii(&self, buf: &mut [u8; MAX_PIN_LEN]) -> usize {
-        for i in 0..self.len {
-            buf[i] = b'0' + self.digits[i];
-        }
-        self.len
-    }
-
     /// Compare with another PIN entry
     pub fn matches(&self, other: &PinEntry) -> bool {
         if self.len != other.len {

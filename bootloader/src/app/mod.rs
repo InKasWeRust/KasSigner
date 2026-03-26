@@ -14,8 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+// app/mod.rs — Application logic (state, data, signing, boot tests)
 // app/ — Application state, signing pipeline, and boot tests
 
+#![allow(unused_imports)]
 pub mod data;
 pub mod input;
 pub mod signing;

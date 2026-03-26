@@ -52,6 +52,7 @@
 // Constants
 // ═══════════════════════════════════════════════════════════════════
 
+#![allow(dead_code)]
 /// Maximum QR version we support
 const MAX_VERSION: usize = 6;
 /// Maximum modules per side (V6 = 41)
@@ -766,25 +767,6 @@ where
 
     Ok(())
 }
-
-/// Render QR code centered on a 128x64 OLED display
-/// Automatically selects scale factor
-pub fn draw_qr_centered<D>(display: &mut D, qr: &QrCode) -> Result<(), D::Error>
-where
-    D: DrawTarget<Color = BinaryColor>,
-{
-    let s = qr.size as u32;
-
-    // Choose scale: 2px if fits in 64px height with quiet zone, else 1px
-    let scale = if (s + 2) * 2 <= 64 { 2u8 } else { 1u8 };
-    let total = (s + 2) * scale as u32;
-
-    let ox = ((128 - total) / 2 + scale as u32) as i32;
-    let oy = ((64 - total) / 2 + scale as u32) as i32;
-
-    draw_qr(display, qr, scale, ox, oy)
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // BitWriter helper (no-alloc)
 // ═══════════════════════════════════════════════════════════════════

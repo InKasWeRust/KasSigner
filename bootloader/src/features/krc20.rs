@@ -39,6 +39,7 @@
 // For KasSigner TX review: we extract op, tick, and amt from the JSON
 // to show the user what KRC-20 operation is being signed.
 
+#![allow(dead_code)]
 /// Maximum ticker length (KRC-20 allows 4-6 chars)
 pub const MAX_TICKER: usize = 8;
 

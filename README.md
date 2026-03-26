@@ -56,9 +56,9 @@ See [docs/KEY_DERIVATION.md](docs/KEY_DERIVATION.md) for the full derivation arc
 
 KasSigner runs on ESP32-S3 platforms. The Waveshare board is the primary target:
 
-| | Waveshare ESP32-S3-Touch-LCD-2 | M5Stack CoreS3 |
+| | Waveshare ESP32-S3-Touch-LCD-2 | M5Stack CoreS3 / CoreS3 Lite |
 |---|---|---|
-| **Status** | Primary (active) | Legacy (feature-flagged) |
+| **Status** | Primary (Secure Boot ready) | Secondary (fully functional) |
 | **MCU** | ESP32-S3 dual-core 240MHz | ESP32-S3 dual-core 240MHz |
 | **Display** | ST7789T3 320×240 SPI | ILI9342C 320×240 SPI |
 | **Camera** | OV5640 5MP DVP (autofocus) | GC0308 QVGA DVP |
@@ -89,20 +89,25 @@ Battery:     ADC=GPIO5
 ### Quick start
 
 ```bash
-git clone https://github.com/user/kassigner.git
-cd kassigner/bootloader
+git clone https://github.com/InKasWeRust/KasSigner.git
+cd KasSigner/bootloader
+
+# Waveshare ESP32-S3-Touch-LCD-2 (default)
+ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release
+
+# M5Stack CoreS3 / CoreS3 Lite
+cargo run --release --no-default-features --features m5stack
 
 # Development build (skip hardware self-tests for faster iteration)
-cargo run --features skip-tests
-
-# Release build
-cargo build --release
+cargo run --release --no-default-features --features m5stack,skip-tests
 ```
 
 ### Feature flags
 
 | Flag | Purpose |
 |------|---------|
+| `waveshare` | Waveshare ESP32-S3-Touch-LCD-2 (default) |
+| `m5stack` | M5Stack CoreS3 / CoreS3 Lite |
 | `skip-tests` | Skip boot-time hardware self-tests (dev builds) |
 | `production` | Silent boot + strict firmware verification |
 | `verbose-boot` | Extra boot diagnostics on UART |
@@ -158,16 +163,27 @@ kassigner/
 │       │   └── camera_loop.rs  Non-blocking DMA capture + QR decode
 │       │
 │       ├── hw/                 Hardware abstraction layer
-│       │   ├── board.rs        Pin assignments (change this to port)
-│       │   ├── display.rs      ST7789T3 SPI driver + color palette
-│       │   ├── camera.rs       OV5640 DVP via LCD_CAM + GDMA
-│       │   ├── touch.rs        CST816D I2C + gesture tracking
-│       │   ├── sdcard.rs       SDHOST native SD (1-bit, PLL clock)
+│       │   ├── mod.rs          Platform-gated module routing
+│       │   ├── board.rs        Pin assignments (Waveshare only)
+│       │   ├── lockdown.rs     Radio kill + JTAG disable (Waveshare only)
+│       │   ├── display_ws.rs   ST7789T3 SPI driver (Waveshare)
+│       │   ├── display_m5.rs   ILI9342C SPI driver (M5Stack)
+│       │   ├── camera_ov5640.rs OV5640 DVP driver (Waveshare)
+│       │   ├── camera_gc0308.rs GC0308 DVP driver (M5Stack)
+│       │   ├── touch_cst816d.rs CST816D I2C + gestures (Waveshare)
+│       │   ├── touch_ft6336u.rs FT6336U I2C (M5Stack)
+│       │   ├── sdcard_ws.rs    SDHOST native SD (Waveshare)
+│       │   ├── sdcard_m5.rs    Bitbang SPI SD (M5Stack)
 │       │   ├── sd_backup.rs    AES-256-GCM encrypted backup codec
-│       │   ├── sound.rs        Audio stubs (Waveshare has no speaker)
-│       │   ├── battery.rs      Battery ADC via RTC SAR
-│       │   ├── pmu.rs          Backlight PWM via LEDC
-│       │   └── ov5640_af_fw.rs Autofocus MCU firmware blob
+│       │   ├── sound_ws.rs     Audio stubs (Waveshare, no speaker)
+│       │   ├── sound_m5.rs     AW88298 I2S speaker (M5Stack)
+│       │   ├── battery_ws.rs   Battery ADC via RTC SAR (Waveshare)
+│       │   ├── battery_m5.rs   AXP2101 battery gauge (M5Stack)
+│       │   ├── pmu_ws.rs       Backlight PWM via LEDC (Waveshare)
+│       │   ├── pmu_m5.rs       AXP2101 PMU + AW9523B IO (M5Stack)
+│       │   ├── ov5640_af_fw.rs Autofocus MCU firmware blob
+│       │   ├── icon_data.rs    Custom icon bitmaps (RGB565)
+│       │   └── screenshot.rs   Screenshot capture (optional)
 │       │
 │       ├── ui/                 User interface
 │       │   ├── screens.rs      All screen drawing functions
@@ -182,7 +198,8 @@ kassigner/
 │       │
 │       ├── qr/                 QR code engine (pure Rust, no crate)
 │       │   ├── encoder.rs      QR generation V1–V6, byte mode
-│       │   └── decoder.rs      Detection + Reed-Solomon (5-pass)
+│       │   ├── decoder_ws.rs   Waveshare decoder (5-pass voting)
+│       │   └── decoder_m5.rs   M5Stack decoder (3-consecutive match)
 │       │
 │       ├── wallet/             Cryptographic wallet (pure Rust, no-std)
 │       │   ├── bip39.rs        Mnemonic generation + validation
@@ -202,7 +219,6 @@ kassigner/
 │       │   ├── krc20.rs        KRC-20 token format detection
 │       │   ├── verify.rs       Firmware hash + signature verify
 │       │   ├── fw_update.rs    Firmware update parsing
-│       │   ├── nvs.rs          Non-volatile storage interface
 │       │   └── self_test.rs    Hardware self-test framework
 │       │
 │       └── crypto/             Low-level security primitives

@@ -20,8 +20,8 @@
 // Execution flow counter to detect fault injection.
 //
 // A physical attacker could use voltage glitching or
-// electromagnetic fault injection para "saltar" instrucciones.
-// El flow counter detecta esto: si una etapa se salta, el contador
+// electromagnetic fault injection to "skip" instructions.
+// The flow counter detects this: if a stage is skipped, the counter
 // final value will not match the expected value.
 //
 // USO:
@@ -36,15 +36,17 @@
 // LIMITACIONES:
 //   - A sophisticated glitch could increment the counter without executing
 //     the actual stage. Combine with canaries and redundant verification.
-//   - El contador usa una variable global mutable (necesario en no-std
-//     sin allocator). Acceso serializado con compiler_fence.
+//   - The counter uses a mutable global variable (required in no-std
+//     without allocator). Access serialized with compiler_fence.
 
+#![allow(dead_code)]
+#![allow(static_mut_refs)]
 use core::sync::atomic::{compiler_fence, Ordering};
 
 // Contador de etapas (variable global mutable)
 static mut COUNTER: u32 = 0;
 
-// Resetea el contador a cero.
+// Resets the counter to zero.
 #[inline(never)]
 /// Reset the flow integrity counter to zero.
 pub fn reset() {
@@ -53,7 +55,7 @@ pub fn reset() {
     compiler_fence(Ordering::SeqCst);
 }
 
-// Incrementa el contador en 1.
+// Increments the counter by 1.
 #[inline(never)]
 /// Increment the flow counter by one (marks a completed stage).
 pub fn step() {
@@ -62,7 +64,7 @@ pub fn step() {
     compiler_fence(Ordering::SeqCst);
 }
 
-// Lee el valor actual del contador.
+// Reads the current counter value.
 #[inline(never)]
 /// Read the current flow counter value.
 pub fn count() -> u32 {
@@ -72,8 +74,8 @@ pub fn count() -> u32 {
     val
 }
 
-// Verifica que el contador tiene el valor esperado.
-// Retorna true si coincide.
+// Verifies the counter has the expected value.
+// Returns true if it matches.
 #[inline(never)]
 /// Verify the counter matches the expected stage count.
 /// Double-reads to resist voltage glitching attacks.

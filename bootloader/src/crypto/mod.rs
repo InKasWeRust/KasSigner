@@ -22,6 +22,7 @@
 //   - XOR-masked secret containers (secret_box)
 //   - Flow integrity counters (flow)
 
+#![allow(unused_imports)]
 pub mod constant_time;
 pub mod secure_zeroize;
 pub mod secret_box;

@@ -20,6 +20,8 @@
 // screen-specific rendering methods. Separated for maintainability.
 
 
+#![allow(dead_code)]
+#![allow(unused_imports)]
 use embedded_graphics::{
     prelude::*,
     pixelcolor::Rgb565,
@@ -288,7 +290,8 @@ impl<'a> BootDisplay<'a> {
     }
 
         /// Draw a transaction review page (amount, fee, addresses).
-pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, page: u8) {
+pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, page: u8,
+        receive_pks: &[[u8; 32]; 20], change_pks: &[[u8; 32]; 5]) {
         self.display.clear(COLOR_BG).ok();
 
         use core::fmt::Write;
@@ -369,13 +372,41 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
             let out_idx = (page - 1) as usize;
             if out_idx < tx.num_outputs as usize {
                 let output = &tx.outputs[out_idx];
-                let mut title = heapless::String::<32>::new();
-                write!(&mut title, "OUTPUT {}", out_idx).ok();
+                let spk = &output.script_public_key;
 
+                // Detect if this output goes to our receive or change address
+                let mut is_own = false;
+                let mut is_change = false;
+                if spk.script_len == 34 && spk.script[0] == 0x20 && spk.script[33] == 0xAC {
+                    // P2PK: extract 32-byte pubkey from script[1..33]
+                    let mut out_pk = [0u8; 32];
+                    out_pk.copy_from_slice(&spk.script[1..33]);
+                    for pk in receive_pks.iter() {
+                        if *pk != [0u8; 32] && *pk == out_pk { is_own = true; break; }
+                    }
+                    if !is_own {
+                        for pk in change_pks.iter() {
+                            if *pk != [0u8; 32] && *pk == out_pk { is_change = true; break; }
+                        }
+                    }
+                }
+
+                // Title with CHANGE/OWN label
+                let mut title = heapless::String::<32>::new();
+                if is_change {
+                    write!(&mut title, "OUTPUT {} (CHANGE)", out_idx).ok();
+                } else if is_own {
+                    write!(&mut title, "OUTPUT {} (OWN)", out_idx).ok();
+                } else {
+                    write!(&mut title, "OUTPUT {}", out_idx).ok();
+                }
+
+                let title_color = if is_change || is_own { KASPA_TEAL } else { COLOR_TEXT };
                 let tw = measure_header(title.as_str());
-                draw_oswald_header(&mut self.display, title.as_str(), (320 - tw) / 2, 30, COLOR_TEXT);
+                draw_oswald_header(&mut self.display, title.as_str(), (320 - tw) / 2, 30, title_color);
                 Line::new(Point::new(20, 40), Point::new(300, 40))
-                    .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+                    .into_styled(PrimitiveStyle::with_stroke(
+                        if is_change || is_own { KASPA_TEAL } else { KASPA_TEAL }, 1))
                     .draw(&mut self.display).ok();
 
                 // Amount
@@ -383,17 +414,44 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                 let sompi = output.value % 100_000_000;
                 let mut amount_text = heapless::String::<32>::new();
                 write!(&mut amount_text, "{}.{:08} KAS", kas, sompi).ok();
-                draw_lato_title(&mut self.display, amount_text.as_str(), 30, 75, COLOR_ORANGE);
+                let amount_color = if is_change { COLOR_TEXT_DIM } else { COLOR_ORANGE };
+                draw_lato_title(&mut self.display, amount_text.as_str(), 30, 65, amount_color);
 
-                // Address (first bytes of script public key as hex)
-                let mut addr_text = heapless::String::<48>::new();
-                write!(&mut addr_text, "To: ").ok();
-                let show_bytes = core::cmp::min(8, output.script_public_key.script_len as usize);
-                for i in 0..show_bytes {
-                    write!(&mut addr_text, "{:02x}", output.script_public_key.script[i]).ok();
+                // Encode actual Kaspa address if P2PK
+                if spk.script_len == 34 && spk.script[0] == 0x20 && spk.script[33] == 0xAC {
+                    let mut out_pk = [0u8; 32];
+                    out_pk.copy_from_slice(&spk.script[1..33]);
+                    let mut addr_buf = [0u8; wallet::address::MAX_ADDR_LEN];
+                    let addr = wallet::address::encode_address_str(
+                        &out_pk, wallet::address::AddressType::P2PK, &mut addr_buf);
+
+                    // Wrap address at 25 chars/line
+                    let bytes = addr.as_bytes();
+                    let total_len = bytes.len();
+                    let chars_per_line: usize = 25;
+                    let line_h: i32 = 22;
+                    let mut y_pos: i32 = 90;
+                    let mut offset: usize = 0;
+                    while offset < total_len && y_pos < 195 {
+                        let end = core::cmp::min(offset + chars_per_line, total_len);
+                        if let Ok(line) = core::str::from_utf8(&bytes[offset..end]) {
+                            let lw = measure_body(line);
+                            draw_lato_body(&mut self.display, line, (320 - lw) / 2, y_pos, COLOR_TEXT);
+                        }
+                        y_pos += line_h;
+                        offset = end;
+                    }
+                } else {
+                    // Non-P2PK: show raw script hex
+                    let mut addr_text = heapless::String::<48>::new();
+                    write!(&mut addr_text, "Script: ").ok();
+                    let show_bytes = core::cmp::min(8, spk.script_len as usize);
+                    for i in 0..show_bytes {
+                        write!(&mut addr_text, "{:02x}", spk.script[i]).ok();
+                    }
+                    write!(&mut addr_text, "...").ok();
+                    draw_lato_body(&mut self.display, addr_text.as_str(), 30, 100, COLOR_TEXT);
                 }
-                write!(&mut addr_text, "...").ok();
-                draw_lato_body(&mut self.display, addr_text.as_str(), 30, 110, COLOR_TEXT);
             }
         }
 
@@ -484,7 +542,7 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
 
         let truncated = if reason.len() > 35 { &reason[..35] } else { reason };
         let rw = measure_title(truncated);
-        draw_lato_title(&mut self.display, truncated, (320 - rw) / 2, 120, COLOR_TEXT);
+        draw_lato_title(&mut self.display, truncated, (320 - rw) / 2, 120, COLOR_TEXT_DIM);
     }
 
     /// Draw 2x2 grid home menu (SeedSigner-style)
@@ -749,37 +807,38 @@ pub fn draw_home_grid(&mut self) {
 
     /// Draw about screen
     pub fn draw_about_screen(&mut self) {
+        use embedded_graphics::image::{Image, ImageRawLE};
+
         self.display.clear(COLOR_BG).ok();
 
-        // "KasSigner" — Rubik Bold 26px header
-        let tw = measure_big("KasSigner");
-        draw_rubik_big(&mut self.display, "KasSigner", (320 - tw) / 2, 55, KASPA_TEAL);
-
-        // "v1.0.0" — Oswald sub-header
-        let vw = measure_sub("v1.0.0");
-        draw_oswald_sub(&mut self.display, "v1.0.0", (320 - vw) / 2, 80, COLOR_TEXT_DIM);
-
-        Line::new(Point::new(80, 90), Point::new(240, 90))
-            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+        // Logo shifted up 20px for visual balance (no nav buttons)
+        static LOGO_DATA: &[u8] = include_bytes!("../../assets/logo_320x240.raw");
+        let raw_img: ImageRawLE<Rgb565> = ImageRawLE::new(LOGO_DATA, 320);
+        Image::new(&raw_img, Point::new(0, -20))
             .draw(&mut self.display).ok();
 
-        // Info lines — Lato body
+        // Version
+        let vw = measure_title("v1.0.0");
+        draw_lato_title(&mut self.display, "v1.0.0", (320 - vw) / 2, 122, COLOR_TEXT);
+
+        // Tagline
         let s1 = "Secure Hardware Wallet for Kaspa";
-        draw_lato_body(&mut self.display, s1, (320 - measure_body(s1)) / 2, 115, COLOR_TEXT);
+        draw_lato_body(&mut self.display, s1, (320 - measure_body(s1)) / 2, 146, COLOR_TEXT_DIM);
 
+        // Tech line
         let s2 = "100% Rust | Air-Gapped | no_std";
-        draw_lato_body(&mut self.display, s2, (320 - measure_body(s2)) / 2, 140, COLOR_TEXT_DIM);
+        draw_lato_body(&mut self.display, s2, (320 - measure_body(s2)) / 2, 166, COLOR_TEXT_DIM);
 
+        // Board name
+        #[cfg(feature = "waveshare")]
         let s3 = "Waveshare ESP32-S3-Touch-LCD-2";
-        draw_lato_body(&mut self.display, s3, (320 - measure_body(s3)) / 2, 165, COLOR_TEXT_DIM);
+        #[cfg(feature = "m5stack")]
+        let s3 = "M5Stack CoreS3 Lite";
+        draw_lato_hint(&mut self.display, s3, (320 - measure_hint(s3)) / 2, 186, COLOR_TEXT_DIM);
 
-        // Kaspa teal accent line
+        // kaspa.org
         let s4 = "kaspa.org";
-        draw_lato_hint(&mut self.display, s4, (320 - prop_fonts::measure_prop_text(s4,
-            &prop_fonts::LATO_12_WIDTHS, prop_fonts::LATO_12_FIRST,
-            prop_fonts::LATO_12_LAST, prop_fonts::LATO_12_HEIGHT)) / 2, 195, KASPA_TEAL);
-
-        self.draw_back_button();
+        draw_lato_hint(&mut self.display, s4, (320 - measure_hint(s4)) / 2, 206, KASPA_TEAL);
     }
 
     /// Draw seed info screen showing word count and address
@@ -1123,88 +1182,6 @@ pub fn draw_home_grid(&mut self) {
     }
 
     // ═══════════════════════════════════════════════════════════════
-
-    /// Draw PIN entry keypad screen
-    pub fn draw_pin_screen(&mut self, pin: &crate::ui::pin_ui::PinEntry) {
-        self.display.clear(COLOR_BG).ok();
-
-        let key_bg = COLOR_CARD;
-
-        // Title
-        let tw = measure_header(pin.title);
-        draw_oswald_header(&mut self.display, pin.title, (320 - tw) / 2, 25, COLOR_TEXT);
-
-        // PIN dots
-        let dot_x_start = (DISPLAY_W as i32 - (pin.len as i32 * 18)) / 2;
-        for i in 0..pin.len {
-            let cx = dot_x_start + (i as i32) * 18 + 6;
-            Rectangle::new(Point::new(cx, crate::ui::pin_ui::DOTS_Y), Size::new(12, 12))
-                .into_styled(PrimitiveStyle::with_fill(KASPA_ACCENT))
-                .draw(&mut self.display).ok();
-        }
-        // Empty dots for remaining
-        for i in pin.len..crate::ui::pin_ui::MAX_PIN_LEN {
-            let cx = dot_x_start + (i as i32) * 18 + 6;
-            Rectangle::new(Point::new(cx, crate::ui::pin_ui::DOTS_Y), Size::new(12, 12))
-                .into_styled(PrimitiveStyle::with_stroke(COLOR_HINT, 1))
-                .draw(&mut self.display).ok();
-        }
-
-        // Error message
-        if pin.error {
-            let ew = measure_hint("Min 6 digits!");
-            draw_lato_hint(&mut self.display, "Min 6 digits!", (320 - ew) / 2, 62, COLOR_ERR_TEXT);
-        }
-
-        // Draw keypad (4 rows x 3 cols)
-        for row in 0..crate::ui::pin_ui::KEY_ROWS {
-            for col in 0..crate::ui::pin_ui::KEY_COLS {
-                let (x, y, w, h) = crate::ui::pin_ui::key_rect(row, col);
-                let label = crate::ui::pin_ui::KEY_LABELS[row][col];
-
-                let bg = if row == 3 && col == 0 {
-                    COLOR_RED_BTN
-                } else if row == 3 && col == 2 {
-                    COLOR_GREEN_BTN
-                } else {
-                    key_bg
-                };
-
-                Rectangle::new(Point::new(x, y), Size::new(w, h))
-                    .into_styled(PrimitiveStyle::with_fill(bg))
-                    .draw(&mut self.display).ok();
-                Rectangle::new(Point::new(x, y), Size::new(w, h))
-                    .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
-                    .draw(&mut self.display).ok();
-
-                // Center label in key
-                let lw = measure_title(label);
-                let lx = x + (w as i32 - lw) / 2;
-                let ly = y + (h as i32 + 14) / 2;
-                draw_lato_title(&mut self.display, label, lx, ly, COLOR_TEXT);
-            }
-        }
-    }
-
-    /// Draw welcome screen (first boot)
-    pub fn draw_welcome_screen(&mut self) {
-        self.display.clear(COLOR_BG).ok();
-
-        let nw = measure_big("KasSigner");
-        draw_rubik_big(&mut self.display, "KasSigner", (320 - nw) / 2, 50, KASPA_TEAL);
-
-        Line::new(Point::new(60, 65), Point::new(260, 65))
-            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
-            .draw(&mut self.display).ok();
-
-        let s1 = "Welcome! No wallet found.";
-        let s1w = measure_body(s1);
-        draw_lato_body(&mut self.display, s1, (320 - s1w) / 2, 100, COLOR_TEXT);
-        let s2 = "Tap to begin setup.";
-        let s2w = measure_body(s2);
-        draw_lato_body(&mut self.display, s2, (320 - s2w) / 2, 130, COLOR_TEXT);
-    }
-
     /// Draw mnemonic word display (one word at a time for secure backup)
     pub fn draw_word_screen(&mut self, word_num: u8, total_words: u8, word: &str) {
         self.display.clear(COLOR_BG).ok();
@@ -1346,9 +1323,9 @@ pub fn draw_home_grid(&mut self) {
     pub fn draw_saving_screen(&mut self, message: &str) {
         self.display.clear(COLOR_BG).ok();
         let tw = measure_header("SAVING");
-        draw_oswald_header(&mut self.display, "SAVING", (320 - tw) / 2, 90, COLOR_TEXT);
+        draw_oswald_header(&mut self.display, "SAVING", (320 - tw) / 2, 90, KASPA_TEAL);
         let mw = measure_body(message);
-        draw_lato_body(&mut self.display, message, (320 - mw) / 2, 125, COLOR_TEXT);
+        draw_lato_body(&mut self.display, message, (320 - mw) / 2, 125, COLOR_TEXT_DIM);
         // Draw empty progress bar track
         Rectangle::new(Point::new(40, 145), Size::new(240, 10))
             .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
@@ -1360,9 +1337,9 @@ pub fn draw_home_grid(&mut self) {
     pub fn draw_loading_screen(&mut self, message: &str) {
         self.display.clear(COLOR_BG).ok();
         let tw = measure_header("LOADING");
-        draw_oswald_header(&mut self.display, "LOADING", (320 - tw) / 2, 90, COLOR_TEXT);
+        draw_oswald_header(&mut self.display, "LOADING", (320 - tw) / 2, 90, KASPA_TEAL);
         let mw = measure_body(message);
-        draw_lato_body(&mut self.display, message, (320 - mw) / 2, 125, COLOR_TEXT);
+        draw_lato_body(&mut self.display, message, (320 - mw) / 2, 125, COLOR_TEXT_DIM);
         // Draw empty progress bar track
         Rectangle::new(Point::new(40, 145), Size::new(240, 10))
             .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
@@ -1380,20 +1357,6 @@ pub fn draw_home_grid(&mut self) {
                 .draw(&mut self.display).ok();
         }
     }
-
-    /// Draw setup complete screen
-    pub fn draw_setup_complete_screen(&mut self) {
-        self.display.clear(COLOR_BG).ok();
-        let tw = measure_header("SETUP COMPLETE");
-        draw_oswald_header(&mut self.display, "SETUP COMPLETE", (320 - tw) / 2, 80, COLOR_TEXT);
-        let s1 = "Your wallet is ready.";
-        let s1w = measure_body(s1);
-        draw_lato_body(&mut self.display, s1, (320 - s1w) / 2, 120, COLOR_TEXT);
-        let s2 = "Tap to continue.";
-        let s2w = measure_body(s2);
-        draw_lato_body(&mut self.display, s2, (320 - s2w) / 2, 150, COLOR_TEXT_DIM);
-    }
-
     /// Draw word import keyboard screen (a-z + backspace + suggestions)
     pub fn draw_import_word_screen(
         &mut self,
@@ -1541,17 +1504,6 @@ pub fn draw_home_grid(&mut self) {
 
         self.draw_back_button();
     }
-
-    /// Passphrase keyboard — QWERTY layout
-    /// Row 1: q w e r t y u i o p        (10 keys)
-    /// Row 2:  a s d f g h j k l          (9 keys, centered)
-    /// Row 3: [a-z] z x c v b n m [a-z]   (N keys + 2 PAGE, fills row)
-    /// Row 4: [BKSP] [______SPACE______] [OK]
-    /// Touch geometry must match main.rs PassphraseEntry handler
-    pub fn draw_passphrase_screen(&mut self, pp_input: &crate::ui::seed_manager::PassphraseInput) {
-        self.draw_keyboard_screen(pp_input, "PASSPHRASE");
-    }
-
     /// Full passphrase screen including keyboard layout (for initial draw or page change)
     pub fn draw_passphrase_screen_full(&mut self, pp_input: &crate::ui::seed_manager::PassphraseInput) {
         self.draw_keyboard_screen_full(pp_input, "PASSPHRASE");
@@ -1757,7 +1709,7 @@ pub fn draw_home_grid(&mut self) {
                     crate::hw::icon_data::ICON_TRASH, crate::hw::icon_data::ICON_TRASH_W);
                 Image::new(&trash_raw, Point::new(start_x + 197, row_y + 9)).draw(&mut self.display).ok();
             } else {
-                // Empty row — same style as inactive loaded seeds
+                // Empty row — tappable to go to Tools menu
                 let slot_rect = Rectangle::new(Point::new(start_x, row_y), Size::new(card_w, card_h as u32));
                 RoundedRectangle::new(slot_rect, card_corner)
                     .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
@@ -1765,6 +1717,8 @@ pub fn draw_home_grid(&mut self) {
                 RoundedRectangle::new(slot_rect, card_corner)
                     .into_styled(PrimitiveStyle::with_stroke(COLOR_CARD_BORDER, 1))
                     .draw(&mut self.display).ok();
+                let pw = measure_title("+");
+                draw_lato_title(&mut self.display, "+", start_x + (card_w as i32 - pw) / 2, row_y + 28, COLOR_TEXT_DIM);
             }
         }
 
@@ -2292,7 +2246,7 @@ pub fn draw_home_grid(&mut self) {
         draw_lato_title(&mut self.display, s1, (320 - s1w) / 2, 100, KASPA_TEAL);
         let s2 = "Do not remove card";
         let s2w = measure_body(s2);
-        draw_lato_body(&mut self.display, s2, (320 - s2w) / 2, 135, COLOR_TEXT);
+        draw_lato_body(&mut self.display, s2, (320 - s2w) / 2, 135, COLOR_TEXT_DIM);
     }
 
     /// Draw SD card format complete
@@ -2305,9 +2259,8 @@ pub fn draw_home_grid(&mut self) {
             Image::new(&raw_img, Point::zero())
                 .draw(&mut self.display).ok();
 
-            let success_green = Rgb565::new(0, 63, 0);
             let tw = measure_title("!! Format Complete !!");
-            draw_lato_title(&mut self.display, "!! Format Complete !!", (320 - tw) / 2, 170, success_green);
+            draw_lato_title(&mut self.display, "!! Format Complete !!", (320 - tw) / 2, 170, KASPA_TEAL);
         } else {
             self.display.clear(COLOR_BG).ok();
             let mw = measure_title("Format Failed");
@@ -2323,7 +2276,7 @@ pub fn draw_home_grid(&mut self) {
         draw_lato_title(&mut self.display, s1, (320 - s1w) / 2, 100, KASPA_TEAL);
         let s2 = "Do not remove card";
         let s2w = measure_body(s2);
-        draw_lato_body(&mut self.display, s2, (320 - s2w) / 2, 135, COLOR_TEXT);
+        draw_lato_body(&mut self.display, s2, (320 - s2w) / 2, 135, COLOR_TEXT_DIM);
     }
 
     /// Draw SD card R/W test result (multi-line)
@@ -2336,9 +2289,8 @@ pub fn draw_home_grid(&mut self) {
             Image::new(&raw_img, Point::zero())
                 .draw(&mut self.display).ok();
 
-            let success_green = Rgb565::new(0, 63, 0);
             let tw = measure_title("!! Test PASSED !!");
-            draw_lato_title(&mut self.display, "!! Test PASSED !!", (320 - tw) / 2, 168, success_green);
+            draw_lato_title(&mut self.display, "!! Test PASSED !!", (320 - tw) / 2, 168, KASPA_TEAL);
 
             for (i, line) in lines.iter().enumerate() {
                 let lw = measure_body(line);
@@ -2552,17 +2504,85 @@ pub fn draw_home_grid(&mut self) {
         draw_lato_title(&mut self.display, &pct_buf, (320 - pw) / 2, 135, COLOR_TEXT);
     }
 
-    /// Draw audio settings screen (volume control)
+    /// Draw audio settings screen (volume control) — M5Stack only
+    #[cfg(feature = "m5stack")]
+    pub fn draw_audio_settings(&mut self, volume: u8) {
+        self.display.clear(COLOR_BG).ok();
+
+        let tw = measure_header("AUDIO");
+        draw_oswald_header(&mut self.display, "AUDIO", (320 - tw) / 2, 30, COLOR_TEXT);
+        Line::new(Point::new(20, 40), Point::new(300, 40))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        let bw = measure_body("Volume:");
+        draw_lato_body(&mut self.display, "Volume:", (320 - bw) / 2, 65, COLOR_TEXT);
+
+        let btn_bg = COLOR_CARD;
+        let btn_corner = CornerRadii::new(Size::new(6, 6));
+        // [-] button
+        let btn_m = Rectangle::new(Point::new(20, 80), Size::new(40, 30));
+        RoundedRectangle::new(btn_m, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(btn_bg))
+            .draw(&mut self.display).ok();
+        RoundedRectangle::new(btn_m, btn_corner)
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+        draw_lato_title(&mut self.display, "-", 33, 101, COLOR_TEXT);
+
+        // [+] button
+        let btn_p = Rectangle::new(Point::new(260, 80), Size::new(40, 30));
+        RoundedRectangle::new(btn_p, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(btn_bg))
+            .draw(&mut self.display).ok();
+        RoundedRectangle::new(btn_p, btn_corner)
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+        draw_lato_title(&mut self.display, "+", 272, 101, COLOR_TEXT);
+
+        // Bar outline
+        Rectangle::new(Point::new(70, 85), Size::new(180, 20))
+            .into_styled(PrimitiveStyle::with_stroke(COLOR_TEXT, 1))
+            .draw(&mut self.display).ok();
+
+        // Bar fill
+        let bar_w = ((volume as u32) * 180 / 255) as u32;
+        if bar_w > 0 {
+            Rectangle::new(Point::new(70, 85), Size::new(bar_w, 20))
+                .into_styled(PrimitiveStyle::with_fill(KASPA_ACCENT))
+                .draw(&mut self.display).ok();
+        }
+
+        // Percentage text
+        let pct = (volume as u16 * 100 / 255) as u8;
+        let mut pct_buf: heapless::String<8> = heapless::String::new();
+        core::fmt::Write::write_fmt(&mut pct_buf, format_args!("{}%", pct)).ok();
+        let pw = measure_title(pct_buf.as_str());
+        draw_lato_title(&mut self.display, &pct_buf, (320 - pw) / 2, 135, COLOR_TEXT);
+
+        self.draw_back_button();
+    }
 
     /// Draw camera / QR scanner screen
     /// Shows status info and a viewfinder-style frame
     pub fn draw_camera_screen(&mut self, _status: &str, _hint: &str) {
         self.display.clear(COLOR_BG).ok();
+        #[cfg(feature = "waveshare")]
         self.draw_camera_screen_chrome();
+        #[cfg(feature = "m5stack")]
+        {
+            self.draw_back_button();
+            let tw = measure_header("SCAN QR");
+            draw_oswald_header(&mut self.display, "SCAN QR", (320 - tw) / 2, 30, COLOR_TEXT);
+            Line::new(Point::new(20, 40), Point::new(300, 40))
+                .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+                .draw(&mut self.display).ok();
+        }
     }
 
     /// Draw only the ScanQR chrome (back icon, gear icon, header) without clearing screen.
     /// Used when returning from cam-tune overlay to avoid full redraw cycle.
+    #[cfg(feature = "waveshare")]
     pub fn draw_camera_screen_chrome(&mut self) {
         // Back icon only (no home — gear replaces it on ScanQR)
         use embedded_graphics::image::{Image, ImageRawLE};
@@ -2588,13 +2608,19 @@ pub fn draw_home_grid(&mut self) {
         use embedded_graphics::pixelcolor::Rgb565;
         use embedded_graphics::draw_target::DrawTarget;
         
-        // Display area: 240x180 at offset (40, 45) — below header
-        // When cam-tune (bit 6), expand to fill left side: 198x178 at (0, 0)
+        // Display area: centered below header chrome
+        // Waveshare: 240x180 at (40, 45) — cam-tune can expand to (0, 0)
+        // M5Stack: 240x194 at (40, 42) — below 42px chrome zone (back+header+divider)
+        #[cfg(feature = "waveshare")]
         let cam_tune_mode = (qr_guide_info & 0x40) != 0;
-        let vf_x = if cam_tune_mode { 0i32 } else { 40i32 };
-        let vf_y = if cam_tune_mode { 0i32 } else { 45i32 };
-        let vf_w = if cam_tune_mode { 198usize } else { 240usize };
-        let vf_h = if cam_tune_mode { 178usize } else { 180usize };
+        #[cfg(feature = "waveshare")]
+        let (vf_x, vf_y, vf_w, vf_h) = if cam_tune_mode {
+            (0i32, 0i32, 198usize, 178usize)
+        } else {
+            (40i32, 45i32, 240usize, 180usize)
+        };
+        #[cfg(feature = "m5stack")]
+        let (vf_x, vf_y, vf_w, vf_h) = (40i32, 44i32, 240usize, 192usize);
 
         if width == 0 || height == 0 { return; }
 
@@ -3037,13 +3063,17 @@ pub fn draw_home_grid(&mut self) {
             if list_idx < loaded_count {
                 let i = loaded[list_idx];
                 let slot = &seed_mgr.slots[i];
+                let is_active = seed_mgr.active == i as u8;
+
+                let card_fill = if is_active { Rgb565::new(0b00010, 0b000110, 0b00011) } else { COLOR_CARD };
+                let card_border = if is_active { KASPA_ACCENT } else { COLOR_CARD_BORDER };
 
                 let slot_rect = Rectangle::new(Point::new(start_x, row_y), Size::new(card_w, card_h as u32));
                 RoundedRectangle::new(slot_rect, card_corner)
-                    .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
+                    .into_styled(PrimitiveStyle::with_fill(card_fill))
                     .draw(&mut self.display).ok();
                 RoundedRectangle::new(slot_rect, card_corner)
-                    .into_styled(PrimitiveStyle::with_stroke(COLOR_CARD_BORDER, 1))
+                    .into_styled(PrimitiveStyle::with_stroke(card_border, if is_active { 2 } else { 1 }))
                     .draw(&mut self.display).ok();
 
                 // Fingerprint icon
@@ -3071,8 +3101,20 @@ pub fn draw_home_grid(&mut self) {
                 let mut slot_buf: heapless::String<8> = heapless::String::new();
                 core::fmt::Write::write_fmt(&mut slot_buf, format_args!("Slot {}", i + 1)).ok();
                 let sw = measure_hint(slot_buf.as_str());
-                draw_lato_hint(&mut self.display, &slot_buf, start_x + card_w as i32 - 10 - sw, row_y + 34, COLOR_TEXT_DIM);
+                draw_lato_hint(&mut self.display, &slot_buf, start_x + card_w as i32 - 48 - sw, row_y + 34, COLOR_TEXT_DIM);
+
+                // Delete button — trash icon (rightmost area of card)
+                let del_rect = Rectangle::new(Point::new(start_x + card_w as i32 - 44, row_y + 3), Size::new(38, 36));
+                let del_corner = CornerRadii::new(Size::new(4, 4));
+                RoundedRectangle::new(del_rect, del_corner)
+                    .into_styled(PrimitiveStyle::with_fill(COLOR_RED_BTN))
+                    .draw(&mut self.display).ok();
+                use embedded_graphics::image::ImageRawLE;
+                let trash_raw: ImageRawLE<Rgb565> = ImageRawLE::new(
+                    crate::hw::icon_data::ICON_TRASH, crate::hw::icon_data::ICON_TRASH_W);
+                Image::new(&trash_raw, Point::new(start_x + card_w as i32 - 35, row_y + 9)).draw(&mut self.display).ok();
             } else {
+                // Empty slot — tappable to go to Tools menu
                 let slot_rect = Rectangle::new(Point::new(start_x, row_y), Size::new(card_w, card_h as u32));
                 RoundedRectangle::new(slot_rect, card_corner)
                     .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
@@ -3080,6 +3122,9 @@ pub fn draw_home_grid(&mut self) {
                 RoundedRectangle::new(slot_rect, card_corner)
                     .into_styled(PrimitiveStyle::with_stroke(COLOR_CARD_BORDER, 1))
                     .draw(&mut self.display).ok();
+                // "+" icon hint
+                let pw = measure_title("+");
+                draw_lato_title(&mut self.display, "+", start_x + (card_w as i32 - pw) / 2, row_y + 28, COLOR_TEXT_DIM);
             }
         }
 
@@ -3120,83 +3165,6 @@ pub fn draw_home_grid(&mut self) {
         // Hint
         let hw = measure_hint("Tap a seed to use its key");
         draw_lato_hint(&mut self.display, "Tap a seed to use its key", (320 - hw) / 2, 195, COLOR_HINT);
-
-        self.draw_back_button();
-    }
-
-    /// Draw multisig address picker — show first 5 address indices for selection
-    pub fn draw_multisig_pick_addr(&mut self, key_idx: u8, n: u8,
-        pubkey_cache: &[[u8; 32]; 20], seed_fp: &[u8; 4])
-    {
-        self.display.clear(COLOR_BG).ok();
-
-        let mut title_buf: heapless::String<24> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut title_buf,
-            format_args!("ADDRESS ({}/{})", key_idx + 1, n)).ok();
-        let tw = measure_header(title_buf.as_str());
-        draw_oswald_header(&mut self.display, &title_buf, (320 - tw) / 2, 28, KASPA_TEAL);
-        Line::new(Point::new(20, 38), Point::new(300, 38))
-            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
-            .draw(&mut self.display).ok();
-
-        // Show which seed is selected (fingerprint)
-        let hex_chars = b"0123456789abcdef";
-        let mut fp_hex = [0u8; 8];
-        for j in 0..4 {
-            fp_hex[j * 2] = hex_chars[(seed_fp[j] >> 4) as usize];
-            fp_hex[j * 2 + 1] = hex_chars[(seed_fp[j] & 0x0f) as usize];
-        }
-        let fp_str = core::str::from_utf8(&fp_hex).unwrap_or("????????");
-        let mut seed_label: heapless::String<20> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut seed_label, format_args!("Seed: {}", fp_str)).ok();
-        let slw = measure_hint(seed_label.as_str());
-        draw_lato_hint(&mut self.display, &seed_label, (320 - slw) / 2, 48, COLOR_TEXT_DIM);
-
-        let btn_corner = CornerRadii::new(Size::new(4, 4));
-
-        // Show 5 address rows
-        for addr_idx in 0..5u8 {
-            let row_y = 54 + addr_idx as i32 * 38;
-            let card_rect = Rectangle::new(Point::new(15, row_y), Size::new(290, 34));
-            RoundedRectangle::new(card_rect, btn_corner)
-                .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
-                .draw(&mut self.display).ok();
-            RoundedRectangle::new(card_rect, btn_corner)
-                .into_styled(PrimitiveStyle::with_stroke(COLOR_CARD_BORDER, 1))
-                .draw(&mut self.display).ok();
-
-            // Index label
-            let mut idx_buf: heapless::String<8> = heapless::String::new();
-            core::fmt::Write::write_fmt(&mut idx_buf, format_args!("#{}", addr_idx)).ok();
-            draw_lato_hint(&mut self.display, &idx_buf, 20, row_y + 14, KASPA_TEAL);
-
-            // Kaspa address (truncated)
-            let pk = &pubkey_cache[addr_idx as usize];
-            let mut addr_buf = [0u8; wallet::address::MAX_ADDR_LEN];
-            let addr = wallet::address::encode_address_str(
-                pk, wallet::address::AddressType::P2PK, &mut addr_buf);
-            if addr.len() > 20 {
-                let mut trunc = [0u8; 24];
-                let front = 10.min(addr.len());
-                let back = 6.min(addr.len());
-                let mut pos = 0;
-                for &b in &addr.as_bytes()[..front] { trunc[pos] = b; pos += 1; }
-                trunc[pos] = b'.'; pos += 1;
-                trunc[pos] = b'.'; pos += 1;
-                for &b in &addr.as_bytes()[addr.len() - back..] { trunc[pos] = b; pos += 1; }
-                let s = core::str::from_utf8(&trunc[..pos]).unwrap_or("???");
-                draw_lato_hint(&mut self.display, s, 50, row_y + 14, COLOR_TEXT);
-            } else {
-                draw_lato_hint(&mut self.display, addr, 50, row_y + 14, COLOR_TEXT);
-            }
-
-            // Full address bottom line (last 8 chars for differentiation)
-            if addr.len() > 8 {
-                let tail = &addr[addr.len() - 8..];
-                let tw2 = measure_hint(tail);
-                draw_lato_hint(&mut self.display, tail, 290 - tw2, row_y + 28, KASPA_ACCENT);
-            }
-        }
 
         self.draw_back_button();
     }
@@ -3244,7 +3212,56 @@ pub fn draw_home_grid(&mut self) {
         self.draw_back_button();
     }
 
-    /// Draw steganography mode selector (list of 6 modes)
+    /// Draw multisig wallet descriptor text screen.
+    /// Shows the descriptor in format: multi(M, pubkey1_hex, ..., pubkeyN_hex)
+    /// This allows companion wallets to reconstruct the same multisig address.
+    pub fn draw_multisig_descriptor(&mut self, _m: u8, n: u8, pubkeys: &[[u8; 32]], label: &str) {
+        self.display.clear(COLOR_BG).ok();
+
+        let tw = measure_header("DESCRIPTOR");
+        draw_oswald_header(&mut self.display, "DESCRIPTOR", (320 - tw) / 2, 25, KASPA_TEAL);
+        Line::new(Point::new(20, 35), Point::new(300, 35))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        // "2-of-3 multisig" label
+        let mut info: heapless::String<24> = heapless::String::new();
+        core::fmt::Write::write_fmt(&mut info, format_args!("{} multisig", label)).ok();
+        let iw = measure_body(info.as_str());
+        draw_lato_body(&mut self.display, &info, (320 - iw) / 2, 50, KASPA_ACCENT);
+
+        // Show each pubkey truncated: "1: abcd1234...ef567890"
+        let hex_chars = b"0123456789abcdef";
+        let mut y_pos: i32 = 68;
+        for i in 0..n.min(5) as usize {
+            let pk = &pubkeys[i];
+            let mut line: heapless::String<48> = heapless::String::new();
+            core::fmt::Write::write_fmt(&mut line, format_args!("{}: ", i + 1)).ok();
+            // First 6 bytes hex
+            for j in 0..6 {
+                line.push(hex_chars[(pk[j] >> 4) as usize] as char).ok();
+                line.push(hex_chars[(pk[j] & 0x0f) as usize] as char).ok();
+            }
+            line.push_str("..").ok();
+            // Last 4 bytes hex
+            for j in 28..32 {
+                line.push(hex_chars[(pk[j] >> 4) as usize] as char).ok();
+                line.push(hex_chars[(pk[j] & 0x0f) as usize] as char).ok();
+            }
+            let color = if i == 0 { KASPA_ACCENT } else { COLOR_TEXT };
+            draw_lato_hint(&mut self.display, &line, 20, y_pos, color);
+            y_pos += 28;
+        }
+
+        // Format hint
+        let fmt = "multi(M, pk1, ..., pkN)";
+        let fw = measure_hint(fmt);
+        draw_lato_hint(&mut self.display, fmt, (320 - fw) / 2, 210, COLOR_TEXT_DIM);
+
+        let hw = measure_hint("Tap for QR");
+        draw_lato_hint(&mut self.display, "Tap for QR", (320 - hw) / 2, 232, COLOR_HINT);
+        self.draw_back_button();
+    }
     /// Draw steganography JPEG file picker
     pub fn draw_stego_jpeg_pick(&mut self, disp_names: &[[u8; 32]; 8], disp_lens: &[u8; 8], count: u8, selected: u8) {
         self.display.clear(COLOR_BG).ok();
@@ -3690,11 +3707,10 @@ pub fn draw_home_grid(&mut self) {
     pub fn draw_stego_hint_reveal(&mut self, hint: &str) {
         self.display.clear(COLOR_BG).ok();
 
-        let success_green = Rgb565::new(0, 63, 0);
         let tw = measure_header("SEED RECOVERED");
-        draw_oswald_header(&mut self.display, "SEED RECOVERED", (320 - tw) / 2, 30, success_green);
+        draw_oswald_header(&mut self.display, "SEED RECOVERED", (320 - tw) / 2, 30, KASPA_TEAL);
         Line::new(Point::new(20, 40), Point::new(300, 40))
-            .into_styled(PrimitiveStyle::with_stroke(success_green, 1))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
             .draw(&mut self.display).ok();
 
         let rw = measure_body("A recovery hint was found:");
@@ -3753,11 +3769,10 @@ pub fn draw_home_grid(&mut self) {
         Image::new(&raw_img, Point::zero())
             .draw(&mut self.display).ok();
 
-        let success_green = Rgb565::new(0, 63, 0);
         let mut msg_buf: heapless::String<64> = heapless::String::new();
         core::fmt::Write::write_fmt(&mut msg_buf, format_args!("!! {} !!", message)).ok();
         let tw = measure_title(msg_buf.as_str());
-        draw_lato_title(&mut self.display, msg_buf.as_str(), (320 - tw) / 2, 170, success_green);
+        draw_lato_title(&mut self.display, msg_buf.as_str(), (320 - tw) / 2, 170, KASPA_TEAL);
 
         let cw = measure_hint("Tap to continue");
         draw_lato_hint(&mut self.display, "Tap to continue", (320 - cw) / 2, 222, COLOR_HINT);
@@ -3819,70 +3834,13 @@ fn is_guide_pixel(
 // Camera Tune Screen (dev tool, feature-gated)
 // ═══════════════════════════════════════════════════════════════
 
+#[cfg(feature = "waveshare")]
 const CAM_TUNE_LABELS: [&str; 6] = [
     "AEC-H", "AEC-L", "Contr", "Brite", "AGC", "Sharp"
 ];
 
+#[cfg(feature = "waveshare")]
 impl<'a> crate::hw::display::BootDisplay<'a> {
-    /// Draw cam-tune chrome ONCE on entry. Camera blit handles its own rectangle.
-    pub fn draw_cam_tune_overlay(&mut self, param: u8, vals: &[u8; 6]) {
-        use embedded_graphics::prelude::*;
-        use embedded_graphics::primitives::{Rectangle, PrimitiveStyle, RoundedRectangle};
-        use embedded_graphics::primitives::CornerRadii;
-        use crate::hw::display::*;
-
-        let corner = CornerRadii::new(Size::new(6, 6));
-
-        // Right panel (x=198..320, y=0..180)
-        Rectangle::new(Point::new(198, 0), Size::new(122, 180))
-            .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
-            .draw(&mut self.display).ok();
-
-        // EXIT button (116×32)
-        RoundedRectangle::new(
-            Rectangle::new(Point::new(202, 2), Size::new(116, 32)),
-            corner
-        ).into_styled(PrimitiveStyle::with_fill(COLOR_RED_BTN))
-        .draw(&mut self.display).ok();
-        draw_lato_title(&mut self.display, "EXIT", 236, 26, COLOR_TEXT);
-
-        // 6 param buttons: 3 rows × 2 cols
-        let btn_w = 56u32;
-        let btn_h = 44u32;
-        let gap = 3i32;
-        let grid_y0 = 38i32;
-        let col0_x = 202i32;
-        let col1_x = 262i32;
-        let row_step = (btn_h as i32) + gap;
-
-        for i in 0..6u8 {
-            let row = i / 2;
-            let col = i % 2;
-            let bx = if col == 0 { col0_x } else { col1_x };
-            let by = grid_y0 + row as i32 * row_step;
-            let is_sel = i == param;
-
-            let btn_bg = if is_sel {
-                PrimitiveStyle::with_fill(KASPA_TEAL)
-            } else {
-                PrimitiveStyle::with_fill(COLOR_CARD)
-            };
-            RoundedRectangle::new(
-                Rectangle::new(Point::new(bx, by), Size::new(btn_w, btn_h)),
-                corner
-            ).into_styled(btn_bg).draw(&mut self.display).ok();
-
-            let label = CAM_TUNE_LABELS[i as usize];
-            let label_color = if is_sel { COLOR_BG } else { COLOR_TEXT };
-            let lw = measure_body(label);
-            let lx = bx + (btn_w as i32 - lw) / 2;
-            draw_lato_body(&mut self.display, label, lx.max(bx + 2), by + 30, label_color);
-        }
-
-        // Bottom slider bar
-        self.update_cam_tune_slider(param, vals);
-    }
-
     /// Partial redraw: only the bottom slider bar (y=180..240).
     pub fn update_cam_tune_slider(&mut self, param: u8, vals: &[u8; 6]) {
         use embedded_graphics::prelude::*;

@@ -19,7 +19,7 @@
 //
 // Encryption and decryption of the mnemonic for secure flash storage.
 //
-// Flujo de cifrado:
+// Encryption flow:
 //   PIN + device_salt → PBKDF2-HMAC-SHA256 (100k iterations) → AES-256 key
 //   mnemonic → AES-256-GCM(key, random_nonce, aad=version) → encrypted blob
 //
@@ -36,6 +36,7 @@
 // NOTE: uses AeadInPlace to avoid alloc — all encrypt/decrypt in fixed buffers.
 
 
+#![allow(dead_code)]
 use sha2::{Sha256, Digest};
 use aes_gcm::{
     Aes256Gcm,
@@ -206,108 +207,7 @@ pub fn pbkdf2_sha256_progress(password: &[u8], salt: &[u8], iterations: u32, pro
     result
 }
 
-// ─── Cifrado / Descifrado (in-place, sin alloc) ──────────────────────
-
-/// Encrypt a mnemonic for flash storage.
-///
-/// Output format: [version:1][nonce:12][ciphertext][tag:16]
-pub fn encrypt_mnemonic(
-    mnemonic_bytes: &[u8],
-    pin: &[u8],
-    device_salt: &[u8],
-    nonce_bytes: &[u8; NONCE_SIZE],
-    output: &mut [u8],
-) -> Result<usize, StorageError> {
-    let mlen = mnemonic_bytes.len();
-    if mlen > MAX_MNEMONIC_SIZE {
-        return Err(StorageError::MnemonicTooLong);
-    }
-    let total_size = 1 + NONCE_SIZE + mlen + TAG_SIZE;
-    if output.len() < total_size {
-        return Err(StorageError::BufferTooSmall);
-    }
-
-    let mut aes_key = pbkdf2_sha256(pin, device_salt, PBKDF2_ITERATIONS);
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(&aes_key));
-    let nonce = GenericArray::from_slice(nonce_bytes);
-    let aad = [STORAGE_VERSION];
-
-    // Copy plaintext to buffer (after version + nonce)
-    let ct_start = 1 + NONCE_SIZE;
-    output[ct_start..ct_start + mlen].copy_from_slice(mnemonic_bytes);
-
-    // Cifrar in-place
-    let tag = cipher
-        .encrypt_in_place_detached(nonce, &aad, &mut output[ct_start..ct_start + mlen])
-        .map_err(|_| StorageError::EncryptionFailed)?;
-
-    zeroize_buf(&mut aes_key);
-
-    // Header
-    output[0] = STORAGE_VERSION;
-    output[1..1 + NONCE_SIZE].copy_from_slice(nonce_bytes);
-    // Tag al final
-    output[ct_start + mlen..ct_start + mlen + TAG_SIZE].copy_from_slice(&tag);
-
-    Ok(total_size)
-}
-
-/// Decrypt a flash blob and recover the mnemonic.
-///
-/// Retorna `DecryptionFailed` si PIN incorrecto o datos corruptos.
-pub fn decrypt_mnemonic(
-    encrypted: &[u8],
-    pin: &[u8],
-    device_salt: &[u8],
-    output: &mut [u8],
-) -> Result<usize, StorageError> {
-    let min_size = 1 + NONCE_SIZE + TAG_SIZE;
-    if encrypted.len() < min_size {
-        return Err(StorageError::DecryptionFailed);
-    }
-
-    if encrypted[0] != STORAGE_VERSION {
-        return Err(StorageError::UnsupportedVersion);
-    }
-
-    let nonce_bytes = &encrypted[1..1 + NONCE_SIZE];
-    let ct_and_tag = &encrypted[1 + NONCE_SIZE..];
-
-    if ct_and_tag.len() < TAG_SIZE {
-        return Err(StorageError::DecryptionFailed);
-    }
-
-    let ct_len = ct_and_tag.len() - TAG_SIZE;
-    if output.len() < ct_len {
-        return Err(StorageError::BufferTooSmall);
-    }
-
-    let ciphertext = &ct_and_tag[..ct_len];
-    let tag_bytes = &ct_and_tag[ct_len..];
-
-    let mut aes_key = pbkdf2_sha256(pin, device_salt, PBKDF2_ITERATIONS);
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(&aes_key));
-    let nonce = GenericArray::from_slice(nonce_bytes);
-    let aad = [STORAGE_VERSION];
-    let tag = GenericArray::from_slice(tag_bytes);
-
-    output[..ct_len].copy_from_slice(ciphertext);
-
-    let result = cipher.decrypt_in_place_detached(
-        nonce, &aad, &mut output[..ct_len], tag,
-    );
-
-    zeroize_buf(&mut aes_key);
-
-    match result {
-        Ok(()) => Ok(ct_len),
-        Err(_) => {
-            zeroize_buf(&mut output[..ct_len]);
-            Err(StorageError::DecryptionFailed)
-        }
-    }
-}
-
+// ─── Encryption / Decryption (in-place, no alloc) ──────────────────────
 // ═══════════════════════════════════════════════════════════════════════
 // Tests (all use few PBKDF2 iterations for speed on ESP32)
 // ═══════════════════════════════════════════════════════════════════════

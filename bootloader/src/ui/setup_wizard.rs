@@ -34,6 +34,7 @@
 //   → Derive Kaspa keys → ready
 
 
+#![allow(dead_code)]
 use crate::wallet::bip39;
 
 // ═══════════════════════════════════════════════════════════════════
@@ -515,16 +516,6 @@ pub fn new() -> Self {
             self.mnemonic[..24].copy_from_slice(&m.indices);
         }
     }
-
-    /// Get word at index as string
-    pub fn word_at(&self, idx: u8) -> &'static str {
-        if (idx as usize) < self.word_count as usize {
-            bip39::index_to_word(self.mnemonic[idx as usize])
-        } else {
-            "???"
-        }
-    }
-
     /// Serialize mnemonic indices to bytes for encryption
     /// Format: [count][idx0_hi][idx0_lo][idx1_hi][idx1_lo]...
     pub fn serialize_mnemonic(&self, buf: &mut [u8]) -> usize {

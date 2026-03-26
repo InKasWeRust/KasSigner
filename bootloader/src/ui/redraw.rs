@@ -19,6 +19,9 @@
 // All draw_*_screen() calls dispatched by AppState.
 // Called from main loop when needs_redraw is true.
 
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(static_mut_refs)]
 use crate::{hw::battery, hw::display, hw::sound, features::fw_update, hw::sdcard, ui::seed_manager, wallet};
 /// Redraw the current screen based on AppState. Called when needs_redraw is set.
 pub fn redraw_screen(
@@ -199,6 +202,10 @@ pub fn redraw_screen(
                 crate::app::input::AppState::DisplaySettings => {
                     boot_display.draw_display_settings(ad.brightness);
                 }
+                #[cfg(feature = "m5stack")]
+                crate::app::input::AppState::AudioSettings => {
+                    boot_display.draw_audio_settings(ad.volume);
+                }
                 crate::app::input::AppState::SdCardSettings => {
                     let card_str = match bb_card_type {
                         Some(sdcard::SdCardType::SdV2Hc) => "SDHC (High Capacity)",
@@ -251,7 +258,8 @@ pub fn redraw_screen(
                     boot_display.draw_back_button();
                 }
                 crate::app::input::AppState::ReviewTx { page } => {
-                    boot_display.draw_tx_page(&ad.demo_tx, page);
+                    boot_display.draw_tx_page(&ad.demo_tx, page,
+                        &ad.pubkey_cache, &ad.change_pubkey_cache);
                 }
                 crate::app::input::AppState::ConfirmTx => {
                     let mut amt_buf = [0u8; 20];
@@ -362,6 +370,35 @@ pub fn redraw_screen(
                         &script_hash, wallet::address::AddressType::P2SH, &mut addr_buf);
                     boot_display.draw_qr_fullscreen(&addr_buf[..addr_len], "MULTISIG QR");
                 }
+                crate::app::input::AppState::MultisigDescriptor => {
+                    let mut label_buf = [0u8; 8];
+                    let label_len = ad.ms_creating.label(&mut label_buf);
+                    let label = core::str::from_utf8(&label_buf[..label_len]).unwrap_or("?-of-?");
+                    boot_display.draw_multisig_descriptor(
+                        ad.ms_creating.m, ad.ms_creating.n,
+                        &ad.ms_creating.pubkeys[..ad.ms_creating.n as usize], label);
+                }
+                crate::app::input::AppState::MultisigDescriptorQR => {
+                    // Build descriptor string: multi(M,pk1_hex,...,pkN_hex)
+                    // Max size: "multi(5," + 5*(64+1) + ")" = ~340 bytes
+                    let mut desc = [0u8; 400];
+                    let mut pos: usize = 0;
+                    let hex = b"0123456789abcdef";
+                    // "multi("
+                    for &b in b"multi(" { desc[pos] = b; pos += 1; }
+                    // M as ascii
+                    desc[pos] = b'0' + ad.ms_creating.m; pos += 1;
+                    for i in 0..ad.ms_creating.n as usize {
+                        desc[pos] = b','; pos += 1;
+                        let pk = &ad.ms_creating.pubkeys[i];
+                        for j in 0..32 {
+                            desc[pos] = hex[(pk[j] >> 4) as usize]; pos += 1;
+                            desc[pos] = hex[(pk[j] & 0x0f) as usize]; pos += 1;
+                        }
+                    }
+                    desc[pos] = b')'; pos += 1;
+                    boot_display.draw_qr_fullscreen(&desc[..pos], "DESCRIPTOR QR");
+                }
                 // ─── Steganography Redraws ────────────
                 crate::app::input::AppState::StegoModeSelect => {
                     // Auto-skip screen — show loading while SD scan runs
@@ -442,6 +479,15 @@ pub fn redraw_screen(
                 }
                 crate::app::input::AppState::About => {
                     boot_display.draw_about_screen();
+                    // Auto-return: set a high idle counter so the main loop
+                    // returns to SettingsMenu on next touch (or we use a simple
+                    // busy-wait here since redraw blocks anyway)
+                    {
+                        let delay = esp_hal::delay::Delay::new();
+                        delay.delay_millis(3000);
+                    }
+                    ad.app.state = crate::app::input::AppState::SettingsMenu;
+                    ad.needs_redraw = true;
                 }
                 crate::app::input::AppState::ShowAddress => {
                     if ad.scanned_addr_len > 0 {
@@ -510,6 +556,12 @@ pub fn redraw_screen(
                 crate::app::input::AppState::Bip85ShowWord { word_idx, word_count: bwc } => {
                     let word = wallet::bip39::index_to_word(ad.bip85_child_indices[word_idx as usize]);
                     boot_display.draw_bip85_word_screen(word_idx, bwc, word);
+                }
+                // AudioSettings: handled per-platform
+                #[cfg(feature = "waveshare")]
+                crate::app::input::AppState::AudioSettings => {
+                    // No audio hardware on Waveshare — should never reach here
+                    ad.app.state = crate::app::input::AppState::SettingsMenu;
                 }
             }
 }

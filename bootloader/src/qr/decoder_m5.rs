@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-// qr/decoder.rs — QR code detection and decoding
 
+// qr/decoder.rs — QR code detection and decoding
 // ═══════════════════════════════════════════════════════════════
 // KasSigner — QR Code Decoder (no_std, no_alloc, pure Rust)
 // ═══════════════════════════════════════════════════════════════
@@ -41,6 +41,8 @@
 // Multi-frame: The caller accumulates frames externally. This
 // module decodes one QR code from one grayscale image at a time.
 
+#![allow(dead_code)]
+#![allow(static_mut_refs)]
 /// Max QR version we decode
 const MAX_VER: usize = 8;
 /// Max modules per side (V8 = 49)
@@ -451,12 +453,6 @@ fn rs_correct_with_erasures(block: &mut [u8], ec_len: usize, erasures: &[usize])
 // ═══════════════════════════════════════════════════════════════
 // Binarization — global Otsu threshold, computed once per frame
 // ═══════════════════════════════════════════════════════════════
-
-/// Compute optimal binary threshold (public for diagnostics).
-pub fn get_threshold(img: &[u8]) -> u8 {
-    compute_threshold(img)
-}
-
 /// Compute optimal binary threshold using simplified Otsu's method.
 /// Ignores pixels == 0 (zero-padded rows from camera crop).
 fn compute_threshold(img: &[u8]) -> u8 {
@@ -537,12 +533,11 @@ struct Finder {
 }
 
 /// Check 5-element run-length for 1:1:3:1:1 ratio. Returns module_size×256 or 0.
-/// 80% tolerance (slightly more generous than M5Stack's 75% for the noisier OV2640)
 fn check_ratio(r: &[u32; 5]) -> u32 {
     let tot: u32 = r[0] + r[1] + r[2] + r[3] + r[4];
     if tot < 7 { return 0; }
     let m = (tot << 8) / 7; // module×256
-    let tol = m * 4 / 5; // 80% tolerance
+    let tol = m * 3 / 4; // 75% tolerance for noisy camera
     for &v in &[r[0], r[1], r[3], r[4]] {
         let v256 = v << 8;
         if v256 + tol < m || v256 > m + tol { return 0; }
@@ -686,7 +681,7 @@ fn identify_corners_multi(f: &[Finder; MAX_FINDERS], cnt: usize,
             for c in (b + 1)..n {
                 let ms_min = f[a].ms.min(f[b].ms).min(f[c].ms);
                 let ms_max = f[a].ms.max(f[b].ms).max(f[c].ms);
-                // Allow 3x module size variation
+                // Allow 3x module size variation for hand-drawn cards
                 if ms_min == 0 || ms_max > ms_min * 3 { continue; }
 
                 let d = [dist_sq(f[a], f[b]), dist_sq(f[b], f[c]), dist_sq(f[a], f[c])];
@@ -743,10 +738,10 @@ fn identify_corners_multi(f: &[Finder; MAX_FINDERS], cnt: usize,
         // cross² / (|TL-TR| * |TL-BL|) should be ~1 for right angle
         // If < 0.25, it's nearly collinear → synthesize BL
         if tl_tr_dist > 0 && tl_bl_dist > 0 {
-            let cross_sq = (cross_abs as u64).saturating_mul(cross_abs as u64);
-            let dist_prod = tl_tr_dist.saturating_mul(tl_bl_dist);
+            let cross_sq = (cross_abs as u64) * (cross_abs as u64);
+            let dist_prod = tl_tr_dist * tl_bl_dist;
             // cross_sq / dist_prod < 0.25 means nearly collinear
-            if cross_sq.saturating_mul(4) < dist_prod {
+            if cross_sq * 4 < dist_prod {
                 // Synthesize BL: rotate TL→TR by 90° CW: (dx,dy) → (dy,-dx)
                 let dx = tr.cx - tl.cx;
                 let dy = tr.cy - tl.cy;
@@ -798,7 +793,7 @@ fn estimate_version(tl: Finder, tr: Finder, bl: Finder) -> Result<usize, DecodeE
 fn sample_grid(
     img: &[u8], w: usize, h: usize,
     tl: Finder, tr: Finder, bl: Finder,
-    br_dx: i32, br_dy: i32,
+    br_dx: i32, br_dy: i32, // offset to BR estimate (in ×256 fixed point)
     ver: usize, thr: u8, mat: &mut BitMat,
 ) -> Result<(), DecodeError> {
     let side = 4 * ver + 17;
@@ -806,29 +801,36 @@ fn sample_grid(
     mat.side = side;
     for b in mat.bits.iter_mut() { *b = 0; }
 
+    // Estimate 4th corner: BR = TR + BL - TL + offset
     let br_cx = tr.cx + bl.cx - tl.cx + br_dx;
     let br_cy = tr.cy + bl.cy - tl.cy + br_dy;
 
+    // Bilinear interpolation from 4 corners
     let span = (side as i64 - 7) * 1024;
-    let half = 3i64 * 1024 + 512;
-    let span_sq_div = span * span / 256;
+    let half = 3i64 * 1024 + 512; // 3.5 in ×1024
 
     for my in 0..side {
-        let v = my as i64 * 1024 + 512 - half;
+        let v = my as i64 * 1024 + 512 - half; // (my + 0.5 - 3.5) * 1024 = module CENTER
         for mx in 0..side {
-            let u = mx as i64 * 1024 + 512 - half;
-            let su = span - u;
+            let u = mx as i64 * 1024 + 512 - half; // (mx + 0.5 - 3.5) * 1024
+
+            // Bilinear: p = (span-u)*(span-v)*TL + u*(span-v)*TR + (span-u)*v*BL + u*v*BR
+            // All divided by span^2
+            let su = span - u; // (span - u)
             let sv = span - v;
 
+            // Compute pixel X (all terms in ×256 * ×1024 * ×1024, divide by span^2)
             let px = (su * sv * (tl.cx as i64)
                     + u  * sv * (tr.cx as i64)
                     + su * v  * (bl.cx as i64)
-                    + u  * v  * (br_cx as i64)) / span_sq_div;
+                    + u  * v  * (br_cx as i64)) / (span * span / 256);
             let py = (su * sv * (tl.cy as i64)
                     + u  * sv * (tr.cy as i64)
                     + su * v  * (bl.cy as i64)
-                    + u  * v  * (br_cy as i64)) / span_sq_div;
+                    + u  * v  * (br_cy as i64)) / (span * span / 256);
 
+            // Bilinear pixel interpolation for sub-pixel accuracy
+            // px, py are in ×65536 fixed point (i64)
             if px < 0 || py < 0 {
                 mat.set(mx, my, false);
                 continue;
@@ -837,14 +839,16 @@ fn sample_grid(
             let pyu = py as u64;
             let ix = (pxu >> 16) as usize;
             let iy = (pyu >> 16) as usize;
-            let fx = (pxu & 0xFFFF) as i64;
-            let fy = (pyu & 0xFFFF) as i64;
+            let fx = (pxu & 0xFFFF) as i64; // fractional X (0..65535)
+            let fy = (pyu & 0xFFFF) as i64; // fractional Y (0..65535)
 
             let dark = if ix + 1 < w && iy + 1 < h {
+                // 4 neighboring pixels
                 let p00 = img[iy * w + ix] as i64;
                 let p10 = img[iy * w + ix + 1] as i64;
                 let p01 = img[(iy + 1) * w + ix] as i64;
                 let p11 = img[(iy + 1) * w + ix + 1] as i64;
+                // Bilinear interpolation in ×65536
                 let s = 65536i64;
                 let val = ((s - fx) * (s - fy) * p00
                          + fx * (s - fy) * p10
@@ -1603,24 +1607,16 @@ fn try_decode_grid(
     // perspective distortion that causes grid errors at higher versions.
 
     for &(c_tl, c_tr, c_bl) in &corner_sets {
-        // Build offset list: (0,0) first, then alignment-corrected, then BR nudges
-        // The parallelogram BR estimate can be off by ~0.5 modules due to perspective.
-        // Try small offsets to find the sweet spot.
-        let avg_ms = ((c_tl.ms as i32 + c_tr.ms as i32 + c_bl.ms as i32) / 3).max(128);
-        let half_mod = avg_ms / 2; // half module in ×256 fixed point
-
-        let mut offsets: [(i32, i32); 6] = [(0, 0); 6];
+        // Build offset list: always try (0,0) first, then alignment-corrected if V2+
+        let mut offsets: [(i32, i32); 2] = [(0, 0), (0, 0)];
         let mut n_offsets = 1usize;
-        // Alignment pattern correction (V2+)
         if ver >= 2 {
             let (adx, ady) = find_alignment_correction(img, w, h, thr, c_tl, c_tr, c_bl, ver);
             if adx != 0 || ady != 0 {
-                offsets[n_offsets] = (adx, ady);
-                n_offsets += 1;
+                offsets[1] = (adx, ady);
+                n_offsets = 2;
             }
         }
-        // Single BR nudge: inward diagonal (most common perspective error direction)
-        offsets[n_offsets] = (half_mod, half_mod); n_offsets += 1;
 
         let mut oi = 0usize;
         while oi < n_offsets {
@@ -1808,10 +1804,12 @@ pub fn decode(img: &[u8], w: usize, h: usize) -> Result<DecodeResult, DecodeErro
         }
     }
 
-    // Use best triple only — additional triples rarely help and cost 3× compute
-    let (tl, tr, bl) = corner_triples[0];
+    // Try each triple — first triple is best geometry, but may be wrong if noisy finders
+    for ti in 0..n_triples {
+        let (tl, tr, bl) = corner_triples[ti];
 
-    // Recompute threshold over QR region only (removes background bias)
+    // Step 2.5: Recompute threshold over QR region only
+    // This removes background bias from walls/table/hand
     let qr_thr = {
         let min_x = ((tl.cx.min(tr.cx).min(bl.cx) >> 8) - 10).max(0) as usize;
         let max_x = ((tl.cx.max(tr.cx).max(bl.cx) >> 8) + 10).min(w as i32 - 1) as usize;
@@ -1819,6 +1817,7 @@ pub fn decode(img: &[u8], w: usize, h: usize) -> Result<DecodeResult, DecodeErro
         let max_y = ((tl.cy.max(tr.cy).max(bl.cy) >> 8) + 10).min(h as i32 - 1) as usize;
 
         if max_x > min_x + 10 && max_y > min_y + 10 {
+            // Build histogram of QR region only
             let mut hist = [0u32; 256];
             let mut total = 0u32;
             for y in min_y..=max_y {
@@ -1831,6 +1830,7 @@ pub fn decode(img: &[u8], w: usize, h: usize) -> Result<DecodeResult, DecodeErro
                 }
             }
             if total > 100 {
+                // Otsu on QR region
                 let mut sum_all = 0u64;
                 for i in 1..256u32 { sum_all += i as u64 * hist[i as usize] as u64; }
                 let mut sum_bg = 0u64;
@@ -1849,6 +1849,7 @@ pub fn decode(img: &[u8], w: usize, h: usize) -> Result<DecodeResult, DecodeErro
                     let var = (w_bg as u64) * (w_fg as u64) * diff * diff;
                     if var > best_v { best_v = var; best_t = t as u8; }
                 }
+                // Midpoint between clusters
                 let mut next = best_t as usize + 1;
                 while next < 256 && hist[next] == 0 { next += 1; }
                 if next < 256 && next > best_t as usize + 1 {
@@ -1860,14 +1861,13 @@ pub fn decode(img: &[u8], w: usize, h: usize) -> Result<DecodeResult, DecodeErro
         } else { thr }
     };
 
-    // Estimate version from finder spacing
+    // Step 3: Estimate version
     let ver_est = estimate_version(tl, tr, bl);
     unsafe {
         GEO_DEBUG_VER = match ver_est { Ok(v) => v as u8, Err(_) => 0 };
     }
 
-    // Build version list: estimated ±1 (covers estimation jitter)
-    // Fallback: try V1, V2, V3 if estimate fails
+    // Step 4: Try estimated version ±1 (3 versions max, for speed)
     let mut versions_to_try = [0i32; 3];
     let mut nv = 0usize;
     if let Ok(v) = ver_est {
@@ -1877,16 +1877,15 @@ pub fn decode(img: &[u8], w: usize, h: usize) -> Result<DecodeResult, DecodeErro
         if lo >= 1 { versions_to_try[nv] = lo; nv += 1; }
         if hi <= MAX_VER as i32 { versions_to_try[nv] = hi; nv += 1; }
     } else {
-        versions_to_try = [1, 2, 3];
+        versions_to_try = [3, 4, 2];
         nv = 3;
     }
 
     let mut _last_err = DecodeError::BadVersion;
 
-    // 2 thresholds: QR-region Otsu + slightly lower (dark modules more forgiving)
+    // Single threshold for speed (was 2 — saves ~50% decode time)
     let thresholds = [
         qr_thr,
-        qr_thr.saturating_sub(10),
     ];
 
     for &t in &thresholds {
@@ -1901,39 +1900,22 @@ pub fn decode(img: &[u8], w: usize, h: usize) -> Result<DecodeResult, DecodeErro
         }
     }
 
+    } // end triple loop
+
     Err(last_err)
 }
 
 // ═══════════════════════════════════════════════════════════════
 // Self-tests
 // ═══════════════════════════════════════════════════════════════
-
-/// Run decoder self-tests. Returns (passed, total).
-/// Get the number of finders detected in the last decode() call.
-pub fn last_finder_count() -> u8 {
-    unsafe { LAST_FINDER_CNT }
-}
-/// Get QR bounding box in image pixels: (x0, y0, x1, y1) or (0,0,0,0) if none
-pub fn last_qr_bounds() -> (u16, u16, u16, u16) {
-    unsafe { (LAST_QR_X0, LAST_QR_Y0, LAST_QR_X1, LAST_QR_Y1) }
-}
 /// Get raw codeword diagnostic: (raw_cw[0], raw_cw[1], ecc_level, mask, version_est)
 pub fn last_raw_info() -> (u8, u8, u8, u8, u8) {
     unsafe { (LAST_RAW0, LAST_RAW1, LAST_ECC, LAST_MASK, LAST_VER) }
-}
-/// Get the Reed-Solomon erasure count from the last decode attempt.
-pub fn last_erasure_count() -> u8 {
-    unsafe { LAST_ERASURES }
 }
 static mut LAST_FINDER_CNT: u8 = 0;
 static mut GEO_DEBUG: [(i32, i32, u32); 6] = [(0,0,0); 6];
 static mut GEO_DEBUG_CNT: u8 = 0;
 static mut GEO_DEBUG_VER: u8 = 0;
-
-/// Get geometry debug info: finder positions + version estimate
-pub fn last_geo_debug() -> (u8, [(i32, i32, u32); 6], u8) {
-    unsafe { (GEO_DEBUG_CNT, GEO_DEBUG, GEO_DEBUG_VER) }
-}
 static mut LAST_QR_X0: u16 = 0;
 static mut LAST_QR_Y0: u16 = 0;
 static mut LAST_QR_X1: u16 = 0;

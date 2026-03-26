@@ -25,6 +25,7 @@
 // ADC1_CH4 on GPIO5, 12-bit, attenuation 12dB (0~2.5V usable range)
 // With divider: max Vbat = 2.5V × 3 = 7.5V (covers Li-ion 3.0-4.2V)
 
+#![allow(dead_code)]
 use esp_hal::i2c::master::I2c;
 
 // SENS registers for RTC ADC1 (base 0x60008800, TRM §39)

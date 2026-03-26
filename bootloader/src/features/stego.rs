@@ -44,6 +44,7 @@
 //   5. Derive AES key from passphrase + salt
 //   6. Decrypt → validate BIP39 checksum
 
+#![allow(dead_code)]
 /// Zero-width character encodings (UTF-8 byte sequences)
 /// U+200B = E2 80 8B (zero-width space)
 /// U+200C = E2 80 8C (zero-width non-joiner)
@@ -70,83 +71,6 @@ const TEMPLATES: [&str; 4] = [
     "The quarterly report looks good overall but I think we should review the marketing budget numbers before the board meeting next Tuesday also please send me the updated spreadsheet with the regional breakdown when you get a chance I want to double check the totals before presenting",
     "Happy birthday to the most amazing person I know wishing you all the best on your special day may this year bring you joy happiness and everything you have been dreaming of sending lots of love and warm hugs from the whole family we miss you and hope to see you very soon take care",
 ];
-
-/// Encode a byte payload into zero-width characters interleaved with visible text.
-/// Returns the number of bytes written to `output`, or 0 on error.
-///
-/// `payload`: encrypted data bytes
-/// `payload_len`: actual payload length
-/// `template`: visible text bytes to interleave with
-/// `template_len`: length of visible text
-/// `output`: buffer to write the stego text into (must be >= MAX_STEGO_OUTPUT)
-pub fn encode_stego_text(
-    payload: &[u8],
-    payload_len: usize,
-    template: &[u8],
-    template_len: usize,
-    output: &mut [u8],
-) -> usize {
-    if payload_len > MAX_STEGO_PAYLOAD || output.len() < MAX_STEGO_OUTPUT {
-        return 0;
-    }
-
-    // We need payload_len * 4 zero-width chars (4 per byte, 2 bits each)
-    let zw_count = payload_len * 4;
-
-    // We need at least zw_count + 1 visible characters to interleave
-    if template_len < zw_count + 1 {
-        return 0;
-    }
-
-    let mut pos = 0usize;
-
-    // Interleave: visible char, then ZW char(s), then next visible char...
-    // Spread ZW chars evenly across the template
-    let mut zw_idx = 0usize; // which ZW char we're inserting next
-
-    for (i, &visible_byte) in template[..template_len].iter().enumerate() {
-        // Write visible character
-        if pos >= output.len() { break; }
-        output[pos] = visible_byte;
-        pos += 1;
-
-        // After each visible char (except last), potentially insert ZW char(s)
-        if i < template_len - 1 && zw_idx < zw_count {
-            // How many ZW chars to insert here?
-            // Spread evenly: remaining_zw / remaining_positions
-            let remaining_positions = template_len - 1 - i;
-            let remaining_zw = zw_count - zw_idx;
-            let insert_count = if remaining_positions > 0 {
-                (remaining_zw + remaining_positions - 1) / remaining_positions
-            } else {
-                remaining_zw
-            };
-            let insert_count = insert_count.min(remaining_zw);
-
-            for _ in 0..insert_count {
-                if zw_idx >= zw_count || pos + 3 > output.len() { break; }
-
-                // Extract 2 bits from payload
-                let byte_idx = zw_idx / 4;
-                let bit_pair = (zw_idx % 4) as u8;
-                let bits = (payload[byte_idx] >> (6 - bit_pair * 2)) & 0x03;
-
-                let zw = match bits {
-                    0b00 => &ZW_00,
-                    0b01 => &ZW_01,
-                    0b10 => &ZW_10,
-                    _    => &ZW_11,
-                };
-                output[pos..pos + 3].copy_from_slice(zw);
-                pos += 3;
-                zw_idx += 1;
-            }
-        }
-    }
-
-    pos
-}
-
 /// Decode zero-width characters from a stego text back into payload bytes.
 /// Returns the number of payload bytes extracted, or 0 on error.
 ///
@@ -227,12 +151,6 @@ pub fn contains_stego(data: &[u8], len: usize) -> bool {
     }
     false
 }
-
-/// Get a template message by index (for UI display)
-pub fn get_template(idx: usize) -> &'static str {
-    TEMPLATES[idx % TEMPLATES.len()]
-}
-
 /// Number of available templates
 pub const TEMPLATE_COUNT: usize = 4;
 
@@ -248,16 +166,6 @@ pub const HINT_PRESETS: [&str; 3] = [
 
 /// Total hint options: 3 presets + 1 custom
 pub const HINT_OPTION_COUNT: u8 = 4;
-
-/// Get a preset hint by index (0-3), or None for custom (4+)
-pub fn get_hint_preset(idx: u8) -> Option<&'static str> {
-    if (idx as usize) < HINT_PRESETS.len() {
-        Some(HINT_PRESETS[idx as usize])
-    } else {
-        None
-    }
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // Stego Mode Enum
 // ═══════════════════════════════════════════════════════════════════
@@ -275,11 +183,6 @@ pub fn label(&self) -> &'static str {
         StegoMode::JpegExif => "JPEG Metadata (SD)",
     }
 }
-
-pub fn needs_sd(&self) -> bool {
-    true
-}
-
 pub fn description(&self) -> &'static str {
     match self {
         StegoMode::JpegExif => "Hide seed in photo metadata. Needs SD with JPEG image.",
@@ -612,70 +515,6 @@ pub fn extract_user_comment(
 
     0
 }
-
-/// Extract ImageDescription from EXIF APP1 data (raw bytes including ZW chars).
-/// Returns number of bytes written to `output`.
-pub fn extract_image_description(
-    exif_data: &[u8],
-    exif_len: usize,
-    output: &mut [u8],
-) -> usize {
-    if exif_len < 20 { return 0; }
-    let tiff_start = 10;
-    let le = exif_data[tiff_start] == 0x49;
-    if !le { return 0; }
-
-    let ifd_offset = u32::from_le_bytes([
-        exif_data[tiff_start + 4], exif_data[tiff_start + 5],
-        exif_data[tiff_start + 6], exif_data[tiff_start + 7],
-    ]) as usize;
-
-    let ifd_pos = match tiff_start.checked_add(ifd_offset) {
-        Some(v) => v,
-        None => return 0,
-    };
-    if ifd_pos + 2 > exif_len { return 0; }
-
-    let num_entries = u16::from_le_bytes([exif_data[ifd_pos], exif_data[ifd_pos + 1]]) as usize;
-    let max_entries = num_entries.min(100);
-
-    for e in 0..max_entries {
-        let entry_pos = match ifd_pos.checked_add(2 + e * 12) {
-            Some(v) => v,
-            None => break,
-        };
-        if entry_pos + 12 > exif_len { break; }
-
-        let tag = u16::from_le_bytes([exif_data[entry_pos], exif_data[entry_pos + 1]]);
-        let count = u32::from_le_bytes([
-            exif_data[entry_pos + 4], exif_data[entry_pos + 5],
-            exif_data[entry_pos + 6], exif_data[entry_pos + 7],
-        ]) as usize;
-        let value_offset = u32::from_le_bytes([
-            exif_data[entry_pos + 8], exif_data[entry_pos + 9],
-            exif_data[entry_pos + 10], exif_data[entry_pos + 11],
-        ]) as usize;
-
-        if tag == TAG_IMAGE_DESCRIPTION && count > 0 {
-            let data_pos = match tiff_start.checked_add(value_offset) {
-                Some(v) => v,
-                None => continue,
-            };
-            // count includes null terminator — copy without it
-            let data_len = if count > 0
-                && data_pos.checked_add(count).map_or(false, |end| end <= exif_len)
-                && exif_data[data_pos + count - 1] == 0 { count - 1 } else { count };
-            let copy_len = data_len.min(output.len());
-            if data_pos.checked_add(copy_len).map_or(false, |end| end <= exif_len) {
-                output[..copy_len].copy_from_slice(&exif_data[data_pos..data_pos + copy_len]);
-                return copy_len;
-            }
-        }
-    }
-
-    0
-}
-
 /// Inject an EXIF APP1 segment into a JPEG file.
 /// If the JPEG already has APP1, replaces it. Otherwise inserts after SOI.
 ///

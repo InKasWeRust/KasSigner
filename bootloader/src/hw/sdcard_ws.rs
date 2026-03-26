@@ -47,6 +47,8 @@
 //   CMD25  → WRITE_MULTIPLE_BLOCK (R1 + data stream)
 //   CMD12  → STOP_TRANSMISSION (R1b response)
 
+#![allow(dead_code)]
+#![allow(static_mut_refs)]
 #[cfg(not(feature = "silent"))]
 
 use crate::log;
@@ -1117,24 +1119,6 @@ where
 // ═══════════════════════════════════════════════════════════════
 // Legacy API compatibility — these names are used by FAT32 layer
 // ═══════════════════════════════════════════════════════════════
-
-/// Reclaim GPIOs for bitbang (legacy — now routes to SDHOST)
-pub fn bb_reclaim_gpios() -> (u32, u32, u32) {
-    let saved = save_display_state();
-    route_pins_to_sdhost();
-    (saved.fout_sck, saved.fout_mosi, saved.fout_miso)
-}
-
-/// Release GPIOs back to display (legacy)
-pub fn bb_release_gpios(saved: (u32, u32, u32)) {
-    unsafe {
-        reg_write(func_out_sel_addr(PIN_SCK), saved.0);
-        reg_write(func_out_sel_addr(PIN_MOSI), saved.1);
-        reg_write(func_out_sel_addr(PIN_MISO), saved.2);
-        gpio_enable_output(PIN_MISO);
-    }
-}
-
 // ═══════════════════════════════════════════════════════════════
 // FAT32 Filesystem Structures
 // ═══════════════════════════════════════════════════════════════
@@ -1490,47 +1474,6 @@ pub fn read_file_progress(
 
     Ok(pos)
 }
-
-/// Callback-based file reader: reads a file sector by sector, calling the callback
-/// for each 512-byte sector. Avoids needing a large output buffer.
-/// The callback receives (sector_data, bytes_valid_in_sector, total_bytes_so_far).
-pub fn read_file_streaming<F>(
-    card_type: SdCardType,
-    fat32: &Fat32Info,
-    entry: &DirEntry,
-    mut callback: F,
-) -> Result<usize, &'static str>
-where
-    F: FnMut(&[u8; 512], usize, usize) -> Result<(), &'static str>,
-{
-    let file_size = entry.file_size as usize;
-    let mut cluster = entry.first_cluster();
-    let mut remaining = file_size;
-    let mut total = 0usize;
-    let mut sector_buf = [0u8; 512];
-    let mut chain_steps = 0u32;
-    let max_chain = ((file_size as u32 / fat32.cluster_bytes()).saturating_add(2)).min(16384);
-
-    while remaining > 0 && cluster >= 2 && cluster < 0x0FFF_FFF8 {
-        chain_steps += 1;
-        if chain_steps > max_chain { return Err("FAT chain too long"); }
-        let base_sector = fat32.cluster_to_sector(cluster);
-        for s in 0..fat32.sectors_per_cluster as u32 {
-            if remaining == 0 { break; }
-            sd_read_block(card_type, base_sector + s, &mut sector_buf)?;
-            let chunk = if remaining >= 512 { 512 } else { remaining };
-            callback(&sector_buf, chunk, total)?;
-            total += chunk;
-            remaining -= chunk;
-        }
-        if remaining > 0 {
-            cluster = read_fat_entry(card_type, fat32, cluster)?;
-        }
-    }
-
-    Ok(total)
-}
-
 /// Create a new file in the root directory. Allocates clusters and writes data.
 /// Returns the created DirEntry.
 pub fn create_file(
@@ -1716,20 +1659,6 @@ pub fn overwrite_file(
     create_file(card_type, fat32, name_83, data)?;
     Ok(())
 }
-
-/// Overwrite file with progress callback for write phase.
-pub fn overwrite_file_progress(
-    card_type: SdCardType,
-    fat32: &Fat32Info,
-    name_83: &[u8; 11],
-    data: &[u8],
-    progress: &mut dyn FnMut(usize, usize),
-) -> Result<(), &'static str> {
-    let _ = delete_file(card_type, fat32, name_83);
-    create_file_progress(card_type, fat32, name_83, data, progress)?;
-    Ok(())
-}
-
 /// List files in root directory. Calls callback for each entry.
 /// Callback returns true to continue, false to stop.
 pub fn list_root_dir<F>(
@@ -1909,35 +1838,6 @@ pub struct BmpInfo {
 }
 
 impl BmpInfo {
-        /// Parse BMP header from raw bytes. Validates dimensions and format.
-pub fn from_header(header: &[u8]) -> Result<Self, &'static str> {
-        if header.len() < 54 { return Err("BMP header too short"); }
-        if header[0] != b'B' || header[1] != b'M' { return Err("Not a BMP file"); }
-
-        let data_offset = u32::from_le_bytes([header[10], header[11], header[12], header[13]]);
-        let width = u32::from_le_bytes([header[18], header[19], header[20], header[21]]);
-        let height_raw = i32::from_le_bytes([header[22], header[23], header[24], header[25]]);
-        let bits_per_pixel = u16::from_le_bytes([header[28], header[29]]);
-
-        let (height, top_down) = if height_raw < 0 {
-            ((-height_raw) as u32, true)
-        } else {
-            (height_raw as u32, false)
-        };
-
-        if bits_per_pixel != 24 && bits_per_pixel != 32 {
-            return Err("Only 24-bit and 32-bit BMP supported");
-        }
-
-        let bytes_per_pixel = (bits_per_pixel / 8) as u32;
-        let raw_row = width * bytes_per_pixel;
-        let row_stride = (raw_row + 3) & !3;
-
-        log!("[BMP] {}x{} {}bpp offset={} stride={} topdown={}",
-            width, height, bits_per_pixel, data_offset, row_stride, top_down);
-
-        Ok(Self { width, height, bits_per_pixel, data_offset, row_stride, top_down })
-    }
 }
 
 fn find_fat32_partition(mbr: &[u8; 512]) -> Result<u32, &'static str> {

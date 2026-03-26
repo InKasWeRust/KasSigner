@@ -78,6 +78,7 @@
 // Typical total: 72 bytes for 1 input (fits easily in 1 QR)
 
 
+#![allow(dead_code)]
 use super::transaction::*;
 
 /// Magic bytes for unsigned PSKT

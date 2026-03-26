@@ -20,7 +20,7 @@
 // Implements sighash computation per the Kaspa specification:
 //   https://kaspa-mdbook.aspectron.com/transactions/sighashes.html
 //
-// Similar a BIP-143 de Bitcoin pero usando Blake2b en vez de SHA256.
+// Similar to BIP-143 (Bitcoin) but uses Blake2b instead of SHA256.
 //
 // The sighash is the 32-byte message signed with Schnorr.
 //
@@ -32,10 +32,11 @@
 //     → schnorr_sign(private_key, sighash)
 
 
+#![allow(dead_code)]
 use blake2::{Blake2b, Digest};
 use blake2::digest::consts::U32;
 
-/// Blake2b con output de 32 bytes (256 bits)
+/// Blake2b with 32-byte (256-bit) output
 type Blake2b256 = Blake2b<U32>;
 use super::transaction::*;
 
@@ -158,9 +159,9 @@ fn sig_op_counts_hash(tx: &Transaction, sighash_type: SigHashType) -> Hash256 {
 
 /// Blake2b(serialization of outputs)
 ///
-/// - NONE o (SINGLE con input_index >= num_outputs) → 0x0000...0000
+/// - NONE or (SINGLE with input_index >= num_outputs) → 0x0000...0000
 /// - SINGLE with input_index < num_outputs → hash of output[input_index]
-/// - Otros → hash de todos los outputs
+/// - Others → hash of all outputs
 fn outputs_hash(
     tx: &Transaction,
     sighash_type: SigHashType,
@@ -184,7 +185,7 @@ fn outputs_hash(
         return hash;
     }
 
-    // SigHashAll: hash de todos los outputs
+    // SigHashAll: hash of all outputs
     let mut hasher = Blake2b256::new();
     for output in tx.outputs() {
         hash_output(&mut hasher, output);
@@ -225,7 +226,7 @@ fn payload_hash(tx: &Transaction) -> Hash256 {
 /// `input_index`: index of the input being signed
 /// `sighash_type`: tipo de sighash (normalmente SigHashAll)
 ///
-/// Retorna 32 bytes = Blake2b del sighash digest.
+/// Returns 32 bytes = Blake2b of the sighash digest.
 pub fn calculate_sighash(
     tx: &Transaction,
     input_index: usize,
@@ -308,11 +309,11 @@ pub fn calculate_sighash(
 /// Compute the sighash and sign with Schnorr.
 ///
 /// `tx`: complete transaction
-/// `input_index`: input a firmar
+/// `input_index`: input to sign
 /// `private_key`: 32-byte private key (from BIP32 derivation)
 /// `sighash_type`: tipo (normalmente SigHashAll)
 ///
-/// Retorna la firma Schnorr de 64 bytes.
+/// Returns the 64-byte Schnorr signature.
 pub fn sign_input(
     tx: &Transaction,
     input_index: usize,
@@ -505,7 +506,7 @@ pub fn test_format_kas() -> bool {
     true
 }
 
-/// Ejecuta todos los tests de sighash
+/// Runs all sighash tests
 #[cfg(any(test, feature = "verbose-boot"))]
 /// Run all sighash test vectors.
 pub fn run_sighash_tests() -> (u32, u32) {

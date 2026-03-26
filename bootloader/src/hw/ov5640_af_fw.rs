@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+// hw/ov5640_af_fw.rs — OV5640 autofocus MCU firmware blob (waveshare only)
 /// OV5640 autofocus MCU firmware (3726 bytes)
 /// Source: github.com/xupsh/Vision-Zynq OV5640.h (MIT)
 /// Loaded to OV5640 internal MCU RAM at 0x8000-0x8E8D

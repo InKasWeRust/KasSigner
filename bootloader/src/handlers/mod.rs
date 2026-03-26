@@ -14,8 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+// handlers/mod.rs — Touch input handler dispatch (menu, seed, tx, settings, camera)
 // handlers/ — Touch event handlers dispatched from main loop
 
+#![allow(unused_imports)]
 pub mod menu;
 pub mod stego;
 pub mod sd;

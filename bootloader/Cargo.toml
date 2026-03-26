@@ -5,14 +5,15 @@ edition = "2021"
 authors = ["KasSigner Team"]
 
 [features]
-default = []
+default = ["waveshare"]
+waveshare = []
+m5stack = []
 production = ["silent"]
 silent = []
 verbose-boot = []
 skip-tests = []
 screenshot = []
 icon-browser = []
-nvs-write = []
 test-psram = []
 
 [dependencies]

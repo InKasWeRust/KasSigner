@@ -21,6 +21,7 @@
 //         SdRestorePassphrase, SdXprvExportPassphrase,
 //         SdXprvFileList, SdXprvImportPassphrase
 
+#![allow(unused_imports)]
 use crate::log;
 use crate::{app::data::AppData, hw::display, hw::sd_backup, hw::sdcard, hw::sound, hw::touch, wallet};
 use crate::ui::helpers::pp_keyboard_hit;

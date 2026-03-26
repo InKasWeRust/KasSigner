@@ -41,6 +41,7 @@
 //   - Knowing a child mnemonic does NOT reveal the parent or other children
 
 
+#![allow(dead_code)]
 use super::hmac::{hmac_sha512, zeroize_buf};
 use super::bip32;
 use super::bip39;
@@ -189,21 +190,6 @@ pub fn derive_mnemonic_24(
 
     Ok(mnemonic)
 }
-
-/// Derive raw entropy bytes from a master seed (for advanced use).
-///
-/// Returns 64 bytes of HMAC-SHA512 output. Caller can use any portion.
-pub fn derive_entropy(
-    seed: &[u8; 64],
-    words: u32,
-    index: u32,
-) -> Result<[u8; 64], Bip85Error> {
-    if words != 12 && words != 24 {
-        return Err(Bip85Error::InvalidWordCount);
-    }
-    derive_bip85_entropy(seed, words, index)
-}
-
 // ─── Tests ──────────────────────────────────────────────────────────
 
 /// BIP85 test using precomputed seed (skips PBKDF2 — runs in <1s).

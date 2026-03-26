@@ -20,6 +20,7 @@
 // Auto-generated from TTF. SIL Open Font License.
 
 
+#![allow(dead_code)]
 use embedded_graphics::prelude::*;
 use embedded_graphics::pixelcolor::Rgb565;
 

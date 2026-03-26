@@ -17,12 +17,12 @@
 // crypto/secure_zeroize.rs — Secure memory zeroization
 // 100% Rust, no-std
 //
-// El compilador puede optimizar memset(0) si cree que la memoria
+// The compiler may optimize away memset(0) if it believes the memory
 // is not used afterwards. This is a security problem: keys and
 // seeds can remain in RAM after "erasing" them.
 //
 // This module guarantees erasure using:
-//   1. core::ptr::write_volatile — el compilador no puede eliminar escrituras volatile
+//   1. core::ptr::write_volatile — the compiler cannot eliminate volatile writes
 //   2. compiler_fence — evita reordenamiento de instrucciones
 //   3. Post-zeroization verification (in debug/dev)
 //
@@ -30,10 +30,11 @@
 //   zeroize_slice(&mut my_key_bytes);
 //   zeroize_array(&mut my_32byte_key);
 //
-// Para structs que contienen secretos, implementar el trait Zeroize:
+// For structs containing secrets, implement the Zeroize trait:
 //   impl Zeroize for MyStruct { fn zeroize(&mut self) { ... } }
 
 
+#![allow(dead_code)]
 use core::sync::atomic::{compiler_fence, Ordering};
 
 /// Zeroiza un slice mutable de bytes.
@@ -62,26 +63,7 @@ pub fn zeroize_array<const N: usize>(data: &mut [u8; N]) {
 
     compiler_fence(Ordering::SeqCst);
 }
-
-/// Zeroiza una palabra de 32 bits.
-#[inline(never)]
-/// Securely zero a u32 value.
-pub fn zeroize_u32(data: &mut u32) {
-    compiler_fence(Ordering::SeqCst);
-    unsafe { core::ptr::write_volatile(data as *mut u32, 0x0000_0000); }
-    compiler_fence(Ordering::SeqCst);
-}
-
-/// Zeroiza una palabra de 64 bits.
-#[inline(never)]
-/// Securely zero a u64 value.
-pub fn zeroize_u64(data: &mut u64) {
-    compiler_fence(Ordering::SeqCst);
-    unsafe { core::ptr::write_volatile(data as *mut u64, 0x0000_0000_0000_0000); }
-    compiler_fence(Ordering::SeqCst);
-}
-
-/// Trait para structs que contienen material sensible.
+/// Trait for structs containing sensitive material.
 /// Implement for each struct that stores keys, seeds, etc.
 ///
 /// ```rust
@@ -103,7 +85,7 @@ pub trait Zeroize {
 }
 
 /// Guard that automatically zeroizes when going out of scope.
-/// Envuelve cualquier tipo que implemente Zeroize.
+/// Wraps any type implementing Zeroize.
 ///
 /// ```rust
 /// {
@@ -127,19 +109,4 @@ impl<T: Zeroize> Drop for ZeroizeGuard<T> {
         self.inner.zeroize();
         compiler_fence(Ordering::SeqCst);
     }
-}
-
-/// Verifica que un slice ha sido zeroizado correctamente.
-/// For testing/debug only — do not use in production code
-/// (the verification itself could be a side-channel).
-#[cfg(not(feature = "production"))]
-/// Verify that a buffer has been zeroized (debug/test only — may leak timing info).
-pub fn verify_zeroed(data: &[u8]) -> bool {
-    let mut acc: u8 = 0;
-    for &byte in data {
-        let val = unsafe { core::ptr::read_volatile(&byte as *const u8) };
-        acc |= val;
-    }
-    compiler_fence(Ordering::SeqCst);
-    acc == 0
 }

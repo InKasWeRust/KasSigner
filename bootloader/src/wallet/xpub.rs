@@ -27,6 +27,7 @@
 // KasWare for watch-only wallet import.
 
 
+#![allow(dead_code)]
 use sha2::{Sha256, Digest};
 use super::bip32::{ExtendedPrivKey, derive_path, Bip32Error};
 use super::hmac::zeroize_buf;

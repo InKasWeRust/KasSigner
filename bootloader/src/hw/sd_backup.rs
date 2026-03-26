@@ -38,6 +38,7 @@
 // Different salt from NVS storage ensures SD backup key ≠ flash storage key.
 
 
+#![allow(dead_code)]
 use aes_gcm::{
     Aes256Gcm,
     aead::{AeadInPlace, KeyInit, generic_array::GenericArray},
@@ -88,24 +89,6 @@ pub fn backup_filename(fingerprint: &[u8; 4]) -> [u8; 11] {
     // Extension stays all spaces = no extension
     name
 }
-
-/// Check if a file is ours by reading first 4 bytes (magic check).
-/// Used during SD scan — we can't rely on extension for identification.
-pub fn has_our_magic(file_header: &[u8]) -> bool {
-    file_header.len() >= 4
-        && file_header[0] == FILE_MAGIC[0]
-        && file_header[1] == FILE_MAGIC[1]
-        && file_header[2] == FILE_MAGIC[2]
-        && file_header[3] == FILE_MAGIC[3]
-}
-
-/// Check if a DirEntry name matches our "SDxxxx" pattern (starts with "SD", 6 base chars)
-pub fn is_sd_backup_name(name: &[u8; 11]) -> bool {
-    name[0] == b'S' && name[1] == b'D'
-        && name[6] == b' ' && name[7] == b' '
-        && name[8] == b' ' && name[9] == b' ' && name[10] == b' '
-}
-
 /// Format an 8.3 name for display — trim trailing spaces, no dot if no extension
 pub fn format_83_display(name: &[u8; 11], out: &mut [u8; 13]) -> usize {
     let mut pos = 0;
@@ -176,21 +159,6 @@ fn deserialize_indices(data: &[u8], word_count: u8, out: &mut [u16; 24]) {
 }
 
 // ─── Export (encrypt seed → file bytes) ──────────────────────────────
-
-/// Encrypt a seed and produce the backup file content.
-/// `passphrase` is the user-entered backup password.
-/// `nonce_bytes` should be 12 bytes from TRNG.
-/// Returns the number of bytes written to `out`.
-pub fn encrypt_backup(
-    indices: &[u16; 24],
-    word_count: u8,
-    passphrase: &[u8],
-    nonce_bytes: &[u8; NONCE_SIZE],
-    out: &mut [u8; MAX_BACKUP_SIZE],
-) -> Result<usize, BackupError> {
-    encrypt_backup_progress(indices, word_count, passphrase, nonce_bytes, out, &mut |_, _| {})
-}
-
 /// Encrypt seed backup with progress callback for PBKDF2.
 pub fn encrypt_backup_progress(
     indices: &[u16; 24],
@@ -340,14 +308,6 @@ pub fn xprv_backup_filename(fingerprint: &[u8; 4]) -> [u8; 11] {
     name[5] = HEX[(fingerprint[1] & 0x0F) as usize];
     name
 }
-
-/// Check if a filename matches the XP* backup pattern
-pub fn is_xprv_backup_name(name: &[u8; 11]) -> bool {
-    name[0] == b'X' && name[1] == b'P'
-        && name[6] == b' ' && name[7] == b' '
-        && name[8] == b' ' && name[9] == b' ' && name[10] == b' '
-}
-
 /// Encrypt an xprv string for SD card storage.
 pub fn encrypt_xprv_backup(
     xprv_str: &[u8],
@@ -453,20 +413,6 @@ pub const MAX_RAW_PAYLOAD: usize = 64;
 
 /// Max raw encrypted size: magic(4) + len(1) + nonce(12) + data(64) + tag(16) = 97
 pub const MAX_RAW_ENCRYPTED: usize = 4 + 1 + NONCE_SIZE + MAX_RAW_PAYLOAD + TAG_SIZE;
-
-/// Encrypt arbitrary bytes (e.g. a BIP39 passphrase) with AES-256-GCM.
-/// Format: [RAW_MAGIC(4)] [data_len(1)] [nonce(12)] [ciphertext(data_len)] [tag(16)]
-/// Returns number of bytes written to `out`.
-pub fn encrypt_raw(
-    data: &[u8],
-    data_len: usize,
-    password: &[u8],
-    nonce_bytes: &[u8; NONCE_SIZE],
-    out: &mut [u8; MAX_RAW_ENCRYPTED],
-) -> Result<usize, BackupError> {
-    encrypt_raw_progress(data, data_len, password, nonce_bytes, out, &mut |_, _| {})
-}
-
 /// Encrypt arbitrary bytes with progress callback for PBKDF2.
 pub fn encrypt_raw_progress(
     data: &[u8],
@@ -504,17 +450,6 @@ pub fn encrypt_raw_progress(
 
     Ok(total)
 }
-
-/// Decrypt a raw encrypted blob back to plaintext bytes.
-/// Returns number of plaintext bytes on success.
-pub fn decrypt_raw(
-    blob: &[u8],
-    password: &[u8],
-    out: &mut [u8; MAX_RAW_PAYLOAD],
-) -> Result<usize, BackupError> {
-    decrypt_raw_progress(blob, password, out, &mut |_, _| {})
-}
-
 /// Decrypt raw bytes with progress callback for PBKDF2.
 pub fn decrypt_raw_progress(
     blob: &[u8],

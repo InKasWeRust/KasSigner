@@ -6,6 +6,3 @@ runner = "espflash flash --monitor"
 
 [unstable]
 build-std = ["core", "alloc"]
-
-[env]
-ESP_HAL_CONFIG_PSRAM_MODE = "octal"

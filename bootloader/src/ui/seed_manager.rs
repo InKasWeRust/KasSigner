@@ -33,6 +33,7 @@
 // Fingerprint: SHA256(entropy)[0..4] displayed as hex (e.g. "a3f8e2b1")
 
 
+#![allow(dead_code)]
 use sha2::{Sha256, Digest};
 
 /// Maximum seed slots in RAM

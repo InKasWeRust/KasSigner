@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+// wallet/transaction.rs — Kaspa transaction structures, script parsing, multisig
 
 // KasSigner — Kaspa Transaction Types
 // 100% Rust, no-std, no-alloc
@@ -25,6 +26,7 @@
 // A typical Kaspa transaction has 1-5 inputs and 1-2 outputs.
 // We support up to MAX_INPUTS=8 and MAX_OUTPUTS=4 (enough for a hardware wallet).
 
+#![allow(dead_code)]
 /// Maximum supported inputs
 pub const MAX_INPUTS: usize = 8;
 
@@ -134,7 +136,7 @@ pub fn script_bytes(&self) -> &[u8] {
     }
 }
 
-// ─── UTXO Entry (output previo que estamos gastando) ──────────────────
+// ─── UTXO Entry (previous output being spent) ──────────────────
 
 /// UTXO entry being spent (provided by companion app)
 #[derive(Debug, Clone)]
@@ -539,10 +541,5 @@ impl MultisigStore {
             if !self.configs[i].active { return Some(i); }
         }
         None
-    }
-
-    /// Count active configs
-    pub fn count_active(&self) -> usize {
-        self.configs.iter().filter(|c| c.active).count()
     }
 }

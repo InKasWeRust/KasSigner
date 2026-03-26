@@ -31,6 +31,7 @@
 //   requiring PSRAM in normal bootloader builds.
 
 
+#![allow(dead_code)]
 use crate::log;
 use core::sync::atomic::{compiler_fence, Ordering};
 use sha2::{Sha256, Digest};

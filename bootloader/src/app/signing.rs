@@ -14,8 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-// app/signing.rs — Key derivation and transaction signing pipeline
+// app/signing.rs — Key derivation, firmware verification, and transaction signing
+//
+// Central cryptographic pipeline:
+//   1. Firmware verification: SHA256 hash check + developer/production signature
+//   2. BIP39 seed derivation: mnemonic + passphrase → PBKDF2 → 64-byte seed
+//   3. BIP32 account key: seed → m/44'/111111'/0' (cached after first derivation)
+//   4. Address derivation: account key → /0/{0..19} receive + /1/{0..4} change
+//   5. TX signing: PSKT input → sighash (Blake2b) → Schnorr sign → serialized response
+//
+// All key material is zeroized after use. PBKDF2 takes ~5s on ESP32-S3 at 240MHz.
 
+#![allow(dead_code)]
+#![allow(unused_imports)]
 use crate::log;
 use crate::{wallet, ui::seed_manager, hw::display, app::data::AppData};
 use crate::features::verify::{FirmwareInfo, VerificationResult, FIRMWARE_START_ADDR, FIRMWARE_MAX_SIZE};
@@ -34,11 +45,30 @@ pub fn derive_all_pubkeys(
     let seed = derive_seed(mnemonic_indices, wc, passphrase);
     if let Ok(acct) = wallet::bip32::derive_account_key(&seed.bytes) {
         *acct_raw = acct.to_raw();
+        // Receive addresses: m/44'/111111'/0'/0/{0..19}
         for idx in 0..20u16 {
             if let Ok(key) = wallet::bip32::derive_address_key(&acct, idx) {
                 if let Ok(pk) = key.public_key_x_only() {
                     cache[idx as usize] = pk;
                 }
+            }
+        }
+    }
+}
+
+/// Derive change address pubkeys: m/44'/111111'/0'/1/{0..4}.
+/// Called after derive_all_pubkeys — uses the cached account key.
+/// Change addresses are needed to identify self-transfer outputs in TX review.
+#[inline(never)]
+pub fn derive_change_pubkeys(
+    acct_raw: &[u8; 65],
+    change_cache: &mut [[u8; 32]; 5],
+) {
+    let acct = wallet::bip32::ExtendedPrivKey::from_raw(acct_raw);
+    for idx in 0..5u16 {
+        if let Ok(key) = wallet::bip32::derive_change_key(&acct, idx) {
+            if let Ok(pk) = key.public_key_x_only() {
+                change_cache[idx as usize] = pk;
             }
         }
     }

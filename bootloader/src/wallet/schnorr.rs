@@ -19,7 +19,7 @@
 //
 // Schnorr signature implementation compatible with Kaspa:
 //   - secp256k1 curve (via crate k256, pure Rust)
-//   - Public keys: x-only 32 bytes (como BIP340)
+//   - Public keys: x-only 32 bytes (BIP-340 style)
 //   - Signatures: 64 bytes (R.x || s)
 //   - Nonce generation: RFC6979 deterministic (no TRNG needed for signing)
 //
@@ -35,6 +35,7 @@
 //   - No se usa heap/alloc
 
 
+#![allow(dead_code)]
 use k256::{
     SecretKey,
     elliptic_curve::{
@@ -100,7 +101,7 @@ pub enum SchnorrError {
 ///   6. Signature = R.x || s
 ///
 /// `message` must be the 32-byte sighash (pre-computed by the PSKT module).
-/// `private_key` son los 32 bytes de la clave privada BIP32.
+/// `private_key` is the 32-byte BIP32 private key.
 pub fn schnorr_sign(
     private_key: &[u8; 32],
     message: &[u8; 32],
@@ -158,13 +159,13 @@ pub fn schnorr_sign(
 
 // ─── Verification ─────────────────────────────────────────────────────
 
-/// Verifica una firma Schnorr contra una public key x-only (32 bytes).
+/// Verifies a Schnorr signature against an x-only public key (32 bytes).
 ///
 /// Algoritmo:
 ///   1. Parse R.x y s de la firma
 ///   2. e = SHA256(R.x || P.x || message) mod n
 ///   3. Calcular R' = s*G - e*P
-///   4. Verificar que R'.x == R.x y R'.y es par
+///   4. Verify that R'.x == R.x and R'.y is even
 pub fn schnorr_verify(
     pubkey_x: &[u8; 32],
     message: &[u8; 32],
@@ -202,7 +203,7 @@ pub fn schnorr_verify(
 
 // ─── Funciones auxiliares ─────────────────────────────────────────────
 
-/// Comprueba si el punto tiene coordenada Y par.
+/// Checks if the point has an even Y coordinate.
 fn has_even_y(point: &AffinePoint) -> bool {
     let encoded = point.to_encoded_point(false); // uncompressed: 04 || x || y
     let y_bytes = encoded.y().expect("not identity");
@@ -210,7 +211,7 @@ fn has_even_y(point: &AffinePoint) -> bool {
     y_bytes[31] & 1 == 0
 }
 
-/// Extrae los 32 bytes de la coordenada X de un punto.
+/// Extracts the 32-byte X coordinate from a point.
 fn x_bytes(point: &AffinePoint) -> [u8; 32] {
     let encoded = point.to_encoded_point(true); // compressed: 02/03 || x
     let mut x = [0u8; 32];
@@ -428,7 +429,7 @@ pub fn test_invalid_signature_fails() -> bool {
     schnorr_verify(&pubkey_x, &wrong_message, &sig).is_err()
 }
 
-/// Test: firmar con clave derivada de BIP32
+/// Test: sign with BIP32-derived key
 #[cfg(any(test, feature = "verbose-boot"))]
 pub fn test_sign_with_bip32_key() -> bool {
     use super::bip39;
@@ -462,8 +463,8 @@ pub fn test_sign_with_bip32_key() -> bool {
     schnorr_verify(&pubkey_x, &sighash, &sig).is_ok()
 }
 
-/// Ejecuta todos los tests Schnorr.
-/// Retorna (passed, total).
+/// Runs all Schnorr tests.
+/// Returns (passed, total).
 #[cfg(any(test, feature = "verbose-boot"))]
 pub fn run_schnorr_tests() -> (u32, u32) {
     let mut passed = 0u32;

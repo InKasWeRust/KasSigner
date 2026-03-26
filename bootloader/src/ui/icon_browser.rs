@@ -19,6 +19,7 @@
 // Paginated grid: 8 icons per page (4×2), category label at top,
 // nav arrows at bottom. Feature-gated behind `icon-browser`.
 
+#![allow(dead_code)]
 use embedded_graphics::prelude::*;
 use embedded_graphics::image::Image;
 use embedded_graphics::pixelcolor::Rgb565;

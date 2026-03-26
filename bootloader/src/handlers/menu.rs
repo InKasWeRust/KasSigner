@@ -17,6 +17,7 @@
 // handlers/menu.rs — Touch handlers for MainMenu, SeedsMenu, ToolsMenu
 //                     DiceRoll, ChooseWordCount, ShowQR/Rejected/ViewSeed
 
+#![allow(unused_imports)]
 use crate::log;
 use crate::{app::data::AppData, hw::display, hw::sdcard, hw::sound, ui::setup_wizard, hw::touch, wallet};
 use esp_hal::lcd_cam::cam::Camera as DvpCamera;
@@ -233,13 +234,15 @@ pub fn handle_menu_touch(
                                                 Rectangle::new(Point::new(40, 145), Size::new(120, 10))
                                                     .into_styled(PrimitiveStyle::with_fill(crate::hw::display::KASPA_ACCENT))
                                                     .draw(&mut boot_display.display).ok();
-                                                let ww = crate::hw::display::measure_body("Wait ~30 seconds");
-                                                crate::hw::display::draw_lato_body(&mut boot_display.display, "Wait ~30 seconds", (320 - ww) / 2, 172, crate::hw::display::COLOR_TEXT_DIM);
+                                                let ww = crate::hw::display::measure_body("Deriving...");
+                                                crate::hw::display::draw_lato_body(&mut boot_display.display, "Deriving...", (320 - ww) / 2, 172, crate::hw::display::COLOR_TEXT_DIM);
                                             }
                                             let pp = ad.seed_mgr.active_slot().map(|s: &crate::ui::seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
                                             crate::app::signing::derive_all_pubkeys(
                                                 &ad.mnemonic_indices, ad.word_count, pp,
                                                 &mut ad.pubkey_cache, &mut ad.acct_key_raw);
+                                            crate::app::signing::derive_change_pubkeys(
+                                                &ad.acct_key_raw, &mut ad.change_pubkey_cache);
                                             ad.pubkeys_cached = true;
                                         }
                                         ad.app.state = crate::app::input::AppState::SignTxGuide;
@@ -371,11 +374,14 @@ pub fn handle_menu_touch(
                                         }
 
                                         // Power on camera for entropy capture
-                                        // PWDN LOW = active (GPIO17 output clear)
-                                        unsafe {
-                                            core::ptr::write_volatile(0x6000_400Cu32 as *mut u32, 1u32 << 17);
+                                        #[cfg(feature = "waveshare")]
+                                        {
+                                            // PWDN LOW = active (GPIO17 output clear)
+                                            unsafe {
+                                                core::ptr::write_volatile(0x6000_400Cu32 as *mut u32, 1u32 << 17);
+                                            }
+                                            delay.delay_millis(100); // OV5640 wake from PWDN
                                         }
-                                        delay.delay_millis(100); // OV5640 wake from PWDN
 
                                         let mut wizard = setup_wizard::SetupWizard::new();
                                         wizard.word_count = wc;

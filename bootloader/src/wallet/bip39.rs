@@ -28,6 +28,7 @@
 //   - Compatible with official BIP39 test vectors
 
 
+#![allow(dead_code)]
 use sha2::{Sha256, Digest};
 use super::bip39_wordlist::WORDLIST;
 use super::hmac::{hmac_sha512, zeroize_buf};
@@ -373,7 +374,7 @@ fn serialize_mnemonic_24(indices: &[u16; 24], buf: &mut [u8]) -> usize {
     pos
 }
 
-/// Construye el salt BIP39: "mnemonic" + passphrase
+/// Builds the BIP39 salt: "mnemonic" + passphrase
 fn build_salt(passphrase: &str, buf: &mut [u8]) -> usize {
     let prefix = b"mnemonic";
     buf[..8].copy_from_slice(prefix);
@@ -530,7 +531,7 @@ pub fn test_vector_24_zeros() -> bool {
     validate_mnemonic_24(&mnemonic).is_ok()
 }
 
-/// Test: seed derivation con vector conocido
+/// Test: seed derivation with known vector
 /// Mnemonic: "abandon abandon abandon abandon abandon abandon
 ///            abandon abandon abandon abandon abandon about"
 /// Passphrase: "TREZOR"
@@ -583,7 +584,7 @@ pub fn test_word_lookup() -> bool {
 }
 
 /// Run all BIP39 tests.
-/// Retorna (passed, total).
+/// Returns (passed, total).
 #[cfg(any(test, feature = "verbose-boot"))]
 pub fn run_bip39_tests() -> (u32, u32) {
     let mut passed = 0u32;

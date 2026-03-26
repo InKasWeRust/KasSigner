@@ -17,6 +17,7 @@
 // ui/helpers.rs — Shared UI helper functions (hit-test, validation)
 
 
+#![allow(dead_code)]
 use crate::{ui::setup_wizard, ui::seed_manager, wallet};
 
 /// Passphrase keyboard hit-test — shared by stego, sd, and seed handlers.
@@ -34,16 +35,6 @@ pub fn pp_keyboard_hit(x: u16, y: u16, pp: &mut seed_manager::PassphraseInput) -
         _ => 0,
     }
 }
-
-/// BIP39 word-entry keyboard hit-test. Returns the tapped letter byte.
-pub fn keyboard_hit_test(x: u16, y: u16) -> Option<u8> {
-    use crate::ui::keyboard::{hit_test, KeyboardMode, KeyAction};
-    match hit_test(x, y, KeyboardMode::Alpha, 0) {
-        KeyAction::Char(ch) => Some(ch),
-        _ => None,
-    }
-}
-
 /// Check suggestion chip taps. Returns Some(word_index) if tapped.
 #[inline(never)]
 pub fn suggestion_hit_test(x: u16, y: u16, word_input: &setup_wizard::WordInput) -> Option<u16> {
@@ -109,7 +100,7 @@ pub fn hex_nibble(ch: u8) -> u8 {
 
 /// Derive all 20 Kaspa pubkeys from mnemonic + passphrase into cache.
 /// Also caches the account key (65 bytes) for instant out-of-range derivations.
-/// Takes ~30s total (PBKDF2 dominates). After this, address switching is instant.
+/// Takes ~5s on ESP32-S3 (PBKDF2 dominates). After this, address switching is instant.
 #[inline(never)]
 
 pub fn format_test_line<'a>(buf: &'a mut [u8; 40], prefix: &str, value: u32, suffix: &str) -> &'a str {

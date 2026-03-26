@@ -36,6 +36,7 @@
 //      (or: mark update partition for next boot — future OTA)
 
 
+#![allow(dead_code)]
 use sha2::{Sha256, Digest};
 
 /// Magic bytes for firmware update QR: "KSFU" (KasSigner Firmware Update)
@@ -135,15 +136,6 @@ pub fn new() -> Self {
         (hash, self.bytes_hashed)
     }
 }
-
-/// Verify a firmware binary on SD card against an update QR.
-/// Reads the file in 512-byte chunks, computes SHA256, compares with update.hash.
-///
-/// Returns true if the computed hash matches the signed hash.
-pub fn verify_firmware_hash(computed_hash: &[u8; 32], update: &FirmwareUpdate) -> bool {
-    computed_hash == &update.hash
-}
-
 /// Format a version number as human-readable string.
 /// 10000 -> "1.0.0", 10100 -> "1.1.0", 10101 -> "1.1.1"
 pub fn format_version(version: u32, buf: &mut [u8]) -> usize {

@@ -18,6 +18,7 @@
 //
 // Covers: SettingsMenu, DisplaySettings, SdCardSettings, About
 
+#![allow(unused_imports)]
 use crate::log;
 use crate::{app::data::AppData, hw::display, hw::sdcard, hw::sound, hw::touch};
 use crate::ui::helpers::format_test_line;
@@ -36,6 +37,7 @@ pub fn handle_settings_touch(
     page_down_zone: &touch::TouchZone,
     x: u16, y: u16, is_back: bool,
 ) -> Option<bool> {
+    #[allow(unused_assignments)]
     let mut needs_redraw = false;
 
     match ad.app.state {
@@ -59,10 +61,20 @@ pub fn handle_settings_touch(
                                 }
                             }
                             if let Some(item) = tapped_item {
+                                #[cfg(feature = "waveshare")]
                                 match item {
                                     0 => { ad.app.state = crate::app::input::AppState::DisplaySettings; }
                                     1 => { ad.app.state = crate::app::input::AppState::SdCardSettings; }
-                                    2 => { ad.app.state = crate::app::input::AppState::About; }                                    _ => {}
+                                    2 => { ad.app.state = crate::app::input::AppState::About; }
+                                    _ => {}
+                                }
+                                #[cfg(feature = "m5stack")]
+                                match item {
+                                    0 => { ad.app.state = crate::app::input::AppState::DisplaySettings; }
+                                    1 => { ad.app.state = crate::app::input::AppState::AudioSettings; }
+                                    2 => { ad.app.state = crate::app::input::AppState::SdCardSettings; }
+                                    3 => { ad.app.state = crate::app::input::AppState::About; }
+                                    _ => {}
                                 }
                             }
                         }
@@ -73,7 +85,6 @@ pub fn handle_settings_touch(
                             ad.app.state = crate::app::input::AppState::SettingsMenu;
                             needs_redraw = true;
                         } else {
-                            let old = ad.brightness;
                             if x <= 68 && y >= 70 && y <= 120 {
                                 ad.brightness = (ad.brightness).saturating_sub(25);
                                 crate::hw::pmu::set_brightness(i2c, ad.brightness);
@@ -85,20 +96,142 @@ pub fn handle_settings_touch(
                                 ad.brightness = pct;
                                 crate::hw::pmu::set_brightness(i2c, ad.brightness);
                             }
-                            if ad.brightness != old { needs_redraw = true; }
+                            needs_redraw = true;
                         }
+                    }
+                    #[cfg(feature = "m5stack")]
+                    crate::app::input::AppState::AudioSettings => {
+                        if is_back {
+                            ad.app.state = crate::app::input::AppState::SettingsMenu;
+                        } else {
+                            if x <= 68 && y >= 70 && y <= 120 {
+                                ad.volume = (ad.volume).saturating_sub(25);
+                                sound::set_volume(ad.volume);
+                            } else if x >= 252 && y >= 70 && y <= 120 {
+                                ad.volume = (ad.volume).saturating_add(25).min(255);
+                                sound::set_volume(ad.volume);
+                            } else if x >= 70 && x <= 250 && y >= 75 && y <= 115 {
+                                let pct = ((x as u32 - 70) * 255 / 180).min(255) as u8;
+                                ad.volume = pct;
+                                sound::set_volume(ad.volume);
+                            }
+                        }
+                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdCardSettings => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::SettingsMenu;
                         } else if x >= 10 && x <= 155 && y >= 100 && y <= 130 {
-                            // Format button
+                            // Format button — show confirmation first
                             if let Some(ct) = bb_card_type {
-                                boot_display.draw_sdcard_formatting();
-                                let fmt_ok = sdcard::format_fat32(*ct, i2c, delay);
-                                boot_display.draw_sdcard_format_done(fmt_ok);
-                                if fmt_ok { sound::success(delay); } else { sound::beep_error(delay); }
-                                delay.delay_millis(3000);
+                                // Draw warning screen
+                                boot_display.display.clear(crate::hw::display::COLOR_BG).ok();
+                                let tw = crate::hw::display::measure_header("WARNING");
+                                crate::hw::display::draw_oswald_header(
+                                    &mut boot_display.display, "WARNING",
+                                    (320 - tw) / 2, 30, crate::hw::display::COLOR_DANGER);
+                                use embedded_graphics::primitives::{Line, PrimitiveStyle};
+                                use embedded_graphics::prelude::*;
+                                Line::new(Point::new(20, 40), Point::new(300, 40))
+                                    .into_styled(PrimitiveStyle::with_stroke(crate::hw::display::COLOR_DANGER, 1))
+                                    .draw(&mut boot_display.display).ok();
+
+                                let s1 = "ALL DATA WILL BE LOST";
+                                let s1w = crate::hw::display::measure_title(s1);
+                                crate::hw::display::draw_lato_title(
+                                    &mut boot_display.display, s1, (320 - s1w) / 2, 80,
+                                    crate::hw::display::COLOR_DANGER);
+
+                                let s2 = "This will erase the entire";
+                                let s2w = crate::hw::display::measure_body(s2);
+                                crate::hw::display::draw_lato_body(
+                                    &mut boot_display.display, s2, (320 - s2w) / 2, 110,
+                                    crate::hw::display::COLOR_TEXT_DIM);
+                                let s3 = "SD card. This is permanent.";
+                                let s3w = crate::hw::display::measure_body(s3);
+                                crate::hw::display::draw_lato_body(
+                                    &mut boot_display.display, s3, (320 - s3w) / 2, 130,
+                                    crate::hw::display::COLOR_TEXT_DIM);
+
+                                // Red "HOLD 4s TO FORMAT" button
+                                use embedded_graphics::primitives::{Rectangle, RoundedRectangle, CornerRadii};
+                                let btn_corner = CornerRadii::new(embedded_graphics::geometry::Size::new(8, 8));
+                                let btn_rect = Rectangle::new(Point::new(50, 170),
+                                    embedded_graphics::geometry::Size::new(220, 44));
+                                RoundedRectangle::new(btn_rect, btn_corner)
+                                    .into_styled(PrimitiveStyle::with_fill(crate::hw::display::COLOR_DANGER))
+                                    .draw(&mut boot_display.display).ok();
+                                let bl = "HOLD 4s TO FORMAT";
+                                let bw = crate::hw::display::measure_title(bl);
+                                crate::hw::display::draw_lato_title(
+                                    &mut boot_display.display, bl, 50 + (220 - bw) / 2, 200,
+                                    crate::hw::display::COLOR_BG);
+
+                                let hw = crate::hw::display::measure_hint("Release or Back to cancel");
+                                crate::hw::display::draw_lato_hint(
+                                    &mut boot_display.display, "Release or Back to cancel",
+                                    (320 - hw) / 2, 232, crate::hw::display::COLOR_TEXT_DIM);
+
+                                // Wait for finger release from initial tap before starting hold detection
+                                loop {
+                                    delay.delay_millis(30);
+                                    let ts = crate::hw::touch::read_touch(i2c);
+                                    match ts {
+                                        crate::hw::touch::TouchState::NoTouch => break,
+                                        _ => {}
+                                    }
+                                }
+                                // Small debounce gap
+                                delay.delay_millis(100);
+
+                                // Now wait for user to press the red button and hold for 4 seconds
+                                let mut held_ms: u32 = 0;
+                                let mut confirmed = false;
+                                let mut waiting_for_press = true;
+                                loop {
+                                    delay.delay_millis(50);
+                                    let ts = crate::hw::touch::read_touch(i2c);
+                                    match ts {
+                                        crate::hw::touch::TouchState::One(pt) => {
+                                            // Back button = cancel
+                                            if pt.x <= 40 && pt.y <= 40 {
+                                                break;
+                                            }
+                                            if pt.x >= 50 && pt.x <= 270 && pt.y >= 170 && pt.y <= 214 {
+                                                waiting_for_press = false;
+                                                held_ms += 50;
+                                                let fill = (held_ms as u32 * 200 / 4000).min(200) as u32;
+                                                if fill > 0 {
+                                                    Rectangle::new(Point::new(60, 180),
+                                                        embedded_graphics::geometry::Size::new(fill, 24))
+                                                        .into_styled(PrimitiveStyle::with_fill(
+                                                            embedded_graphics::pixelcolor::Rgb565::new(0b11111, 0b000000, 0b00000)))
+                                                        .draw(&mut boot_display.display).ok();
+                                                }
+                                                if held_ms >= 4000 {
+                                                    confirmed = true;
+                                                    break;
+                                                }
+                                            } else if !waiting_for_press {
+                                                break; // was holding but moved off button = cancel
+                                            }
+                                        }
+                                        _ => {
+                                            if !waiting_for_press {
+                                                break; // was holding, released = cancel
+                                            }
+                                            // Still waiting for initial press — keep looping
+                                        }
+                                    }
+                                }
+
+                                if confirmed {
+                                    boot_display.draw_sdcard_formatting();
+                                    let fmt_ok = sdcard::format_fat32(*ct, i2c, delay);
+                                    boot_display.draw_sdcard_format_done(fmt_ok);
+                                    if fmt_ok { sound::success(delay); } else { sound::beep_error(delay); }
+                                    delay.delay_millis(3000);
+                                }
                             }
                         } else if x >= 165 && x <= 310 && y >= 100 && y <= 130 {
                             // Test R/W button
@@ -152,9 +285,7 @@ pub fn handle_settings_touch(
                         needs_redraw = true;
                     }
                     crate::app::input::AppState::About => {
-                        if is_back {
-                            ad.app.state = crate::app::input::AppState::SettingsMenu;
-                        }
+                        ad.app.state = crate::app::input::AppState::SettingsMenu;
                         needs_redraw = true;
                     }
                     _ => { return None; }

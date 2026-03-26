@@ -20,6 +20,7 @@
 //         ExportSeedQR, ExportCompactSeedQR, SeedQrGrid,
 //         ExportKpub, ExportXprv, ExportChoice, ExportPrivKey
 
+#![allow(unused_imports)]
 use crate::{app::data::AppData, hw::display, hw::sdcard, ui::seed_manager, hw::touch, wallet};
 use crate::app::signing::derive_pubkey_from_acct;
 /// Handle touch events for export/display screens (address, QR, kpub, xprv).
@@ -280,7 +281,7 @@ pub fn handle_export_touch(
                                     }
                                     3 => {
                                         // kpub QR
-                                        boot_display.draw_saving_screen("Deriving kpub ~30s...");
+                                        boot_display.draw_saving_screen("Deriving kpub...");
                                         let pp = ad.seed_mgr.active_slot().map(|s: &seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
                                         let seed_bytes = if ad.word_count == 12 {
                                             let m12 = wallet::bip39::Mnemonic12 {
@@ -308,7 +309,7 @@ pub fn handle_export_touch(
                                     }
                                     4 => {
                                         // xprv QR
-                                        boot_display.draw_saving_screen("Deriving xprv ~30s...");
+                                        boot_display.draw_saving_screen("Deriving xprv...");
                                         let pp = ad.seed_mgr.active_slot().map(|s: &seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
                                         let seed_bytes = if ad.word_count == 12 {
                                             let m12 = wallet::bip39::Mnemonic12 {

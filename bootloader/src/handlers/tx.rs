@@ -19,8 +19,10 @@
 // Covers: ScanQR, ReviewTx, ConfirmTx, MultisigChooseMN, MultisigAddKey, MultisigShowAddress,
 //         SignMsgChoice, SignMsgType, SignMsgFile, SignMsgPreview, SignMsgResult
 
+#![allow(unused_imports)]
 use crate::{app::data::AppData, hw::display, hw::sdcard, hw::sound, hw::touch, wallet};
 use crate::ui::helpers::pp_keyboard_hit;
+#[allow(unused_variables, unused_assignments, unused_mut)]
 /// Handle touch events for transaction review, signing, message signing, and multisig screens.
 #[inline(never)]
 pub fn handle_tx_touch(
@@ -41,68 +43,31 @@ pub fn handle_tx_touch(
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
                             needs_redraw = true;
                         } else if ad.seed_loaded {
-                            // "SCAN PSKT" button: y=194..230, x=60..260
-                            if y >= 194 && y <= 230 && x >= 60 && x <= 260 {
+                            // "SCAN PSKT" button: drawn at y=194..230, x=60..260
+                            if y >= 190 && y <= 234 && x >= 55 && x <= 265 {
                                 ad.app.state = crate::app::input::AppState::ScanQR;
                                 needs_redraw = true;
                             }
                         }
                     }
                     crate::app::input::AppState::ScanQR => {
-                        // Back button — matches 34x34 icon at (0,0)
-                        if x <= 40 && y <= 40 {
-                            ad.app.go_main_menu();
-                            ad.cam_tune_active = false;
-                            needs_redraw = true;
-                        } else if ad.cam_tune_active {
-                            // Cam-tune screen: buttons y=198..240, slider track y=196..240
-                            if y >= 196 && x >= 56 && x <= 264 {
-                                // Slider track zone (includes area around thin track)
-                                let clamped = (x as i32 - 56).max(0).min(208) as u32;
-                                ad.cam_tune_vals[ad.cam_tune_param as usize] = ((clamped * 255) / 208) as u8;
-                                ad.cam_tune_dirty = true;
-                                boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
-                            } else if y >= 196 && x < 54 {
-                                // [-] button
-                                let p = ad.cam_tune_param as usize;
-                                ad.cam_tune_vals[p] = ad.cam_tune_vals[p].saturating_sub(8);
-                                ad.cam_tune_dirty = true;
-                                boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
-                            } else if y >= 196 && x > 266 {
-                                // [+] button
-                                let p = ad.cam_tune_param as usize;
-                                ad.cam_tune_vals[p] = ad.cam_tune_vals[p].saturating_add(8);
-                                ad.cam_tune_dirty = true;
-                                boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
-                            } else if x >= 200 {
-                                // Right panel
-                                if y < 34 {
-                                    // EXIT → close cam-tune, restore ScanQR chrome
-                                    ad.cam_tune_active = false;
-                                    // Clear overlay areas and redraw ScanQR chrome directly
-                                    // (avoids full redraw_screen cycle which kills touch)
-                                    boot_display.clear_screen();
-                                    boot_display.draw_camera_screen_chrome();
-                                } else if y >= 36 && y < 180 {
-                                    // Grid: col split at x=261 (center of 258..262 gap)
-                                    let col = if x < 261 { 0u8 } else { 1u8 };
-                                    // grid_y0=36, row_step=49 (btn_h=46 + gap=3)
-                                    let row = ((y as i32 - 36).max(0) / 49).min(2) as u8;
-                                    let idx = row * 2 + col;
-                                    if idx < 6 && idx != ad.cam_tune_param {
-                                        ad.cam_tune_param = idx;
-                                        boot_display.draw_cam_tune_overlay(ad.cam_tune_param, &ad.cam_tune_vals);
+                        // Back button (34x34 at origin) or Home button (34x34 at 286,0)
+                        if (x <= 40 && y <= 40) || (x >= 268 && y <= 40) {
+                            // If we're in the middle of multisig creation, return there
+                            if ad.ms_creating.n > 0 && !ad.ms_creating.active {
+                                // Find which key we were adding
+                                let mut key_idx: u8 = 0;
+                                for i in 0..ad.ms_creating.n {
+                                    if ad.ms_creating.pubkeys[i as usize] == [0u8; 32] {
+                                        key_idx = i;
+                                        break;
                                     }
                                 }
+                                ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx };
+                            } else {
+                                ad.app.go_main_menu();
                             }
-                        } else {
-                            // Normal ScanQR — gear icon zone (generous for small target)
-                            if x >= 275 && y <= 45 {
-                                ad.cam_tune_active = true;
-                                // Don't set cam_tune_dirty — values are already applied
-                                boot_display.clear_screen();
-                                boot_display.draw_cam_tune_overlay(ad.cam_tune_param, &ad.cam_tune_vals);
-                            }
+                            needs_redraw = true;
                         }
                     }
                     crate::app::input::AppState::ReviewTx { .. } => {
@@ -141,20 +106,20 @@ pub fn handle_tx_touch(
                         if is_back {
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
                         } else {
-                            // M-: x=60..110, y=72..110
-                            if x >= 60 && x <= 110 && y >= 72 && y <= 110 {
+                            // M-: x=60..110, y=65..103
+                            if x >= 60 && x <= 110 && y >= 65 && y <= 103 {
                                 if ad.ms_m > 1 { ad.ms_m -= 1; }
                             }
-                            // M+: x=210..260, y=72..110
-                            else if x >= 210 && x <= 260 && y >= 72 && y <= 110 {
+                            // M+: x=210..260, y=65..103
+                            else if x >= 210 && x <= 260 && y >= 65 && y <= 103 {
                                 if ad.ms_m < 5 { ad.ms_m += 1; }
                             }
-                            // N-: x=60..110, y=140..178
-                            else if x >= 60 && x <= 110 && y >= 140 && y <= 178 {
+                            // N-: x=60..110, y=125..163
+                            else if x >= 60 && x <= 110 && y >= 125 && y <= 163 {
                                 if ad.ms_n > 1 { ad.ms_n -= 1; }
                             }
-                            // N+: x=210..260, y=140..178
-                            else if x >= 210 && x <= 260 && y >= 140 && y <= 178 {
+                            // N+: x=210..260, y=125..163
+                            else if x >= 210 && x <= 260 && y >= 125 && y <= 163 {
                                 if ad.ms_n < 5 { ad.ms_n += 1; }
                             }
                             // NEXT: centered, x=80..240, y=190..230
@@ -176,74 +141,108 @@ pub fn handle_tx_touch(
                             if key_idx == 0 {
                                 ad.app.state = crate::app::input::AppState::MultisigChooseMN;
                             } else {
-                                // Go back one key
                                 ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: key_idx - 1 };
                             }
                         } else {
                             // "Scan QR": x=30..290, y=90..135
                             if x >= 30 && x <= 290 && y >= 90 && y <= 135 {
-                                // Go to ScanQR state — when a kpub is scanned, it will be
-                                // routed back to MultisigAddKey (handled in scan flow below)
                                 ad.app.state = crate::app::input::AppState::ScanQR;
                             }
                             // "Use Loaded Seed": x=30..290, y=145..190
-                            else if x >= 30 && x <= 290 && y >= 145 && y <= 190 && ad.seed_loaded {
-                                ad.ms_scroll = 0;
-                                ad.app.state = crate::app::input::AppState::MultisigPickSeed { key_idx };
+                            else if x >= 30 && x <= 290 && y >= 145 && y <= 190 {
+                                if ad.seed_loaded {
+                                    ad.app.state = crate::app::input::AppState::MultisigPickSeed { key_idx };
+                                } else {
+                                    // No seed loaded — show warning
+                                    boot_display.draw_rejected_screen("Load a seed first");
+                                    delay.delay_millis(1500);
+                                }
                             }
                         }
                         needs_redraw = true;
                     }
                     crate::app::input::AppState::MultisigPickSeed { key_idx } => {
                         if is_back {
-                            ad.ms_scroll = 0;
                             ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx };
-                        } else if x <= 35 {
-                            // Left arrow — page up
-                            if ad.ms_scroll >= 3 { ad.ms_scroll -= 3; }
-                        } else if x >= 285 {
-                            // Right arrow — page down
-                            let loaded_count = ad.seed_mgr.slots.iter().filter(|s| !s.is_empty()).count() as u8;
-                            if ad.ms_scroll + 3 < loaded_count { ad.ms_scroll += 3; }
                         } else {
-                            // Seed rows with scroll offset
-                            let loaded: heapless::Vec<u8, 16> = ad.seed_mgr.slots.iter().enumerate()
-                                .filter(|(_, s)| !s.is_empty())
-                                .map(|(i, _)| i as u8)
-                                .collect();
-                            for vis in 0..3u8 {
-                                let list_idx = ad.ms_scroll + vis;
-                                let row_y = 46 + vis as u16 * 46;
-                                if y >= row_y && y < row_y + 42 && x >= 44 && x <= 276 {
-                                    if (list_idx as usize) < loaded.len() {
-                                        let slot_idx = loaded[list_idx as usize];
-                                        let already_active = (ad.seed_mgr.active == slot_idx)
+                            // Count loaded seeds for scroll bounds
+                            let loaded_count = ad.seed_mgr.slots.iter()
+                                .filter(|s| !s.is_empty()).count() as u8;
+
+                            // Left arrow (scroll up): x<35, y=46..184
+                            if x < 35 && y >= 46 && y <= 184 {
+                                if ad.ms_scroll >= 3 {
+                                    ad.ms_scroll -= 3;
+                                }
+                            }
+                            // Right arrow (scroll down): x>285, y=46..184
+                            else if x > 285 && y >= 46 && y <= 184 {
+                                if ad.ms_scroll + 3 < loaded_count {
+                                    ad.ms_scroll += 3;
+                                }
+                            }
+                            // Seed card rows: start_y=46, card_h=42, card_gap=4, max 3 visible
+                            else {
+                                // Build list of non-empty slot indices
+                                let mut loaded: [usize; 16] = [0; 16];
+                                let mut lcount: usize = 0;
+                                for i in 0..crate::ui::seed_manager::MAX_SLOTS {
+                                    if !ad.seed_mgr.slots[i].is_empty() {
+                                        loaded[lcount] = i;
+                                        lcount += 1;
+                                    }
+                                }
+
+                                for vis in 0..3u8 {
+                                    let row_y = 46 + vis as u16 * 46;
+                                    if y >= row_y && y < row_y + 42 && x >= 40 && x <= 280 {
+                                        let list_idx = ad.ms_scroll as usize + vis as usize;
+
+                                        if list_idx >= lcount {
+                                            // Empty slot tapped → go to Tools menu to create/import
+                                            ad.tools_menu.reset();
+                                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                            break;
+                                        }
+
+                                        let real_slot = loaded[list_idx] as u8;
+
+                                        // Trash button: rightmost 44px of card (start_x=44, card_w=232, so trash at x>=232)
+                                        if x >= 232 {
+                                            ad.pending_delete_slot = real_slot;
+                                            ad.app.state = crate::app::input::AppState::ConfirmDeleteSeed;
+                                            break;
+                                        }
+
+                                        // Tap seed card → select and derive
+                                        let already_active = (ad.seed_mgr.active == real_slot)
                                             && ad.pubkeys_cached;
 
                                         if !already_active {
-                                            ad.seed_mgr.activate(slot_idx as usize);
-                                            let slot = &ad.seed_mgr.slots[slot_idx as usize];
+                                            ad.seed_mgr.activate(real_slot as usize);
+                                            let slot = &ad.seed_mgr.slots[real_slot as usize];
                                             ad.mnemonic_indices = slot.indices;
                                             ad.word_count = slot.word_count;
                                             ad.seed_loaded = true;
-                                            // Derive pubkeys — show progress
                                             boot_display.draw_saving_screen("Deriving addresses...");
                                             boot_display.update_progress_bar(50);
-                                            let hw = crate::hw::display::measure_hint("Wait ~30 seconds");
+                                            let hw = crate::hw::display::measure_hint("Deriving...");
                                             crate::hw::display::draw_lato_hint(
-                                                &mut boot_display.display, "Wait ~30 seconds",
+                                                &mut boot_display.display, "Deriving...",
                                                 (320 - hw) / 2, 170,
                                                 crate::hw::display::COLOR_TEXT_DIM);
                                             let pp = slot.passphrase_str();
                                             crate::app::signing::derive_all_pubkeys(
                                                 &ad.mnemonic_indices, ad.word_count, pp,
                                                 &mut ad.pubkey_cache, &mut ad.acct_key_raw);
+                                            crate::app::signing::derive_change_pubkeys(
+                                                &ad.acct_key_raw, &mut ad.change_pubkey_cache);
                                             ad.pubkeys_cached = true;
                                         }
                                         ad.current_addr_index = 0;
                                         ad.app.state = crate::app::input::AppState::MultisigPickAddr { key_idx };
+                                        break;
                                     }
-                                    break;
                                 }
                             }
                         }
@@ -251,9 +250,8 @@ pub fn handle_tx_touch(
                     }
                     crate::app::input::AppState::MultisigPickAddr { key_idx } => {
                         if is_back {
-                            ad.ms_scroll = 0;
                             ad.app.state = crate::app::input::AppState::MultisigPickSeed { key_idx };
-                        } else if x >= 10 && x <= 60 && y >= 210 {
+                        } else if x >= 10 && x <= 60 && y >= 205 && y <= 240 {
                             // [<] previous address
                             if ad.current_addr_index > 0 {
                                 ad.current_addr_index -= 1;
@@ -263,7 +261,7 @@ pub fn handle_tx_touch(
                                     ad.extra_pubkey_index = ad.current_addr_index;
                                 }
                             }
-                        } else if x >= 260 && x <= 310 && y >= 210 {
+                        } else if x >= 260 && x <= 310 && y >= 205 && y <= 240 {
                             // [>] next address
                             ad.current_addr_index += 1;
                             if ad.current_addr_index >= 20 && ad.extra_pubkey_index != ad.current_addr_index {
@@ -271,12 +269,12 @@ pub fn handle_tx_touch(
                                     &ad.acct_key_raw, ad.current_addr_index, &mut ad.extra_pubkey);
                                 ad.extra_pubkey_index = ad.current_addr_index;
                             }
-                        } else if x >= 110 && x <= 210 && y >= 210 {
+                        } else if x >= 110 && x <= 210 && y >= 205 && y <= 240 {
                             // [#N] — open index picker, then return to MultisigPickAddr
                             ad.addr_input_len = 0;
                             ad.ms_picking_key = key_idx + 1; // +1 so 0 means "not picking"
                             ad.app.state = crate::app::input::AppState::AddrIndexPicker;
-                        } else if x >= 95 && x <= 225 && y >= 150 && y < 182 {
+                        } else if x >= 90 && x <= 230 && y >= 145 && y <= 185 {
                             // SELECT button — store current address pubkey
                             if key_idx < ad.ms_creating.n {
                                 let pk = if (ad.current_addr_index as usize) < 20 {
@@ -312,6 +310,24 @@ pub fn handle_tx_touch(
                         needs_redraw = true;
                     }
                     crate::app::input::AppState::MultisigShowAddressQR => {
+                        if is_back {
+                            ad.app.go_main_menu();
+                        } else {
+                            // Tap → show descriptor
+                            ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                        }
+                        needs_redraw = true;
+                    }
+                    crate::app::input::AppState::MultisigDescriptor => {
+                        if is_back {
+                            ad.app.go_main_menu();
+                        } else {
+                            // Tap → show descriptor QR
+                            ad.app.state = crate::app::input::AppState::MultisigDescriptorQR;
+                        }
+                        needs_redraw = true;
+                    }
+                    crate::app::input::AppState::MultisigDescriptorQR => {
                         // Any tap → home
                         ad.app.go_main_menu();
                         needs_redraw = true;

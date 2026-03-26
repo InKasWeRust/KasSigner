@@ -20,6 +20,7 @@
 //         ImportWord, CalcLastWord, DiceRoll, ChooseWordCount,
 //         PassphraseEntry, SeedList
 
+#![allow(unused_imports)]
 use crate::log;
 use crate::{app::data::AppData, hw::display, ui::seed_manager, hw::sound, wallet};
 use crate::ui::helpers::pp_keyboard_hit;
@@ -360,7 +361,19 @@ pub fn handle_seed_touch(
                                         log!("   Seed stored in slot {} (pp={})", slot_idx, ad.pp_input.len);
                                         sound::success(delay);
                                         ad.pp_input.reset();
-                                        ad.app.state = crate::app::input::AppState::SeedBackup { word_idx: 0 };
+                                        // If mid-multisig creation, return to seed picker
+                                        if ad.ms_creating.n > 0 && !ad.ms_creating.active {
+                                            let mut ki: u8 = 0;
+                                            for idx in 0..ad.ms_creating.n {
+                                                if ad.ms_creating.pubkeys[idx as usize] == [0u8; 32] {
+                                                    ki = idx;
+                                                    break;
+                                                }
+                                            }
+                                            ad.app.state = crate::app::input::AppState::MultisigPickSeed { key_idx: ki };
+                                        } else {
+                                            ad.app.state = crate::app::input::AppState::SeedBackup { word_idx: 0 };
+                                        }
                                     } else {
                                         ad.pp_input.reset();
                                         boot_display.draw_rejected_screen("All 4 slots full!");
@@ -460,8 +473,8 @@ pub fn handle_seed_touch(
                                                     Rectangle::new(Point::new(40, 145), Size::new(120, 10))
                                                         .into_styled(PrimitiveStyle::with_fill(crate::hw::display::KASPA_ACCENT))
                                                         .draw(&mut boot_display.display).ok();
-                                                    let ww = crate::hw::display::measure_body("Wait ~30 seconds");
-                                                    crate::hw::display::draw_lato_body(&mut boot_display.display, "Wait ~30 seconds", (320 - ww) / 2, 172, crate::hw::display::COLOR_TEXT_DIM);
+                                                    let ww = crate::hw::display::measure_body("Deriving...");
+                                                    crate::hw::display::draw_lato_body(&mut boot_display.display, "Deriving...", (320 - ww) / 2, 172, crate::hw::display::COLOR_TEXT_DIM);
                                                 }
                                                 if slot_wc == 2 {
                                                     let acct = wallet::bip32::ExtendedPrivKey::from_raw(&ad.acct_key_raw);
@@ -532,7 +545,7 @@ pub fn handle_seed_touch(
                                         } else {
                                             // Normal mnemonic — full PBKDF2 derivation
                                             if !ad.pubkeys_cached {
-                                                boot_display.draw_saving_screen("Deriving ~30s...");
+                                                boot_display.draw_saving_screen("Deriving...");
                                                 let pp = ad.seed_mgr.active_slot().map(|s: &seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
                                                 let seed_bytes = if ad.word_count == 12 {
                                                     let m12 = wallet::bip39::Mnemonic12 {

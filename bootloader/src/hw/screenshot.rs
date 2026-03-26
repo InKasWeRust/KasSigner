@@ -23,6 +23,8 @@
 // Usage: triple-tap the top-right corner to trigger a screenshot.
 // On the PC side, run tools/screenshot.py to capture and display.
 
+#![allow(dead_code)]
+#![allow(static_mut_refs)]
 use embedded_graphics::prelude::*;
 use embedded_graphics::pixelcolor::Rgb565;
 

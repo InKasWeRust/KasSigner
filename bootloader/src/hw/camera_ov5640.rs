@@ -20,8 +20,9 @@
 // OV5640 5MP autofocus sensor, SCCB (I2C-like) control, DVP 8-bit interface.
 // QVGA 320x240 YUV422 output at 20MHz PCLK.
 
-#![allow(unused)]
 
+#![allow(dead_code)]
+#![allow(static_mut_refs)]
 use esp_hal::delay::Delay;
 
 const OV5640_ADDR: u8 = 0x3C;
@@ -32,9 +33,6 @@ const OV5640_ADDR: u8 = 0x3C;
 pub enum CameraStatus { Idle, Active, Error, NotReady, SensorReady, Capturing, Streaming }
 
 pub static mut CAM_STATUS: CameraStatus = CameraStatus::Idle;
-
-pub fn camera_status() -> CameraStatus { unsafe { CAM_STATUS } }
-
 // ═══ SCCB register access (16-bit addresses) ═══
 
 pub fn write_reg<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, reg: u16, val: u8) -> bool {

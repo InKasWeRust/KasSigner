@@ -20,6 +20,7 @@
 // Returns true if a redraw is needed.
 
 
+#![allow(unused_imports)]
 use crate::log;
 use crate::{app::data::AppData, hw::display, hw::sd_backup, hw::sdcard, hw::sound, ui::seed_manager, features::stego, hw::touch, wallet};
 use crate::ui::helpers::pp_keyboard_hit;
@@ -706,7 +707,7 @@ pub fn handle_stego_touch(
                                     boot_display.update_progress_bar(10);
                                     delay.delay_millis(50); // flush display before SD + PBKDF2
 
-                                    // Step 1: Read EXIF from selected JPEG (deferred from file picker)
+                                    // Step 1: Read EXIF from selected JPEG on SD card
                                     ad.import_exif_b64_len = 0;
                                     let fname83 = ad.import_jpeg_names[(ad.import_jpeg_selected) as usize];
                                     let exif_ok = sdcard::with_sd_card(i2c, delay, |ct| {
@@ -717,8 +718,7 @@ pub fn handle_stego_touch(
                                         let mut jpeg_buf = alloc::vec![0u8; fsize];
                                         let read_len = sdcard::read_file(ct, &fat32, &entry, &mut jpeg_buf)?;
                                         if let Some((app1_off, app1_size)) = stego::find_exif_app1(&jpeg_buf[..read_len], read_len) {
-                                            // Validate app1 segment fits within read data
-                                            let app1_end = app1_off.checked_add(app1_size).unwrap_or(usize::MAX);
+                                            let app1_end: usize = app1_off.checked_add(app1_size).unwrap_or(usize::MAX);
                                             if app1_end > read_len { return Err("EXIF overflow"); }
                                             let extracted = stego::extract_user_comment(
                                                 &jpeg_buf[app1_off..app1_end],

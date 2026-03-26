@@ -49,6 +49,7 @@
 // which is the most relevant attack vector.
 
 
+#![allow(dead_code)]
 use crate::log;
 use sha2::{Sha256, Digest};
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -477,29 +478,10 @@ pub fn verify_firmware(
     }
 
     // ─── Utilities ──────────────────────────────────────────────
-
-        /// Compute SHA256 hash of a data slice.
-pub fn calculate_hash(&self, data: &[u8]) -> [u8; 32] {
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        hasher.finalize().into()
-    }
-
         /// Get the expected firmware hash for display.
 pub fn get_display_hash(&self) -> [u8; 32] {
         self.expected_hash
     }
-
-        /// Convert a 32-byte hash to full 64-char hex string.
-pub fn hash_to_hex_full(&self, hash: &[u8; 32]) -> heapless::String<64> {
-        use core::fmt::Write;
-        let mut s = heapless::String::new();
-        for byte in hash {
-            write!(&mut s, "{:02x}", byte).unwrap_or(());
-        }
-        s
-    }
-
         /// Convert a 32-byte hash to short 8-char hex prefix.
 pub fn hash_to_hex_short(&self, hash: &[u8; 32]) -> heapless::String<16> {
         use core::fmt::Write;

@@ -30,6 +30,7 @@
 //   - Hardened derivation for sensitive path levels
 
 
+#![allow(dead_code)]
 use k256::{
     SecretKey,
     elliptic_curve::sec1::ToEncodedPoint,
@@ -55,7 +56,7 @@ const HARDENED_BIT: u32 = 0x8000_0000;
 
 // ─── Kaspa derivation paths ───────────────────────────────────────────
 
-/// Path de Kaspa mainnet: m/44'/111111'/0'/0/0
+/// Kaspa mainnet path: m/44'/111111'/0'/0/0
 pub const KASPA_MAINNET_PATH: &[u32] = &[
     44 | HARDENED_BIT,       // purpose (BIP44)
     111111 | HARDENED_BIT,   // coin_type (Kaspa, SLIP-44)
@@ -64,7 +65,7 @@ pub const KASPA_MAINNET_PATH: &[u32] = &[
     0,                       // address_index 0
 ];
 
-/// Path de Kaspa testnet: m/44'/1'/0'/0/0
+/// Kaspa testnet path: m/44'/1'/0'/0/0
 pub const KASPA_TESTNET_PATH: &[u32] = &[
     44 | HARDENED_BIT,
     1 | HARDENED_BIT,
@@ -306,7 +307,7 @@ pub fn derive_child(
     })
 }
 
-/// Deriva a lo largo de un path completo (ej: m/44'/111111'/0'/0/0).
+/// Derive along a complete path (e.g. m/44'/111111'/0'/0/0).
 ///
 /// Each path element is a u32. The HARDENED_BIT (0x80000000)
 /// indicates hardened derivation (marked with ' in notation).
@@ -363,6 +364,20 @@ pub fn derive_address_key(
     Ok(addr_key)
 }
 
+/// From an account key (m/44'/111111'/0'), derive the CHANGE key at /1/index.
+/// Change addresses use the internal chain (index 1) per BIP44.
+/// Used to verify that TX outputs returning funds to our wallet are legitimate.
+pub fn derive_change_key(
+    account_key: &ExtendedPrivKey,
+    index: u16,
+) -> Result<ExtendedPrivKey, Bip32Error> {
+    // m/44'/111111'/0' → /1 (internal/change chain)
+    let internal_key = derive_child(account_key, 1)?;
+    // /1 → /index (change address index)
+    let addr_key = derive_child(&internal_key, index as u32)?;
+    Ok(addr_key)
+}
+
 /// Derive a full Kaspa address key at m/44'/111111'/0'/0/{index} from seed.
 /// Convenience function when you don't have a cached account key.
 pub fn derive_path_for_index(
@@ -400,7 +415,7 @@ pub fn find_address_index_for_pubkey(
 
 // ─── secp256k1 modular arithmetic ─────────────────────────────────────
 
-/// Comprueba si un escalar de 32 bytes es cero.
+/// Checks if a 32-byte scalar is zero.
 fn is_zero(a: &[u8; 32]) -> bool {
     let mut acc: u8 = 0;
     for &b in a.iter() {
@@ -409,7 +424,7 @@ fn is_zero(a: &[u8; 32]) -> bool {
     acc == 0
 }
 
-/// Comprueba si a < n (orden de secp256k1).
+/// Checks if a < n (secp256k1 order).
 /// Big-endian byte-by-byte comparison.
 fn is_less_than_order(a: &[u8; 32]) -> bool {
     for i in 0..32 {
@@ -828,7 +843,7 @@ pub fn test_multi_address_derivation() -> bool {
 }
 
 /// Run all BIP32 tests.
-/// Retorna (passed, total).
+/// Returns (passed, total).
 #[cfg(any(test, feature = "verbose-boot"))]
 pub fn run_bip32_tests() -> (u32, u32) {
     let mut passed = 0u32;

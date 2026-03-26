@@ -19,6 +19,7 @@
 // This eliminates ~80 local variables from fn main() and makes handler
 // dispatch cleaner: pass &mut AppData instead of 20-50 individual refs.
 
+#![allow(dead_code)]
 use crate::{features::fw_update, hw::sd_backup, ui::seed_manager, ui::setup_wizard, wallet};
 
 /// All mutable application state that handlers read/write.
@@ -56,7 +57,8 @@ pub struct AppData {
     // ─── Keys & addresses ───
     pub our_privkey: [u8; 32],
     pub current_addr_index: u16,
-    pub pubkey_cache: [[u8; 32]; 20],
+    pub pubkey_cache: [[u8; 32]; 20],       // receive addresses: m/44'/111111'/0'/0/{0..19}
+    pub change_pubkey_cache: [[u8; 32]; 5], // change addresses: m/44'/111111'/0'/1/{0..4}
     pub pubkeys_cached: bool,
     pub acct_key_raw: [u8; 65],
     pub extra_pubkey: [u8; 32],
@@ -135,17 +137,27 @@ pub struct AppData {
     // ─── Display settings ───
     pub brightness: u8,
 
-    // ─── Camera tune (overlay on ScanQR) ───
+    // ─── Camera tune (overlay on ScanQR) — Waveshare only ───
+    #[cfg(feature = "waveshare")]
     pub cam_tune_active: bool,
+    #[cfg(feature = "waveshare")]
     pub cam_tune_dirty: bool,    // true = values changed, need I2C apply
+    #[cfg(feature = "waveshare")]
     pub cam_tune_param: u8,      // 0=AEC_H, 1=AEC_L, 2=contrast, 3=brightness, 4=AGC_ceil, 5=sharpness
+    #[cfg(feature = "waveshare")]
     pub cam_tune_vals: [u8; 6],  // current values for each parameter
 
-    // ─── Camera touch forwarding ───
-    // camera_loop stores tap coordinates here; main loop picks them up
+    // ─── Camera touch forwarding — Waveshare only ───
+    #[cfg(feature = "waveshare")]
     pub cam_tap_x: u16,
+    #[cfg(feature = "waveshare")]
     pub cam_tap_y: u16,
+    #[cfg(feature = "waveshare")]
     pub cam_tap_ready: bool,     // true = unprocessed tap waiting
+
+    // ─── Audio — M5Stack only ───
+    #[cfg(feature = "m5stack")]
+    pub volume: u8,
 }
 
 impl AppData {
@@ -170,8 +182,13 @@ pub fn new() -> Self {
             qr_export_menu: crate::app::input::Menu::from_items(
                 &["CompactSeedQR", "Standard SeedQR", "Plain Words QR"]
             ),
+            #[cfg(feature = "waveshare")]
             settings_menu: crate::app::input::Menu::from_items(
                 &["Display", "SD Card", "About"]
+            ),
+            #[cfg(feature = "m5stack")]
+            settings_menu: crate::app::input::Menu::from_items(
+                &["Display", "Audio", "SD Card", "About"]
             ),
 
             seed_mgr: seed_manager::SeedManager::new(),
@@ -191,6 +208,7 @@ pub fn new() -> Self {
             our_privkey: [0u8; 32],
             current_addr_index: 0,
             pubkey_cache: [[0u8; 32]; 20],
+            change_pubkey_cache: [[0u8; 32]; 5],
             pubkeys_cached: false,
             acct_key_raw: [0u8; 65],
             extra_pubkey: [0u8; 32],
@@ -259,16 +277,26 @@ pub fn new() -> Self {
 
             sign_msg_sig: [0u8; 64],
 
-            brightness: 191,
+            brightness: 102,
 
+            #[cfg(feature = "waveshare")]
             cam_tune_active: false,
+            #[cfg(feature = "waveshare")]
             cam_tune_dirty: true,
+            #[cfg(feature = "waveshare")]
             cam_tune_param: 0,
+            #[cfg(feature = "waveshare")]
             cam_tune_vals: [0x7E, 0x81, 0xA8, 0x2C, 0x92, 0xCE],
 
+            #[cfg(feature = "waveshare")]
             cam_tap_x: 0,
+            #[cfg(feature = "waveshare")]
             cam_tap_y: 0,
+            #[cfg(feature = "waveshare")]
             cam_tap_ready: false,
+
+            #[cfg(feature = "m5stack")]
+            volume: 18,
         }
     }
 }

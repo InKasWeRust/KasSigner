@@ -21,6 +21,7 @@
 // Hex mode: same layout but only 0-9 A-F active
 // All modes share identical key positions for visual consistency.
 
+#![allow(dead_code)]
 use embedded_graphics::prelude::*;
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle, RoundedRectangle, CornerRadii, Line};
@@ -321,8 +322,6 @@ pub fn hit_test(x: u16, y: u16, mode: KeyboardMode, page: u8) -> KeyAction {
 // ═══════════════════════════════════════════════════════════════
 
 pub fn has_space(mode: KeyboardMode) -> bool { space_active(mode) }
-pub fn has_page_key(mode: KeyboardMode) -> bool { page_active(mode) }
-
 // ═══════════════════════════════════════════════════════════════
 // Drawing helpers
 // ═══════════════════════════════════════════════════════════════

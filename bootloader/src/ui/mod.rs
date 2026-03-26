@@ -14,8 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+// ui/mod.rs — User interface module (screens, fonts, keyboard, helpers)
 // ui/ — UI logic, screen redraw, fonts, and input wizards
 
+#![allow(dead_code)]
+#![allow(unused_imports)]
 pub mod redraw;
 pub mod helpers;
 pub mod keyboard;

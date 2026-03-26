@@ -25,6 +25,7 @@
 //   CST816D SwipeUp(0x01)    = finger moves right on screen
 //   CST816D SwipeDown(0x02)  = finger moves left on screen
 
+#![allow(dead_code)]
 use esp_hal::i2c::master::I2c;
 
 const CST816D_ADDR: u8 = 0x15;
@@ -80,9 +81,6 @@ impl TouchTracker {
             got_contact: false, contact_count: 0,
         }
     }
-
-    pub fn is_tracking(&self) -> bool { self.is_down }
-
     pub fn update(&mut self, state: TouchState, gesture: HwGesture) -> TouchAction {
         match state {
             TouchState::NoTouch => {

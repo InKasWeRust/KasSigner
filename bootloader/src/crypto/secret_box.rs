@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-// KasSigner — SecretBox: Contenedor XOR-Masked para Secretos
+// KasSigner — SecretBox: XOR-Masked Container for Secrets
 // 100% Rust, no-std
 //
-// Las claves privadas y seeds NUNCA deben estar en claro en RAM
-// excepto durante el instante exacto en que se usan para firmar.
+// Private keys and seeds must NEVER be stored in cleartext in RAM
+// except during the exact instant they are used for signing.
 //
 // SecretBox stores the secret XORd with a random mask.
 // A RAM dump will show data that appears random.
@@ -36,6 +36,7 @@
 //   - Does not protect against cold boot if attacker reads before zeroize
 
 
+#![allow(dead_code)]
 use core::sync::atomic::{compiler_fence, Ordering};
 use super::secure_zeroize;
 
@@ -100,35 +101,6 @@ impl<const N: usize> SecretBox<N> {
 
         result
     }
-
-    /// Rotate the mask: re-mask the secret with a new mask.
-    /// Useful for periodically changing the in-memory representation.
-    pub fn rotate_mask(&mut self, new_mask: &[u8; N]) {
-        // Desenmascarar temporalmente
-        let mut clear = [0u8; N];
-        for i in 0..N {
-            clear[i] = self.masked[i] ^ self.mask[i];
-        }
-
-        // Re-mask with the new mask
-        for i in 0..N {
-            self.masked[i] = clear[i] ^ new_mask[i];
-        }
-
-        // Update mask
-        self.mask = *new_mask;
-
-        // Zeroize temporary buffer
-        secure_zeroize::zeroize_array(&mut clear);
-    }
-
-    /// Verifica que el SecretBox contiene datos (no todo ceros enmascarados).
-    /// NO revela el contenido.
-    pub fn is_initialized(&self) -> bool {
-        // Si masked == mask, entonces el secreto original era todo ceros.
-        // We use constant-time comparison.
-        !super::constant_time::eq(&self.masked, &self.mask)
-    }
 }
 
 impl<const N: usize> Drop for SecretBox<N> {
@@ -142,4 +114,4 @@ impl<const N: usize> Drop for SecretBox<N> {
 // SecretBox NO implementa Clone, Copy, Debug, ni Display.
 // Esto previene copias accidentales y fugas por logging.
 // If you need to clone a secret, you must do it explicitly
-// con unmask() + SecretBox::new().
+// with unmask() + SecretBox::new().

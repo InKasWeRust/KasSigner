@@ -31,6 +31,8 @@
 // The PIR (GPIO17) is used as an optional back/cancel button.
 
 
+#![allow(dead_code)]
+#![allow(unused_imports)]
 use esp_hal::gpio::Input;
 
 // ═══════════════════════════════════════════════════════════════════
@@ -148,20 +150,6 @@ pub fn update(&mut self, active: bool, elapsed_ms: u32) -> ButtonEvent {
         }
 
         ButtonEvent::None
-    }
-
-        /// Returns true if the button is currently held down.
-pub fn is_held(&self) -> bool {
-        self.was_pressed
-    }
-
-        /// Returns how long the button has been held (ms).
-pub fn hold_duration(&self) -> u32 {
-        if self.was_pressed {
-            self.time_ms.wrapping_sub(self.press_start)
-        } else {
-            0
-        }
     }
 }
 
@@ -302,38 +290,6 @@ impl Menu {
     pub fn visible_to_absolute(&self, visible_idx: u8) -> u8 {
         self.scroll + visible_idx
     }
-
-    // Legacy scroll wrappers (kept for any remaining single-scroll callers)
-
-    /// Scroll up by one item. Returns true if scroll changed.
-    pub fn scroll_up(&mut self) -> bool {
-        if self.scroll > 0 {
-            self.scroll -= 1;
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Scroll down by one item. Returns true if scroll changed.
-    pub fn scroll_down(&mut self) -> bool {
-        if self.count > Self::MAX_VISIBLE && self.scroll < self.count - Self::MAX_VISIBLE {
-            self.scroll += 1;
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Can scroll up?
-    pub fn can_scroll_up(&self) -> bool {
-        self.scroll > 0
-    }
-
-    /// Can scroll down?
-    pub fn can_scroll_down(&self) -> bool {
-        self.count > Self::MAX_VISIBLE && self.scroll < self.count - Self::MAX_VISIBLE
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -373,7 +329,8 @@ pub enum AppState {
     SettingsMenu,
     /// Display settings (brightness)
     DisplaySettings,
-    /// Audio settings (volume)
+    /// Audio settings (volume) — M5Stack only (Waveshare has no speaker)
+    AudioSettings,
     /// SD Card settings (format, info)
     SdCardSettings,
     /// About screen
@@ -480,6 +437,10 @@ pub enum AppState {
     MultisigShowAddress,
     /// Multisig: show QR of multisig address
     MultisigShowAddressQR,
+    /// Multisig: show wallet descriptor text (multi(M, pk1, pk2, ...))
+    MultisigDescriptor,
+    /// Multisig: show QR of wallet descriptor
+    MultisigDescriptorQR,
     /// Steganography: select mode (list of 6 modes)
     StegoModeSelect,
     /// Steganography: processing embed (mode stored externally)
@@ -641,7 +602,7 @@ pub fn new() -> Self {
             | AppState::CalcLastWord { .. } | AppState::ChooseWordCount { .. }
             | AppState::PassphraseEntry | AppState::ExportSeedQR | AppState::ExportKpub
             | AppState::SeedList | AppState::DisplaySettings
-            | AppState::SdCardSettings
+            | AppState::AudioSettings | AppState::SdCardSettings
             | AppState::SignTxGuide
             | AppState::SignMsgChoice | AppState::SignMsgType | AppState::SignMsgFile
             | AppState::SignMsgPreview | AppState::SignMsgResult
@@ -668,6 +629,7 @@ pub fn new() -> Self {
             | AppState::MultisigPickAddr { .. }
             | AppState::MultisigAddKey { .. } | AppState::MultisigShowAddress
             | AppState::MultisigShowAddressQR
+            | AppState::MultisigDescriptor | AppState::MultisigDescriptorQR
             | AppState::StegoModeSelect | AppState::StegoEmbed | AppState::StegoResult
             | AppState::StegoJpegPick | AppState::StegoJpegDescChoice | AppState::StegoJpegDescFile
             | AppState::StegoJpegDesc | AppState::StegoJpegDescPreview | AppState::StegoJpegConfirm
@@ -685,74 +647,6 @@ pub fn new() -> Self {
             }
         }
     }
-
-    /// Handle PIR (back/cancel) event
-    pub fn handle_pir(&mut self, event: ButtonEvent) -> Action {
-        if event == ButtonEvent::None {
-            return Action::None;
-        }
-
-        match self.state {
-            AppState::ReviewTx { page } => {
-                if page > 0 {
-                    self.state = AppState::ReviewTx { page: page - 1 };
-                } else {
-                    self.go_main_menu();
-                }
-                Action::Redraw
-            }
-            AppState::ConfirmTx => {
-                self.state = AppState::Rejected;
-                Action::Redraw
-            }
-            AppState::ConfirmDeleteSeed => {
-                self.state = AppState::SeedList;
-                Action::Redraw
-            }
-            AppState::ShowQR | AppState::Rejected | AppState::About
-            | AppState::ShowAddress | AppState::ShowAddressQR | AppState::ScanQR
-            | AppState::SeedsMenu | AppState::ToolsMenu | AppState::SettingsMenu
-            | AppState::ViewSeed | AppState::SeedBackup { .. }
-            | AppState::DiceRoll | AppState::ImportWord { .. }
-            | AppState::CalcLastWord { .. } | AppState::ChooseWordCount { .. }
-            | AppState::PassphraseEntry | AppState::ExportSeedQR | AppState::ExportKpub
-            | AppState::QrExportMenu | AppState::ExportPlainWordsQR
-            | AppState::SeedList | AppState::DisplaySettings
-            | AppState::SdCardSettings
-            | AppState::SignTxGuide
-            | AppState::MultisigChooseMN | AppState::MultisigPickSeed { .. }
-            | AppState::MultisigPickAddr { .. }
-            | AppState::MultisigAddKey { .. } | AppState::MultisigShowAddress
-            | AppState::MultisigShowAddressQR
-            | AppState::StegoModeSelect
-            | AppState::FwUpdateResult => {
-                self.go_main_menu();
-                Action::Redraw
-            }            #[cfg(feature = "icon-browser")]
-            AppState::IconBrowser { .. } => {
-                self.state = AppState::ToolsMenu;
-                Action::Redraw
-            }
-            AppState::StegoEmbed | AppState::StegoResult => {
-                self.state = AppState::ExportChoice;
-                Action::Redraw
-            }
-            AppState::StegoJpegPick | AppState::StegoJpegDescChoice | AppState::StegoJpegDescFile
-            | AppState::StegoJpegDesc | AppState::StegoJpegDescPreview | AppState::StegoJpegConfirm
-            | AppState::StegoJpegPpAsk | AppState::StegoJpegPpInfo | AppState::StegoJpegPpEntry => {
-                self.state = AppState::ExportChoice;
-                Action::Redraw
-            }
-            AppState::StegoImportPick | AppState::StegoImportDescChoice
-            | AppState::StegoImportDescFile | AppState::StegoImportPass
-            | AppState::StegoHintReveal | AppState::StegoHintPassphrase => {
-                self.state = AppState::ToolsMenu;
-                Action::Redraw
-            }
-            _ => Action::None,
-        }
-    }
-
     /// Start reviewing a transaction
     pub fn start_review(&mut self, num_outputs: u8, num_inputs: u8) {
         // review_pages = 1 summary + num_outputs (confirm is separate state)
@@ -787,13 +681,6 @@ pub fn new() -> Self {
 // ═══════════════════════════════════════════════════════════════════
 // GPIO helpers
 // ═══════════════════════════════════════════════════════════════════
-
-#[inline]
-/// Read the hardware boot button state.
-pub fn read_boot_button(pin: &Input<'_>) -> bool {
-    pin.is_low()
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // Self-tests
 // ═══════════════════════════════════════════════════════════════════
@@ -950,12 +837,13 @@ pub fn handler_group(&self) -> HandlerGroup {
 
             // Settings
             SettingsMenu | DisplaySettings
-            | SdCardSettings | About
+            | AudioSettings | SdCardSettings | About
                 => HandlerGroup::Settings,
             // Transaction / multisig / camera / message signing
             ScanQR | ReviewTx { .. } | ConfirmTx | SignTxGuide
             | MultisigChooseMN | MultisigPickSeed { .. } | MultisigPickAddr { .. }
             | MultisigAddKey { .. } | MultisigShowAddress | MultisigShowAddressQR
+            | MultisigDescriptor | MultisigDescriptorQR
             | SignMsgChoice | SignMsgType | SignMsgFile | SignMsgPreview | SignMsgResult
                 => HandlerGroup::Tx,
 
