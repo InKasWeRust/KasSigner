@@ -3841,6 +3841,66 @@ const CAM_TUNE_LABELS: [&str; 6] = [
 
 #[cfg(feature = "waveshare")]
 impl<'a> crate::hw::display::BootDisplay<'a> {
+    /// Draw the full cam-tune overlay: right panel (6 param buttons + EXIT) + bottom slider.
+    /// Called once when cam-tune activates. Partial updates via update_cam_tune_slider.
+    pub fn draw_cam_tune_overlay(&mut self, param: u8, vals: &[u8; 6]) {
+        use embedded_graphics::prelude::*;
+        use embedded_graphics::primitives::{Rectangle, PrimitiveStyle, RoundedRectangle};
+        use embedded_graphics::primitives::CornerRadii;
+        use crate::hw::display::*;
+
+        let corner = CornerRadii::new(Size::new(6, 6));
+
+        // Right panel (x=198..320, y=0..180)
+        Rectangle::new(Point::new(198, 0), Size::new(122, 180))
+            .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
+            .draw(&mut self.display).ok();
+
+        // EXIT button (116x32)
+        RoundedRectangle::new(
+            Rectangle::new(Point::new(202, 2), Size::new(116, 32)),
+            corner
+        ).into_styled(PrimitiveStyle::with_fill(COLOR_RED_BTN))
+        .draw(&mut self.display).ok();
+        draw_lato_title(&mut self.display, "EXIT", 236, 26, COLOR_TEXT);
+
+        // 6 param buttons: 3 rows x 2 cols
+        let btn_w = 56u32;
+        let btn_h = 44u32;
+        let gap = 3i32;
+        let grid_y0 = 38i32;
+        let col0_x = 202i32;
+        let col1_x = 262i32;
+        let row_step = (btn_h as i32) + gap;
+
+        for i in 0..6u8 {
+            let row = i / 2;
+            let col = i % 2;
+            let bx = if col == 0 { col0_x } else { col1_x };
+            let by = grid_y0 + row as i32 * row_step;
+            let is_sel = i == param;
+
+            let btn_bg = if is_sel {
+                PrimitiveStyle::with_fill(KASPA_TEAL)
+            } else {
+                PrimitiveStyle::with_fill(COLOR_CARD)
+            };
+            RoundedRectangle::new(
+                Rectangle::new(Point::new(bx, by), Size::new(btn_w, btn_h)),
+                corner
+            ).into_styled(btn_bg).draw(&mut self.display).ok();
+
+            let label = CAM_TUNE_LABELS[i as usize];
+            let label_color = if is_sel { COLOR_BG } else { COLOR_TEXT };
+            let lw = measure_body(label);
+            let lx = bx + (btn_w as i32 - lw) / 2;
+            draw_lato_body(&mut self.display, label, lx.max(bx + 2), by + 30, label_color);
+        }
+
+        // Bottom slider bar
+        self.update_cam_tune_slider(param, vals);
+    }
+
     /// Partial redraw: only the bottom slider bar (y=180..240).
     pub fn update_cam_tune_slider(&mut self, param: u8, vals: &[u8; 6]) {
         use embedded_graphics::prelude::*;

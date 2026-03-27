@@ -51,11 +51,11 @@ pub fn handle_tx_touch(
                         }
                     }
                     crate::app::input::AppState::ScanQR => {
-                        // Back button (34x34 at origin) or Home button (34x34 at 286,0)
-                        if (x <= 40 && y <= 40) || (x >= 268 && y <= 40) {
-                            // If we're in the middle of multisig creation, return there
+                        // Back button (top-left) — both platforms
+                        if x <= 40 && y <= 40 {
+                            #[cfg(feature = "waveshare")]
+                            { ad.cam_tune_active = false; }
                             if ad.ms_creating.n > 0 && !ad.ms_creating.active {
-                                // Find which key we were adding
                                 let mut key_idx: u8 = 0;
                                 for i in 0..ad.ms_creating.n {
                                     if ad.ms_creating.pubkeys[i as usize] == [0u8; 32] {
@@ -68,6 +68,63 @@ pub fn handle_tx_touch(
                                 ad.app.go_main_menu();
                             }
                             needs_redraw = true;
+                        }
+                        // M5Stack: top-right = home
+                        #[cfg(feature = "m5stack")]
+                        if x >= 268 && y <= 40 {
+                            ad.app.go_main_menu();
+                            needs_redraw = true;
+                        }
+                        // Waveshare: cam-tune overlay interaction
+                        #[cfg(feature = "waveshare")]
+                        if x > 40 || y > 40 {
+                            if ad.cam_tune_active {
+                                // Slider track (y>=196, x=56..264)
+                                if y >= 196 && x >= 56 && x <= 264 {
+                                    let clamped = (x as i32 - 56).max(0).min(208) as u32;
+                                    ad.cam_tune_vals[ad.cam_tune_param as usize] = ((clamped * 255) / 208) as u8;
+                                    ad.cam_tune_dirty = true;
+                                    boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
+                                }
+                                // [-] button (x<54, y>=196)
+                                else if y >= 196 && x < 54 {
+                                    let p = ad.cam_tune_param as usize;
+                                    ad.cam_tune_vals[p] = ad.cam_tune_vals[p].saturating_sub(8);
+                                    ad.cam_tune_dirty = true;
+                                    boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
+                                }
+                                // [+] button (x>266, y>=196)
+                                else if y >= 196 && x > 266 {
+                                    let p = ad.cam_tune_param as usize;
+                                    ad.cam_tune_vals[p] = ad.cam_tune_vals[p].saturating_add(8);
+                                    ad.cam_tune_dirty = true;
+                                    boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
+                                }
+                                // Right panel (x>=200)
+                                else if x >= 200 {
+                                    if y < 34 {
+                                        // EXIT button
+                                        ad.cam_tune_active = false;
+                                        boot_display.draw_camera_screen("", "");
+                                    } else if y >= 36 && y < 180 {
+                                        // Param grid: col split at x=261, row_step=49
+                                        let col = if x < 261 { 0u8 } else { 1u8 };
+                                        let row = ((y as i32 - 36).max(0) / 49).min(2) as u8;
+                                        let idx = row * 2 + col;
+                                        if idx < 6 && idx != ad.cam_tune_param {
+                                            ad.cam_tune_param = idx;
+                                            boot_display.draw_cam_tune_overlay(ad.cam_tune_param, &ad.cam_tune_vals);
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Normal ScanQR — gear icon (x>=275, y<=45) → activate cam-tune
+                                if x >= 275 && y <= 45 {
+                                    ad.cam_tune_active = true;
+                                    boot_display.draw_camera_screen("", "");
+                                    boot_display.draw_cam_tune_overlay(ad.cam_tune_param, &ad.cam_tune_vals);
+                                }
+                            }
                         }
                     }
                     crate::app::input::AppState::ReviewTx { .. } => {

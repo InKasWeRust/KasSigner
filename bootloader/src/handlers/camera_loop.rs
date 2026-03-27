@@ -52,6 +52,54 @@ static mut MF_FRAG_SIZE: [u16; 8] = [0; 8];
 static mut MF_TOTAL: u8 = 0;
 static mut MF_LEN: usize = 0;
 
+// Waveshare-only: flash detection and voting confirmation
+#[cfg(feature = "waveshare")]
+static mut QR_FINDERS_ACTIVE: bool = false;
+#[cfg(feature = "waveshare")]
+static mut LAST_AVG: u32 = 128;
+#[cfg(feature = "waveshare")]
+const VOTE_SLOTS: usize = 4;
+#[cfg(feature = "waveshare")]
+const VOTE_THRESHOLD: u8 = 5;
+#[cfg(feature = "waveshare")]
+static mut QR_VOTES: [[u8; 32]; 4] = [[0u8; 32]; 4];
+#[cfg(feature = "waveshare")]
+static mut QR_VOTE_LENS: [u8; 4] = [0u8; 4];
+#[cfg(feature = "waveshare")]
+static mut QR_VOTE_COUNTS: [u8; 4] = [0u8; 4];
+#[cfg(feature = "waveshare")]
+static mut QR_VOTE_ACTIVE: usize = 0;
+
+/// Check raw TouchState for Contact/PressDown in safe button zones (back, gear, EXIT).
+/// Waveshare only — stores tap coordinates for tx.rs to process.
+#[cfg(feature = "waveshare")]
+#[inline(always)]
+fn check_immediate_tap(ts: &touch::TouchState, ad: &mut AppData) -> bool {
+    if ad.cam_tap_ready { return false; }
+    match ts {
+        touch::TouchState::One(pt) => {
+            let x = pt.x;
+            let y = pt.y;
+            match pt.event {
+                touch::TouchEventType::PressDown | touch::TouchEventType::Contact => {
+                    let is_back = x <= 40 && y <= 40;
+                    let is_gear = !ad.cam_tune_active && x >= 275 && y <= 45;
+                    let is_exit = ad.cam_tune_active && x >= 200 && y < 34;
+                    if is_back || is_gear || is_exit {
+                        ad.cam_tap_x = x;
+                        ad.cam_tap_y = y;
+                        ad.cam_tap_ready = true;
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    false
+}
+
 /// Run one camera capture + QR decode cycle.
 /// Returns true if a QR was successfully decoded and processed.
 #[allow(unused_variables, unused_assignments, unused_mut, unused_unsafe)]
@@ -101,6 +149,14 @@ pub fn run_camera_cycle(
                         core::ptr::write_volatile(0x6004_1000u32 as *mut u32, lcd_clk | (1u32 << 31));
                     }
                     *cam_status = camera::CameraStatus::Streaming;
+                    #[cfg(feature = "waveshare")]
+                    {
+                        camera::configure_cam_vsync_eof();
+                        ad.cam_tune_dirty = true;
+                    }
+                    #[cfg(feature = "waveshare")]
+                    log!("   QVGA YUV422 streaming started (320x240)");
+                    #[cfg(feature = "m5stack")]
                     log!("   QVGA Y-only streaming started (320x240)");
                 }
 
@@ -111,29 +167,56 @@ pub fn run_camera_cycle(
                         None => { *dvp_camera_opt = Some(cam); return; }
                     };
 
-                    // Pre-capture touch check — catch back taps before receive() blocks
+                    // Pre-capture touch check
                     {
-                        let ts = touch::read_touch(i2c);
                         #[cfg(feature = "waveshare")]
-                        let act = tracker.update(ts, touch::HwGesture::None);
-                        #[cfg(feature = "m5stack")]
-                        let act = tracker.update(ts);
-                        if let touch::TouchAction::Tap { x, y } = act {
-                            if (x <= 40 && y <= 40) || (x >= 268 && y <= 40) {
-                                sound::click(delay);
+                        {
+                            let (ts, gest) = touch::read_touch_with_gesture(i2c);
+                            if check_immediate_tap(&ts, ad) {
                                 *cam_dma_buf_opt = Some(cam_dma_buf);
                                 *dvp_camera_opt = Some(cam);
-                                if ad.ms_creating.n > 0 && !ad.ms_creating.active {
-                                    let mut ki: u8 = 0;
-                                    for i in 0..ad.ms_creating.n {
-                                        if ad.ms_creating.pubkeys[i as usize] == [0u8; 32] { ki = i; break; }
-                                    }
-                                    ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: ki };
-                                } else {
-                                    ad.app.go_main_menu();
-                                }
-                                ad.needs_redraw = true;
                                 return;
+                            }
+                            let act = tracker.update(ts, gest);
+                            match act {
+                                touch::TouchAction::Tap { x, y } => {
+                                    ad.cam_tap_x = x;
+                                    ad.cam_tap_y = y;
+                                    ad.cam_tap_ready = true;
+                                    *cam_dma_buf_opt = Some(cam_dma_buf);
+                                    *dvp_camera_opt = Some(cam);
+                                    return;
+                                }
+                                touch::TouchAction::Drag { x, y, .. } if ad.cam_tune_active && y >= 196 && x >= 56 && x <= 264 => {
+                                    let clamped = (x as i32 - 56).max(0).min(208) as u32;
+                                    ad.cam_tune_vals[ad.cam_tune_param as usize] = ((clamped * 255) / 208) as u8;
+                                    ad.cam_tune_dirty = true;
+                                    boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
+                                }
+                                _ => {}
+                            }
+                        }
+                        #[cfg(feature = "m5stack")]
+                        {
+                            let ts = touch::read_touch(i2c);
+                            let act = tracker.update(ts);
+                            if let touch::TouchAction::Tap { x, y } = act {
+                                if (x <= 40 && y <= 40) || (x >= 268 && y <= 40) {
+                                    sound::click(delay);
+                                    *cam_dma_buf_opt = Some(cam_dma_buf);
+                                    *dvp_camera_opt = Some(cam);
+                                    if ad.ms_creating.n > 0 && !ad.ms_creating.active {
+                                        let mut ki: u8 = 0;
+                                        for i in 0..ad.ms_creating.n {
+                                            if ad.ms_creating.pubkeys[i as usize] == [0u8; 32] { ki = i; break; }
+                                        }
+                                        ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: ki };
+                                    } else {
+                                        ad.app.go_main_menu();
+                                    }
+                                    ad.needs_redraw = true;
+                                    return;
+                                }
                             }
                         }
                     }
@@ -145,27 +228,47 @@ pub fn run_camera_cycle(
 
                             // Touch check — catch taps during wait()
                             {
-                                let ts = touch::read_touch(i2c);
                                 #[cfg(feature = "waveshare")]
-                                let act = tracker.update(ts, touch::HwGesture::None);
-                                #[cfg(feature = "m5stack")]
-                                let act = tracker.update(ts);
-                                if let touch::TouchAction::Tap { x, y } = act {
-                                    if (x <= 40 && y <= 40) || (x >= 268 && y <= 40) {
-                                        sound::click(delay);
-                                        *cam_dma_buf_opt = Some(buf_back);
-                                        *dvp_camera_opt = Some(cam_back);
-                                        if ad.ms_creating.n > 0 && !ad.ms_creating.active {
-                                    let mut ki: u8 = 0;
-                                    for i in 0..ad.ms_creating.n {
-                                        if ad.ms_creating.pubkeys[i as usize] == [0u8; 32] { ki = i; break; }
+                                {
+                                    let (ts, gest) = touch::read_touch_with_gesture(i2c);
+                                    check_immediate_tap(&ts, ad);
+                                    let act = tracker.update(ts, gest);
+                                    match act {
+                                        touch::TouchAction::Tap { x, y } => {
+                                            ad.cam_tap_x = x;
+                                            ad.cam_tap_y = y;
+                                            ad.cam_tap_ready = true;
+                                        }
+                                        touch::TouchAction::Drag { x, y, .. } if ad.cam_tune_active && y >= 196 && x >= 56 && x <= 264 => {
+                                            let clamped = (x as i32 - 56).max(0).min(208) as u32;
+                                            ad.cam_tune_vals[ad.cam_tune_param as usize] = ((clamped * 255) / 208) as u8;
+                                            ad.cam_tune_dirty = true;
+                                            boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
+                                        }
+                                        _ => {}
                                     }
-                                    ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: ki };
-                                } else {
-                                    ad.app.go_main_menu();
                                 }
-                                        ad.needs_redraw = true;
-                                        return;
+                                #[cfg(feature = "m5stack")]
+                                {
+                                    let ts = touch::read_touch(i2c);
+                                    let act = tracker.update(ts);
+                                    if let touch::TouchAction::Tap { x, y } = act {
+                                        if (x <= 40 && y <= 40) || (x >= 268 && y <= 40) {
+                                            sound::click(delay);
+                                            *cam_dma_buf_opt = Some(buf_back);
+                                            *dvp_camera_opt = Some(cam_back);
+                                            if ad.ms_creating.n > 0 && !ad.ms_creating.active {
+                                                let mut ki: u8 = 0;
+                                                for i in 0..ad.ms_creating.n {
+                                                    if ad.ms_creating.pubkeys[i as usize] == [0u8; 32] { ki = i; break; }
+                                                }
+                                                ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: ki };
+                                            } else {
+                                                ad.app.go_main_menu();
+                                            }
+                                            ad.needs_redraw = true;
+                                            return;
+                                        }
                                     }
                                 }
                             }
@@ -192,21 +295,40 @@ pub fn run_camera_cycle(
 
                             // ── Display: blit crop from DMA buffer ──
                             if frame_ok && !QR_ERROR_SHOWING {
-                                for cy in 0..render_h {
-                                    let src_y = full_h - 1 - (crop_y0 + cy);
-                                    for cx in 0..render_w {
-                                        #[cfg(feature = "waveshare")]
-                                        let idx = src_y * bpl + (crop_x0 + cx) * 2; // Y byte at even offset
-                                        #[cfg(feature = "m5stack")]
-                                        let idx = src_y * bpl + (crop_x0 + cx);
-                                        *crop_ptr.add(cy * render_w + cx) = if idx < data_len {
-                                            data[idx]
-                                        } else { 0 };
+                                // Waveshare: 90° rotation (portrait sensor → landscape)
+                                #[cfg(feature = "waveshare")]
+                                {
+                                    let cam_col0: usize = (320 - render_h) / 2;
+                                    let max_safe: usize = full_h * bpl;
+                                    for cy in 0..render_h {
+                                        for cx in 0..render_w {
+                                            let src_row = cx;
+                                            let src_col = cam_col0 + cy;
+                                            let y_idx = src_row * bpl + src_col * 2;
+                                            *crop_ptr.add(cy * render_w + cx) = if y_idx < max_safe {
+                                                data[y_idx]
+                                            } else { 0 };
+                                        }
+                                    }
+                                }
+                                // M5Stack: vertical flip (Y-only)
+                                #[cfg(feature = "m5stack")]
+                                {
+                                    for cy in 0..render_h {
+                                        let src_y = full_h - 1 - (crop_y0 + cy);
+                                        for cx in 0..render_w {
+                                            let idx = src_y * bpl + (crop_x0 + cx);
+                                            *crop_ptr.add(cy * render_w + cx) = if idx < data_len {
+                                                data[idx]
+                                            } else { 0 };
+                                        }
                                     }
                                 }
                                 let crop_slice = core::slice::from_raw_parts(
                                     crop_ptr as *const u8, render_w * render_h);
-                                let guide = QR_GUIDE_VER | if QR_FINDERS_BEEPED { 0x80 } else { 0 };
+                                let mut guide = QR_GUIDE_VER | if QR_FINDERS_BEEPED { 0x80 } else { 0 };
+                                #[cfg(feature = "waveshare")]
+                                if ad.cam_tune_active { guide |= 0x40; }
                                 boot_display.blit_camera_frame(crop_slice, render_w, render_h, guide);
                             }
 
@@ -215,13 +337,14 @@ pub fn run_camera_cycle(
 
                             if is_decode_frame && frame_ok && !QR_ERROR_SHOWING {
                                 for dy in 0..full_h {
-                                    let src_y = full_h - 1 - dy;
                                     let dst_off = dy * 320;
                                     for dx in 0..320usize {
+                                        // Waveshare: Y at even bytes, no flip
                                         #[cfg(feature = "waveshare")]
-                                        let idx = src_y * bpl + dx * 2; // Y from even bytes
+                                        let idx = dy * bpl + dx * 2;
+                                        // M5Stack: Y-only, vertical flip
                                         #[cfg(feature = "m5stack")]
-                                        let idx = src_y * bpl + dx;
+                                        let idx = (full_h - 1 - dy) * bpl + dx;
                                         *db_ptr.add(dst_off + dx) = if idx < data_len {
                                             data[idx]
                                         } else { 0 };
@@ -249,25 +372,45 @@ pub fn run_camera_cycle(
 
                             // ── Touch check ──
                             {
-                                let ts = touch::read_touch(i2c);
                                 #[cfg(feature = "waveshare")]
-                                let act = tracker.update(ts, touch::HwGesture::None);
-                                #[cfg(feature = "m5stack")]
-                                let act = tracker.update(ts);
-                                if let touch::TouchAction::Tap { x, y } = act {
-                                    if (x <= 40 && y <= 40) || (x >= 268 && y <= 40) {
-                                        sound::click(delay);
-                                        if ad.ms_creating.n > 0 && !ad.ms_creating.active {
-                                    let mut ki: u8 = 0;
-                                    for i in 0..ad.ms_creating.n {
-                                        if ad.ms_creating.pubkeys[i as usize] == [0u8; 32] { ki = i; break; }
+                                {
+                                    let (ts, gest) = touch::read_touch_with_gesture(i2c);
+                                    check_immediate_tap(&ts, ad);
+                                    let act = tracker.update(ts, gest);
+                                    match act {
+                                        touch::TouchAction::Tap { x, y } => {
+                                            ad.cam_tap_x = x;
+                                            ad.cam_tap_y = y;
+                                            ad.cam_tap_ready = true;
+                                        }
+                                        touch::TouchAction::Drag { x, y, .. } if ad.cam_tune_active && y >= 196 && x >= 56 && x <= 264 => {
+                                            let clamped = (x as i32 - 56).max(0).min(208) as u32;
+                                            ad.cam_tune_vals[ad.cam_tune_param as usize] = ((clamped * 255) / 208) as u8;
+                                            ad.cam_tune_dirty = true;
+                                            boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
+                                        }
+                                        _ => {}
                                     }
-                                    ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: ki };
-                                } else {
-                                    ad.app.go_main_menu();
                                 }
-                                        ad.needs_redraw = true;
-                                        return;
+                                #[cfg(feature = "m5stack")]
+                                {
+                                    let ts = touch::read_touch(i2c);
+                                    let act = tracker.update(ts);
+                                    if let touch::TouchAction::Tap { x, y } = act {
+                                        if (x <= 40 && y <= 40) || (x >= 268 && y <= 40) {
+                                            sound::click(delay);
+                                            if ad.ms_creating.n > 0 && !ad.ms_creating.active {
+                                                let mut ki: u8 = 0;
+                                                for i in 0..ad.ms_creating.n {
+                                                    if ad.ms_creating.pubkeys[i as usize] == [0u8; 32] { ki = i; break; }
+                                                }
+                                                ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: ki };
+                                            } else {
+                                                ad.app.go_main_menu();
+                                            }
+                                            ad.needs_redraw = true;
+                                            return;
+                                        }
                                     }
                                 }
                             }
