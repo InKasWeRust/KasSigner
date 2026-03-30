@@ -17,7 +17,6 @@
 // features/mod.rs — Feature modules (stego, KRC-20, firmware verify, self-test)
 // features/ — Steganography, KRC-20, firmware update, NVS, verification
 
-#![allow(unused_imports)]
 pub mod stego;
 pub mod krc20;
 pub mod fw_update;

@@ -18,7 +18,6 @@
 //
 // Covers: SettingsMenu, DisplaySettings, SdCardSettings, About
 
-#![allow(unused_imports)]
 use crate::log;
 use crate::{app::data::AppData, hw::display, hw::sdcard, hw::sound, hw::touch};
 use crate::ui::helpers::format_test_line;
@@ -85,13 +84,13 @@ pub fn handle_settings_touch(
                             ad.app.state = crate::app::input::AppState::SettingsMenu;
                             needs_redraw = true;
                         } else {
-                            if x <= 68 && y >= 70 && y <= 120 {
+                            if x <= 68 && (70..=120).contains(&y) {
                                 ad.brightness = (ad.brightness).saturating_sub(25);
                                 crate::hw::pmu::set_brightness(i2c, ad.brightness);
-                            } else if x >= 252 && y >= 70 && y <= 120 {
+                            } else if x >= 252 && (70..=120).contains(&y) {
                                 ad.brightness = (ad.brightness).saturating_add(25).min(255);
                                 crate::hw::pmu::set_brightness(i2c, ad.brightness);
-                            } else if x >= 70 && x <= 250 && y >= 75 && y <= 115 {
+                            } else if (70..=250).contains(&x) && (75..=115).contains(&y) {
                                 let pct = ((x as u32 - 70) * 255 / 180).min(255) as u8;
                                 ad.brightness = pct;
                                 crate::hw::pmu::set_brightness(i2c, ad.brightness);
@@ -104,13 +103,13 @@ pub fn handle_settings_touch(
                         if is_back {
                             ad.app.state = crate::app::input::AppState::SettingsMenu;
                         } else {
-                            if x <= 68 && y >= 70 && y <= 120 {
+                            if x <= 68 && (70..=120).contains(&y) {
                                 ad.volume = (ad.volume).saturating_sub(25);
                                 sound::set_volume(ad.volume);
-                            } else if x >= 252 && y >= 70 && y <= 120 {
+                            } else if x >= 252 && (70..=120).contains(&y) {
                                 ad.volume = (ad.volume).saturating_add(25).min(255);
                                 sound::set_volume(ad.volume);
-                            } else if x >= 70 && x <= 250 && y >= 75 && y <= 115 {
+                            } else if (70..=250).contains(&x) && (75..=115).contains(&y) {
                                 let pct = ((x as u32 - 70) * 255 / 180).min(255) as u8;
                                 ad.volume = pct;
                                 sound::set_volume(ad.volume);
@@ -121,7 +120,7 @@ pub fn handle_settings_touch(
                     crate::app::input::AppState::SdCardSettings => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::SettingsMenu;
-                        } else if x >= 10 && x <= 155 && y >= 100 && y <= 130 {
+                        } else if (10..=155).contains(&x) && (100..=130).contains(&y) {
                             // Format button — show confirmation first
                             if let Some(ct) = bb_card_type {
                                 // Draw warning screen
@@ -167,10 +166,12 @@ pub fn handle_settings_touch(
                                     &mut boot_display.display, bl, 50 + (220 - bw) / 2, 200,
                                     crate::hw::display::COLOR_BG);
 
-                                let hw = crate::hw::display::measure_hint("Release or Back to cancel");
+                                let hw = crate::hw::display::measure_hint("Release or tap to cancel");
                                 crate::hw::display::draw_lato_hint(
-                                    &mut boot_display.display, "Release or Back to cancel",
+                                    &mut boot_display.display, "Release or tap to cancel",
                                     (320 - hw) / 2, 232, crate::hw::display::COLOR_TEXT_DIM);
+
+                                boot_display.draw_back_button();
 
                                 // Wait for finger release from initial tap before starting hold detection
                                 loop {
@@ -200,7 +201,7 @@ pub fn handle_settings_touch(
                                             if pt.x >= 50 && pt.x <= 270 && pt.y >= 170 && pt.y <= 214 {
                                                 waiting_for_press = false;
                                                 held_ms += 50;
-                                                let fill = (held_ms as u32 * 200 / 4000).min(200) as u32;
+                                                let fill = (held_ms * 200 / 4000).min(200);
                                                 if fill > 0 {
                                                     Rectangle::new(Point::new(60, 180),
                                                         embedded_graphics::geometry::Size::new(fill, 24))
@@ -233,7 +234,7 @@ pub fn handle_settings_touch(
                                     delay.delay_millis(3000);
                                 }
                             }
-                        } else if x >= 165 && x <= 310 && y >= 100 && y <= 130 {
+                        } else if (165..=310).contains(&x) && (100..=130).contains(&y) {
                             // Test R/W button
                             if bb_card_type.is_some() {
                                 boot_display.draw_sdcard_testing();

@@ -18,7 +18,6 @@
 // Back 34x34 teal (cropped), Home 46x46 teal circle (cropped),
 // DEL 28x20 white-on-red, Shift 24x24 teal, Trash 20x24 teal
 
-#![allow(dead_code)]
 /// ICON_BACK icon 34x34 RGB565 LE
 pub const ICON_BACK_W: u32 = 34;
 pub const ICON_BACK_H: u32 = 34;

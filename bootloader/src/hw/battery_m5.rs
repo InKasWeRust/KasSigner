@@ -30,7 +30,6 @@
 //
 // Li-ion mapping: 3000mV = 0%, 4200mV = 100% (linear approximation)
 
-#![allow(dead_code)]
 use esp_hal::i2c::master::I2c;
 
 const AXP2101_ADDR: u8 = 0x34;

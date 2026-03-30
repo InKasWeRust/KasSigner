@@ -44,7 +44,6 @@
 //   5. Derive AES key from passphrase + salt
 //   6. Decrypt → validate BIP39 checksum
 
-#![allow(dead_code)]
 /// Zero-width character encodings (UTF-8 byte sequences)
 /// U+200B = E2 80 8B (zero-width space)
 /// U+200C = E2 80 8C (zero-width non-joiner)
@@ -433,10 +432,8 @@ pub fn find_exif_app1(jpeg: &[u8], jpeg_len: usize) -> Option<(usize, usize)> {
         let marker = jpeg[pos + 1];
         let seg_len = ((jpeg[pos + 2] as usize) << 8) | jpeg[pos + 3] as usize;
 
-        if marker == 0xE1 {
-            if pos + 10 < jpeg_len && &jpeg[pos + 4..pos + 10] == &EXIF_HEADER {
-                return Some((pos, seg_len.checked_add(2).unwrap_or(0)));
-            }
+        if marker == 0xE1 && pos + 10 < jpeg_len && jpeg[pos + 4..pos + 10] == EXIF_HEADER {
+            return Some((pos, seg_len.checked_add(2).unwrap_or(0)));
         }
 
         if marker == 0xDA { break; }
@@ -506,7 +503,7 @@ pub fn extract_user_comment(
             };
             let data_len = count - 8;
             let copy_len = data_len.min(output.len());
-            if data_pos.checked_add(copy_len).map_or(false, |end| end <= exif_len) {
+            if data_pos.checked_add(copy_len).is_some_and(|end| end <= exif_len) {
                 output[..copy_len].copy_from_slice(&exif_data[data_pos..data_pos + copy_len]);
                 return copy_len;
             }

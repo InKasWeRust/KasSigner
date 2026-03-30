@@ -1,6 +1,6 @@
 # Security Policy
 
-KasSigner is an air-gapped hardware wallet that handles cryptographic keys and transaction signing. Security is the project's highest priority.
+KasSigner is an air-gapped offline signing device that handles cryptographic keys and transaction signing. It is NOT a hardware wallet — it has no secure element and no persistent key storage. All keys exist in RAM only and are destroyed on power-off. Security is the project's highest priority.
 
 ## Supported Versions
 
@@ -27,7 +27,7 @@ KasSigner's backup system uses three independent layers. An attacker must defeat
 
 **Layer 1 — Steganography (what to look for).** The encrypted seed is hidden in JPEG EXIF metadata. The image looks ordinary — a vacation photo, a pet, anything. Among thousands of files, nobody knows which one matters. There is no safe to crack, no metal plate to find.
 
-**Layer 2 — Encryption (how to decrypt).** The seed is encrypted with AES-256-CBC. The key is derived via PBKDF2 from the EXIF ImageDescription field — which looks like a normal photo caption ("Sunset at Playa Blanca, Aug 2024"). Even with the correct file, an attacker needs this exact text.
+**Layer 2 — Encryption (how to decrypt).** The seed is encrypted with AES-256-GCM. The key is derived via PBKDF2 from the EXIF ImageDescription field — which looks like a normal photo caption ("Sunset at Playa Blanca, Aug 2024"). Even with the correct file, an attacker needs this exact text.
 
 **Layer 3 — BIP39 passphrase (the 25th word).** Even if an attacker decrypts the 24-word mnemonic, the real wallet is derived with a passphrase that exists only in the owner's memory. The mnemonic alone leads to a decoy wallet. The real funds live on a derivation path that requires knowledge only the user possesses.
 
@@ -56,7 +56,7 @@ KasSigner's backup system uses three independent layers. An attacker must defeat
 | Key stretching | PBKDF2-HMAC-SHA512 (2048 rounds) | RFC 8018 |
 | Transaction signing | Schnorr (secp256k1) | Kaspa spec |
 | Seed encryption (SD) | AES-256-GCM | NIST SP 800-38D |
-| Seed encryption (stego) | AES-256-CBC + PBKDF2 | NIST / RFC 8018 |
+| Seed encryption (stego) | AES-256-GCM + PBKDF2 | NIST SP 800-38D / RFC 8018 |
 | Hashing | SHA-256, HMAC-SHA512, BLAKE2b | FIPS 180-4, RFC 2104, RFC 7693 |
 | Firmware verification | SHA-256 + Schnorr | Custom |
 | Constant-time ops | Fixed-time compare, XOR masking | Side-channel mitigation |

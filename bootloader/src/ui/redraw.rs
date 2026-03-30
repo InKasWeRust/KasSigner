@@ -19,9 +19,6 @@
 // All draw_*_screen() calls dispatched by AppState.
 // Called from main loop when needs_redraw is true.
 
-#![allow(dead_code)]
-#![allow(unused_imports)]
-#![allow(static_mut_refs)]
 use crate::{hw::battery, hw::display, hw::sound, features::fw_update, hw::sdcard, ui::seed_manager, wallet};
 /// Redraw the current screen based on AppState. Called when needs_redraw is set.
 pub fn redraw_screen(
@@ -119,19 +116,38 @@ pub fn redraw_screen(
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "PASSWORD");
                 }
                 crate::app::input::AppState::SdRestorePassphrase => {
-                    boot_display.draw_passphrase_screen_full(&ad.pp_input);
+                    boot_display.draw_keyboard_screen_full(&ad.pp_input, "PASSWORD");
                 }
                 crate::app::input::AppState::SdFileList => {
-                    boot_display.draw_sd_file_list(&ad.sd_file_list, ad.sd_file_count);
+                    let mut fps = [[0u8; 4]; 4];
+                    let mut fc = 0u8;
+                    for i in 0..4 {
+                        if !ad.seed_mgr.slots[i].is_empty() {
+                            fps[fc as usize] = ad.seed_mgr.slots[i].fingerprint;
+                            fc += 1;
+                        }
+                    }
+                    boot_display.draw_sd_file_list_ex(&ad.sd_file_list, ad.sd_file_count, ad.sd_file_scroll, &fps, fc);
                 }
                 crate::app::input::AppState::SdXprvExportPassphrase => {
-                    boot_display.draw_passphrase_screen_full(&ad.pp_input);
+                    boot_display.draw_keyboard_screen_full(&ad.pp_input, "PASSWORD");
                 }
                 crate::app::input::AppState::SdXprvFileList => {
-                    boot_display.draw_sd_file_list(&ad.sd_file_list, ad.sd_file_count);
+                    let mut fps = [[0u8; 4]; 4];
+                    let mut fc = 0u8;
+                    for i in 0..4 {
+                        if !ad.seed_mgr.slots[i].is_empty() {
+                            fps[fc as usize] = ad.seed_mgr.slots[i].fingerprint;
+                            fc += 1;
+                        }
+                    }
+                    boot_display.draw_sd_file_list_ex(&ad.sd_file_list, ad.sd_file_count, ad.sd_file_scroll, &fps, fc);
                 }
                 crate::app::input::AppState::SdXprvImportPassphrase => {
-                    boot_display.draw_passphrase_screen_full(&ad.pp_input);
+                    boot_display.draw_keyboard_screen_full(&ad.pp_input, "PASSWORD");
+                }
+                crate::app::input::AppState::SdDeleteConfirm => {
+                    boot_display.draw_sd_delete_confirm(&ad.sd_selected_file);
                 }
                 crate::app::input::AppState::SdBackupWriting
                 | crate::app::input::AppState::SdRestoreReading => {
@@ -157,6 +173,9 @@ pub fn redraw_screen(
                 }
                 crate::app::input::AppState::QrExportMenu => {
                     boot_display.draw_qr_export_menu(&ad.qr_export_menu, ad.word_count);
+                }
+                crate::app::input::AppState::XprvExportMenu => {
+                    boot_display.draw_menu_screen("XPRV ACCOUNT", &ad.xprv_export_menu);
                 }
                 crate::app::input::AppState::ExportPlainWordsQR => {
                     if let Some(slot) = ad.seed_mgr.active_slot() {
@@ -377,27 +396,6 @@ pub fn redraw_screen(
                     boot_display.draw_multisig_descriptor(
                         ad.ms_creating.m, ad.ms_creating.n,
                         &ad.ms_creating.pubkeys[..ad.ms_creating.n as usize], label);
-                }
-                crate::app::input::AppState::MultisigDescriptorQR => {
-                    // Build descriptor string: multi(M,pk1_hex,...,pkN_hex)
-                    // Max size: "multi(5," + 5*(64+1) + ")" = ~340 bytes
-                    let mut desc = [0u8; 400];
-                    let mut pos: usize = 0;
-                    let hex = b"0123456789abcdef";
-                    // "multi("
-                    for &b in b"multi(" { desc[pos] = b; pos += 1; }
-                    // M as ascii
-                    desc[pos] = b'0' + ad.ms_creating.m; pos += 1;
-                    for i in 0..ad.ms_creating.n as usize {
-                        desc[pos] = b','; pos += 1;
-                        let pk = &ad.ms_creating.pubkeys[i];
-                        for j in 0..32 {
-                            desc[pos] = hex[(pk[j] >> 4) as usize]; pos += 1;
-                            desc[pos] = hex[(pk[j] & 0x0f) as usize]; pos += 1;
-                        }
-                    }
-                    desc[pos] = b')'; pos += 1;
-                    boot_display.draw_qr_fullscreen(&desc[..pos], "DESCRIPTOR QR");
                 }
                 // ─── Steganography Redraws ────────────
                 crate::app::input::AppState::StegoModeSelect => {

@@ -20,7 +20,6 @@
 //         ExportSeedQR, ExportCompactSeedQR, SeedQrGrid,
 //         ExportKpub, ExportXprv, ExportChoice, ExportPrivKey
 
-#![allow(unused_imports)]
 use crate::{app::data::AppData, hw::display, hw::sdcard, ui::seed_manager, hw::touch, wallet};
 use crate::app::signing::derive_pubkey_from_acct;
 /// Handle touch events for export/display screens (address, QR, kpub, xprv).
@@ -57,7 +56,7 @@ pub fn handle_export_touch(
                         if is_back {
                             ad.scanned_addr_len = 0;
                             ad.app.go_main_menu();
-                        } else if !is_single_addr && ad.scanned_addr_len == 0 && x >= 10 && x <= 60 && y >= 210 {
+                        } else if !is_single_addr && ad.scanned_addr_len == 0 && (10..=60).contains(&x) && y >= 210 {
                             // Bottom [<] button — previous address index
                             if ad.current_addr_index > 0 {
                                 ad.current_addr_index -= 1;
@@ -67,7 +66,7 @@ pub fn handle_export_touch(
                                     ad.extra_pubkey_index = ad.current_addr_index;
                                 }
                             }
-                        } else if !is_single_addr && ad.scanned_addr_len == 0 && x >= 260 && x <= 310 && y >= 210 {
+                        } else if !is_single_addr && ad.scanned_addr_len == 0 && (260..=310).contains(&x) && y >= 210 {
                             // Bottom [>] button — next address index (no upper limit)
                             ad.current_addr_index += 1;
                             if ad.current_addr_index >= 20 && ad.extra_pubkey_index != ad.current_addr_index {
@@ -75,11 +74,11 @@ pub fn handle_export_touch(
                                     ad.current_addr_index, &mut ad.extra_pubkey);
                                 ad.extra_pubkey_index = ad.current_addr_index;
                             }
-                        } else if !is_single_addr && ad.scanned_addr_len == 0 && x >= 110 && x <= 210 && y >= 210 {
+                        } else if !is_single_addr && ad.scanned_addr_len == 0 && (110..=210).contains(&x) && y >= 210 {
                             // Bottom [#N] button — open index picker
                             ad.addr_input_len = 0;
                             ad.app.state = crate::app::input::AppState::AddrIndexPicker;
-                        } else if y >= 40 && y < 210 {
+                        } else if (40..210).contains(&y) {
                             // Tap address area → show QR
                             ad.app.state = crate::app::input::AppState::ShowAddressQR;
                         }
@@ -103,14 +102,14 @@ pub fn handle_export_touch(
                             // Keypad grid: 3 cols x 4 rows
                             // Col: 55..120, 130..195, 205..270
                             // Row: 76..106, 110..140, 144..174, 178..208
-                            let col = if x >= 55 && x < 120 { Some(0u8) }
-                                else if x >= 130 && x < 195 { Some(1) }
-                                else if x >= 205 && x < 270 { Some(2) }
+                            let col = if (55..120).contains(&x) { Some(0u8) }
+                                else if (130..195).contains(&x) { Some(1) }
+                                else if (205..270).contains(&x) { Some(2) }
                                 else { None };
-                            let row = if y >= 76 && y < 106 { Some(0u8) }
-                                else if y >= 110 && y < 140 { Some(1) }
-                                else if y >= 144 && y < 174 { Some(2) }
-                                else if y >= 178 && y < 208 { Some(3) }
+                            let row = if (76..106).contains(&y) { Some(0u8) }
+                                else if (110..140).contains(&y) { Some(1) }
+                                else if (144..174).contains(&y) { Some(2) }
+                                else if (178..208).contains(&y) { Some(3) }
                                 else { None };
                             if let (Some(c), Some(r)) = (col, row) {
                                 let idx = r * 3 + c;
@@ -196,26 +195,38 @@ pub fn handle_export_touch(
                             } else { 21 };
                             let view_cells: u8 = 7;
                             let max_pan = qr_size.saturating_sub(view_cells);
+                            let step: u8 = 1; // pan 1 cell per tap
 
-                            if x >= 5 && x <= 55 && y >= 200 {
-                                // Pan left
-                                if pan_x > 0 {
-                                    ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x: pan_x - 1, pan_y, compact };
+                            // Left strip — horizontal pan
+                            if x < 55 && (50..130).contains(&y) {
+                                // Top left triangle = pan left (<)
+                                if pan_x >= step {
+                                    ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x: pan_x - step, pan_y, compact };
+                                } else if pan_x > 0 {
+                                    ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x: 0, pan_y, compact };
                                 }
-                            } else if x >= 265 && x <= 315 && y >= 200 {
-                                // Pan right
-                                if pan_x < max_pan {
-                                    ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x: pan_x + 1, pan_y, compact };
+                            }
+                            else if x < 55 && (130..200).contains(&y) {
+                                // Bottom left triangle = pan right (>)
+                                let new_x = (pan_x + step).min(max_pan);
+                                if new_x != pan_x {
+                                    ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x: new_x, pan_y, compact };
                                 }
-                            } else if x >= 120 && x <= 200 && y >= 30 && y <= 60 {
-                                // Pan up
-                                if pan_y > 0 {
-                                    ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x, pan_y: pan_y - 1, compact };
+                            }
+                            // Right strip — vertical pan
+                            else if x > 265 && (50..130).contains(&y) {
+                                // Top right triangle = pan up (^)
+                                if pan_y >= step {
+                                    ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x, pan_y: pan_y - step, compact };
+                                } else if pan_y > 0 {
+                                    ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x, pan_y: 0, compact };
                                 }
-                            } else if x >= 120 && x <= 200 && y >= 200 {
-                                // Pan down
-                                if pan_y < max_pan {
-                                    ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x, pan_y: pan_y + 1, compact };
+                            }
+                            else if x > 265 && (130..200).contains(&y) {
+                                // Bottom right triangle = pan down (v)
+                                let new_y = (pan_y + step).min(max_pan);
+                                if new_y != pan_y {
+                                    ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x, pan_y: new_y, compact };
                                 }
                             }
                         }
@@ -308,45 +319,13 @@ pub fn handle_export_touch(
                                         }
                                     }
                                     4 => {
-                                        // xprv QR
-                                        boot_display.draw_saving_screen("Deriving xprv...");
-                                        let pp = ad.seed_mgr.active_slot().map(|s: &seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
-                                        let seed_bytes = if ad.word_count == 12 {
-                                            let m12 = wallet::bip39::Mnemonic12 {
-                                                indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&ad.mnemonic_indices[..12]); arr }
-                                            };
-                                            wallet::bip39::seed_from_mnemonic_12(&m12, pp)
-                                        } else {
-                                            let m24 = wallet::bip39::Mnemonic24 {
-                                                indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&ad.mnemonic_indices[..24]); arr }
-                                            };
-                                            wallet::bip39::seed_from_mnemonic_24(&m24, pp)
-                                        };
-                                        let mut xprv_buf = [0u8; wallet::xpub::XPRV_MAX_LEN];
-                                        match wallet::xpub::derive_and_serialize_xprv(&seed_bytes.bytes, &mut xprv_buf) {
-                                            Ok(len) => {
-                                                ad.xprv_len = len;
-                                                ad.xprv_data[..len].copy_from_slice(&xprv_buf[..len]);
-                                                ad.app.state = crate::app::input::AppState::ExportXprv;
-                                            }
-                                            Err(_) => {
-                                                boot_display.draw_rejected_screen("xprv derivation failed");
-                                                delay.delay_millis(2000);
-                                            }
-                                        }
+                                        // xprv Account submenu
+                                        ad.xprv_export_menu.reset();
+                                        ad.app.state = crate::app::input::AppState::XprvExportMenu;
                                     }
                                     5 => {
                                         if bb_card_type.is_some() {
                                             ad.app.state = crate::app::input::AppState::SdBackupWarning;
-                                        } else {
-                                            boot_display.draw_rejected_screen("No SD card");
-                                            delay.delay_millis(1500);
-                                        }
-                                    }
-                                    6 => {
-                                        if bb_card_type.is_some() {
-                                            ad.pp_input.reset();
-                                            ad.app.state = crate::app::input::AppState::SdXprvExportPassphrase;
                                         } else {
                                             boot_display.draw_rejected_screen("No SD card");
                                             delay.delay_millis(1500);
@@ -385,6 +364,71 @@ pub fn handle_export_touch(
                                         // Plain Words QR — only for 12-word seeds (24w exceeds QR capacity)
                                         if ad.word_count <= 12 {
                                             ad.app.state = crate::app::input::AppState::ExportPlainWordsQR;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        needs_redraw = true;
+                    }
+                    crate::app::input::AppState::XprvExportMenu => {
+                        if is_back {
+                            ad.xprv_export_menu.reset();
+                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                        } else if page_up_zone.contains(x, y) && ad.xprv_export_menu.can_page_up() {
+                            ad.xprv_export_menu.page_up();
+                        } else if page_down_zone.contains(x, y) && ad.xprv_export_menu.can_page_down() {
+                            ad.xprv_export_menu.page_down();
+                        } else {
+                            let mut tapped_item: Option<u8> = None;
+                            for slot in 0..4u8 {
+                                if list_zones[slot as usize].contains(x, y) {
+                                    let abs = ad.xprv_export_menu.visible_to_absolute(slot);
+                                    if abs < ad.xprv_export_menu.count {
+                                        tapped_item = Some(abs);
+                                    }
+                                    break;
+                                }
+                            }
+                            if let Some(item) = tapped_item {
+                                match item {
+                                    0 => {
+                                        // Show as QR
+                                        boot_display.draw_saving_screen("Deriving xprv...");
+                                        let pp = ad.seed_mgr.active_slot().map(|s: &seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
+                                        let seed_bytes = if ad.word_count == 12 {
+                                            let m12 = wallet::bip39::Mnemonic12 {
+                                                indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&ad.mnemonic_indices[..12]); arr }
+                                            };
+                                            wallet::bip39::seed_from_mnemonic_12(&m12, pp)
+                                        } else {
+                                            let m24 = wallet::bip39::Mnemonic24 {
+                                                indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&ad.mnemonic_indices[..24]); arr }
+                                            };
+                                            wallet::bip39::seed_from_mnemonic_24(&m24, pp)
+                                        };
+                                        let mut xprv_buf = [0u8; wallet::xpub::XPRV_MAX_LEN];
+                                        match wallet::xpub::derive_and_serialize_xprv(&seed_bytes.bytes, &mut xprv_buf) {
+                                            Ok(len) => {
+                                                ad.xprv_len = len;
+                                                ad.xprv_data[..len].copy_from_slice(&xprv_buf[..len]);
+                                                ad.app.state = crate::app::input::AppState::ExportXprv;
+                                            }
+                                            Err(_) => {
+                                                boot_display.draw_rejected_screen("xprv derivation failed");
+                                                delay.delay_millis(2000);
+                                            }
+                                        }
+                                    }
+                                    1 => {
+                                        // Encrypt to SD
+                                        if bb_card_type.is_some() {
+                                            ad.pp_input.reset();
+                                            ad.app.state = crate::app::input::AppState::SdXprvExportPassphrase;
+                                        } else {
+                                            boot_display.draw_rejected_screen("No SD card");
+                                            delay.delay_millis(1500);
                                         }
                                     }
                                     _ => {}

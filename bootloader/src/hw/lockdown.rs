@@ -29,7 +29,6 @@
 // These are software disables. For permanent (eFuse) disable, see
 // docs/EFUSE_RUNBOOK.md.
 
-#![allow(dead_code)]
 use crate::log;
 
 // ═══════════════════════════════════════════════════════════════════

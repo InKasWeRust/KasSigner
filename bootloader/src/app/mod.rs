@@ -17,7 +17,6 @@
 // app/mod.rs — Application logic (state, data, signing, boot tests)
 // app/ — Application state, signing pipeline, and boot tests
 
-#![allow(unused_imports)]
 pub mod data;
 pub mod input;
 pub mod signing;

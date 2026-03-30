@@ -44,10 +44,7 @@
 //   CMD17 → READ_SINGLE_BLOCK
 //   CMD24 → WRITE_BLOCK
 
-#![allow(dead_code)]
-#![allow(static_mut_refs)]
 #[cfg(not(feature = "silent"))]
-
 use crate::log;
 use esp_hal::delay::Delay;
 
@@ -1423,7 +1420,7 @@ pub fn allocate_cluster(card_type: SdCardType, fat32: &Fat32Info, start_hint: u3
     let mut last_sector = 0xFFFF_FFFFu32;
 
     // Scan from hint, then wrap around
-    let mut cluster = if start_hint >= 2 && start_hint < max_cluster { start_hint } else { 2 };
+    let mut cluster = if (2..max_cluster).contains(&start_hint) { start_hint } else { 2 };
     let start = cluster;
     loop {
         let (sector, offset) = fat32.fat_sector_for_cluster(cluster);
@@ -1502,15 +1499,15 @@ pub fn mount_fat32(card_type: SdCardType) -> Result<Fat32Info, &'static str> {
     // Strategy 3: Maybe sector 0 is a protective MBR (GPT) or unknown layout.
     // Try common partition offsets: sector 1, 2048 (common for macOS/Windows)
     for &probe_lba in &[2048u32, 8192, 32768, 1] {
-        if sd_read_block(card_type, probe_lba, &mut sector).is_ok() {
-            if (sector[0] == 0xEB || sector[0] == 0xE9) && sector[510] == 0x55 && sector[511] == 0xAA {
+        if sd_read_block(card_type, probe_lba, &mut sector).is_ok()
+            && (sector[0] == 0xEB || sector[0] == 0xE9) && sector[510] == 0x55 && sector[511] == 0xAA
+        {
                 log!("[FAT32] Found BPB at sector {}", probe_lba);
                 if let Ok(mut info) = Fat32Info::from_boot_sector(&sector) {
                     info.fat_start_sector += probe_lba;
                     info.data_start_sector += probe_lba;
                     return Ok(info);
                 }
-            }
         }
     }
 
@@ -1578,7 +1575,7 @@ pub fn read_file_progress(
     let mut pos = 0usize;
     let spc = fat32.sectors_per_cluster as u32;
 
-    while remaining > 0 && cluster >= 2 && cluster < 0x0FFF_FFF8 {
+    while remaining > 0 && (2..0x0FFF_FFF8).contains(&cluster) {
         let base_sector = fat32.cluster_to_sector(cluster);
         // How many full sectors do we need from this cluster?
         let sectors_needed = ((remaining + 511) / 512).min(spc as usize) as u32;
@@ -1646,7 +1643,7 @@ pub fn create_file_progress(
         let total = data.len();
         let spc = fat32.sectors_per_cluster as u32;
 
-        while remaining > 0 && cluster >= 2 && cluster < 0x0FFF_FFF8 {
+        while remaining > 0 && (2..0x0FFF_FFF8).contains(&cluster) {
             let base_sector = fat32.cluster_to_sector(cluster);
             // How many full sectors can we write from the data?
             let full_sectors = (remaining / 512).min(spc as usize) as u32;
@@ -1767,7 +1764,7 @@ pub fn delete_file(
 
     // Free cluster chain
     let mut cluster = entry.first_cluster();
-    while cluster >= 2 && cluster < 0x0FFF_FFF8 {
+    while (2..0x0FFF_FFF8).contains(&cluster) {
         let next = read_fat_entry(card_type, fat32, cluster)?;
         write_fat_entry(card_type, fat32, cluster, 0)?; // mark free
         cluster = next;
@@ -1865,7 +1862,7 @@ where
                 if attr == 0x0F {
                     // LFN entry: extract sequence number and UTF-16 chars
                     let seq = buf[off] & 0x3F;
-                    if seq >= 1 && seq <= 4 && (lfn_part_count < 4) {
+                    if (1..=4).contains(&seq) && (lfn_part_count < 4) {
                         let idx = (seq - 1) as usize;
                         // Extract 13 UTF-16LE chars (26 bytes) from specific offsets
                         let mut utf16 = [0u8; 26];
@@ -1902,7 +1899,7 @@ where
                                 if lo == 0x00 && hi == 0x00 { break; } // null terminator
                                 if lfn_len >= 63 { break; }
                                 // ASCII printable range + extended Latin-1 common chars
-                                if hi == 0 && lo >= 0x20 && lo < 0x7F {
+                                if hi == 0 && (0x20..0x7F).contains(&lo) {
                                     lfn_buf[lfn_len] = lo;
                                     lfn_len += 1;
                                 } else if hi == 0 && lo >= 0x80 {

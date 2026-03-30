@@ -17,7 +17,6 @@
 // handlers/mod.rs — Touch input handler dispatch (menu, seed, tx, settings, camera)
 // handlers/ — Touch event handlers dispatched from main loop
 
-#![allow(unused_imports)]
 pub mod menu;
 pub mod stego;
 pub mod sd;

@@ -25,7 +25,6 @@
 // taking the same time regardless of content.
 
 
-#![allow(dead_code)]
 use core::sync::atomic::{compiler_fence, Ordering};
 
 /// Compara dos slices de bytes en tiempo constante.

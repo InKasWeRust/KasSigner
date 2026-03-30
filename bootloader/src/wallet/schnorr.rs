@@ -23,19 +23,18 @@
 //   - Signatures: 64 bytes (R.x || s)
 //   - Nonce generation: RFC6979 deterministic (no TRNG needed for signing)
 //
-// Kaspa usa Schnorr sobre secp256k1 similar a BIP340 de Bitcoin.
+// Kaspa uses Schnorr over secp256k1 similar to Bitcoin BIP340.
 // The main difference is in the sighash hash (Blake2b vs SHA256),
 // but that is handled in the PSKT module, not here.
 //
 // This implementation signs a 32-byte message (the pre-computed sighash).
 //
-// Seguridad:
+// Security:
 //   - Deterministic nonce (RFC6979) → no TRNG needed for signing
 //   - The private key is zeroized after each operation
-//   - No se usa heap/alloc
+//   - No heap/alloc used
 
 
-#![allow(dead_code)]
 use k256::{
     SecretKey,
     elliptic_curve::{
@@ -51,9 +50,9 @@ use k256::{
 use sha2::{Sha256, Digest};
 use super::hmac::{hmac_sha512, zeroize_buf};
 
-// ─── Tipos ────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────
 
-/// Firma Schnorr: 64 bytes (R.x: 32 bytes || s: 32 bytes)
+/// Schnorr signature: 64 bytes (R.x: 32 bytes || s: 32 bytes)
 #[derive(Debug, Clone)]
 /// A 64-byte Schnorr signature (R || s) compatible with Kaspa.
 pub struct SchnorrSignature {
@@ -88,14 +87,14 @@ pub enum SchnorrError {
     InvalidSignature,
 }
 
-// ─── Firma ────────────────────────────────────────────────────────────
+// ─── Sign ────────────────────────────────────────────────────────────
 
-/// Firma un mensaje de 32 bytes con Schnorr (BIP340-like).
+/// Sign a 32-byte message with Schnorr (BIP340-like).
 ///
-/// Algoritmo:
-///   1. d = private key. Si P = d*G tiene Y impar, d = n - d
+/// Algorithm:
+///   1. d = private key. If P = d*G has odd Y, d = n - d
 ///   2. k = deterministic nonce (RFC6979 with SHA256)
-///   3. R = k*G. Si R.y es impar, k = n - k
+///   3. R = k*G. If R.y is odd, k = n - k
 ///   4. e = SHA256(R.x || P.x || message) mod n
 ///   5. s = (k + e * d) mod n
 ///   6. Signature = R.x || s
@@ -110,13 +109,13 @@ pub fn schnorr_sign(
     let sk = SecretKey::from_slice(private_key)
         .map_err(|_| SchnorrError::InvalidPrivateKey)?;
 
-    let d_scalar: Scalar = (*sk.to_nonzero_scalar()).into();
+    let d_scalar: Scalar = *sk.to_nonzero_scalar();
 
     // Get public key point
     let pubkey_point = ProjectivePoint::GENERATOR * d_scalar;
     let pubkey_affine = pubkey_point.to_affine();
 
-    // BIP340: si Y es impar, negar d
+    // BIP340: if Y is odd, negate d
     let d = if has_even_y(&pubkey_affine) {
         d_scalar
     } else {
@@ -132,7 +131,7 @@ pub fn schnorr_sign(
     // 3. R = k*G
     let r_point = (ProjectivePoint::GENERATOR * k_scalar).to_affine();
 
-    // Si R.y es impar, negar k
+    // If R.y is odd, negate k
     let k = if has_even_y(&r_point) {
         k_scalar
     } else {
@@ -142,14 +141,14 @@ pub fn schnorr_sign(
     let rx = x_bytes(&r_point);
 
     // 4. e = SHA256(R.x || P.x || message) mod n
-    //    (BIP340 usa tagged hash, pero para compatibilidad Kaspa
+    //    (BIP340 uses tagged hash, but for Kaspa compatibility
     //     we use the challenge hash per their implementation)
     let e = compute_challenge(&rx, &px, message);
 
     // 5. s = k + e * d (mod n)
     let s = k + (e * d);
 
-    // 6. Serializar: R.x || s
+    // 6. Serialize: R.x || s
     let mut sig_bytes = [0u8; 64];
     sig_bytes[..32].copy_from_slice(&rx);
     sig_bytes[32..].copy_from_slice(&scalar_to_bytes(&s));
@@ -161,10 +160,10 @@ pub fn schnorr_sign(
 
 /// Verifies a Schnorr signature against an x-only public key (32 bytes).
 ///
-/// Algoritmo:
-///   1. Parse R.x y s de la firma
+/// Algorithm:
+///   1. Parse R.x and s from the signature
 ///   2. e = SHA256(R.x || P.x || message) mod n
-///   3. Calcular R' = s*G - e*P
+///   3. Compute R' = s*G - e*P
 ///   4. Verify that R'.x == R.x and R'.y is even
 pub fn schnorr_verify(
     pubkey_x: &[u8; 32],
@@ -201,7 +200,7 @@ pub fn schnorr_verify(
     Ok(())
 }
 
-// ─── Funciones auxiliares ─────────────────────────────────────────────
+// ─── Helper functions ─────────────────────────────────────────────
 
 /// Checks if the point has an even Y coordinate.
 fn has_even_y(point: &AffinePoint) -> bool {
@@ -219,14 +218,23 @@ fn x_bytes(point: &AffinePoint) -> [u8; 32] {
     x
 }
 
-/// Calcula el challenge: e = SHA256(R.x || P.x || message) mod n
+/// Compute the BIP-340 challenge: e = tagged_hash("BIP0340/challenge", R.x || P.x || message) mod n
 ///
-/// Nota: BIP340 usa tagged hash SHA256("BIP0340/challenge" || ...).
-/// Kaspa puede usar una variante diferente (Blake2b).
-/// For now we implement the standard SHA256 version.
-/// Cuando integremos con PSKT, ajustaremos si es necesario.
+/// BIP-340 tagged hash: SHA256(SHA256(tag) || SHA256(tag) || data)
+/// The tag hash is precomputed as a constant for performance.
 fn compute_challenge(rx: &[u8; 32], px: &[u8; 32], message: &[u8; 32]) -> Scalar {
+    // Precomputed: SHA256("BIP0340/challenge")
+    // = 7bb52d7a9fef58323eb1bf7a407db382d2f3f2d81bb1224f49fe518f6d48d37c
+    const TAG_HASH: [u8; 32] = [
+        0x7b, 0xb5, 0x2d, 0x7a, 0x9f, 0xef, 0x58, 0x32,
+        0x3e, 0xb1, 0xbf, 0x7a, 0x40, 0x7d, 0xb3, 0x82,
+        0xd2, 0xf3, 0xf2, 0xd8, 0x1b, 0xb1, 0x22, 0x4f,
+        0x49, 0xfe, 0x51, 0x8f, 0x6d, 0x48, 0xd3, 0x7c,
+    ];
+
     let mut hasher = Sha256::new();
+    hasher.update(TAG_HASH);  // SHA256("BIP0340/challenge") — first copy
+    hasher.update(TAG_HASH);  // SHA256("BIP0340/challenge") — second copy
     hasher.update(rx);
     hasher.update(px);
     hasher.update(message);
@@ -244,13 +252,13 @@ fn compute_challenge(rx: &[u8; 32], px: &[u8; 32], message: &[u8; 32]) -> Scalar
 /// k = HMAC-SHA512(private_key, SHA256(message))[0..32] mod n
 ///
 /// This is a simplification. Full RFC6979 uses a loop with
-/// V/K states, pero para firmas Schnorr con mensajes de 32 bytes
+/// V/K states, but for Schnorr signatures with 32-byte messages
 /// (which are hashes), a single iteration is safe in practice.
 fn generate_rfc6979_nonce(
     private_key: &[u8; 32],
     message: &[u8; 32],
 ) -> Result<Scalar, SchnorrError> {
-    // Construir datos para HMAC: private_key || message
+    // Build data for HMAC: private_key || message
     let mut data = [0u8; 64];
     data[..32].copy_from_slice(private_key);
     data[32..].copy_from_slice(message);
@@ -274,29 +282,29 @@ fn generate_rfc6979_nonce(
     Ok(k)
 }
 
-/// Convierte 32 bytes big-endian a Scalar (retorna None si >= n).
+/// Convert 32 bytes big-endian to Scalar (returns None if >= n).
 fn bytes_to_scalar(bytes: &[u8; 32]) -> Option<Scalar> {
     let primitive = ScalarPrimitive::<Secp256k1>::from_slice(bytes).ok()?;
     Some(Scalar::from(&primitive))
 }
 
-/// Convierte 32 bytes big-endian a Scalar reduciendo mod n.
+/// Convert 32 bytes big-endian to Scalar, reducing mod n.
 fn bytes_to_scalar_reduce(bytes: &[u8; 32]) -> Scalar {
     let wide = k256::U256::from_be_slice(bytes);
     <Scalar as Reduce<k256::U256>>::reduce(wide)
 }
 
-/// Convierte un Scalar a 32 bytes big-endian.
+/// Convert a Scalar to 32 bytes big-endian.
 fn scalar_to_bytes(s: &Scalar) -> [u8; 32] {
     let mut bytes = [0u8; 32];
     bytes.copy_from_slice(&s.to_bytes());
     bytes
 }
 
-/// Reconstuye un AffinePoint desde x-only (32 bytes), asumiendo Y par.
-/// Equivalente a "lift_x" de BIP340.
+/// Reconstructs an AffinePoint from x-only (32 bytes), assuming even Y.
+/// Equivalent to BIP-340 "lift_x".
 fn lift_x(x_bytes: &[u8; 32]) -> Option<AffinePoint> {
-    // Construir compressed encoding con prefix 0x02 (even Y)
+    // Build compressed encoding with prefix 0x02 (even Y)
     let mut compressed = [0u8; 33];
     compressed[0] = 0x02;
     compressed[1..33].copy_from_slice(x_bytes);
@@ -305,7 +313,7 @@ fn lift_x(x_bytes: &[u8; 32]) -> Option<AffinePoint> {
     use k256::elliptic_curve::sec1::FromEncodedPoint;
     use k256::EncodedPoint;
 
-    let encoded = EncodedPoint::from_bytes(&compressed).ok()?;
+    let encoded = EncodedPoint::from_bytes(compressed).ok()?;
     let point = AffinePoint::from_encoded_point(&encoded);
     if point.is_some().into() {
         // CtOption::unwrap() is safe here — we just checked is_some()
@@ -331,7 +339,7 @@ pub fn test_sign_verify_roundtrip() -> bool {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
     ];
 
-    // Mensaje de test (32 bytes)
+    // Test message (32 bytes)
     let message: [u8; 32] = [
         0xAA, 0xBB, 0xCC, 0xDD, 0x00, 0x11, 0x22, 0x33,
         0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB,
@@ -339,18 +347,18 @@ pub fn test_sign_verify_roundtrip() -> bool {
         0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB,
     ];
 
-    // Firmar
+    // Sign
     let sig = match schnorr_sign(&privkey, &message) {
         Ok(s) => s,
         Err(_) => return false,
     };
 
-    // Verificar que la firma es de 64 bytes
+    // Verify that the signature is 64 bytes
     if sig.bytes.len() != 64 {
         return false;
     }
 
-    // Obtener public key x-only
+    // Get x-only public key
     let sk = match SecretKey::from_slice(&privkey) {
         Ok(sk) => sk,
         Err(_) => return false,
@@ -360,7 +368,7 @@ pub fn test_sign_verify_roundtrip() -> bool {
     let mut pubkey_x = [0u8; 32];
     pubkey_x.copy_from_slice(&pk_point.as_bytes()[1..33]);
 
-    // Verificar firma
+    // Verify signature
     schnorr_verify(&pubkey_x, &message, &sig).is_ok()
 }
 
@@ -410,7 +418,7 @@ pub fn test_invalid_signature_fails() -> bool {
         Err(_) => return false,
     };
 
-    // Obtener pubkey
+    // Get pubkey
     let sk = match SecretKey::from_slice(&privkey) {
         Ok(sk) => sk,
         Err(_) => return false,
@@ -420,12 +428,12 @@ pub fn test_invalid_signature_fails() -> bool {
     let mut pubkey_x = [0u8; 32];
     pubkey_x.copy_from_slice(&pk_point.as_bytes()[1..33]);
 
-    // Verificar con mensaje correcto → OK
+    // Verify with correct message → OK
     if schnorr_verify(&pubkey_x, &message, &sig).is_err() {
         return false;
     }
 
-    // Verificar con mensaje incorrecto → debe fallar
+    // Verify with incorrect message → must fail
     schnorr_verify(&pubkey_x, &wrong_message, &sig).is_err()
 }
 
@@ -440,7 +448,7 @@ pub fn test_sign_with_bip32_key() -> bool {
     let mnemonic = bip39::mnemonic_from_entropy_12(&entropy);
     let seed = bip39::seed_from_mnemonic_12(&mnemonic, "");
 
-    // Derivar clave Kaspa
+    // Derive Kaspa key
     let key = match bip32::derive_path(&seed.bytes, bip32::KASPA_MAINNET_PATH) {
         Ok(k) => k,
         Err(_) => return false,
@@ -452,14 +460,14 @@ pub fn test_sign_with_bip32_key() -> bool {
         Err(_) => return false,
     };
 
-    // Firmar un sighash ficticio
+    // Sign a dummy sighash
     let sighash = [0xABu8; 32];
     let sig = match schnorr_sign(key.private_key_bytes(), &sighash) {
         Ok(s) => s,
         Err(_) => return false,
     };
 
-    // Verificar
+    // Verify
     schnorr_verify(&pubkey_x, &sighash, &sig).is_ok()
 }
 

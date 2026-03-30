@@ -21,7 +21,6 @@
 // Hex mode: same layout but only 0-9 A-F active
 // All modes share identical key positions for visual consistency.
 
-#![allow(dead_code)]
 use embedded_graphics::prelude::*;
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle, RoundedRectangle, CornerRadii, Line};
@@ -93,9 +92,9 @@ fn is_active(ch: u8, mode: KeyboardMode) -> bool {
     if ch == b' ' { return false; } // space placeholder = always inactive
     match mode {
         KeyboardMode::Full => true,
-        KeyboardMode::Alpha => ch >= b'a' && ch <= b'z',
-        KeyboardMode::Hex => (ch >= b'0' && ch <= b'9') || (ch >= b'A' && ch <= b'F'),
-        KeyboardMode::Numeric => ch >= b'0' && ch <= b'9',
+        KeyboardMode::Alpha => ch.is_ascii_lowercase(),
+        KeyboardMode::Hex => ch.is_ascii_digit() || (b'A'..=b'F').contains(&ch),
+        KeyboardMode::Numeric => ch.is_ascii_digit(),
     }
 }
 

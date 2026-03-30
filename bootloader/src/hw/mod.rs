@@ -25,7 +25,6 @@
 // of the crate can use `hw::display`, `hw::camera`, etc. unchanged.
 
 // ─── Display ─────────────────────────────────────────────────
-#![allow(unused_imports)]
 #[cfg(feature = "waveshare")]
 #[path = "display_ws.rs"]
 pub mod display;

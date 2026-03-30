@@ -41,7 +41,6 @@
 //   display_x = 319 - raw_x
 //   display_y = 239 - raw_y
 
-#![allow(dead_code)]
 use esp_hal::i2c::master::I2c;
 
 /// FT6336U I2C address (fixed, not configurable)

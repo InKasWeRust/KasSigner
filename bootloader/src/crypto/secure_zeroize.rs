@@ -34,7 +34,6 @@
 //   impl Zeroize for MyStruct { fn zeroize(&mut self) { ... } }
 
 
-#![allow(dead_code)]
 use core::sync::atomic::{compiler_fence, Ordering};
 
 /// Zeroiza un slice mutable de bytes.
@@ -80,7 +79,7 @@ pub fn zeroize_array<const N: usize>(data: &mut [u8; N]) {
 /// }
 /// ```
 pub trait Zeroize {
-    /// Borra todo el material sensible de esta estructura.
+    /// Erases all sensitive material from this structure.
     fn zeroize(&mut self);
 }
 

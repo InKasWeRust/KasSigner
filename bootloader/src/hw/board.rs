@@ -30,7 +30,6 @@
 // Driver: ST7789T3 (compatible with ST7789V series)
 // Interface: SPI (MOSI + SCLK, no MISO needed)
 
-#![allow(dead_code)]
 /// SPI MOSI pin for display (shared with SD card)
 pub const LCD_MOSI: u8 = 38;
 /// SPI SCLK pin for display (shared with SD card)

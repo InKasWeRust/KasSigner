@@ -23,8 +23,6 @@
 // Usage: triple-tap the top-right corner to trigger a screenshot.
 // On the PC side, run tools/screenshot.py to capture and display.
 
-#![allow(dead_code)]
-#![allow(static_mut_refs)]
 use embedded_graphics::prelude::*;
 use embedded_graphics::pixelcolor::Rgb565;
 
@@ -169,22 +167,110 @@ pub fn dump_uart() {
     esp_println::println!("SCREENSHOT_END");
 }
 
-/// Triple-tap detector for top-right corner.
-/// Returns true when 3 consecutive taps land in the top-right zone (x>260, y<50).
-/// Any tap outside the zone resets the counter.
-static mut TAP_COUNT: u8 = 0;
+// ═══════════════════════════════════════════════════════════════
+// Non-blocking mirror — sends framebuffer in chunks across
+// multiple main loop iterations so touch stays responsive.
+// Gated behind the "mirror" feature flag.
+// ═══════════════════════════════════════════════════════════════
 
-pub fn check_screenshot_trigger(x: u16, y: u16, _current_tick: u32) -> bool {
-    if x > 260 && y < 50 {
+#[cfg(feature = "mirror")]
+mod mirror_state {
+    /// Current row being sent (0 = idle/done, 1..=240 = sending)
+    static mut MIRROR_ROW: u16 = 0;
+    /// Flag: a new frame is pending
+    static mut MIRROR_PENDING: bool = false;
+
+    pub fn request_frame() {
         unsafe {
-            TAP_COUNT += 1;
-            if TAP_COUNT >= 3 {
-                TAP_COUNT = 0;
+            MIRROR_PENDING = true;
+            MIRROR_ROW = 0;
+        }
+    }
+
+    pub fn is_idle() -> bool {
+        unsafe { MIRROR_ROW == 0 && !MIRROR_PENDING }
+    }
+
+    /// Send a chunk of rows (up to ROWS_PER_CHUNK).
+    /// Returns true when the full frame has been sent.
+    pub fn pump_rows() -> bool {
+        const ROWS_PER_CHUNK: u16 = 4; // ~2.5KB per chunk at 115200 = ~220ms
+        const W: usize = super::W;
+        const H: u16 = super::H as u16;
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+
+        unsafe {
+            if !super::FB_READY {
+                return true; // nothing to send
+            }
+
+            // Start new frame
+            if MIRROR_PENDING && MIRROR_ROW == 0 {
+                MIRROR_PENDING = false;
+                MIRROR_ROW = 1; // start from row 1 (1-indexed, 0=idle)
+                esp_println::println!("SCREENSHOT_BEGIN {} {}", W, H);
+            }
+
+            if MIRROR_ROW == 0 {
+                return true; // idle
+            }
+
+            let fb = core::slice::from_raw_parts(super::FB_PTR, super::BUF_SIZE);
+
+            let start_row = (MIRROR_ROW - 1) as usize;
+            let end_row = ((MIRROR_ROW - 1 + ROWS_PER_CHUNK) as usize).min(H as usize);
+
+            for row in start_row..end_row {
+                let row_start = row * W * 2;
+                let row_end = row_start + W * 2;
+                let row_data = &fb[row_start..row_end];
+
+                let mut pos = 0;
+                while pos < row_data.len() {
+                    let chunk_end = (pos + 64).min(row_data.len());
+                    let chunk = &row_data[pos..chunk_end];
+                    let mut hex_buf = [0u8; 128];
+                    for (i, &b) in chunk.iter().enumerate() {
+                        hex_buf[i * 2] = HEX[(b >> 4) as usize];
+                        hex_buf[i * 2 + 1] = HEX[(b & 0x0F) as usize];
+                    }
+                    if let Ok(hex_str) = core::str::from_utf8(&hex_buf[..chunk.len() * 2]) {
+                        esp_println::print!("{}", hex_str);
+                    }
+                    pos = chunk_end;
+                }
+                esp_println::println!();
+            }
+
+            MIRROR_ROW = (end_row as u16) + 1;
+
+            if end_row >= H as usize {
+                // Frame complete
+                esp_println::println!("SCREENSHOT_END");
+                MIRROR_ROW = 0;
+
+                // If another frame was requested while sending, start it next call
                 return true;
             }
+
+            false // more rows to send
         }
-    } else {
-        unsafe { TAP_COUNT = 0; }
     }
-    false
+}
+
+#[cfg(feature = "mirror")]
+pub use mirror_state::{request_frame, pump_rows, is_idle};
+
+/// Blocking mirror flush — dumps the entire framebuffer synchronously.
+/// Used for transient screens (success/warning/error) that auto-advance
+/// and would be missed by the non-blocking chunked pump.
+/// When mirror is not active, this is a no-op.
+#[cfg(feature = "mirror")]
+pub fn mirror_flush() {
+    dump_uart();
+}
+
+#[cfg(not(feature = "mirror"))]
+pub fn mirror_flush() {
+    // no-op when mirror feature is off
 }

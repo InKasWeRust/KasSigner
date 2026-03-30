@@ -29,7 +29,6 @@
 //   - xpub: Extended public key (kpub/xprv)
 //   - storage: Key storage utilities
 
-#![allow(unused_imports)]
 pub mod bip39;
 pub mod bip32;
 pub mod bip85;

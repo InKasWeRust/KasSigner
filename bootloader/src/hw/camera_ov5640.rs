@@ -21,8 +21,6 @@
 // QVGA 320x240 YUV422 output at 20MHz PCLK.
 
 
-#![allow(dead_code)]
-#![allow(static_mut_refs)]
 use esp_hal::delay::Delay;
 
 const OV5640_ADDR: u8 = 0x3C;

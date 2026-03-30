@@ -36,7 +36,6 @@
 //      (or: mark update partition for next boot — future OTA)
 
 
-#![allow(dead_code)]
 use sha2::{Sha256, Digest};
 
 /// Magic bytes for firmware update QR: "KSFU" (KasSigner Firmware Update)
@@ -76,7 +75,7 @@ pub const fn empty() -> Self {
 /// Format: [KSFU(4B)][version(4B LE)][hash(32B)][signature(64B)] = 104 bytes
 pub fn parse_update_qr(data: &[u8]) -> Option<FirmwareUpdate> {
     if data.len() < 104 { return None; }
-    if &data[0..4] != &UPDATE_MAGIC { return None; }
+    if data[0..4] != UPDATE_MAGIC { return None; }
 
     let version = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
     let mut update = FirmwareUpdate::empty();

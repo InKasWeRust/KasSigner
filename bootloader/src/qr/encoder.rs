@@ -52,7 +52,6 @@
 // Constants
 // ═══════════════════════════════════════════════════════════════════
 
-#![allow(dead_code)]
 /// Maximum QR version we support
 const MAX_VERSION: usize = 6;
 /// Maximum modules per side (V6 = 41)
@@ -289,7 +288,7 @@ pub fn get(&self, x: u8, y: u8) -> bool {
         }
 
         // Dark module (always present)
-        self.set_func(8, (4 * self.version + 9) as u8, true);
+        self.set_func(8, 4 * self.version + 9, true);
 
         // Alignment patterns (V2+)
         if self.version >= 2 {
@@ -485,7 +484,7 @@ pub fn get(&self, x: u8, y: u8) -> bool {
             }
         }
         let pct = (dark_count * 100) / total;
-        let dev = if pct >= 50 { pct - 50 } else { 50 - pct };
+        let dev = pct.abs_diff(50);
         penalty += (dev / 5) * 10;
 
         penalty
@@ -790,10 +789,8 @@ impl<'a> BitWriter<'a> {
             let bit = (value >> i) & 1;
             let byte_idx = self.bit_pos / 8;
             let bit_idx = 7 - (self.bit_pos % 8);
-            if byte_idx < self.buf.len() {
-                if bit != 0 {
-                    self.buf[byte_idx] |= 1 << bit_idx;
-                }
+            if byte_idx < self.buf.len() && bit != 0 {
+                self.buf[byte_idx] |= 1 << bit_idx;
             }
             self.bit_pos += 1;
         }

@@ -30,7 +30,6 @@
 //   - Hardened derivation for sensitive path levels
 
 
-#![allow(dead_code)]
 use k256::{
     SecretKey,
     elliptic_curve::sec1::ToEncodedPoint,
@@ -397,15 +396,31 @@ pub fn derive_path_for_index(
 /// Given an account key and a 32-byte x-only pubkey, find which address
 /// index produced it. Scans 0..99 (covers typical wallet usage).
 /// Returns None if no match. Used for multi-input signing.
+/// Given an account key and a 32-byte x-only pubkey, find which address
+/// index produced it. Scans both receive (chain 0) and change (chain 1)
+/// paths, indices 0..99.
+/// Returns Some((index, is_change)) or None if no match.
+/// Used for multi-input signing.
 pub fn find_address_index_for_pubkey(
     account_key: &ExtendedPrivKey,
     target_pubkey: &[u8; 32],
-) -> Option<u16> {
+) -> Option<(u16, bool)> {
+    // Search receive chain first (m/44'/111111'/0'/0/idx)
     for idx in 0..100u16 {
         if let Ok(key) = derive_address_key(account_key, idx) {
             if let Ok(pk) = key.public_key_x_only() {
                 if pk == *target_pubkey {
-                    return Some(idx);
+                    return Some((idx, false));
+                }
+            }
+        }
+    }
+    // Search change chain (m/44'/111111'/0'/1/idx)
+    for idx in 0..100u16 {
+        if let Ok(key) = derive_change_key(account_key, idx) {
+            if let Ok(pk) = key.public_key_x_only() {
+                if pk == *target_pubkey {
+                    return Some((idx, true));
                 }
             }
         }
@@ -439,10 +454,10 @@ fn is_less_than_order(a: &[u8; 32]) -> bool {
 }
 
 /// Suma modular: (a + b) mod n
-/// donde n es el orden de secp256k1.
+/// where n is the order of secp256k1.
 ///
 /// Algoritmo:
-///   1. Sumar a + b como enteros de 256 bits (con carry)
+///   1. Add a + b as 256-bit integers (with carry)
 ///   2. Si resultado >= n, restar n
 fn scalar_add_mod_n(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
     // Paso 1: Suma big-endian con carry
@@ -613,7 +628,7 @@ pub fn test_vector1_child_hardened() -> bool {
         0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
     ];
 
-    // Generar master key manualmente (seed de 16 bytes, no 64)
+    // Generate master key manually (16-byte seed, not 64)
     let i = hmac_sha512(BITCOIN_SEED, &seed_short);
     let mut master_key = [0u8; 32];
     let mut master_chain = [0u8; 32];
@@ -695,7 +710,7 @@ pub fn test_kaspa_path_derivation() -> bool {
         return false;
     }
 
-    // Debe poder generar public key
+    // Must be able to generate public key
     let pubkey = match key.public_key_compressed() {
         Ok(pk) => pk,
         Err(_) => return false,
@@ -826,10 +841,10 @@ pub fn test_multi_address_derivation() -> bool {
         Ok(pk) => pk,
         Err(_) => return false,
     };
-    if find_address_index_for_pubkey(&acct, &pk0) != Some(0) {
+    if find_address_index_for_pubkey(&acct, &pk0) != Some((0, false)) {
         return false;
     }
-    if find_address_index_for_pubkey(&acct, &pk1) != Some(1) {
+    if find_address_index_for_pubkey(&acct, &pk1) != Some((1, false)) {
         return false;
     }
 

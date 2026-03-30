@@ -770,6 +770,7 @@ checksum = "960703930f9f3c899ddedd122ea27a09d6a612c22323157e524af5b18876448e"
 dependencies = [
  "esp-build",
  "log",
+ "portable-atomic",
 ]
 
 [[package]]

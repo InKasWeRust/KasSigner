@@ -17,7 +17,6 @@
 // ui/helpers.rs — Shared UI helper functions (hit-test, validation)
 
 
-#![allow(dead_code)]
 use crate::{ui::setup_wizard, ui::seed_manager, wallet};
 
 /// Passphrase keyboard hit-test — shared by stego, sd, and seed handlers.
@@ -38,7 +37,7 @@ pub fn pp_keyboard_hit(x: u16, y: u16, pp: &mut seed_manager::PassphraseInput) -
 /// Check suggestion chip taps. Returns Some(word_index) if tapped.
 #[inline(never)]
 pub fn suggestion_hit_test(x: u16, y: u16, word_input: &setup_wizard::WordInput) -> Option<u16> {
-    if y < 72 || y > 96 || word_input.num_suggestions <= 1 {
+    if !(72..=96).contains(&y) || word_input.num_suggestions <= 1 {
         return None;
     }
     for i in 0..(word_input.num_suggestions as usize).min(3) {
@@ -102,7 +101,6 @@ pub fn hex_nibble(ch: u8) -> u8 {
 /// Also caches the account key (65 bytes) for instant out-of-range derivations.
 /// Takes ~5s on ESP32-S3 (PBKDF2 dominates). After this, address switching is instant.
 #[inline(never)]
-
 pub fn format_test_line<'a>(buf: &'a mut [u8; 40], prefix: &str, value: u32, suffix: &str) -> &'a str {
     let mut pos = 0usize;
     for &b in prefix.as_bytes() {

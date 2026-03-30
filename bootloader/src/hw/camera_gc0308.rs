@@ -35,9 +35,7 @@
 // Init: Espressif gc0308_sensor_default_regs + subsample QVGA via Page 1 regs
 // Capture: Stock esp-hal Camera::receive()/wait() API, DMA to SRAM
 
-#![allow(dead_code)]
 #[cfg(not(feature = "silent"))]
-
 use crate::log;
 use esp_hal::delay::Delay;
 
@@ -238,7 +236,7 @@ static GC0308_DEFAULTS: &[(u8, u8)] = &[
     (0xAB, 0xeb),
     (0xAC, 0xf0),
     (0xAD, 0xF8),
-    (0xAE, 0xFd),
+    (0xAE, 0xFD),
     (0xAF, 0xFF),
 
     // Second gamma/Y curve
@@ -399,10 +397,10 @@ pub fn sccb_write<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, reg: u8, val: u8) 
 /// Read a single register via I2C/SCCB
 fn sccb_read<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, reg: u8) -> Option<u8> {
     let mut buf = [0u8; 1];
-    if i2c.write(GC0308_ADDR, &[reg]).is_ok() {
-        if i2c.read(GC0308_ADDR, &mut buf).is_ok() {
-            return Some(buf[0]);
-        }
+    if i2c.write(GC0308_ADDR, &[reg]).is_ok()
+        && i2c.read(GC0308_ADDR, &mut buf).is_ok()
+    {
+        return Some(buf[0]);
     }
     None
 }

@@ -31,8 +31,6 @@
 // The PIR (GPIO17) is used as an optional back/cancel button.
 
 
-#![allow(dead_code)]
-#![allow(unused_imports)]
 use esp_hal::gpio::Input;
 
 // ═══════════════════════════════════════════════════════════════════
@@ -55,7 +53,7 @@ pub const BOOT_LONG_PRESS_MS: u32 = 800;
 /// PIR debounce (ms). Values: 100(sensitive) 500(medium) 1500(slow)
 pub const PIR_DEBOUNCE_MS: u32 = 500;
 
-/// Long press PIR (ms). Rango: 1500-3000
+/// Long press PIR (ms). Range: 1500-3000
 pub const PIR_LONG_PRESS_MS: u32 = 2000;
 
 /// PIR cooldown (ms). Values: 500(fast) 1000(normal) 2000(slow)
@@ -379,6 +377,8 @@ pub enum AppState {
     ExportSeedQR,
     /// QR Export sub-menu (Compact, Standard, Plain Words)
     QrExportMenu,
+    /// xprv export submenu: "Show as QR" / "Encrypt to SD"
+    XprvExportMenu,
     /// Export plain BIP39 words as text QR code
     ExportPlainWordsQR,
     /// Export account-level kpub as QR for watch-only wallet import
@@ -419,6 +419,8 @@ pub enum AppState {
     SdRestorePassphrase,
     /// SD restore: decrypting and loading
     SdRestoreReading,
+    /// SD backup: confirm deletion of selected file
+    SdDeleteConfirm,
     /// SD xprv export: enter passphrase for encryption
     SdXprvExportPassphrase,
     /// SD xprv import: list XP* files
@@ -440,7 +442,7 @@ pub enum AppState {
     /// Multisig: show wallet descriptor text (multi(M, pk1, pk2, ...))
     MultisigDescriptor,
     /// Multisig: show QR of wallet descriptor
-    MultisigDescriptorQR,
+
     /// Steganography: select mode (list of 6 modes)
     StegoModeSelect,
     /// Steganography: processing embed (mode stored externally)
@@ -606,7 +608,7 @@ pub fn new() -> Self {
             | AppState::SignTxGuide
             | AppState::SignMsgChoice | AppState::SignMsgType | AppState::SignMsgFile
             | AppState::SignMsgPreview | AppState::SignMsgResult
-            | AppState::QrExportMenu | AppState::ExportPlainWordsQR => {
+            | AppState::QrExportMenu | AppState::XprvExportMenu | AppState::ExportPlainWordsQR => {
                 if event == ButtonEvent::ShortPress || event == ButtonEvent::LongPress {
                     self.go_main_menu();
                     return Action::Redraw;
@@ -624,12 +626,13 @@ pub fn new() -> Self {
             | AppState::SeedQrGrid { .. }
             | AppState::SdBackupWarning | AppState::SdBackupPassphrase | AppState::SdBackupWriting
             | AppState::SdFileList | AppState::SdRestorePassphrase | AppState::SdRestoreReading
+            | AppState::SdDeleteConfirm
             | AppState::SdXprvExportPassphrase | AppState::SdXprvFileList | AppState::SdXprvImportPassphrase
             | AppState::MultisigChooseMN | AppState::MultisigPickSeed { .. }
             | AppState::MultisigPickAddr { .. }
             | AppState::MultisigAddKey { .. } | AppState::MultisigShowAddress
             | AppState::MultisigShowAddressQR
-            | AppState::MultisigDescriptor | AppState::MultisigDescriptorQR
+            | AppState::MultisigDescriptor
             | AppState::StegoModeSelect | AppState::StegoEmbed | AppState::StegoResult
             | AppState::StegoJpegPick | AppState::StegoJpegDescChoice | AppState::StegoJpegDescFile
             | AppState::StegoJpegDesc | AppState::StegoJpegDescPreview | AppState::StegoJpegConfirm
@@ -818,7 +821,7 @@ pub fn handler_group(&self) -> HandlerGroup {
 
             // SD backup/restore
             SdBackupWarning | SdBackupPassphrase | SdFileList
-            | SdRestorePassphrase | SdXprvExportPassphrase
+            | SdRestorePassphrase | SdDeleteConfirm | SdXprvExportPassphrase
             | SdXprvFileList | SdXprvImportPassphrase
                 => HandlerGroup::Sd,
 
@@ -831,7 +834,7 @@ pub fn handler_group(&self) -> HandlerGroup {
             // Export/display
             SeedBackup { .. } | ShowAddress | ShowAddressQR | AddrIndexPicker
             | ExportSeedQR | ExportCompactSeedQR | SeedQrGrid { .. }
-            | QrExportMenu | ExportPlainWordsQR
+            | QrExportMenu | XprvExportMenu | ExportPlainWordsQR
             | ExportKpub | ExportXprv | ExportChoice | ExportPrivKey
                 => HandlerGroup::Export,
 
@@ -843,7 +846,7 @@ pub fn handler_group(&self) -> HandlerGroup {
             ScanQR | ReviewTx { .. } | ConfirmTx | SignTxGuide
             | MultisigChooseMN | MultisigPickSeed { .. } | MultisigPickAddr { .. }
             | MultisigAddKey { .. } | MultisigShowAddress | MultisigShowAddressQR
-            | MultisigDescriptor | MultisigDescriptorQR
+            | MultisigDescriptor
             | SignMsgChoice | SignMsgType | SignMsgFile | SignMsgPreview | SignMsgResult
                 => HandlerGroup::Tx,
 

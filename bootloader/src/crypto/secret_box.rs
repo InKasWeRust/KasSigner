@@ -36,7 +36,6 @@
 //   - Does not protect against cold boot if attacker reads before zeroize
 
 
-#![allow(dead_code)]
 use core::sync::atomic::{compiler_fence, Ordering};
 use super::secure_zeroize;
 
@@ -53,7 +52,7 @@ impl<const N: usize> SecretBox<N> {
     /// Creates a SecretBox from a secret and a random mask.
     /// El secreto original se zeroiza en el caller.
     ///
-    /// IMPORTANTE: `mask` debe ser generada con un TRNG, no con un PRNG.
+    /// IMPORTANT: `mask` must be generated with a TRNG, not a PRNG.
     /// On ESP32-S3, use the hardware RNG (available via esp-hal).
     pub fn new(secret: &[u8; N], mask: &[u8; N]) -> Self {
         let mut masked = [0u8; N];
@@ -72,12 +71,12 @@ impl<const N: usize> SecretBox<N> {
     }
 
     /// Temporarily unmask the secret and execute a closure with it.
-    /// El buffer temporal se zeroiza SIEMPRE al terminar, incluso si
+    /// The temporary buffer is ALWAYS zeroized on completion, even if
     /// the closure panics (thanks to the drop guard).
     ///
     /// ```rust
     /// secret_box.unmask(|clear_key| {
-    ///     // usar clear_key para firmar
+    ///     // use clear_key to sign
     ///     sign_transaction(clear_key, &tx);
     /// });
     /// // clear_key ya no existe y fue zeroizado
@@ -112,6 +111,6 @@ impl<const N: usize> Drop for SecretBox<N> {
 }
 
 // SecretBox NO implementa Clone, Copy, Debug, ni Display.
-// Esto previene copias accidentales y fugas por logging.
+// This prevents accidental copies and leaks via logging.
 // If you need to clone a secret, you must do it explicitly
 // with unmask() + SecretBox::new().

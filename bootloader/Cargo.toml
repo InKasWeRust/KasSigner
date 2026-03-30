@@ -13,13 +13,14 @@ silent = []
 verbose-boot = []
 skip-tests = []
 screenshot = []
+mirror = ["screenshot"]
 icon-browser = []
 test-psram = []
 
 [dependencies]
 esp-hal = { version = "1.0", features = ["esp32s3", "unstable", "psram"] }
 esp-backtrace = { version = "0.15", features = ["esp32s3", "panic-handler", "println"] }
-esp-println = { version = "0.13", default-features = false, features = ["esp32s3", "uart"] }
+esp-println = { version = "0.13", default-features = false, features = ["esp32s3", "jtag-serial"] }
 esp-alloc = "0.7"
 esp-bootloader-esp-idf = { version = "0.2", features = ["esp32s3"] }
 esp32s3 = { version = "0.30", features = ["rt"] }

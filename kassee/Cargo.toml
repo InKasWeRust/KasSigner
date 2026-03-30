@@ -1,0 +1,47 @@
+[package]
+name = "kassigner-companion"
+version = "0.1.0"
+edition = "2021"
+description = "KasSigner Companion — watch-only wallet for air-gapped PSKT signing"
+license = "GPL-3.0"
+
+[[bin]]
+name = "kassigner-companion"
+path = "src/main.rs"
+
+[dependencies]
+# Kaspa SDK
+kaspa-wrpc-client = "0.15"
+kaspa-rpc-core = "0.15"
+kaspa-consensus-core = "0.15"
+kaspa-wallet-keys = "0.15"
+kaspa-wallet-pskt = "0.15"
+kaspa-bip32 = "0.15"
+kaspa-addresses = "0.15"
+kaspa-txscript = "0.15"
+kaspa-hashes = "0.15"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# QR display in terminal + PNG output
+qrcode = { version = "0.14", features = ["image"] }
+
+# Image output
+image = "0.24"
+
+# GIF animation for multi-frame QR
+gif = "0.13"
+
+# Base58 for kpub decoding  
+bs58 = { version = "0.5", features = ["check"] }
+
+# Hex encoding
+hex = "0.4"

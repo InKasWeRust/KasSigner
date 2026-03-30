@@ -19,7 +19,6 @@
 // This eliminates ~80 local variables from fn main() and makes handler
 // dispatch cleaner: pass &mut AppData instead of 20-50 individual refs.
 
-#![allow(dead_code)]
 use crate::{features::fw_update, hw::sd_backup, ui::seed_manager, ui::setup_wizard, wallet};
 
 /// All mutable application state that handlers read/write.
@@ -36,6 +35,7 @@ pub struct AppData {
     pub tools_menu: crate::app::input::Menu,
     pub export_menu: crate::app::input::Menu,
     pub qr_export_menu: crate::app::input::Menu,
+    pub xprv_export_menu: crate::app::input::Menu,
     pub settings_menu: crate::app::input::Menu,
 
     // ─── Seed management ───
@@ -78,6 +78,7 @@ pub struct AppData {
     // ─── SD card ───
     pub sd_file_list: [[u8; 11]; 8],
     pub sd_file_count: u8,
+    pub sd_file_scroll: u8,
     pub sd_selected_file: [u8; 11],
 
     // ─── Transaction / multisig ───
@@ -171,13 +172,16 @@ pub fn new() -> Self {
 
             tools_menu: crate::app::input::Menu::from_items(
                 &["New Seed", "Dice Seed", "Import Words", "Calc Last Word",
-                  "BIP85 Child", "Import Key", "Import from SD", "Create Multisig", "Stego Import", "Sign TX",
+                  "BIP85 Child", "Import Raw Key", "Import from SD", "Create Multisig", "Stego Import", "Sign TX",
                   "Sign Message"]
             ),
             export_menu: crate::app::input::Menu::from_items(
                 &["Show Seed Words", "QR Export", "JPEG Stego Export",
-                  "kpub Watch-Only", "xprv Full Wallet",
-                  "Seed Backup to SD", "XPrv Backup to SD"]
+                  "kpub Watch-Only", "xprv Account",
+                  "Seed Backup to SD"]
+            ),
+            xprv_export_menu: crate::app::input::Menu::from_items(
+                &["Show as QR", "Encrypt to SD"]
             ),
             qr_export_menu: crate::app::input::Menu::from_items(
                 &["CompactSeedQR", "Standard SeedQR", "Plain Words QR"]
@@ -226,6 +230,7 @@ pub fn new() -> Self {
 
             sd_file_list: [[b' '; 11]; 8],
             sd_file_count: 0,
+            sd_file_scroll: 0,
             sd_selected_file: [b' '; 11],
 
             demo_tx: wallet::transaction::Transaction::new(),
@@ -286,7 +291,7 @@ pub fn new() -> Self {
             #[cfg(feature = "waveshare")]
             cam_tune_param: 0,
             #[cfg(feature = "waveshare")]
-            cam_tune_vals: [0x7E, 0x81, 0xA8, 0x2C, 0x92, 0xCE],
+            cam_tune_vals: [0x2E, 0xD5, 0x6B, 0x24, 0x47, 0x9E],
 
             #[cfg(feature = "waveshare")]
             cam_tap_x: 0,

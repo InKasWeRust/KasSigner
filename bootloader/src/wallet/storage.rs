@@ -23,7 +23,7 @@
 //   PIN + device_salt → PBKDF2-HMAC-SHA256 (100k iterations) → AES-256 key
 //   mnemonic → AES-256-GCM(key, random_nonce, aad=version) → encrypted blob
 //
-// Formato del blob en flash:
+// Blob format in flash:
 //   [version: 1B][nonce: 12B][ciphertext: variable][tag: 16B]
 //
 // Seguridad:
@@ -36,7 +36,6 @@
 // NOTE: uses AeadInPlace to avoid alloc — all encrypt/decrypt in fixed buffers.
 
 
-#![allow(dead_code)]
 use sha2::{Sha256, Digest};
 use aes_gcm::{
     Aes256Gcm,
@@ -90,7 +89,7 @@ pub enum PinStrength {
 /// Valida la fortaleza de un PIN/password.
 ///
 /// Minimum 6 digits or 8 alphanumeric characters.
-/// Rechaza: todo igual, secuencias +1/-1.
+/// Rejects: all identical, +1/-1 sequences.
 pub fn validate_pin(pin: &[u8]) -> Result<PinStrength, StorageError> {
     if pin.len() < 6 {
         return Err(StorageError::WeakPin);
@@ -152,7 +151,7 @@ fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
         ipad_key[i] = k_prime[i] ^ IPAD;
     }
     let mut inner = Sha256::new();
-    inner.update(&ipad_key);
+    inner.update(ipad_key);
     inner.update(message);
     let inner_hash = inner.finalize();
 
@@ -161,8 +160,8 @@ fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
         opad_key[i] = k_prime[i] ^ OPAD;
     }
     let mut outer = Sha256::new();
-    outer.update(&opad_key);
-    outer.update(&inner_hash);
+    outer.update(opad_key);
+    outer.update(inner_hash);
     let outer_hash = outer.finalize();
 
     zeroize_buf(&mut k_prime);

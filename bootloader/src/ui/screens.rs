@@ -20,8 +20,6 @@
 // screen-specific rendering methods. Separated for maintainability.
 
 
-#![allow(dead_code)]
-#![allow(unused_imports)]
 use embedded_graphics::{
     prelude::*,
     pixelcolor::Rgb565,
@@ -307,7 +305,7 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                 .draw(&mut self.display).ok();
 
             // Total amount
-            let total: u64 = (0..tx.num_outputs as usize)
+            let total: u64 = (0..tx.num_outputs)
                 .map(|i| tx.outputs[i].value)
                 .sum();
             let kas = total / 100_000_000;
@@ -319,7 +317,7 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
             draw_lato_title(&mut self.display, amount_text.as_str(), 30, 100, COLOR_ORANGE);
 
             // Fee
-            let total_in: u64 = (0..tx.num_inputs as usize)
+            let total_in: u64 = (0..tx.num_inputs)
                 .map(|i| tx.inputs[i].utxo_entry.amount)
                 .sum();
             let fee = total_in.saturating_sub(total);
@@ -370,7 +368,7 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
         } else {
             // Output page
             let out_idx = (page - 1) as usize;
-            if out_idx < tx.num_outputs as usize {
+            if out_idx < tx.num_outputs {
                 let output = &tx.outputs[out_idx];
                 let spk = &output.script_public_key;
 
@@ -445,7 +443,7 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                     // Non-P2PK: show raw script hex
                     let mut addr_text = heapless::String::<48>::new();
                     write!(&mut addr_text, "Script: ").ok();
-                    let show_bytes = core::cmp::min(8, spk.script_len as usize);
+                    let show_bytes = core::cmp::min(8, spk.script_len);
                     for i in 0..show_bytes {
                         write!(&mut addr_text, "{:02x}", spk.script[i]).ok();
                     }
@@ -571,7 +569,7 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
             .draw(&mut self.display).ok();
 
         // Fill level
-        let inner_w = (bw - 2) as u32;
+        let inner_w = bw - 2;
         let fill_w = (percentage as u32 * inner_w / 100).max(1);
         let fill_color = if charging {
             KASPA_TEAL
@@ -1062,7 +1060,7 @@ pub fn draw_home_grid(&mut self) {
         }
         let text_x: i32 = 10;
         let text_y: i32 = 62;
-        let drawn_w = if disp_buf.len() > 0 {
+        let drawn_w = if !disp_buf.is_empty() {
             draw_lato_18(&mut self.display, &disp_buf, text_x, text_y, COLOR_TEXT)
         } else {
             0
@@ -1229,7 +1227,7 @@ pub fn draw_home_grid(&mut self) {
         let cy = y + h as i32 / 2;
         let dx = w as i32 / 4; // horizontal offset from center
         let dy = h as i32 / 4; // vertical offset from center
-        let r = (w.min(h) / 10).max(2) as u32; // dot radius — slightly smaller
+        let r = (w.min(h) / 10).max(2);	// dot radius — slightly smaller // dot radius — slightly smaller
 
         let dot = |sx: &mut Self, px: i32, py: i32| {
             Circle::new(Point::new(px - r as i32, py - r as i32), r * 2)
@@ -1412,7 +1410,7 @@ pub fn draw_home_grid(&mut self) {
         let text_y: i32 = 62;
 
         // Draw prefix and get actual width
-        let drawn_w = if prefix.len() > 0 {
+        let drawn_w = if !prefix.is_empty() {
             draw_lato_22(&mut self.display, prefix, text_x, text_y, COLOR_TEXT)
         } else {
             0
@@ -1454,7 +1452,7 @@ pub fn draw_home_grid(&mut self) {
                 let tw = measure_18(&w[..wlen]);
                 draw_lato_18(&mut self.display, &w[..wlen], sx + (102 - tw) / 2, chip_y + 18, COLOR_TEXT);
             }
-        } else if word_input.match_count == 0 && prefix.len() > 0 {
+        } else if word_input.match_count == 0 && !prefix.is_empty() {
             let nw = measure_body("No matches");
             draw_lato_body(&mut self.display, "No matches", (320 - nw) / 2, chip_y + 18, COLOR_DANGER);
         }
@@ -1771,6 +1769,14 @@ pub fn draw_home_grid(&mut self) {
         let hw = measure_hint("Tap to continue");
         draw_lato_hint(&mut self.display, "Tap to continue", (320 - hw) / 2, 238, COLOR_HINT);
 
+        // Guard: QR encoder supports V1-V6 (max 134 bytes).
+        // Reject oversized data before encode to prevent stack overflow.
+        if data.len() > 134 {
+            let ew = measure_title("QR Error — too large");
+            draw_lato_title(&mut self.display, "QR Error — too large", (320 - ew) / 2, 120, COLOR_DANGER);
+            return;
+        }
+
         if let Ok(qr) = crate::qr::encoder::encode(data) {
             let qr_size = qr.size as i32;
             let scale = (200 / qr_size).max(1);
@@ -2016,20 +2022,49 @@ pub fn draw_home_grid(&mut self) {
                 }
             }
 
-            // Navigation arrows
+            // Navigation triangles — same style as seeds/tools menu
+            // Left strip: < (top) and > (bottom) for horizontal pan
+            // Right strip: ^ (top) and v (bottom) for vertical pan
             let max_pan = qr_size.saturating_sub(view_cells);
-            if pan_x > 0 {
-                draw_lato_title(&mut self.display, "<", 20, 220, KASPA_TEAL);
-            }
-            if pan_x < max_pan {
-                draw_lato_title(&mut self.display, ">", 290, 220, KASPA_TEAL);
-            }
-            if pan_y > 0 {
-                draw_lato_title(&mut self.display, "^", 155, 25, KASPA_TEAL);
-            }
-            if pan_y < max_pan {
-                draw_lato_title(&mut self.display, "v", 155, 230, KASPA_TEAL);
-            }
+            let teal_dark = Rgb565::new(0, 20, 10);
+
+            // Left strip — horizontal navigation
+            let lx = 18i32; // center of left strip
+            let ly_top = 80i32;  // < arrow (pan left)
+            let ly_bot = 160i32; // > arrow (pan right)
+
+            // < arrow (pan left) — points left
+            let arr_color = if pan_x > 0 { KASPA_TEAL } else { teal_dark };
+            Triangle::new(
+                Point::new(lx - 12, ly_top), Point::new(lx + 12, ly_top - 15), Point::new(lx + 12, ly_top + 15),
+            ).into_styled(PrimitiveStyle::with_fill(arr_color))
+                .draw(&mut self.display).ok();
+
+            // > arrow (pan right) — points right
+            let arr_color = if pan_x < max_pan { KASPA_TEAL } else { teal_dark };
+            Triangle::new(
+                Point::new(lx + 12, ly_bot), Point::new(lx - 12, ly_bot - 15), Point::new(lx - 12, ly_bot + 15),
+            ).into_styled(PrimitiveStyle::with_fill(arr_color))
+                .draw(&mut self.display).ok();
+
+            // Right strip — vertical navigation
+            let rx = 302i32; // center of right strip
+            let ry_top = 80i32;  // ^ arrow (pan up)
+            let ry_bot = 160i32; // v arrow (pan down)
+
+            // ^ arrow (pan up) — points up
+            let arr_color = if pan_y > 0 { KASPA_TEAL } else { teal_dark };
+            Triangle::new(
+                Point::new(rx, ry_top - 12), Point::new(rx - 15, ry_top + 12), Point::new(rx + 15, ry_top + 12),
+            ).into_styled(PrimitiveStyle::with_fill(arr_color))
+                .draw(&mut self.display).ok();
+
+            // v arrow (pan down) — points down
+            let arr_color = if pan_y < max_pan { KASPA_TEAL } else { teal_dark };
+            Triangle::new(
+                Point::new(rx, ry_bot + 12), Point::new(rx - 15, ry_bot - 12), Point::new(rx + 15, ry_bot - 12),
+            ).into_styled(PrimitiveStyle::with_fill(arr_color))
+                .draw(&mut self.display).ok();
 
         } else {
             let ew = measure_title("QR Error");
@@ -2116,15 +2151,18 @@ pub fn draw_home_grid(&mut self) {
             }
         }
 
-        // Show first 32 and last 32 hex chars
+        // Show first 32 and last 32 hex chars — centered
         if let Ok(s1) = core::str::from_utf8(&hex_str[..32]) {
-            draw_lato_hint(&mut self.display, s1, 15, 195, COLOR_TEXT);
+            let w1 = measure_hint(s1);
+            draw_lato_hint(&mut self.display, s1, (320 - w1) / 2, 195, COLOR_TEXT);
         }
         if let Ok(s2) = core::str::from_utf8(&hex_str[32..64]) {
-            draw_lato_hint(&mut self.display, s2, 15, 210, COLOR_TEXT);
+            let w2 = measure_hint(s2);
+            draw_lato_hint(&mut self.display, s2, (320 - w2) / 2, 210, COLOR_TEXT);
         }
 
-        draw_lato_hint(&mut self.display, "Tap to dismiss — KEEP SECRET", 15, 232, warn_color);
+        let bw = measure_hint("Tap to dismiss — KEEP SECRET");
+        draw_lato_hint(&mut self.display, "Tap to dismiss — KEEP SECRET", (320 - bw) / 2, 232, warn_color);
     }
 
     /// Draw export choice screen — uses same paged list layout as draw_menu_screen
@@ -2175,8 +2213,6 @@ pub fn draw_home_grid(&mut self) {
         draw_lato_hint(&mut self.display, "Tap to dismiss", (320 - hw) / 2, 232, warn_color);
     }
 
-    /// Draw settings screen with brightness and audio volume controls
-    /// Draw settings menu (list: Display, Audio, About)
     // draw_settings_menu_screen removed — now uses draw_menu_screen with persistent settings_menu
 
     /// Draw SD card settings screen
@@ -2364,7 +2400,12 @@ pub fn draw_home_grid(&mut self) {
     }
 
     /// Draw SD file list for restore — shows up to 8 backup files found on SD
-    pub fn draw_sd_file_list(&mut self, files: &[[u8; 11]], count: u8) {
+    /// Draw SD file list. If `seed_fps` is provided (up to 4 fingerprints from loaded seeds),
+    /// files whose name matches a fingerprint will show the slot label (e.g. "Seed #1").
+    pub fn draw_sd_file_list_ex(
+        &mut self, files: &[[u8; 11]], count: u8, scroll: u8,
+        seed_fps: &[[u8; 4]; 4], seed_count: u8,
+    ) {
         self.display.clear(COLOR_BG).ok();
 
         let tw = measure_header("SELECT BACKUP");
@@ -2385,10 +2426,11 @@ pub fn draw_home_grid(&mut self) {
         let n = count.min(16);
 
         for vis in 0..max_visible {
+            let abs = vis + scroll;
             let row_y = start_y + (vis as i32) * (card_h + card_gap);
             let slot_rect = Rectangle::new(Point::new(start_x, row_y), Size::new(card_w, card_h as u32));
 
-            if vis < n {
+            if abs < n {
                 RoundedRectangle::new(slot_rect, card_corner)
                     .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
                     .draw(&mut self.display).ok();
@@ -2401,10 +2443,43 @@ pub fn draw_home_grid(&mut self) {
                 Image::new(&icon, Point::new(start_x + 6, row_y + 9)).draw(&mut self.display).ok();
 
                 let mut disp = [0u8; 13];
-                let dlen = crate::hw::sd_backup::format_83_display(&files[vis as usize], &mut disp);
-                if let Ok(name_str) = core::str::from_utf8(&disp[..dlen]) {
-                    draw_lato_title(&mut self.display, name_str, start_x + 36, row_y + 28, COLOR_TEXT);
+                let dlen = crate::hw::sd_backup::format_83_display(&files[abs as usize], &mut disp);
+
+                // Check if this file matches a loaded seed (for sub-label)
+                let file_fp = extract_fingerprint_from_filename(&files[abs as usize]);
+                let mut matched_seed: Option<usize> = None;
+                if let Some(fp) = file_fp {
+                    for s in 0..seed_count as usize {
+                        if seed_fps[s][0] == fp[0] && seed_fps[s][1] == fp[1] {
+                            matched_seed = Some(s);
+                            break;
+                        }
+                    }
                 }
+
+                // Draw filename — centered vertically if no seed label, shifted up if label present
+                let name_y = if matched_seed.is_some() { row_y + 18 } else { row_y + 28 };
+                if let Ok(name_str) = core::str::from_utf8(&disp[..dlen]) {
+                    draw_lato_title(&mut self.display, name_str, start_x + 36, name_y, COLOR_TEXT);
+                }
+
+                // Draw seed label if matched
+                if let Some(s) = matched_seed {
+                    let mut label: heapless::String<12> = heapless::String::new();
+                    let _ = core::fmt::Write::write_fmt(&mut label, format_args!("Seed #{}", s + 1));
+                    draw_lato_hint(&mut self.display, label.as_str(), start_x + 36, row_y + 36, KASPA_TEAL);
+                }
+
+                // Delete button — trash icon on right edge of card
+                let del_rect = Rectangle::new(Point::new(start_x as i32 + card_w as i32 - 44, row_y + 3), Size::new(38, 36));
+                let del_corner = CornerRadii::new(Size::new(4, 4));
+                RoundedRectangle::new(del_rect, del_corner)
+                    .into_styled(PrimitiveStyle::with_fill(COLOR_RED_BTN))
+                    .draw(&mut self.display).ok();
+                use embedded_graphics::image::ImageRawLE;
+                let trash_raw: ImageRawLE<Rgb565> = ImageRawLE::new(
+                    crate::hw::icon_data::ICON_TRASH, crate::hw::icon_data::ICON_TRASH_W);
+                Image::new(&trash_raw, Point::new(start_x as i32 + card_w as i32 - 35, row_y + 9)).draw(&mut self.display).ok();
             } else {
                 RoundedRectangle::new(slot_rect, card_corner)
                     .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
@@ -2415,18 +2490,25 @@ pub fn draw_home_grid(&mut self) {
             }
         }
 
-        // Arrows always visible
+        // Arrows — teal when scrollable, dark when not
         let arrow_cy = start_y + (max_visible as i32 * (card_h + card_gap) - card_gap) / 2;
+        let left_color = if scroll > 0 { KASPA_TEAL } else { teal_dark };
+        let right_color = if (scroll + max_visible) < n { KASPA_TEAL } else { teal_dark };
         Triangle::new(
             Point::new(5, arrow_cy), Point::new(30, arrow_cy - 17), Point::new(30, arrow_cy + 17),
-        ).into_styled(PrimitiveStyle::with_fill(teal_dark))
+        ).into_styled(PrimitiveStyle::with_fill(left_color))
             .draw(&mut self.display).ok();
         Triangle::new(
             Point::new(315, arrow_cy), Point::new(290, arrow_cy - 17), Point::new(290, arrow_cy + 17),
-        ).into_styled(PrimitiveStyle::with_fill(teal_dark))
+        ).into_styled(PrimitiveStyle::with_fill(right_color))
             .draw(&mut self.display).ok();
 
         self.draw_back_button();
+    }
+
+    pub fn draw_sd_file_list(&mut self, files: &[[u8; 11]], count: u8, scroll: u8) {
+        let empty_fps = [[0u8; 4]; 4];
+        self.draw_sd_file_list_ex(files, count, scroll, &empty_fps, 0);
     }
 
     /// Draw display settings screen (brightness control)
@@ -2484,7 +2566,7 @@ pub fn draw_home_grid(&mut self) {
             .draw(&mut self.display).ok();
 
         // Bar fill
-        let bar_w = ((brightness as u32) * 180 / 255) as u32;
+        let bar_w = (brightness as u32) * 180 / 255;
         if bar_w > 0 {
             Rectangle::new(Point::new(70, 85), Size::new(bar_w, 20))
                 .into_styled(PrimitiveStyle::with_fill(KASPA_ACCENT))
@@ -2546,7 +2628,7 @@ pub fn draw_home_grid(&mut self) {
             .draw(&mut self.display).ok();
 
         // Bar fill
-        let bar_w = ((volume as u32) * 180 / 255) as u32;
+        let bar_w = (volume as u32) * 180 / 255;
         if bar_w > 0 {
             Rectangle::new(Point::new(70, 85), Size::new(bar_w, 20))
                 .into_styled(PrimitiveStyle::with_fill(KASPA_ACCENT))
@@ -2667,7 +2749,6 @@ pub fn draw_home_grid(&mut self) {
                 &area,
                 (0..dw).map(move |vx| {
                     let abs_x = vf_x + vx as i32;
-                    // Full-frame border (2px on all edges)
                     let on_left = abs_x < vf_x + border_w;
                     let on_right = abs_x >= vf_x + vf_w as i32 - border_w;
                     if on_top_border || on_bot_border || on_left || on_right {
@@ -3228,38 +3309,40 @@ pub fn draw_home_grid(&mut self) {
         let mut info: heapless::String<24> = heapless::String::new();
         core::fmt::Write::write_fmt(&mut info, format_args!("{} multisig", label)).ok();
         let iw = measure_body(info.as_str());
-        draw_lato_body(&mut self.display, &info, (320 - iw) / 2, 50, KASPA_ACCENT);
+        draw_lato_body(&mut self.display, &info, (320 - iw) / 2, 55, KASPA_ACCENT);
 
-        // Show each pubkey truncated: "1: abcd1234...ef567890"
+        // Show each pubkey truncated — using title font (bold, readable)
         let hex_chars = b"0123456789abcdef";
-        let mut y_pos: i32 = 68;
+        let mut y_pos: i32 = 79;
         for i in 0..n.min(5) as usize {
             let pk = &pubkeys[i];
-            let mut line: heapless::String<48> = heapless::String::new();
+            let mut line: heapless::String<28> = heapless::String::new();
             core::fmt::Write::write_fmt(&mut line, format_args!("{}: ", i + 1)).ok();
-            // First 6 bytes hex
-            for j in 0..6 {
+            // First 3 bytes hex
+            for j in 0..3 {
                 line.push(hex_chars[(pk[j] >> 4) as usize] as char).ok();
                 line.push(hex_chars[(pk[j] & 0x0f) as usize] as char).ok();
             }
             line.push_str("..").ok();
-            // Last 4 bytes hex
-            for j in 28..32 {
+            // Last 3 bytes hex
+            for j in 29..32 {
                 line.push(hex_chars[(pk[j] >> 4) as usize] as char).ok();
                 line.push(hex_chars[(pk[j] & 0x0f) as usize] as char).ok();
             }
             let color = if i == 0 { KASPA_ACCENT } else { COLOR_TEXT };
-            draw_lato_hint(&mut self.display, &line, 20, y_pos, color);
-            y_pos += 28;
+            draw_lato_title(&mut self.display, &line, 30, y_pos, color);
+            y_pos += 22;
         }
 
-        // Format hint
-        let fmt = "multi(M, pk1, ..., pkN)";
-        let fw = measure_hint(fmt);
-        draw_lato_hint(&mut self.display, fmt, (320 - fw) / 2, 210, COLOR_TEXT_DIM);
+        // === SD CARD button (centered, teal fill, black text) — y=195..225 ===
+        let btn_corner = CornerRadii::new(Size::new(8, 8));
+        let sd_rect = Rectangle::new(Point::new(80, 195), Size::new(160, 30));
+        RoundedRectangle::new(sd_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let sw = measure_title("SD CARD");
+        draw_lato_title(&mut self.display, "SD CARD", 80 + (160 - sw) / 2, 217, COLOR_BG);
 
-        let hw = measure_hint("Tap for QR");
-        draw_lato_hint(&mut self.display, "Tap for QR", (320 - hw) / 2, 232, COLOR_HINT);
         self.draw_back_button();
     }
     /// Draw steganography JPEG file picker
@@ -3340,7 +3423,7 @@ pub fn draw_home_grid(&mut self) {
 
         // Page dots
         if count > max_visible {
-            let total_pages = ((count + max_visible - 1) / max_visible) as u8;
+            let total_pages = (count + max_visible - 1) / max_visible;
             let current_page = scroll / max_visible;
             let dot_d: i32 = 7;
             let dot_gap: i32 = 8;
@@ -3805,6 +3888,54 @@ pub fn draw_home_grid(&mut self) {
         let hw = measure_hint("Tap to continue");
         draw_lato_hint(&mut self.display, "Tap to continue", (320 - hw) / 2, 218, COLOR_HINT);
     }
+
+    /// Draw SD backup delete confirmation screen.
+    /// Mirrors the seed delete confirmation layout: CANCEL left, DELETE right.
+    pub fn draw_sd_delete_confirm(&mut self, filename: &[u8; 11]) {
+        self.display.clear(COLOR_BG).ok();
+
+        // Header
+        let tw = measure_header("DELETE BACKUP?");
+        draw_oswald_header(&mut self.display, "DELETE BACKUP?", (320 - tw) / 2, 30, COLOR_ORANGE);
+        Line::new(Point::new(20, 40), Point::new(300, 40))
+            .into_styled(PrimitiveStyle::with_stroke(COLOR_RED_BTN, 1))
+            .draw(&mut self.display).ok();
+
+        // Filename
+        let mut disp = [0u8; 13];
+        let dlen = crate::hw::sd_backup::format_83_display(filename, &mut disp);
+        if let Ok(name_str) = core::str::from_utf8(&disp[..dlen]) {
+            let nw = measure_body(name_str);
+            draw_lato_body(&mut self.display, name_str, (320 - nw) / 2, 65, COLOR_TEXT);
+        }
+
+        // Warning lines — centered
+        let w1 = measure_body("This action is irreversible.");
+        draw_lato_body(&mut self.display, "This action is irreversible.", (320 - w1) / 2, 95, COLOR_ORANGE);
+        let w2 = measure_body("The backup file will be");
+        draw_lato_body(&mut self.display, "The backup file will be", (320 - w2) / 2, 120, COLOR_TEXT);
+        let w3 = measure_body("permanently deleted from SD.");
+        draw_lato_body(&mut self.display, "permanently deleted from SD.", (320 - w3) / 2, 145, COLOR_TEXT);
+
+        // CANCEL button (left, teal outline) — y=185..225
+        let btn_corner = CornerRadii::new(Size::new(8, 8));
+        let cancel_rect = Rectangle::new(Point::new(30, 185), Size::new(120, 40));
+        RoundedRectangle::new(cancel_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 2))
+            .draw(&mut self.display).ok();
+        let cw = measure_title("CANCEL");
+        draw_lato_title(&mut self.display, "CANCEL", 30 + (120 - cw) / 2, 212, KASPA_TEAL);
+
+        // DELETE button (right, red fill) — y=185..225
+        let del_rect = Rectangle::new(Point::new(170, 185), Size::new(120, 40));
+        RoundedRectangle::new(del_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(COLOR_RED_BTN))
+            .draw(&mut self.display).ok();
+        let dw = measure_title("DELETE");
+        draw_lato_title(&mut self.display, "DELETE", 170 + (120 - dw) / 2, 212, COLOR_TEXT);
+
+        self.draw_back_button();
+    }
 }
 
 /// Guide box at (gx, gy) with size (gw, gh), corner arm length gc, thickness gt.
@@ -3971,7 +4102,7 @@ impl<'a> crate::hw::display::BootDisplay<'a> {
         }
         let thumb_x = track_x0 + (active_val as i32 * (track_x1 - track_x0 - 12)) / 255;
         RoundedRectangle::new(
-            Rectangle::new(Point::new(thumb_x, track_y - 4), Size::new(12, track_h as u32 + 8)),
+            Rectangle::new(Point::new(thumb_x, track_y - 4), Size::new(12, track_h + 8)),
             CornerRadii::new(Size::new(6, 6))
         ).into_styled(PrimitiveStyle::with_fill(KASPA_TEAL)).draw(&mut self.display).ok();
 
@@ -3986,3 +4117,26 @@ impl<'a> crate::hw::display::BootDisplay<'a> {
     }
 }
 
+
+/// Extract the 2-byte fingerprint prefix from an SD backup filename.
+/// Filenames are "SDxxxx" or "XPxxxx" where xxxx = 4 hex chars.
+/// Returns Some([hi, lo]) or None if format doesn't match.
+fn extract_fingerprint_from_filename(name: &[u8; 11]) -> Option<[u8; 2]> {
+    fn hex_val(c: u8) -> Option<u8> {
+        match c {
+            b'0'..=b'9' => Some(c - b'0'),
+            b'A'..=b'F' => Some(c - b'A' + 10),
+            b'a'..=b'f' => Some(c - b'a' + 10),
+            _ => None,
+        }
+    }
+    // Must start with "SD" or "XP"
+    if !((name[0] == b'S' && name[1] == b'D') || (name[0] == b'X' && name[1] == b'P')) {
+        return None;
+    }
+    let h0 = hex_val(name[2])?;
+    let l0 = hex_val(name[3])?;
+    let h1 = hex_val(name[4])?;
+    let l1 = hex_val(name[5])?;
+    Some([(h0 << 4) | l0, (h1 << 4) | l1])
+}

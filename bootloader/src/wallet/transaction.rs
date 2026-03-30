@@ -26,7 +26,6 @@
 // A typical Kaspa transaction has 1-5 inputs and 1-2 outputs.
 // We support up to MAX_INPUTS=8 and MAX_OUTPUTS=4 (enough for a hardware wallet).
 
-#![allow(dead_code)]
 /// Maximum supported inputs
 pub const MAX_INPUTS: usize = 8;
 
@@ -204,7 +203,7 @@ pub fn detect_script_type(script: &[u8], len: usize) -> ScriptType {
     if len >= 37 && script[len - 1] == OP_CHECKMULTISIG {
         let n_byte = script[len - 2];
         let m_byte = script[0];
-        if m_byte >= OP_1 && m_byte <= OP_5 && n_byte >= OP_1 && n_byte <= OP_5 {
+        if (OP_1..=OP_5).contains(&m_byte) && (OP_1..=OP_5).contains(&n_byte) {
             let m = (m_byte - OP_1 + 1) as usize;
             let n = (n_byte - OP_1 + 1) as usize;
             if m <= n && n <= MAX_MULTISIG_KEYS {

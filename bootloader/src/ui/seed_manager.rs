@@ -33,7 +33,6 @@
 // Fingerprint: SHA256(entropy)[0..4] displayed as hex (e.g. "a3f8e2b1")
 
 
-#![allow(dead_code)]
 use sha2::{Sha256, Digest};
 
 /// Maximum seed slots in RAM
@@ -350,7 +349,7 @@ pub fn decode_seedqr(data: &[u8], indices: &mut [u16; 24]) -> u8 {
     };
 
     // Verify all are ASCII digits
-    if !data.iter().all(|&b| b >= b'0' && b <= b'9') {
+    if !data.iter().all(|&b| b.is_ascii_digit()) {
         return 0;
     }
 

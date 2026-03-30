@@ -19,7 +19,6 @@
 // No speaker hardware on this board. All functions are no-ops
 // to maintain API compatibility with handlers and UI code.
 
-#![allow(dead_code)]
 use esp_hal::delay::Delay;
 
 pub fn set_volume(_vol: u8) {}

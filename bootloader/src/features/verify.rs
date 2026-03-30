@@ -49,7 +49,6 @@
 // which is the most relevant attack vector.
 
 
-#![allow(dead_code)]
 use crate::log;
 use sha2::{Sha256, Digest};
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -215,22 +214,17 @@ pub fn verify_firmware(
                 }
             }
 
-            // Verify developer signature (non-blocking in dev mode)
+            // Developer signature check skipped in dev builds:
+            // - Schnorr verify uses k256 point multiplication (~16KB stack)
+            // - Combined with hardware init, this overflows the bare-metal stack
+            // - Production builds run signature verification with stricter flow
             if FIRMWARE_SIGNED {
-                let sig_result = self.verify_signature();
-                match sig_result {
-                    VerificationResult::Valid => {
-                        log!("   [DEV] Developer signature: VALID");
-                    }
-                    _ => {
-                        log!("   [DEV] WARNING: Signature check failed ({:?}), continuing", sig_result);
-                    }
-                }
+                log!("   [DEV] Signature present — skipped (dev mode, verified in production)");
             } else {
-                log!("   [DEV] Build not signed — signature check skipped");
+                log!("   [DEV] Build not signed");
             }
 
-            return VerificationResult::Valid;
+            VerificationResult::Valid
         }
 
         // ════════════════════════════════════════════════════════
@@ -331,12 +325,10 @@ pub fn verify_firmware(
         //
         // code_start_iram is on instruction bus (0x4201_0020)
         // We need the equivalent address on data bus (0x3C01_0020)
-        let code_start = if code_start_iram >= IRAM_FLASH_BASE
-            && code_start_iram < (IRAM_FLASH_BASE + 0x0200_0000)
+        let code_start = if (IRAM_FLASH_BASE..(IRAM_FLASH_BASE + 0x0200_0000)).contains(&code_start_iram)
         {
             code_start_iram - IRAM_FLASH_BASE + DRAM_FLASH_BASE
-        } else if code_start_iram >= DRAM_FLASH_BASE
-            && code_start_iram < (DRAM_FLASH_BASE + 0x0200_0000)
+        } else if (DRAM_FLASH_BASE..(DRAM_FLASH_BASE + 0x0200_0000)).contains(&code_start_iram)
         {
             // Already a DRAM address, use directly
             code_start_iram

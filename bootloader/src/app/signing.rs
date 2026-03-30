@@ -25,8 +25,6 @@
 //
 // All key material is zeroized after use. PBKDF2 takes ~5s on ESP32-S3 at 240MHz.
 
-#![allow(dead_code)]
-#![allow(unused_imports)]
 use crate::log;
 use crate::{wallet, ui::seed_manager, hw::display, app::data::AppData};
 use crate::features::verify::{FirmwareInfo, VerificationResult, FIRMWARE_START_ADDR, FIRMWARE_MAX_SIZE};
@@ -142,15 +140,9 @@ pub fn sign_and_serialize(
     privkey: &[u8; 32],
     buf: &mut [u8; 1024],
 ) -> usize {
-    match wallet::pskt::sign_transaction_in_place(tx, privkey, wallet::transaction::SigHashType::All) {
-        Ok(_n_signed) => {
-            match wallet::pskt::serialize_signed_pskt(tx, buf) {
-                Ok(len) => len,
-                Err(_) => 0,
-            }
-        }
-        Err(_) => 0,
-    }
+    wallet::pskt::sign_transaction_in_place(tx, privkey, wallet::transaction::SigHashType::All)
+        .and_then(|_| wallet::pskt::serialize_signed_pskt(tx, buf))
+        .unwrap_or(0)
 }
 
 /// Sign a transaction with multi-address support: each input is matched
@@ -161,15 +153,9 @@ pub fn sign_and_serialize_multi(
     seed: &[u8; 64],
     buf: &mut [u8; 1024],
 ) -> usize {
-    match wallet::pskt::sign_transaction_multi_addr(tx, seed, wallet::transaction::SigHashType::All) {
-        Ok(_n_signed) => {
-            match wallet::pskt::serialize_signed_pskt(tx, buf) {
-                Ok(len) => len,
-                Err(_) => 0,
-            }
-        }
-        Err(_) => 0,
-    }
+    wallet::pskt::sign_transaction_multi_addr(tx, seed, wallet::transaction::SigHashType::All)
+        .and_then(|_| wallet::pskt::serialize_signed_pskt(tx, buf))
+        .unwrap_or(0)
 }
 
 /// Sign a transaction with multisig support: tries all loaded seed slots,
@@ -205,9 +191,10 @@ pub fn sign_and_serialize_multisig(
         seed_idx += 1;
     }
 
-    match wallet::pskt::sign_transaction_multisig(
+    let signed = wallet::pskt::sign_transaction_multisig(
         tx, &seeds, wallet::transaction::SigHashType::All,
-    ) {
+    );
+    match signed {
         Ok(_new_sigs) => {
             // Use v2 serialization if any input is multisig, else v1 for compat
             let has_multisig = (0..tx.num_inputs).any(|i| {
@@ -215,15 +202,9 @@ pub fn sign_and_serialize_multisig(
                 st == wallet::transaction::ScriptType::Multisig
             });
             if has_multisig {
-                match wallet::pskt::serialize_signed_pskt_v2(tx, buf) {
-                    Ok(len) => len,
-                    Err(_) => 0,
-                }
+                wallet::pskt::serialize_signed_pskt_v2(tx, buf).unwrap_or(0)
             } else {
-                match wallet::pskt::serialize_signed_pskt(tx, buf) {
-                    Ok(len) => len,
-                    Err(_) => 0,
-                }
+                wallet::pskt::serialize_signed_pskt(tx, buf).unwrap_or(0)
             }
         }
         Err(_) => 0,
@@ -342,6 +323,29 @@ pub fn handle_signing_step(
                 ad.app.state = crate::app::input::AppState::Rejected;
                 ad.needs_redraw = true;
             } else {
+                // Pre-check: will the signed TX fit in the 1024-byte output buffer?
+                // Header=48, per input=156, per output=45
+                let estimated_size = 48
+                    + (ad.demo_tx.num_inputs * 156)
+                    + (ad.demo_tx.num_outputs * 45);
+                if estimated_size > 1024 {
+                    log!("   ✗ TX too large: {} inputs × 156 + {} outputs × 45 = ~{} bytes (max 1024)",
+                        ad.demo_tx.num_inputs, ad.demo_tx.num_outputs, estimated_size);
+                    boot_display.draw_rejected_screen("Too many inputs!");
+                    // Show detail on second line
+                    {
+                        use crate::hw::display::*;
+                        let mut msg: heapless::String<48> = heapless::String::new();
+                        let _ = core::fmt::Write::write_fmt(&mut msg,
+                            format_args!("{} inputs — max 5. Compound first.", ad.demo_tx.num_inputs));
+                        let mw = measure_body(msg.as_str());
+                        draw_lato_body(&mut boot_display.display, msg.as_str(), (320 - mw) / 2, 155, COLOR_TEXT_DIM);
+                    }
+                    ad.app.state = crate::app::input::AppState::Rejected;
+                    ad.needs_redraw = true;
+                    return;
+                }
+
                 // Ensure pubkeys are cached (for display after signing)
                 if !ad.pubkeys_cached {
                     boot_display.draw_saving_screen("Deriving addresses...");
@@ -390,6 +394,31 @@ pub fn handle_signing_step(
                         }
                     }
                     log!("   Signed response: {} bytes", ad.signed_qr_len);
+                    // Hex dump for companion app testing — single line for easy copy
+                    if ad.signed_qr_len > 0 {
+                        let buf = &ad.signed_qr_buf[..ad.signed_qr_len];
+                        let hex_needed = buf.len() * 2;
+                        let mut hex_buf = [0u8; 2100]; // signed_qr_buf max is 1024 = 2048 hex
+                        if hex_needed > hex_buf.len() {
+                            log!("   WARNING: Signed TX is {} bytes — serial hex output skipped.", buf.len());
+                            log!("   Tip: reduce the number of UTXOs (inputs) by compounding first.");
+                            log!("   The signed QR on screen still works — scan it with the companion.");
+                        } else {
+                            let mut pos = 0usize;
+                            for &b in buf.iter() {
+                                let hi = b >> 4;
+                                let lo = b & 0x0F;
+                                hex_buf[pos] = if hi < 10 { b'0' + hi } else { b'a' + hi - 10 };
+                                hex_buf[pos + 1] = if lo < 10 { b'0' + lo } else { b'a' + lo - 10 };
+                                pos += 2;
+                            }
+                            if let Ok(s) = core::str::from_utf8(&hex_buf[..pos]) {
+                                log!("   KSSN_HEX_START");
+                                log!("{}", s);
+                                log!("   KSSN_HEX_END");
+                            }
+                        }
+                    }
                 }
 
                 ad.app.advance_signing();

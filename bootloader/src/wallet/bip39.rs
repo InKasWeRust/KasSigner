@@ -28,7 +28,6 @@
 //   - Compatible with official BIP39 test vectors
 
 
-#![allow(dead_code)]
 use sha2::{Sha256, Digest};
 use super::bip39_wordlist::WORDLIST;
 use super::hmac::{hmac_sha512, zeroize_buf};
@@ -192,7 +191,7 @@ pub fn index_to_word(index: u16) -> &'static str {
 pub fn seed_from_mnemonic_12(mnemonic: &Mnemonic12, passphrase: &str) -> Seed {
     // Build the mnemonic phrase as a string (in a stack buffer)
     // 24 words * max 8 chars + 23 spaces = ~215 bytes max for 24 words
-    // Para 12 palabras: ~107 bytes max
+    // For 12 words: ~107 bytes max
     let mut phrase_buf = [0u8; 256];
     let phrase_len = serialize_mnemonic_12(&mnemonic.indices, &mut phrase_buf);
 

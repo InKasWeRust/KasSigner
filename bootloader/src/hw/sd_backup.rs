@@ -357,6 +357,16 @@ pub fn decrypt_xprv_backup(
     passphrase: &[u8],
     out_xprv: &mut [u8; MAX_XPRV_DATA],
 ) -> Result<usize, BackupError> {
+    decrypt_xprv_backup_progress(file_data, passphrase, out_xprv, &mut |_, _| {})
+}
+
+/// Decrypt xprv backup with progress callback for PBKDF2.
+pub fn decrypt_xprv_backup_progress(
+    file_data: &[u8],
+    passphrase: &[u8],
+    out_xprv: &mut [u8; MAX_XPRV_DATA],
+    progress: &mut dyn FnMut(u32, u32),
+) -> Result<usize, BackupError> {
     if file_data.len() < 4 + 1 + NONCE_SIZE + 1 + TAG_SIZE {
         return Err(BackupError::FileTooSmall);
     }
@@ -380,7 +390,7 @@ pub fn decrypt_xprv_backup(
     let ciphertext = &file_data[ct_start..ct_start + data_len];
     let tag_bytes = &file_data[ct_start + data_len..ct_start + data_len + TAG_SIZE];
 
-    let mut aes_key = pbkdf2_derive_key(passphrase, SD_SALT, PBKDF2_ITERATIONS);
+    let mut aes_key = pbkdf2_derive_key_progress(passphrase, SD_SALT, PBKDF2_ITERATIONS, progress);
     let cipher = Aes256Gcm::new(GenericArray::from_slice(&aes_key));
     let nonce = GenericArray::from_slice(nonce_bytes);
     let tag = GenericArray::from_slice(tag_bytes);

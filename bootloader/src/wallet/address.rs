@@ -25,7 +25,6 @@
 //   0x01 = P2PK-ECDSA — 33-byte compressed pubkey
 //   0x08 = P2SH (Pay to Script Hash) — 32-byte script hash
 
-#![allow(dead_code)]
 /// Bech32 character set
 const CHARSET: &[u8; 32] = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 

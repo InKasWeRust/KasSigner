@@ -19,7 +19,6 @@
 // LEDC Timer1/Channel1 on GPIO1, configured by esp-hal in main.rs.
 // set_brightness() updates duty via direct register writes.
 
-#![allow(dead_code)]
 use esp_hal::i2c::master::I2c;
 
 const LEDC_BASE: u32 = 0x6001_9000;

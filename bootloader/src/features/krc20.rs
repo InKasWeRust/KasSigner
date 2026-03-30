@@ -39,7 +39,6 @@
 // For KasSigner TX review: we extract op, tick, and amt from the JSON
 // to show the user what KRC-20 operation is being signed.
 
-#![allow(dead_code)]
 /// Maximum ticker length (KRC-20 allows 4-6 chars)
 pub const MAX_TICKER: usize = 8;
 
@@ -108,8 +107,9 @@ fn find_json_string(data: &[u8], len: usize, key: &[u8]) -> Option<(usize, usize
     let key_pattern_len = key.len() + 2; // "key"
     let mut i = 0;
     while i + key_pattern_len < len {
-        if data[i] == b'"' && data[i + 1 + key.len()] == b'"' {
-            if &data[i + 1..i + 1 + key.len()] == key {
+        if data[i] == b'"' && data[i + 1 + key.len()] == b'"'
+            && &data[i + 1..i + 1 + key.len()] == key
+        {
                 // Found key — now find the colon and value
                 let mut j = i + key_pattern_len;
                 // Skip whitespace and colon
@@ -123,7 +123,6 @@ fn find_json_string(data: &[u8], len: usize, key: &[u8]) -> Option<(usize, usize
                         return Some((val_start, val_end));
                     }
                 }
-            }
         }
         i += 1;
     }
@@ -143,29 +142,23 @@ pub fn detect_krc20(tx: &crate::wallet::transaction::Transaction) -> Krc20Info {
     let mut info = Krc20Info::empty();
 
     // Check transaction payload
-    if tx.payload_len > 0 {
-        if try_parse_krc20(&tx.payload[..tx.payload_len], &mut info) {
-            return info;
-        }
+    if tx.payload_len > 0 && try_parse_krc20(&tx.payload[..tx.payload_len], &mut info) {
+        return info;
     }
 
     // Check input scripts (reveal transaction carries data in script)
     for i in 0..tx.num_inputs {
         let script = &tx.inputs[i].utxo_entry.script_public_key;
-        if script.script_len > 10 {
-            if try_parse_krc20(&script.script[..script.script_len], &mut info) {
-                return info;
-            }
+        if script.script_len > 10 && try_parse_krc20(&script.script[..script.script_len], &mut info) {
+            return info;
         }
     }
 
     // Check output scripts
     for i in 0..tx.num_outputs {
         let script = &tx.outputs[i].script_public_key;
-        if script.script_len > 10 {
-            if try_parse_krc20(&script.script[..script.script_len], &mut info) {
-                return info;
-            }
+        if script.script_len > 10 && try_parse_krc20(&script.script[..script.script_len], &mut info) {
+            return info;
         }
     }
 

@@ -78,7 +78,6 @@
 // Typical total: 72 bytes for 1 input (fits easily in 1 QR)
 
 
-#![allow(dead_code)]
 use super::transaction::*;
 
 /// Magic bytes for unsigned PSKT
@@ -121,7 +120,7 @@ pub enum PsktError {
     NoOutputs,
 }
 
-// ─── Reader helper (cursor sobre slice, no-alloc) ─────────────────
+// ─── Reader helper (cursor over slice, no-alloc) ─────────────────
 
 struct ByteReader<'a> {
     data: &'a [u8],
@@ -192,7 +191,7 @@ impl<'a> ByteReader<'a> {
     }
 }
 
-// ─── Writer helper (cursor sobre buffer mutable, no-alloc) ────────
+// ─── Writer helper (cursor over mutable buffer, no-alloc) ────────
 
 struct ByteWriter<'a> {
     buf: &'a mut [u8],
@@ -628,10 +627,15 @@ pub fn sign_transaction_multi_addr(
         let mut target_pk = [0u8; 32];
         target_pk.copy_from_slice(&script.script[1..33]);
 
-        // Find which address index this pubkey belongs to
-        if let Some(idx) = bip32::find_address_index_for_pubkey(&account_key, &target_pk) {
-            // Derive the privkey for this index
-            if let Ok(addr_key) = bip32::derive_address_key(&account_key, idx) {
+        // Find which address index this pubkey belongs to (receive or change)
+        if let Some((idx, is_change)) = bip32::find_address_index_for_pubkey(&account_key, &target_pk) {
+            // Derive the privkey for this index on the correct chain
+            let key_result = if is_change {
+                bip32::derive_change_key(&account_key, idx)
+            } else {
+                bip32::derive_address_key(&account_key, idx)
+            };
+            if let Ok(addr_key) = key_result {
                 let privkey = addr_key.private_key_bytes();
                 let sig = sighash::sign_input(tx, i, privkey, sighash_type)
                     .map_err(|_| PsktError::NoInputs)?;
@@ -712,8 +716,13 @@ pub fn sign_transaction_multisig(
 
                 for s in 0..num_seeds {
                     if let Some(ref acct) = acct_keys[s] {
-                        if let Some(idx) = bip32::find_address_index_for_pubkey(acct, &target_pk) {
-                            if let Ok(addr_key) = bip32::derive_address_key(acct, idx) {
+                        if let Some((idx, is_chg)) = bip32::find_address_index_for_pubkey(acct, &target_pk) {
+                            let key_result = if is_chg {
+                                bip32::derive_change_key(acct, idx)
+                            } else {
+                                bip32::derive_address_key(acct, idx)
+                            };
+                            if let Ok(addr_key) = key_result {
                                 let privkey = addr_key.private_key_bytes();
                                 if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
                                     tx.inputs[i].signature = sig.bytes;
@@ -745,8 +754,13 @@ pub fn sign_transaction_multisig(
 
                         for s in 0..num_seeds {
                             if let Some(ref acct) = acct_keys[s] {
-                                if let Some(idx) = bip32::find_address_index_for_pubkey(acct, target_pk) {
-                                    if let Ok(addr_key) = bip32::derive_address_key(acct, idx) {
+                                if let Some((idx, is_chg)) = bip32::find_address_index_for_pubkey(acct, target_pk) {
+                                    let key_result = if is_chg {
+                                        bip32::derive_change_key(acct, idx)
+                                    } else {
+                                        bip32::derive_address_key(acct, idx)
+                                    };
+                                    if let Ok(addr_key) = key_result {
                                         let privkey = addr_key.private_key_bytes();
                                         if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
                                             let sc = tx.inputs[i].sig_count as usize;
@@ -1010,7 +1024,7 @@ pub fn test_serialize_parse_roundtrip() -> bool {
     tx.outputs[1].script_public_key.script[33] = 0xAC;
     tx.outputs[1].script_public_key.script_len = 34;
 
-    // Serializar
+    // Serialize
     let mut buf = [0u8; 512];
     let size = match serialize_pskt(&tx, &mut buf) {
         Ok(s) => s,
@@ -1023,7 +1037,7 @@ pub fn test_serialize_parse_roundtrip() -> bool {
         return false;
     }
 
-    // Verificar campos
+    // Verify fields
     tx2.version == tx.version
         && tx2.num_inputs == tx.num_inputs
         && tx2.num_outputs == tx.num_outputs
@@ -1051,7 +1065,7 @@ pub fn test_full_sign_flow() -> bool {
     use super::schnorr;
     use super::sighash;
 
-    // 1. Generar wallet
+    // 1. Generate wallet
     let entropy = [0x42u8; 16];
     let mnemonic = bip39::mnemonic_from_entropy_12(&entropy);
     let seed = bip39::seed_from_mnemonic_12(&mnemonic, "");
@@ -1095,7 +1109,7 @@ pub fn test_full_sign_flow() -> bool {
     tx.outputs[1].script_public_key.script[33] = 0xAC;
     tx.outputs[1].script_public_key.script_len = 34;
 
-    // 3. Serializar → parsear (simula QR roundtrip)
+    // 3. Serialize → parse (simulates QR roundtrip)
     let mut pskt_buf = [0u8; 512];
     let pskt_size = match serialize_pskt(&tx, &mut pskt_buf) {
         Ok(s) => s,
@@ -1133,7 +1147,7 @@ pub fn test_full_sign_flow() -> bool {
         return false;
     }
 
-    // 6. Verificar firma con Schnorr
+    // 6. Verify signature with Schnorr
     let sighash_val = sighash::calculate_sighash(&parsed_tx, 0, SigHashType::All);
     let sig = super::schnorr::SchnorrSignature { bytes: parsed_resp.signatures[0].signature };
     schnorr::schnorr_verify(&pubkey_x, &sighash_val, &sig).is_ok()

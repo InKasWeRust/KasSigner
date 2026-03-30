@@ -17,7 +17,6 @@
 // qr/mod.rs — QR code module (encoder + platform-gated decoder)
 // qr/ — QR code encoding and decoding
 
-#![allow(unused_imports)]
 pub mod encoder;
 
 #[cfg(feature = "waveshare")]

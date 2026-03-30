@@ -39,8 +39,6 @@
 //   - The counter uses a mutable global variable (required in no-std
 //     without allocator). Access serialized with compiler_fence.
 
-#![allow(dead_code)]
-#![allow(static_mut_refs)]
 use core::sync::atomic::{compiler_fence, Ordering};
 
 // Contador de etapas (variable global mutable)

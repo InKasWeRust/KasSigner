@@ -17,8 +17,6 @@
 // ui/mod.rs — User interface module (screens, fonts, keyboard, helpers)
 // ui/ — UI logic, screen redraw, fonts, and input wizards
 
-#![allow(dead_code)]
-#![allow(unused_imports)]
 pub mod redraw;
 pub mod helpers;
 pub mod keyboard;

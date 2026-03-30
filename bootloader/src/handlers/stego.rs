@@ -20,17 +20,14 @@
 // Returns true if a redraw is needed.
 
 
-#![allow(unused_imports)]
 use crate::log;
 use crate::{app::data::AppData, hw::display, hw::sd_backup, hw::sdcard, hw::sound, ui::seed_manager, features::stego, hw::touch, wallet};
 use crate::ui::helpers::pp_keyboard_hit;
 
 #[cfg(not(feature = "silent"))]
-
-/// Shared state for stego touch handlers.
-
 use crate::ui::helpers::validate_mnemonic;
 
+/// Shared state for stego touch handlers.
 /// Handle touch events for all steganography workflow screens.
 #[inline(never)]
 #[allow(unused_assignments)]
@@ -160,11 +157,11 @@ pub fn handle_stego_touch(
                     crate::app::input::AppState::StegoJpegDescChoice => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::StegoJpegPick;
-                        } else if x >= 40 && x < 280 && y >= 68 && y < 112 {
+                        } else if (40..280).contains(&x) && (68..112).contains(&y) {
                             // Type manually (row 0 at y=70)
                             ad.pp_input.reset();
                             ad.app.state = crate::app::input::AppState::StegoJpegDesc;
-                        } else if x >= 40 && x < 280 && y >= 114 && y < 158 {
+                        } else if (40..280).contains(&x) && (114..158).contains(&y) {
                             // Load from SD — scan for .TXT files with LFN
                             boot_display.draw_loading_screen("Scanning TXT...");
                             boot_display.update_progress_bar(50);
@@ -279,13 +276,13 @@ pub fn handle_stego_touch(
                     crate::app::input::AppState::StegoJpegDescPreview => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::StegoJpegDescChoice;
-                        } else if y >= 185 && y <= 225 {
-                            if x >= 170 && x <= 300 {
+                        } else if (185..=225).contains(&y) {
+                            if (170..=300).contains(&x) {
                                 // USE — proceed to hint
                                 ad.stego_pp_len = 0;
                                 ad.stego_pp_enc_len = 0;
                                 ad.app.state = crate::app::input::AppState::StegoJpegPpAsk;
-                            } else if x >= 20 && x <= 150 {
+                            } else if (20..=150).contains(&x) {
                                 // EDIT — go back to choice
                                 ad.app.state = crate::app::input::AppState::StegoJpegDescChoice;
                             }
@@ -295,13 +292,13 @@ pub fn handle_stego_touch(
                     crate::app::input::AppState::StegoJpegPpAsk => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::StegoJpegDescPreview;
-                        } else if y >= 175 && y <= 215 {
-                            if x >= 20 && x <= 150 {
+                        } else if (175..=215).contains(&y) {
+                            if (20..=150).contains(&x) {
                                 // NO — skip passphrase, go to confirm
                                 ad.stego_pp_len = 0;
                                 ad.stego_pp_enc_len = 0;
                                 ad.app.state = crate::app::input::AppState::StegoJpegConfirm;
-                            } else if x >= 170 && x <= 300 {
+                            } else if (170..=300).contains(&x) {
                                 // YES — show info screen
                                 ad.app.state = crate::app::input::AppState::StegoJpegPpInfo;
                             }
@@ -315,7 +312,7 @@ pub fn handle_stego_touch(
                             // 4 rows starting at y=68, each 36px step, 30px tall
                             for row in 0..4u8 {
                                 let ry = 68 + row as u16 * 36;
-                                if y >= ry && y < ry + 30 && x >= 15 && x <= 305 {
+                                if y >= ry && y < ry + 30 && (15..=305).contains(&x) {
                                     (ad.hint_selected) = row;
                                     if row == 3 {
                                         // Custom → go to keyboard
@@ -432,13 +429,13 @@ pub fn handle_stego_touch(
                         if is_back {
                             ad.app.state = crate::app::input::AppState::StegoJpegPpAsk;
                             needs_redraw = true;
-                        } else if y >= 182 && y <= 225 {
+                        } else if (182..=225).contains(&y) {
                             // Bottom area = confirm buttons
-                            if x >= 20 && x <= 150 {
+                            if (20..=150).contains(&x) {
                                 // CANCEL
                                 ad.app.state = crate::app::input::AppState::ExportChoice;
                                 needs_redraw = true;
-                            } else if x >= 170 && x <= 300 {
+                            } else if (170..=300).contains(&x) {
                                 // CONFIRM — do the actual JPEG EXIF write
                                 let active = ad.seed_mgr.active_slot();
                                 if !matches!(active, Some(s) if !s.is_empty()) {
@@ -594,11 +591,11 @@ pub fn handle_stego_touch(
                     crate::app::input::AppState::StegoImportDescChoice => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::StegoImportPick;
-                        } else if x >= 40 && x < 280 && y >= 68 && y < 112 {
+                        } else if (40..280).contains(&x) && (68..112).contains(&y) {
                             // Type manually
                             ad.pp_input.reset();
                             ad.app.state = crate::app::input::AppState::StegoImportPass;
-                        } else if x >= 40 && x < 280 && y >= 114 && y < 158 {
+                        } else if (40..280).contains(&x) && (114..158).contains(&y) {
                             // Load from SD — scan for .TXT files
                             boot_display.draw_loading_screen("Scanning TXT...");
                             boot_display.update_progress_bar(50);
@@ -827,7 +824,7 @@ pub fn handle_stego_touch(
 
                                     // Uniform failure: no EXIF, bad data, wrong password — all same error
                                     if !decrypt_ok {
-                                        boot_display.draw_rejected_screen("Wrong passphrase");
+                                        boot_display.draw_rejected_screen("Wrong password");
                                         sound::beep_error(delay);
                                         delay.delay_millis(2500);
                                         needs_redraw = true;

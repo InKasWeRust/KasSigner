@@ -21,8 +21,6 @@
 //   M5Stack (GC0308):   320 bytes/line Y-only → direct copy
 // Display uses center crop 240×180 from 320×240 frame.
 
-#![allow(unused_imports)]
-#![allow(static_mut_refs)]
 use crate::log;
 use crate::{app::data::AppData, hw::camera, hw::display, features::fw_update, features::stego, ui::seed_manager, hw::sound, hw::touch, wallet};
 use crate::ui::helpers::validate_mnemonic;
@@ -46,7 +44,7 @@ static mut QR_FINDERS_BEEPED: bool = false;
 static mut QR_ERROR_SHOWING: bool = false;
 static mut QR_GUIDE_VER: u8 = 0;
 static mut QR_VER_SAME_CNT: u8 = 0;
-static mut MF_BUF: [u8; 512] = [0u8; 512];
+static mut MF_BUF: [u8; 2048] = [0u8; 2048];
 static mut MF_RECEIVED: [bool; 8] = [false; 8];
 static mut MF_FRAG_SIZE: [u16; 8] = [0; 8];
 static mut MF_TOTAL: u8 = 0;
@@ -143,6 +141,45 @@ pub fn run_camera_cycle(
 
                 // One-time init
                 if *cam_status == camera::CameraStatus::SensorReady {
+                    // LCD persistence fix: wash screen with mid-gray then black
+                    // to discharge residual cell charge from previous screen content
+                    {
+                        use embedded_graphics::primitives::{Rectangle, PrimitiveStyle};
+                        use embedded_graphics::prelude::*;
+                        use embedded_graphics::pixelcolor::Rgb565;
+                        let gray = Rgb565::new(16, 32, 16); // mid-gray
+                        Rectangle::new(
+                            embedded_graphics::geometry::Point::new(0, 0),
+                            embedded_graphics::geometry::Size::new(320, 240),
+                        ).into_styled(PrimitiveStyle::with_fill(gray))
+                            .draw(&mut boot_display.display).ok();
+                        delay.delay_millis(80);
+                        Rectangle::new(
+                            embedded_graphics::geometry::Point::new(0, 0),
+                            embedded_graphics::geometry::Size::new(320, 240),
+                        ).into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
+                            .draw(&mut boot_display.display).ok();
+                        delay.delay_millis(30);
+                    }
+                    // Redraw chrome after wash
+                    #[cfg(feature = "waveshare")]
+                    boot_display.draw_camera_screen_chrome();
+                    #[cfg(feature = "m5stack")]
+                    {
+                        boot_display.draw_back_button();
+                        use embedded_graphics::prelude::*;
+                        use embedded_graphics::primitives::{Line, PrimitiveStyle};
+                        let tw = crate::hw::display::measure_header("SCAN QR");
+                        crate::hw::display::draw_oswald_header(
+                            &mut boot_display.display, "SCAN QR", (320 - tw) / 2, 30, crate::hw::display::COLOR_TEXT);
+                        Line::new(
+                            embedded_graphics::geometry::Point::new(20, 40),
+                            embedded_graphics::geometry::Point::new(300, 40))
+                            .into_styled(PrimitiveStyle::with_stroke(
+                                crate::hw::display::KASPA_TEAL, 1))
+                            .draw(&mut boot_display.display).ok();
+                    }
+
                     // Fix LCD_CLOCK.CLK_EN
                     let lcd_clk = core::ptr::read_volatile(0x6004_1000u32 as *const u32);
                     if lcd_clk & (1u32 << 31) == 0 {
@@ -187,7 +224,7 @@ pub fn run_camera_cycle(
                                     *dvp_camera_opt = Some(cam);
                                     return;
                                 }
-                                touch::TouchAction::Drag { x, y, .. } if ad.cam_tune_active && y >= 196 && x >= 56 && x <= 264 => {
+                                touch::TouchAction::Drag { x, y, .. } if ad.cam_tune_active && y >= 196 && (56..=264).contains(&x) => {
                                     let clamped = (x as i32 - 56).max(0).min(208) as u32;
                                     ad.cam_tune_vals[ad.cam_tune_param as usize] = ((clamped * 255) / 208) as u8;
                                     ad.cam_tune_dirty = true;
@@ -239,7 +276,7 @@ pub fn run_camera_cycle(
                                             ad.cam_tap_y = y;
                                             ad.cam_tap_ready = true;
                                         }
-                                        touch::TouchAction::Drag { x, y, .. } if ad.cam_tune_active && y >= 196 && x >= 56 && x <= 264 => {
+                                        touch::TouchAction::Drag { x, y, .. } if ad.cam_tune_active && y >= 196 && (56..=264).contains(&x) => {
                                             let clamped = (x as i32 - 56).max(0).min(208) as u32;
                                             ad.cam_tune_vals[ad.cam_tune_param as usize] = ((clamped * 255) / 208) as u8;
                                             ad.cam_tune_dirty = true;
@@ -383,7 +420,7 @@ pub fn run_camera_cycle(
                                             ad.cam_tap_y = y;
                                             ad.cam_tap_ready = true;
                                         }
-                                        touch::TouchAction::Drag { x, y, .. } if ad.cam_tune_active && y >= 196 && x >= 56 && x <= 264 => {
+                                        touch::TouchAction::Drag { x, y, .. } if ad.cam_tune_active && y >= 196 && (56..=264).contains(&x) => {
                                             let clamped = (x as i32 - 56).max(0).min(208) as u32;
                                             ad.cam_tune_vals[ad.cam_tune_param as usize] = ((clamped * 255) / 208) as u8;
                                             ad.cam_tune_dirty = true;
@@ -430,13 +467,18 @@ pub fn run_camera_cycle(
                                                     sound::qr_found(delay);
                                                     QR_FINDERS_BEEPED = true;
                                                 }
+
+                                                // Skip QR processing while cam-tune is active
+                                                // (border flash still works via FINDERS_BEEPED flag)
+                                                #[cfg(feature = "waveshare")]
+                                                if ad.cam_tune_active { return; }
                                                 // Update guide version (smoothed — needs 2 same in a row)
                                                 let (_, _, _, _, det_ver) = crate::qr::decoder::last_raw_info();
                                                 if det_ver == QR_GUIDE_VER {
                                                     QR_VER_SAME_CNT = QR_VER_SAME_CNT.saturating_add(1);
                                                 } else if QR_VER_SAME_CNT == 0 || det_ver != 0 {
                                                     QR_VER_SAME_CNT = 1;
-                                                    if det_ver >= 1 && det_ver <= 8 {
+                                                    if (1..=8).contains(&det_ver) {
                                                         QR_GUIDE_VER = det_ver;
                                                     }
                                                 }
@@ -466,9 +508,9 @@ pub fn run_camera_cycle(
                                                         if !MF_RECEIVED[frame_num] {
                                                             MF_FRAG_SIZE[frame_num] = frag_len as u16;
                                                             MF_RECEIVED[frame_num] = true;
-                                                            let slot_offset = frame_num * 131;
+                                                            let slot_offset = frame_num * 256;
                                                             let end = slot_offset + frag_len;
-                                                            if end <= 512 {
+                                                            if end <= 2048 {
                                                                 MF_BUF[slot_offset..end]
                                                                     .copy_from_slice(&data[3..3 + frag_len]);
                                                             }
@@ -483,10 +525,10 @@ pub fn run_camera_cycle(
                                                             let all_received = MF_RECEIVED[..total as usize]
                                                                 .iter().all(|&r| r);
                                                             if all_received {
-                                                                let mut assembled = [0u8; 512];
+                                                                let mut assembled = [0u8; 2048];
                                                                 let mut pos = 0usize;
                                                                 for f in 0..total as usize {
-                                                                    let sl = f * 131;
+                                                                    let sl = f * 256;
                                                                     let sz = MF_FRAG_SIZE[f] as usize;
                                                                     assembled[pos..pos + sz]
                                                                         .copy_from_slice(&MF_BUF[sl..sl + sz]);
@@ -520,7 +562,7 @@ pub fn run_camera_cycle(
                                                 let d = &result.data[..result.len];
                                                 let is_compact_seedqr = result.len == 16 || result.len == 32;
                                                 let is_standard_seedqr = (result.len == 48 || result.len == 96)
-                                                    && d.iter().all(|&b| b >= b'0' && b <= b'9');
+                                                    && d.iter().all(|&b| b.is_ascii_digit());
                                                 let _is_seedqr = is_compact_seedqr || is_standard_seedqr;
 
                                                 // Use standard 3-consecutive-match for everything
@@ -609,7 +651,7 @@ pub fn run_camera_cycle(
                                                             }
                                                         }
                                                     } else if (result.len == 48 || result.len == 96)
-                                                        && data.iter().all(|&b| b >= b'0' && b <= b'9')
+                                                        && data.iter().all(|&b| b.is_ascii_digit())
                                                     {
                                                         // Standard SeedQR — numeric digit string (48=12w, 96=24w)
                                                         let mut import_indices = [0u16; 24];

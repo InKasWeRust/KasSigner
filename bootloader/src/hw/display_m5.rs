@@ -17,7 +17,6 @@
 
 // hw/display.rs — ILI9342C display driver, BootDisplay struct, core draw primitives
 
-#![allow(dead_code)]
 use esp_hal::delay::Delay;
 use esp_hal::spi::master::Spi;
 use esp_hal::gpio::Output;
@@ -43,14 +42,14 @@ use embedded_iconoir::icons::size24px;
 // ═══════════════════════════════════════════════════════════════
 // Display Constants
 
-/// AXP2101 PMU I2C address
-/// AW9523B IO Expander I2C address
+// AXP2101 PMU I2C address
+// AW9523B IO Expander I2C address
 
 // ═══════════════════════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════
 
-/// Voltage = 500mV + (value * 100mV), so 0x1C = 500 + 28*100 = 3300mV
-/// Bit 7 = DLDO1 enable
+// Voltage = 500mV + (value * 100mV), so 0x1C = 500 + 28*100 = 3300mV
+// Bit 7 = DLDO1 enable
 
 // ═══════════════════════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════
@@ -245,7 +244,7 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
         s if s.starts_with("Import Words") => draw_icon!(size24px::actions::Download),
         s if s.starts_with("Calc Last")   => draw_icon!(size24px::editor::NumberedListRight),
         s if s.starts_with("BIP85")       => draw_icon!(size24px::git::GitFork),
-        s if s.starts_with("Import Key")  => draw_icon!(size24px::security::Lock),
+        s if s.starts_with("Import Key") || s.starts_with("Import Raw")  => draw_icon!(size24px::security::Lock),
         s if s.starts_with("Import from") => draw_icon!(size24px::docs::AddFolder),
         s if s.starts_with("Create Multi")=> draw_icon!(size24px::users::Group),
         s if s.starts_with("Stego Imp")   => draw_icon!(size24px::actions::EyeOff),
@@ -253,6 +252,8 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
         s if s.starts_with("Sign Mess")   => draw_icon!(size24px::editor::EditPencil),
         // Export menu
         s if s.starts_with("Show Seed")   => draw_icon!(size24px::actions::OpenNewWindow),
+        s if s.starts_with("Show as QR")  => draw_icon!(size24px::other::QrCode),
+        s if s.starts_with("Encrypt to")  => draw_icon!(size24px::actions::UploadSquare),
         s if s.starts_with("CompactSeed") => draw_icon!(size24px::other::QrCode),
         s if s.starts_with("Standard Seed")=> draw_icon!(size24px::other::QrCode),
         s if s.starts_with("Plain Words") => draw_icon!(size24px::other::QrCode),
@@ -286,7 +287,7 @@ pub(crate) fn password_strength(text: &str) -> u8 {
     let has_upper = bytes.iter().any(|b| *b >= b'A' && *b <= b'Z');
     let has_lower = bytes.iter().any(|b| *b >= b'a' && *b <= b'z');
     let has_digit = bytes.iter().any(|b| *b >= b'0' && *b <= b'9');
-    let has_space = bytes.iter().any(|b| *b == b' ');
+    let has_space = bytes.contains(&b' ');
     let variety = has_upper as u8 + has_lower as u8 + has_digit as u8 + has_space as u8;
 
     // All same character?
@@ -303,7 +304,7 @@ pub(crate) fn password_strength(text: &str) -> u8 {
 // PMU & IO Expander Init (raw I2C)
 // ═══════════════════════════════════════════════════════════════
 
-/// Initialize AXP2101 PMU — enable power rails for CoreS3
+// Initialize AXP2101 PMU — enable power rails for CoreS3
 // ═══════════════════════════════════════════════════════════════
 // Display type alias
 // ═══════════════════════════════════════════════════════════════
@@ -366,7 +367,7 @@ impl<'a> embedded_graphics::prelude::DrawTarget for TeeDisplay<'a> {
             for &embedded_graphics::prelude::Pixel(point, color) in &px_vec {
                 let x = point.x;
                 let y = point.y;
-                if x >= 0 && x < 320 && y >= 0 && y < 240 {
+                if (0..320).contains(&x) && (0..240).contains(&y) {
                     let idx = ((y as usize) * 320 + (x as usize)) * 2;
                     let raw = RawU16::from(color).into_inner();
                     unsafe {
@@ -396,7 +397,7 @@ impl<'a> embedded_graphics::prelude::DrawTarget for TeeDisplay<'a> {
             let mut py = area.top_left.y;
             let x_end = area.top_left.x + area.size.width as i32;
             for &color in &color_vec {
-                if px >= 0 && px < 320 && py >= 0 && py < 240 {
+                if (0..320).contains(&px) && (0..240).contains(&py) {
                     let idx = ((py as usize) * 320 + (px as usize)) * 2;
                     let raw = RawU16::from(color).into_inner();
                     unsafe {

@@ -11,12 +11,14 @@ full security policy.
 ## How to Contribute
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Make your changes
-4. Ensure the firmware compiles: `cd bootloader && cargo build`
-5. Run the QR self-tests (they execute at boot)
-6. Commit with clear messages
-7. Open a Pull Request
+2. Run the setup checker: `cd tools && cargo run --bin kassigner-setup`
+3. Create a feature branch (`git checkout -b feature/my-feature`)
+4. Make your changes
+5. Ensure the firmware compiles: `cd bootloader && cargo build`
+6. Run clippy: `cargo clippy --features waveshare,skip-tests`
+7. Run the QR self-tests (they execute at boot)
+8. Commit with clear messages
+9. Open a Pull Request
 
 ## Code Standards
 

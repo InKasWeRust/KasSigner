@@ -59,11 +59,11 @@ use k256::{
     },
 };
 
-/// Rango del bus de instrucciones para flash mapeada en ESP32-S3
+/// Instruction bus range for flash-mapped memory on ESP32-S3
 const IRAM_FLASH_BASE: u32 = 0x4200_0000;
 const IRAM_FLASH_END: u32 = 0x4400_0000;
 
-/// Header magic del formato ESP-IDF image
+/// Header magic for ESP-IDF image format
 const ESP_IMAGE_MAGIC: u8 = 0xE9;
 
 /// Main header size: 24 bytes
@@ -87,7 +87,7 @@ fn main() {
     println!("  Firmware Segment Hash Generator");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
-    // ── Leer el binario ─────────────────────────────────────────
+    // ── Read the binary ─────────────────────────────────────────
     let firmware_data = match fs::read(firmware_path) {
         Ok(data) => data,
         Err(e) => {
@@ -96,23 +96,23 @@ fn main() {
         }
     };
 
-    println!("  Archivo: {}", firmware_path);
+    println!("  File: {}", firmware_path);
     println!("  Total size: {} bytes ({} KB)", firmware_data.len(), firmware_data.len() / 1024);
 
-    // ── Detectar formato ────────────────────────────────────────
+    // ── Detect format ────────────────────────────────────────
     // Si es un ELF (empieza con 0x7F 'E' 'L' 'F'), necesitamos
     // convertirlo primero con espflash. Pero normalmente el build
     // script pasa el ELF y espflash lo convierte internamente.
     //
-    // Para nuestro caso, espflash flash genera un .bin temporal.
+    // In our case, espflash flash generates a temporary .bin.
     // Pero nosotros recibimos el ELF. Necesitamos parsearlo como
     // ESP-IDF image — que es lo que espflash realmente flashea.
     //
-    // SOLUTION: We use `espflash save-image` para generar el .bin,
+    // SOLUTION: We use `espflash save-image` to generate the .bin,
     // o parseamos el ELF directamente buscando las secciones.
     //
-    // Por simplicidad, primero intentamos parsear como ESP-IDF image.
-    // Si falla (es un ELF), intentamos parsear las secciones ELF.
+    // For simplicity, first try to parse as ESP-IDF image.
+    // If that fails (it is an ELF), try to parse ELF sections.
 
     let signing_key_path: Option<String> = if args.len() >= 3 { Some(args[2].clone()) } else { None };
 
@@ -139,22 +139,22 @@ fn main() {
 // ─── Parser de ESP-IDF image format ───────────────────────────────────
 
 fn process_esp_image(data: &[u8], signing_key: Option<&str>) {
-    println!("  Formato: ESP-IDF image");
+    println!("  Format: ESP-IDF image");
 
     let segment_count = data[1] as usize;
-    println!("  Segmentos: {}", segment_count);
+    println!("  Segments: {}", segment_count);
 
     // Entry point
     let entry = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
     println!("  Entry point: 0x{:08X}", entry);
 
-    // Recorrer segmentos
+    // Iterate over segments
     let mut offset = ESP_IMAGE_HEADER_SIZE;
     let mut code_segment: Option<(usize, usize, u32)> = None; // (data_offset, size, load_addr)
 
     for i in 0..segment_count {
         if offset + SEGMENT_HEADER_SIZE > data.len() {
-            eprintln!("  Segmento {} truncado (offset {} > len {})", i, offset, data.len());
+            eprintln!("  Segment {} truncated (offset {} > len {})", i, offset, data.len());
             break;
         }
 
@@ -202,11 +202,11 @@ fn process_esp_image(data: &[u8], signing_key: Option<&str>) {
 
 // ─── Parser de ELF (fallback) ─────────────────────────────────────────
 //
-// Los binarios Xtensa ESP32-S3 son ELF32 little-endian.
+// Xtensa ESP32-S3 binaries are ELF32 little-endian.
 // Find the section with virtual address in the IRAM flash range.
 
 fn process_elf(data: &[u8], signing_key: Option<&str>) {
-    println!("  Formato: ELF");
+    println!("  Format: ELF");
 
     // ELF32 header parsing (minimal)
     if data.len() < 52 {
@@ -259,7 +259,7 @@ fn process_elf(data: &[u8], signing_key: Option<&str>) {
         }
         None => {
             eprintln!("  No LOAD segment found with vaddr in IRAM flash range.");
-            eprintln!("  Intenta generar un .bin primero:");
+            eprintln!("  Try generating a .bin first:");
             eprintln!("    espflash save-image --chip esp32s3 <ELF> firmware.bin");
             std::process::exit(1);
         }
@@ -269,7 +269,7 @@ fn process_elf(data: &[u8], signing_key: Option<&str>) {
 // ─── Code segment hash ──────────────────────────────────────
 //
 // Hashes exactly seg_size bytes from the code segment.
-// The bootloader will use FIRMWARE_SIZE (= seg_size) para leer la misma
+// The bootloader will use FIRMWARE_SIZE (= seg_size) to read the same
 // cantidad de bytes desde DRAM y calcular el mismo hash.
 
 fn hash_code_segment(file_data: &[u8], data_offset: usize, seg_size: usize, load_addr: u32, signing_key: Option<&str>) {
@@ -343,7 +343,7 @@ fn hash_code_segment(file_data: &[u8], data_offset: usize, seg_size: usize, load
         println!("  Signature: (none — no signing key provided)");
     }
 
-    // ── Generar firmware_hash.rs ────────────────────────────────
+    // ── Generate firmware_hash.rs ────────────────────────────────
     let hash_array: String = hash.iter()
         .map(|b| format!("0x{:02x}", b))
         .collect::<Vec<_>>()

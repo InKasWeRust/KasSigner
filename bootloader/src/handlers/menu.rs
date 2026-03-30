@@ -17,7 +17,6 @@
 // handlers/menu.rs — Touch handlers for MainMenu, SeedsMenu, ToolsMenu
 //                     DiceRoll, ChooseWordCount, ShowQR/Rejected/ViewSeed
 
-#![allow(unused_imports)]
 use crate::log;
 use crate::{app::data::AppData, hw::display, hw::sdcard, hw::sound, ui::setup_wizard, hw::touch, wallet};
 use esp_hal::lcd_cam::cam::Camera as DvpCamera;
@@ -136,7 +135,7 @@ pub fn handle_menu_touch(
                                                                 let is_enc_seed = sz >= 57 && peek_buf[0] == b'K' && peek_buf[1] == b'A' && peek_buf[2] == b'S' && peek_buf[3] == 0x01;
                                                                 let is_enc_xprv = sz >= 40 && peek_buf[0] == b'K' && peek_buf[1] == b'A' && peek_buf[2] == b'S' && peek_buf[3] == 0x02;
                                                                 let is_plain_xprv = sz >= 100 && peek_buf[0] == b'x' && peek_buf[1] == b'p' && peek_buf[2] == b'r' && peek_buf[3] == b'v';
-                                                                let is_plain_hex = sz >= 64 && sz <= 66 && {
+                                                                let is_plain_hex = (64..=66).contains(&sz) && {
                                                                     let mut ok = true;
                                                                     for b in &peek_buf[..64.min(sz)] {
                                                                         if !((*b >= b'0' && *b <= b'9') || (*b >= b'a' && *b <= b'f') || (*b >= b'A' && *b <= b'F')) {
@@ -337,11 +336,9 @@ pub fn handle_menu_touch(
                                 }
                             }
                             // Undo button: centered, x=100..220, y=200..240
-                            else if x >= 100 && x <= 220 && y >= 200 {
-                                if ad.dice_collector.count > 0 {
-                                    ad.dice_collector.undo();
-                                    log!("   Dice undo ({}/{})", ad.dice_collector.count, ad.dice_collector.target);
-                                }
+                            else if (100..=220).contains(&x) && y >= 200 && ad.dice_collector.count > 0 {
+                                ad.dice_collector.undo();
+                                log!("   Dice undo ({}/{})", ad.dice_collector.count, ad.dice_collector.target);
                             }
                         }
                         ad.needs_redraw = true;
@@ -350,8 +347,8 @@ pub fn handle_menu_touch(
                         if is_back {
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
                         } else {
-                            let chose_12 = x >= 30 && x <= 290 && y >= 70 && y <= 130;
-                            let chose_24 = x >= 30 && x <= 290 && y >= 150 && y <= 210;
+                            let chose_12 = (30..=290).contains(&x) && (70..=130).contains(&y);
+                            let chose_24 = (30..=290).contains(&x) && (150..=210).contains(&y);
                             let wc: u8 = if chose_12 { 12 } else if chose_24 { 24 } else { 0 };
                             if wc > 0 {
                                 match action {
@@ -412,8 +409,8 @@ pub fn handle_menu_touch(
                                                 // ~2µs delay between reads for max entropy
                                                 for _ in 0..160u32 { core::hint::spin_loop(); }
                                             }
-                                            hasher.update(&trng_buf);
-                                            hasher.update(&[0x01]); // domain separator
+                                            hasher.update(trng_buf);
+                                            hasher.update([0x01]); // domain separator
                                             let hash = hasher.finalize();
                                             for i in 0..32 { pool[i] ^= hash[i]; }
                                             // Zeroize
@@ -438,12 +435,12 @@ pub fn handle_menu_touch(
                                                             // Hash ALL pixel data (not just first 64K)
                                                             hasher.update(pixels);
                                                             // Mix in frame index + timing jitter
-                                                            hasher.update(&[frame_idx, (t0 & 0xFF) as u8, (t1 & 0xFF) as u8]);
+                                                            hasher.update([frame_idx, (t0 & 0xFF) as u8, (t1 & 0xFF) as u8]);
                                                             // Mix in TRNG sample taken mid-frame
                                                             let rng_mid = unsafe {
                                                                 core::ptr::read_volatile(0x6003_5110u32 as *const u32)
                                                             };
-                                                            hasher.update(&rng_mid.to_le_bytes());
+                                                            hasher.update(rng_mid.to_le_bytes());
                                                             let hash = hasher.finalize();
                                                             for i in 0..32 { pool[i] ^= hash[i]; }
                                                             got_entropy = true;
@@ -467,13 +464,13 @@ pub fn handle_menu_touch(
                                         {
                                             use sha2::{Sha256, Digest};
                                             let mut hasher = Sha256::new();
-                                            hasher.update(&pool);
+                                            hasher.update(pool);
                                             // 64 more TRNG reads
                                             for _ in 0..64 {
                                                 let rng_val = unsafe {
                                                     core::ptr::read_volatile(0x6003_5110u32 as *const u32)
                                                 };
-                                                hasher.update(&rng_val.to_le_bytes());
+                                                hasher.update(rng_val.to_le_bytes());
                                                 for _ in 0..160u32 { core::hint::spin_loop(); }
                                             }
                                             // Battery ADC noise (GPIO5) — even if not calibrated, LSBs are noisy
@@ -482,9 +479,9 @@ pub fn handle_menu_touch(
                                                     // SAR ADC1 data register
                                                     core::ptr::read_volatile(0x6004_0868u32 as *const u32)
                                                 };
-                                                hasher.update(&adc_val.to_le_bytes());
+                                                hasher.update(adc_val.to_le_bytes());
                                             }
-                                            hasher.update(&[0x03]); // domain separator
+                                            hasher.update([0x03]); // domain separator
                                             let final_hash = hasher.finalize();
                                             // Replace pool with final whitened entropy
                                             pool.copy_from_slice(&final_hash);

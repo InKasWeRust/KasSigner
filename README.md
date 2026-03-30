@@ -1,14 +1,18 @@
 # KasSigner
 
-**Air-gapped hardware wallet for the Kaspa blockchain.**
+**Air-gapped offline signing device for the Kaspa blockchain.**
 
-KasSigner is an open-source signing device built on ESP32-S3. It generates private keys offline, signs transactions via QR code exchange, and never connects to any network. Your keys never leave the device.
+> ⚠️ **IMPORTANT: KasSigner is an EXPERIMENTAL offline signing device. It is NOT a hardware wallet. It has NO secure element and NO persistent storage — all keys are wiped on power-off. This software has NOT been professionally audited. Do NOT use KasSigner to manage funds you cannot afford to lose.**
+
+KasSigner is an open-source signing device built on ESP32-S3. It generates private keys offline, signs transactions via QR code exchange, and never connects to any network. All key material lives in RAM only and is destroyed when the device powers off.
 
 > **This project is under active development.** It has not yet undergone a formal security audit. Do not store significant funds until the codebase has been independently reviewed.
 
 ## Features
 
 - **Fully air-gapped** — no WiFi, Bluetooth, or USB data. All I/O via QR codes, touchscreen, and SD card
+- **No persistent storage** — all keys live in RAM only, wiped on every power-off
+- **Live display mirror** — stream the device screen to a Mac/PC for presentations (`--features mirror`)
 - **BIP39 seed generation** — 12 or 24 words from hardware TRNG or manual dice rolls (verifiable entropy)
 - **BIP32 HD key derivation** — Kaspa path `m/44'/111111'/0'`
 - **BIP39 passphrase (25th word)** — optional passphrase creates a hidden wallet; decoy wallet without it
@@ -86,6 +90,13 @@ Battery:     ADC=GPIO5
 - Rust with the Xtensa ESP32-S3 target (`espup install`)
 - [espflash](https://github.com/esp-rs/espflash) for flashing
 
+Run the setup checker to verify your environment:
+
+```bash
+cd tools
+cargo run --bin kassigner-setup
+```
+
 ### Quick start
 
 ```bash
@@ -111,8 +122,30 @@ cargo run --release --no-default-features --features m5stack,skip-tests
 | `skip-tests` | Skip boot-time hardware self-tests (dev builds) |
 | `production` | Silent boot + strict firmware verification |
 | `verbose-boot` | Extra boot diagnostics on UART |
-| `screenshot` | Enable screenshot capture to SD card |
+| `mirror` | Live display mirror — streams screen to Mac/PC via serial |
+| `screenshot` | Shadow framebuffer (internal, implied by `mirror`) |
 | `icon-browser` | Enable icon browser debug screen |
+
+### Live display mirror (for presentations)
+
+Stream the device screen to a Mac/PC window in real-time. Every screen change on the device appears on the computer — plug USB, run the tool, project to audience.
+
+```bash
+# Build firmware with mirror enabled
+# Waveshare:
+ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features waveshare,mirror,skip-tests
+# M5Stack:
+cargo build --release --no-default-features --features m5stack,mirror,skip-tests
+
+# Flash (no monitor — mirror tool needs the serial port)
+espflash flash target/xtensa-esp32s3-none-elf/release/kassigner-bootloader
+
+# Run mirror tool (separate terminal)
+cd tools
+cargo run --release --bin kassigner-mirror -- /dev/cu.usbmodem21201
+
+# Press reset on device — screen appears in window
+```
 
 ## Project Structure
 
@@ -131,6 +164,8 @@ kassigner/
 ├── tools/
 │   ├── gen_hash.rs             Firmware hash + Schnorr signing
 │   ├── gen_keypair.rs          Developer signing key generator
+│   ├── mirror.rs               Live display mirror (Mac/PC serial viewer)
+│   ├── setup_check.rs          Build environment checker (cross-platform)
 │   ├── convert_logo.rs         BMP → Rust logo data converter
 │   ├── dump_header.rs          ESP-IDF binary header inspector
 │   ├── build_with_hash.sh      Iterative hash convergence build
@@ -227,6 +262,22 @@ kassigner/
 │           ├── secret_box.rs     XOR-masked secret containers
 │           └── flow.rs           Flow integrity counters
 ```
+
+## What KasSigner Is
+
+- An **offline signing device** — generates keys, signs transactions, exports via QR
+- A **seed generator** — creates BIP39 mnemonics from hardware entropy or dice rolls
+- A **steganographic backup tool** — hides encrypted seeds inside ordinary JPEG photos
+- **Stateless** — all key material lives in RAM and is destroyed on power-off
+- **Open source** — 100% Rust, every line auditable, reproducible Docker builds
+
+## What KasSigner Is NOT
+
+- **NOT a hardware wallet** — it has no secure element, no tamper detection, no persistent key storage. It runs on a consumer ESP32-S3 microcontroller.
+- **NOT a replacement for Ledger, Trezor, or Coldcard** — those devices have dedicated security chips designed to resist physical attacks. KasSigner does not.
+- **NOT audited** — the cryptographic implementation has not been reviewed by a professional security firm. The code is open for community review.
+- **NOT resistant to physical attacks** — an attacker with physical access and lab equipment (JTAG probes, voltage glitching, flash readers) may be able to extract secrets from the ESP32-S3 while it is powered on.
+- **NOT a place to store keys long-term** — the device wipes everything on power-off. Your backup (seed words, stego JPEG, SD card) is your permanent storage, not the device.
 
 ## Security Architecture
 
@@ -335,4 +386,4 @@ Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [SECURITY.md](
 
 ## Disclaimer
 
-**KasSigner is experimental software. It has not been audited by a professional security firm.** The authors are not responsible for any loss of funds. Always verify transactions on a trusted watch-only wallet before signing. Never store more cryptocurrency than you can afford to lose on unaudited hardware.
+**KasSigner is experimental software running on consumer hardware with no secure element. It has not been audited by a professional security firm.** The authors are not responsible for any loss of funds. KasSigner is an offline signing device, not a hardware wallet — all keys exist in RAM only and are destroyed on power-off. Always verify transactions on a trusted watch-only wallet before signing. Never use KasSigner to manage more cryptocurrency than you can afford to lose.

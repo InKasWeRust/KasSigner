@@ -18,7 +18,6 @@
 //
 // QR encoder/decoder round-trip (V1-V6) and BIP85 test vector.
 
-#![allow(dead_code)]
 extern crate alloc;
 
 use crate::log;
@@ -59,7 +58,7 @@ pub fn run_boot_tests() {
                             else { 2 };                       // V3-V6: scale 2
                 let total_px = (qr_size + 2) * scale;
 
-                if total_px <= 160 && total_px <= 120 {
+                if total_px <= 120 {
                     // Clear image
                     for p in test_img.iter_mut() { *p = 128; }
                     let ox = (160 - total_px) / 2;
@@ -174,7 +173,7 @@ pub fn run_phase1_tests(delay: &mut esp_hal::delay::Delay) {
         log!("   Flash:  {}", if test_results.flash_ok { "OK" } else { "FAIL" });
         log!("   SHA256: {}", if test_results.sha256_ok { "OK" } else { "FAIL" });
         log!("   Cannot continue safely.");
-        // Halt permanente — no arrancamos con hardware defectuoso
+        // Permanent halt — do not boot with defective hardware
         loop {
             delay.delay_millis(1000);
         }

@@ -34,7 +34,6 @@
 //   → Derive Kaspa keys → ready
 
 
-#![allow(dead_code)]
 use crate::wallet::bip39;
 
 // ═══════════════════════════════════════════════════════════════════
@@ -156,7 +155,7 @@ pub fn new_24_word() -> Self {
 
     /// Add a dice roll (value 1-6)
     pub fn add_roll(&mut self, value: u8) -> bool {
-        if value < 1 || value > 6 || self.count >= self.target {
+        if !(1..=6).contains(&value) || self.count >= self.target {
             return false;
         }
         self.rolls[self.count] = value;
@@ -281,7 +280,7 @@ pub fn calc_last_word_12(indices: &[u16; 11]) -> u16 {
         ];
 
         // Compute checksum = first 4 bits of SHA256(entropy)
-        let hash = Sha256::digest(&entropy);
+        let hash = Sha256::digest(entropy);
         let checksum_nibble = hash[0] >> 4; // top 4 bits
 
         // Extract bits 128..131 from test_bits
@@ -334,7 +333,7 @@ pub fn calc_last_word_24(indices: &[u16; 23]) -> u16 {
         entropy.copy_from_slice(&test_bits[..32]);
 
         // Checksum = first 8 bits of SHA256(entropy)
-        let hash = Sha256::digest(&entropy);
+        let hash = Sha256::digest(entropy);
         let checksum_byte = hash[0];
 
         // Stored checksum at bits 256..263 = test_bits[32]

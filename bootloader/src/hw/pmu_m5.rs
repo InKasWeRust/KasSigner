@@ -17,7 +17,6 @@
 
 // hw/pmu.rs — AXP2101 PMU and AW9523B IO expander initialization
 
-#![allow(dead_code)]
 use esp_hal::delay::Delay;
 use esp_hal::i2c::master::I2c;
 

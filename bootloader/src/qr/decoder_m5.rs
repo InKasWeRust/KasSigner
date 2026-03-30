@@ -41,8 +41,6 @@
 // Multi-frame: The caller accumulates frames externally. This
 // module decodes one QR code from one grayscale image at a time.
 
-#![allow(dead_code)]
-#![allow(static_mut_refs)]
 /// Max QR version we decode
 const MAX_VER: usize = 8;
 /// Max modules per side (V8 = 49)
@@ -491,7 +489,7 @@ fn compute_threshold(img: &[u8]) -> u8 {
         // Means (integer)
         let mean_bg = sum_bg / w_bg as u64;
         let mean_fg = sum_fg / w_fg as u64;
-        let diff = if mean_bg > mean_fg { mean_bg - mean_fg } else { mean_fg - mean_bg };
+        let diff = mean_bg.abs_diff(mean_fg);
 
         // Variance = w_bg * w_fg * diff^2 (fits u64 for our image sizes)
         let var = (w_bg as u64) * (w_fg as u64) * diff * diff;
@@ -573,7 +571,7 @@ fn verify_vert(img: &[u8], w: usize, h: usize, px: usize, py: usize, thr: u8) ->
     if check_ratio(&r) > 0 {
         // True vertical center: top_edge + r[0] + r[1] + r[2]/2
         // This places the center at the middle of the central dark region
-        let vc = top_edge as u32 + r[0] + r[1] + r[2] / 2;
+        let vc = top_edge + r[0] + r[1] + r[2] / 2;
         Some(vc as usize)
     } else {
         None
@@ -689,7 +687,7 @@ fn identify_corners_multi(f: &[Finder; MAX_FINDERS], cnt: usize,
                 let mn = d[0].min(d[1]).min(d[2]);
                 if mn == 0 { continue; }
 
-                let score = if mx > mn * 2 { mx - mn * 2 } else { mn * 2 - mx };
+                let score = mx.abs_diff(mn * 2);
 
                 // Insert into top-3 if better than worst
                 if n_found < 3 {
@@ -783,7 +781,7 @@ fn estimate_version(tl: Finder, tr: Finder, bl: Finder) -> Result<usize, DecodeE
     // side = 4*v + 17  →  v = (modules_between + 7 - 17) / 4 = (mb - 10) / 4
     let mb = avg_d / avg_ms; // modules between centers
     let v = ((mb as i32 - 10) + 2) / 4; // +2 = rounding
-    if v < 1 || v > MAX_VER as i32 { return Err(DecodeError::BadVersion); }
+    if !(1..=MAX_VER as i32).contains(&v) { return Err(DecodeError::BadVersion); }
     Ok(v as usize)
 }
 
@@ -1495,7 +1493,7 @@ fn find_alignment_correction(
     tl: Finder, tr: Finder, bl: Finder,
     ver: usize,
 ) -> (i32, i32) {
-    if ver < 2 || ver > MAX_VER { return (0, 0); }
+    if !(2..=MAX_VER).contains(&ver) { return (0, 0); }
     let side = 4 * ver + 17;
     let coords = ALIGN[ver - 1];
     if coords.len() < 2 { return (0, 0); }
@@ -1592,7 +1590,7 @@ fn try_decode_grid(
     ver: usize, thr: u8,
 ) -> Result<DecodeResult, DecodeError> {
     let side = 4 * ver + 17;
-    if side > MAX_SIDE || ver < 1 || ver > MAX_VER { return Err(DecodeError::BadVersion); }
+    if side > MAX_SIDE || !(1..=MAX_VER).contains(&ver) { return Err(DecodeError::BadVersion); }
 
     // Try normal corners and swapped TR/BL (for mirrored camera image)
     let corner_sets: [(Finder, Finder, Finder); 2] = [
@@ -1672,7 +1670,7 @@ fn try_decode_grid(
                             // Validate: either printable ASCII or known binary format
                             let check_len = result.len.min(8);
                             let is_ascii = result.data[..check_len].iter()
-                                .all(|&b| b >= 0x20 && b < 0x7F);
+                                .all(|&b| (0x20..0x7F).contains(&b));
                             // Known binary: KSPT at byte 0 or at byte 3 (multi-frame)
                             let is_kspt = result.len >= 4 && &result.data[..4] == b"KSPT";
                             let is_multiframe_kspt = result.len >= 7
@@ -1703,9 +1701,9 @@ fn try_decode_grid(
                         if extract_payload(&raw_cw, data_len, &mut result).is_ok() && result.len > 0 {
                             // Validate: printable ASCII, known binary prefix, all digits, or CompactSeedQR
                             let valid_ascii = result.len >= 4
-                                && result.data[..4].iter().all(|&b| b >= 0x20 && b < 0x7F);
+                                && result.data[..4].iter().all(|&b| (0x20..0x7F).contains(&b));
                             let valid_numeric = (result.len == 48 || result.len == 96)
-                                && result.data[..result.len].iter().all(|&b| b >= b'0' && b <= b'9');
+                                && result.data[..result.len].iter().all(|&b| b.is_ascii_digit());
                             let valid_compact_seedqr = result.len == 16 || result.len == 32;
                             let valid_bin = result.len >= 4
                                 && (&result.data[..4] == b"KSPT" || &result.data[..4] == b"KSSN"
@@ -1845,7 +1843,7 @@ pub fn decode(img: &[u8], w: usize, h: usize) -> Result<DecodeResult, DecodeErro
                     if w_fg == 0 { break; }
                     let mean_bg = sum_bg / w_bg as u64;
                     let mean_fg = (sum_all - sum_bg) / w_fg as u64;
-                    let diff = if mean_bg > mean_fg { mean_bg - mean_fg } else { mean_fg - mean_bg };
+                    let diff = mean_bg.abs_diff(mean_fg);
                     let var = (w_bg as u64) * (w_fg as u64) * diff * diff;
                     if var > best_v { best_v = var; best_t = t as u8; }
                 }
@@ -1864,7 +1862,7 @@ pub fn decode(img: &[u8], w: usize, h: usize) -> Result<DecodeResult, DecodeErro
     // Step 3: Estimate version
     let ver_est = estimate_version(tl, tr, bl);
     unsafe {
-        GEO_DEBUG_VER = match ver_est { Ok(v) => v as u8, Err(_) => 0 };
+        GEO_DEBUG_VER = ver_est.unwrap_or(0) as u8;
     }
 
     // Step 4: Try estimated version ±1 (3 versions max, for speed)

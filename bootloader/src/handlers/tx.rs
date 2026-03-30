@@ -19,7 +19,6 @@
 // Covers: ScanQR, ReviewTx, ConfirmTx, MultisigChooseMN, MultisigAddKey, MultisigShowAddress,
 //         SignMsgChoice, SignMsgType, SignMsgFile, SignMsgPreview, SignMsgResult
 
-#![allow(unused_imports)]
 use crate::{app::data::AppData, hw::display, hw::sdcard, hw::sound, hw::touch, wallet};
 use crate::ui::helpers::pp_keyboard_hit;
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -44,7 +43,7 @@ pub fn handle_tx_touch(
                             needs_redraw = true;
                         } else if ad.seed_loaded {
                             // "SCAN PSKT" button: drawn at y=194..230, x=60..260
-                            if y >= 190 && y <= 234 && x >= 55 && x <= 265 {
+                            if (190..=234).contains(&y) && (55..=265).contains(&x) {
                                 ad.app.state = crate::app::input::AppState::ScanQR;
                                 needs_redraw = true;
                             }
@@ -80,21 +79,21 @@ pub fn handle_tx_touch(
                         if x > 40 || y > 40 {
                             if ad.cam_tune_active {
                                 // Slider track (y>=196, x=56..264)
-                                if y >= 196 && x >= 56 && x <= 264 {
+                                if y >= 196 && (56..=264).contains(&x) {
                                     let clamped = (x as i32 - 56).max(0).min(208) as u32;
                                     ad.cam_tune_vals[ad.cam_tune_param as usize] = ((clamped * 255) / 208) as u8;
                                     ad.cam_tune_dirty = true;
                                     boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
                                 }
-                                // [-] button (x<54, y>=196)
-                                else if y >= 196 && x < 54 {
+                                // [-] button (left side, bottom half: x<56, y>=180)
+                                else if x < 56 && y >= 180 {
                                     let p = ad.cam_tune_param as usize;
                                     ad.cam_tune_vals[p] = ad.cam_tune_vals[p].saturating_sub(8);
                                     ad.cam_tune_dirty = true;
                                     boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
                                 }
-                                // [+] button (x>266, y>=196)
-                                else if y >= 196 && x > 266 {
+                                // [+] button (right side, bottom: x>264, y>=180)
+                                else if x > 264 && y >= 180 {
                                     let p = ad.cam_tune_param as usize;
                                     ad.cam_tune_vals[p] = ad.cam_tune_vals[p].saturating_add(8);
                                     ad.cam_tune_dirty = true;
@@ -106,7 +105,7 @@ pub fn handle_tx_touch(
                                         // EXIT button
                                         ad.cam_tune_active = false;
                                         boot_display.draw_camera_screen("", "");
-                                    } else if y >= 36 && y < 180 {
+                                    } else if (36..180).contains(&y) {
                                         // Param grid: col split at x=261, row_step=49
                                         let col = if x < 261 { 0u8 } else { 1u8 };
                                         let row = ((y as i32 - 36).max(0) / 49).min(2) as u8;
@@ -143,8 +142,8 @@ pub fn handle_tx_touch(
                         } else {
                             // CONFIRM/SIGN: x=30..290, y=118..170 (covers both layouts)
                             // CANCEL:       x=30..290, y=168..230 (covers both layouts)
-                            let in_confirm = x >= 30 && x <= 290 && y >= 118 && y <= 165;
-                            let in_cancel  = x >= 30 && x <= 290 && y >= 168 && y <= 230;
+                            let in_confirm = (30..=290).contains(&x) && (118..=165).contains(&y);
+                            let in_cancel  = (30..=290).contains(&x) && (168..=230).contains(&y);
 
                             if in_confirm {
                                 ad.app.menu.cursor = 0;
@@ -164,29 +163,29 @@ pub fn handle_tx_touch(
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
                         } else {
                             // M-: x=60..110, y=65..103
-                            if x >= 60 && x <= 110 && y >= 65 && y <= 103 {
+                            if (60..=110).contains(&x) && (65..=103).contains(&y) {
                                 if ad.ms_m > 1 { ad.ms_m -= 1; }
                             }
                             // M+: x=210..260, y=65..103
-                            else if x >= 210 && x <= 260 && y >= 65 && y <= 103 {
+                            else if (210..=260).contains(&x) && (65..=103).contains(&y) {
                                 if ad.ms_m < 5 { ad.ms_m += 1; }
                             }
                             // N-: x=60..110, y=125..163
-                            else if x >= 60 && x <= 110 && y >= 125 && y <= 163 {
+                            else if (60..=110).contains(&x) && (125..=163).contains(&y) {
                                 if ad.ms_n > 1 { ad.ms_n -= 1; }
                             }
                             // N+: x=210..260, y=125..163
-                            else if x >= 210 && x <= 260 && y >= 125 && y <= 163 {
+                            else if (210..=260).contains(&x) && (125..=163).contains(&y) {
                                 if ad.ms_n < 5 { ad.ms_n += 1; }
                             }
                             // NEXT: centered, x=80..240, y=190..230
-                            else if x >= 80 && x <= 240 && y >= 190 && y <= 230 {
-                                if ad.ms_m >= 1 && ad.ms_m <= ad.ms_n && ad.ms_n <= 5 {
-                                    ad.ms_creating = wallet::transaction::MultisigConfig::new();
-                                    ad.ms_creating.m = ad.ms_m;
-                                    ad.ms_creating.n = ad.ms_n;
-                                    ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: 0 };
-                                }
+                            else if (80..=240).contains(&x) && (190..=230).contains(&y)
+                                && ad.ms_m >= 1 && ad.ms_m <= ad.ms_n && ad.ms_n <= 5
+                            {
+                                ad.ms_creating = wallet::transaction::MultisigConfig::new();
+                                ad.ms_creating.m = ad.ms_m;
+                                ad.ms_creating.n = ad.ms_n;
+                                ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: 0 };
                             }
                             // Keep M <= N
                             if ad.ms_m > ad.ms_n { ad.ms_m = ad.ms_n; }
@@ -202,11 +201,11 @@ pub fn handle_tx_touch(
                             }
                         } else {
                             // "Scan QR": x=30..290, y=90..135
-                            if x >= 30 && x <= 290 && y >= 90 && y <= 135 {
+                            if (30..=290).contains(&x) && (90..=135).contains(&y) {
                                 ad.app.state = crate::app::input::AppState::ScanQR;
                             }
                             // "Use Loaded Seed": x=30..290, y=145..190
-                            else if x >= 30 && x <= 290 && y >= 145 && y <= 190 {
+                            else if (30..=290).contains(&x) && (145..=190).contains(&y) {
                                 if ad.seed_loaded {
                                     ad.app.state = crate::app::input::AppState::MultisigPickSeed { key_idx };
                                 } else {
@@ -227,13 +226,13 @@ pub fn handle_tx_touch(
                                 .filter(|s| !s.is_empty()).count() as u8;
 
                             // Left arrow (scroll up): x<35, y=46..184
-                            if x < 35 && y >= 46 && y <= 184 {
+                            if x < 35 && (46..=184).contains(&y) {
                                 if ad.ms_scroll >= 3 {
                                     ad.ms_scroll -= 3;
                                 }
                             }
                             // Right arrow (scroll down): x>285, y=46..184
-                            else if x > 285 && y >= 46 && y <= 184 {
+                            else if x > 285 && (46..=184).contains(&y) {
                                 if ad.ms_scroll + 3 < loaded_count {
                                     ad.ms_scroll += 3;
                                 }
@@ -252,7 +251,7 @@ pub fn handle_tx_touch(
 
                                 for vis in 0..3u8 {
                                     let row_y = 46 + vis as u16 * 46;
-                                    if y >= row_y && y < row_y + 42 && x >= 40 && x <= 280 {
+                                    if y >= row_y && y < row_y + 46 && (40..=280).contains(&x) {
                                         let list_idx = ad.ms_scroll as usize + vis as usize;
 
                                         if list_idx >= lcount {
@@ -308,7 +307,7 @@ pub fn handle_tx_touch(
                     crate::app::input::AppState::MultisigPickAddr { key_idx } => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::MultisigPickSeed { key_idx };
-                        } else if x >= 10 && x <= 60 && y >= 205 && y <= 240 {
+                        } else if (10..=60).contains(&x) && (205..=240).contains(&y) {
                             // [<] previous address
                             if ad.current_addr_index > 0 {
                                 ad.current_addr_index -= 1;
@@ -318,7 +317,7 @@ pub fn handle_tx_touch(
                                     ad.extra_pubkey_index = ad.current_addr_index;
                                 }
                             }
-                        } else if x >= 260 && x <= 310 && y >= 205 && y <= 240 {
+                        } else if (260..=310).contains(&x) && (205..=240).contains(&y) {
                             // [>] next address
                             ad.current_addr_index += 1;
                             if ad.current_addr_index >= 20 && ad.extra_pubkey_index != ad.current_addr_index {
@@ -326,12 +325,12 @@ pub fn handle_tx_touch(
                                     &ad.acct_key_raw, ad.current_addr_index, &mut ad.extra_pubkey);
                                 ad.extra_pubkey_index = ad.current_addr_index;
                             }
-                        } else if x >= 110 && x <= 210 && y >= 205 && y <= 240 {
+                        } else if (110..=210).contains(&x) && (205..=240).contains(&y) {
                             // [#N] — open index picker, then return to MultisigPickAddr
                             ad.addr_input_len = 0;
                             ad.ms_picking_key = key_idx + 1; // +1 so 0 means "not picking"
                             ad.app.state = crate::app::input::AppState::AddrIndexPicker;
-                        } else if x >= 90 && x <= 230 && y >= 145 && y <= 185 {
+                        } else if (90..=230).contains(&x) && (145..=185).contains(&y) {
                             // SELECT button — store current address pubkey
                             if key_idx < ad.ms_creating.n {
                                 let pk = if (ad.current_addr_index as usize) < 20 {
@@ -378,27 +377,59 @@ pub fn handle_tx_touch(
                     crate::app::input::AppState::MultisigDescriptor => {
                         if is_back {
                             ad.app.go_main_menu();
-                        } else {
-                            // Tap → show descriptor QR
-                            ad.app.state = crate::app::input::AppState::MultisigDescriptorQR;
+                        } else if (190..=230).contains(&y) && (80..=240).contains(&x) {
+                                // SD CARD button — write descriptor text to SD
+                                boot_display.draw_loading_screen("Saving to SD...");
+                                boot_display.update_progress_bar(30);
+                                delay.delay_millis(50);
+
+                                // Build descriptor text: multi(M,pk1_hex,...,pkN_hex)
+                                let hex = b"0123456789abcdef";
+                                let mut desc = [0u8; 400];
+                                let mut pos: usize = 0;
+                                for &b in b"multi(" { desc[pos] = b; pos += 1; }
+                                desc[pos] = b'0' + ad.ms_creating.m; pos += 1;
+                                for i in 0..ad.ms_creating.n as usize {
+                                    desc[pos] = b','; pos += 1;
+                                    let pk = &ad.ms_creating.pubkeys[i];
+                                    for j in 0..32 {
+                                        desc[pos] = hex[(pk[j] >> 4) as usize]; pos += 1;
+                                        desc[pos] = hex[(pk[j] & 0x0f) as usize]; pos += 1;
+                                    }
+                                }
+                                desc[pos] = b')'; pos += 1;
+                                desc[pos] = b'\n'; pos += 1;
+
+                                // Filename: MSDESC  TXT (8.3)
+                                let fname: [u8; 11] = *b"MSDESC  TXT";
+                                let save_ok = sdcard::with_sd_card(i2c, delay, |ct| {
+                                    let fat32 = sdcard::mount_fat32(ct)?;
+                                    sdcard::create_file(ct, &fat32, &fname, &desc[..pos])?;
+                                    Ok(())
+                                });
+                                boot_display.update_progress_bar(100);
+
+                                if save_ok.is_ok() {
+                                    boot_display.draw_success_screen("Saved: MSDESC.TXT");
+                                    sound::success(delay);
+                                } else {
+                                    boot_display.draw_rejected_screen("SD write failed");
+                                    sound::beep_error(delay);
+                                }
+                                delay.delay_millis(2000);
+                                ad.app.go_main_menu();
                         }
                         needs_redraw = true;
                     }
-                    crate::app::input::AppState::MultisigDescriptorQR => {
-                        // Any tap → home
-                        ad.app.go_main_menu();
-                        needs_redraw = true;
-                    }
-
                     // ─── Sign Message Flow ────────────
                     crate::app::input::AppState::SignMsgChoice => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
-                        } else if x >= 40 && x < 280 && y >= 68 && y < 112 {
+                        } else if (40..280).contains(&x) && (68..112).contains(&y) {
                             // Type manually
                             ad.pp_input.reset();
                             ad.app.state = crate::app::input::AppState::SignMsgType;
-                        } else if x >= 40 && x < 280 && y >= 114 && y < 158 {
+                        } else if (40..280).contains(&x) && (114..158).contains(&y) {
                             // Load from SD — scan for .TXT files
                             boot_display.draw_loading_screen("Scanning TXT...");
                             boot_display.update_progress_bar(50);
@@ -513,7 +544,7 @@ pub fn handle_tx_touch(
                     crate::app::input::AppState::SignMsgPreview => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::SignMsgChoice;
-                        } else if y >= 185 && y <= 225 && x >= 100 && x <= 220 {
+                        } else if (185..=225).contains(&y) && (100..=220).contains(&x) {
                             // SIGN button tapped
                             boot_display.draw_saving_screen("Signing...");
                             boot_display.update_progress_bar(20);
@@ -556,7 +587,7 @@ pub fn handle_tx_touch(
                     crate::app::input::AppState::SignMsgResult => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
-                        } else if y >= 155 && y <= 191 && x >= 60 && x <= 260 {
+                        } else if (155..=191).contains(&y) && (60..=260).contains(&x) {
                             // SAVE button — write signature to SD
                             if bb_card_type.is_some() {
                                 boot_display.draw_saving_screen("Saving sig...");

@@ -31,19 +31,15 @@
 //   requiring PSRAM in normal bootloader builds.
 
 
-#![allow(dead_code)]
 use crate::log;
 use core::sync::atomic::{compiler_fence, Ordering};
 use sha2::{Sha256, Digest};
 
-#[cfg(not(feature = "silent"))]
-
 // ─── Mapped segment addresses ────────────────────────────────
 //
-// El 2nd stage bootloader de ESP-IDF mapea:
+// The 2nd stage bootloader (ESP-IDF) maps:
 //   Data segment:  vaddr=0x3C00_0020  (flash → data bus, read-only)
-//   Code segment: vaddr=0x4201_0020  (flash → instruction bus)
-
+//   Code segment:  vaddr=0x4201_0020  (flash → instruction bus)
 const DATA_SEGMENT_BASE: u32 = 0x3C00_0020;
 const FLASH_TEST_READ_SIZE: usize = 256;
 
@@ -191,7 +187,7 @@ fn test_sram() -> bool {
 
 // ─── Test de PSRAM externa ────────────────────────────────────────────
 //
-// Solo disponible con feature "test-psram".
+// Only available with "test-psram" feature.
 // Requires PSRAM to be initialized by main.rs via psram_allocator!()
 // before calling run_all_tests().
 //
@@ -203,8 +199,8 @@ fn test_psram() -> bool {
     // flash-mapped segment. The exact range depends on how much
     // flash is mapped.
     //
-    // Para el T-Camera S3 con 16MB flash y 8MB PSRAM:
-    //   Flash mapeada: 0x3C00_0000 — 0x3C7F_FFFF (o menos)
+    // For the T-Camera S3 with 16MB flash and 8MB PSRAM:
+    //   Flash mapped: 0x3C00_0000 — 0x3C7F_FFFF (or less)
     //   PSRAM mapped: starts after flash
     //
     // esp-hal::psram::init_psram() retorna (start, size).
@@ -225,7 +221,7 @@ fn test_psram() -> bool {
     true
 }
 
-// ─── Test de Flash (segmento de datos mapeado) ───────────────────────
+// ─── Flash Test (mapped data segment) ───────────────────────
 
 fn test_flash_data_segment() -> bool {
     let data: &[u8] = unsafe {
@@ -312,7 +308,7 @@ fn test_sha256() -> bool {
         return false;
     }
 
-    // Segundo vector: SHA256("") = e3b0c44298fc1c14...
+    // Second vector: SHA256("") = e3b0c44298fc1c14...
     const EXPECTED_EMPTY: [u8; 4] = [0xe3, 0xb0, 0xc4, 0x42];
 
     let mut hasher2 = Sha256::new();

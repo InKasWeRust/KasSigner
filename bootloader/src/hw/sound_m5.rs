@@ -29,9 +29,7 @@
 //
 // Init sequence matches M5Unified exactly (SYSCTRL=0x4040).
 
-#![allow(dead_code)]
 #[cfg(not(feature = "silent"))]
-
 use crate::log;
 use esp_hal::delay::Delay;
 use esp_hal::i2c::master::I2c;

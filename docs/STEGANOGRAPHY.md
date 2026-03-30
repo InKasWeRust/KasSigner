@@ -2,7 +2,7 @@
 
 ## How KasSigner Hides Your Seed in Plain Sight
 
-Imagine you lose everything. Fire, flood, theft — whatever. Your hardware wallet is gone. Your metal seed plate melted. Your safety deposit box was compromised. Years of accumulated wealth, evaporated.
+Imagine you lose everything. Fire, flood, theft — whatever. Your signing device is gone. Your metal seed plate melted. Your safety deposit box was compromised. Years of accumulated wealth, evaporated.
 
 Now imagine a different scenario. Your seed lives inside a photo of your dog. It sits in your Google Drive, in your email, on a USB stick in your desk drawer, on your phone's camera roll. Nobody knows. Nobody can tell. The photo looks like every other photo — because it is a photo. The pixels are untouched. The file size is normal. No forensic tool will flag it. No thief will think twice about it.
 

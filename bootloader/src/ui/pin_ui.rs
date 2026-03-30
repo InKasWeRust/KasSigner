@@ -41,7 +41,6 @@
 //
 //   Each key: ~100w × 40h with 5px gaps
 
-#![allow(dead_code)]
 /// Maximum PIN length
 pub const MAX_PIN_LEN: usize = 12;
 
@@ -148,7 +147,6 @@ impl Drop for PinEntry {
 /// Key positions on the 320×240 screen
 /// 3 columns: x = 10..105, 110..205, 210..305 (95px wide each, 5px gap)
 /// 4 rows:    y = 65..105, 110..150, 155..195, 200..240 (40px high, 5px gap)
-
 const KEY_W: i32 = 95;
 const KEY_H: i32 = 38;
 const KEY_X: [i32; 3] = [10, 110, 210];

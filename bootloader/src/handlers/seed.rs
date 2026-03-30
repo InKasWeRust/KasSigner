@@ -20,7 +20,6 @@
 //         ImportWord, CalcLastWord, DiceRoll, ChooseWordCount,
 //         PassphraseEntry, SeedList
 
-#![allow(unused_imports)]
 use crate::log;
 use crate::{app::data::AppData, hw::display, ui::seed_manager, hw::sound, wallet};
 use crate::ui::helpers::pp_keyboard_hit;
@@ -29,7 +28,6 @@ use crate::ui::helpers::pp_keyboard_hit;
 use crate::ui::helpers::{suggestion_hit_test, validate_mnemonic, compute_last_word};
 
 #[cfg(not(feature = "silent"))]
-
 fn hex_nibble(ch: u8) -> u8 {
     match ch {
         b'0'..=b'9' => ch - b'0',
@@ -45,6 +43,7 @@ pub fn handle_seed_touch(
     ad: &mut AppData,
     boot_display: &mut display::BootDisplay<'_>,
     delay: &mut esp_hal::delay::Delay,
+    i2c: &mut esp_hal::i2c::master::I2c<'_, esp_hal::Blocking>,
     x: u16, y: u16, is_back: bool,
 ) -> Option<bool> {
     let mut needs_redraw = false;
@@ -53,13 +52,13 @@ pub fn handle_seed_touch(
                     crate::app::input::AppState::Bip85Index { word_count: bwc } => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
-                        } else if x >= 85 && x <= 125 && y >= 98 && y <= 132 {
+                        } else if (85..=125).contains(&x) && (98..=132).contains(&y) {
                             // [-] button (row_x=85, btn_sz=40, row_y=98, btn_h=34)
                             if ad.bip85_index > 0 { ad.bip85_index -= 1; }
-                        } else if x >= 195 && x <= 235 && y >= 98 && y <= 132 {
+                        } else if (195..=235).contains(&x) && (98..=132).contains(&y) {
                             // [+] button (plus_x=195, btn_sz=40)
                             if ad.bip85_index < 99 { ad.bip85_index += 1; }
-                        } else if x >= 90 && x <= 230 && y >= 150 && y <= 182 {
+                        } else if (90..=230).contains(&x) && (150..=182).contains(&y) {
                             // Derive button (derive_x=90, derive_w=140, derive_y=150, derive_h=32)
                             if ad.seed_loaded {
                                 boot_display.draw_bip85_deriving();
@@ -142,7 +141,7 @@ pub fn handle_seed_touch(
                             match hit_test(x, y, KeyboardMode::Hex, 0) {
                                 KeyAction::Char(ch) => {
                                     // Normalize to lowercase for internal storage
-                                    let ch_lower = if ch >= b'A' && ch <= b'F' { ch + 32 } else { ch };
+                                    let ch_lower = if (b'A'..=b'F').contains(&ch) { ch + 32 } else { ch };
                                     if ad.hex_input_len < 64 {
                                         ad.hex_input[ad.hex_input_len as usize] = ch_lower;
                                         ad.hex_input_len += 1;
@@ -167,6 +166,7 @@ pub fn handle_seed_touch(
                                                 if let Some(slot_idx) = ad.seed_mgr.store_raw_key(&key) {
                                                     ad.seed_mgr.activate(slot_idx);
                                                     ad.seed_loaded = true;
+                                                    ad.word_count = 1;
                                                     ad.current_addr_index = 0;
                                                     ad.extra_pubkey_index = 0xFFFF;
                                                     ad.pubkey_cache[0].copy_from_slice(&xpub);
@@ -421,7 +421,7 @@ pub fn handle_seed_touch(
                                 ad.seed_list_scroll += max_vis as u8;
                             }
                             // Top buttons (y=42..74) — always 3 buttons
-                            else if y >= 42 && y < 74 {
+                            else if (42..74).contains(&y) {
                                 // 3 buttons centered, 95px each, 6px gap
                                 let btn_w: u16 = 95;
                                 let btn_gap: u16 = 6;
@@ -596,7 +596,7 @@ pub fn handle_seed_touch(
                                 }
                             }
                             // Card rows in center content (x=40..280, y=78..216)
-                            else if x >= 40 && x < 280 && y >= 76 && y < 216 {
+                            else if (40..280).contains(&x) && (76..216).contains(&y) {
                                 let card_h: u16 = 42;
                                 let card_gap: u16 = 4;
                                 let start_y: u16 = 78;
@@ -612,7 +612,7 @@ pub fn handle_seed_touch(
                                         }
                                         let i = loaded_idx[list_idx];
                                         // DEL button: rightmost 38px of card
-                                        if x >= 232 && x < 276 {
+                                        if (232..276).contains(&x) {
                                             // Store pending slot and go to confirmation screen
                                             ad.pending_delete_slot = i as u8;
                                             ad.app.state = crate::app::input::AppState::ConfirmDeleteSeed;
@@ -648,33 +648,96 @@ pub fn handle_seed_touch(
                         if is_back {
                             ad.pending_delete_slot = 0xFF;
                             ad.app.state = crate::app::input::AppState::SeedList;
-                        } else if y >= 180 && y <= 230 {
-                            // Bottom buttons row
-                            if x >= 30 && x <= 150 {
-                                // CANCEL — go back to seed list
+                        } else if (180..=230).contains(&y) {
+                            if (30..=150).contains(&x) {
+                                // CANCEL
                                 ad.pending_delete_slot = 0xFF;
                                 ad.app.state = crate::app::input::AppState::SeedList;
                                 sound::click(delay);
-                            } else if x >= 170 && x <= 290 {
-                                // DELETE — perform the actual deletion
-                                let i = ad.pending_delete_slot as usize;
-                                if i < ad.seed_mgr.slots.len() {
-                                    let was_active = ad.seed_mgr.active == i as u8;
-                                    ad.seed_mgr.delete(i);
-                                    if was_active {
-                                        ad.seed_loaded = false;
-                                        ad.pubkeys_cached = false;
-                                        ad.current_addr_index = 0;
-                                        ad.extra_pubkey_index = 0xFFFF;
-                                        for sl in ad.pubkey_cache.iter_mut() { for b in sl.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } } }
-                                        for b in ad.acct_key_raw.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
-                                        for b in ad.extra_pubkey.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
-                                        for b in ad.our_privkey.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
+                            } else if (170..=290).contains(&x) {
+                                // DELETE — hold-to-confirm (4 seconds)
+                                // Wait for finger release first
+                                loop {
+                                    delay.delay_millis(30);
+                                    let ts = crate::hw::touch::read_touch(i2c);
+                                    match ts {
+                                        crate::hw::touch::TouchState::NoTouch => break,
+                                        _ => {}
                                     }
+                                }
+                                delay.delay_millis(100);
+
+                                // Redraw button as "HOLD 4s" prompt
+                                {
+                                    use embedded_graphics::primitives::{Rectangle, RoundedRectangle, CornerRadii, PrimitiveStyle};
+                                    use embedded_graphics::prelude::*;
+                                    use crate::hw::display::*;
+                                    let btn_corner = CornerRadii::new(Size::new(8, 8));
+                                    let del_rect = Rectangle::new(Point::new(170, 185), Size::new(120, 40));
+                                    RoundedRectangle::new(del_rect, btn_corner)
+                                        .into_styled(PrimitiveStyle::with_fill(COLOR_RED_BTN))
+                                        .draw(&mut boot_display.display).ok();
+                                    let dw = measure_title("HOLD 4s");
+                                    draw_lato_title(&mut boot_display.display, "HOLD 4s", 170 + (120 - dw) / 2, 212, COLOR_TEXT);
+                                }
+
+                                let mut held_ms: u32 = 0;
+                                let mut confirmed = false;
+                                let mut waiting_for_press = true;
+                                loop {
+                                    delay.delay_millis(50);
+                                    let ts = crate::hw::touch::read_touch(i2c);
+                                    match ts {
+                                        crate::hw::touch::TouchState::One(pt) => {
+                                            if pt.x <= 40 && pt.y <= 40 { break; } // back = cancel
+                                            if pt.x >= 170 && pt.x <= 290 && pt.y >= 180 && pt.y <= 230 {
+                                                waiting_for_press = false;
+                                                held_ms += 50;
+                                                let fill = (held_ms * 120 / 4000).min(120);
+                                                if fill > 0 {
+                                                    use embedded_graphics::primitives::{Rectangle, PrimitiveStyle};
+                                                    use embedded_graphics::prelude::*;
+                                                    Rectangle::new(
+                                                        embedded_graphics::geometry::Point::new(170, 190),
+                                                        embedded_graphics::geometry::Size::new(fill, 30))
+                                                        .into_styled(PrimitiveStyle::with_fill(
+                                                            embedded_graphics::pixelcolor::Rgb565::new(0b11111, 0, 0)))
+                                                        .draw(&mut boot_display.display).ok();
+                                                }
+                                                if held_ms >= 4000 {
+                                                    confirmed = true;
+                                                    break;
+                                                }
+                                            } else if !waiting_for_press {
+                                                break; // moved off button = cancel
+                                            }
+                                        }
+                                        _ => {
+                                            if !waiting_for_press { break; } // released = cancel
+                                        }
+                                    }
+                                }
+
+                                if confirmed {
+                                    let i = ad.pending_delete_slot as usize;
+                                    if i < ad.seed_mgr.slots.len() {
+                                        let was_active = ad.seed_mgr.active == i as u8;
+                                        ad.seed_mgr.delete(i);
+                                        if was_active {
+                                            ad.seed_loaded = false;
+                                            ad.pubkeys_cached = false;
+                                            ad.current_addr_index = 0;
+                                            ad.extra_pubkey_index = 0xFFFF;
+                                            for sl in ad.pubkey_cache.iter_mut() { for b in sl.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } } }
+                                            for b in ad.acct_key_raw.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
+                                            for b in ad.extra_pubkey.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
+                                            for b in ad.our_privkey.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
+                                        }
+                                    }
+                                    sound::warning(delay);
                                 }
                                 ad.pending_delete_slot = 0xFF;
                                 ad.app.state = crate::app::input::AppState::SeedList;
-                                sound::warning(delay);
                             }
                         }
                         needs_redraw = true;

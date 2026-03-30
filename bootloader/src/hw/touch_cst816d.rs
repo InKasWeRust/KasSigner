@@ -25,7 +25,6 @@
 //   CST816D SwipeUp(0x01)    = finger moves right on screen
 //   CST816D SwipeDown(0x02)  = finger moves left on screen
 
-#![allow(dead_code)]
 use esp_hal::i2c::master::I2c;
 
 const CST816D_ADDR: u8 = 0x15;
@@ -199,8 +198,13 @@ pub fn read_touch_full(
 
     if !*configured {
         *configured = true;
+        // Reduce touch sensitivity to avoid phantom wake from light/EMI.
+        // Register 0x05: sensitivity threshold — higher = less sensitive (default ~1-2)
+        // Register 0x06: low-power scan range — lower = less sensitive (default varies)
+        let _ = i2c.write(CST816D_ADDR, &[0x05, 0x28]); // sensitivity threshold = 40
+        let _ = i2c.write(CST816D_ADDR, &[0x06, 0x10]); // low-power scan range = 16
         #[cfg(not(feature = "silent"))]
-        crate::log!("[CST816D] Factory defaults OK");
+        crate::log!("[CST816D] Factory defaults OK, sensitivity reduced");
     }
 
     let gesture = match buf[0] {

@@ -41,7 +41,6 @@
 //   - Knowing a child mnemonic does NOT reveal the parent or other children
 
 
-#![allow(dead_code)]
 use super::hmac::{hmac_sha512, zeroize_buf};
 use super::bip32;
 use super::bip39;

@@ -20,27 +20,243 @@
 // Implements sighash computation per the Kaspa specification:
 //   https://kaspa-mdbook.aspectron.com/transactions/sighashes.html
 //
-// Similar to BIP-143 (Bitcoin) but uses Blake2b instead of SHA256.
+// Similar to BIP-143 (Bitcoin) but uses keyed Blake2b instead of SHA256.
+// Each sub-hash uses a domain-separated Blake2b-256 with a unique domain key
+// string matching the Rusty Kaspa consensus implementation.
 //
 // The sighash is the 32-byte message signed with Schnorr.
 //
-// Flujo:
+// Flow:
 //   Transaction + input_index + sighash_type
-//     → serialize fields per spec
-//     → Blake2b(serialization)
-//     → 32 bytes = sighash
-//     → schnorr_sign(private_key, sighash)
+//     -> serialize fields per spec
+//     -> Blake2b(keyed)(serialization)
+//     -> 32 bytes = sighash
+//     -> schnorr_sign(private_key, sighash)
 
 
-#![allow(dead_code)]
 use blake2::{Blake2b, Digest};
 use blake2::digest::consts::U32;
 
-/// Blake2b with 32-byte (256-bit) output
+/// Blake2b with 32-byte (256-bit) output — used only for non-sighash hashing
 type Blake2b256 = Blake2b<U32>;
 use super::transaction::*;
 
-/// Hash Blake2b-256 de un buffer
+// ═══════════════════════════════════════════════════════════════════
+// Keyed Blake2b-256 for Kaspa consensus sighash
+// ═══════════════════════════════════════════════════════════════════
+//
+// Kaspa uses KEYED Blake2b-256 for domain separation in sighash.
+// Each sub-hash uses a different ASCII key string (up to 64 bytes).
+// This matches Go kaspad's `blake2b.New256(key)` and Rusty Kaspa's
+// `blake2b_simd::Params::new().hash_length(32).key(key).to_state()`.
+//
+// Keyed Blake2b:
+//   - Parameter block byte 1 = key_length (nonzero)
+//   - Key is zero-padded to 128 bytes and compressed as the first block
+//   - h[0] = IV[0] ^ (digest_len | key_len<<8 | fanout<<16 | depth<<24)
+
+/// Blake2b-256 IV constants
+const IV: [u64; 8] = [
+    0x6a09e667f3bcc908,
+    0xbb67ae8584caa73b,
+    0x3c6ef372fe94f82b,
+    0xa54ff53a5f1d36f1,
+    0x510e527fade682d1,
+    0x9b05688c2b3e6c1f,
+    0x1f83d9abfb41bd6b,
+    0x5be0cd19137e2179,
+];
+
+/// Kaspa sighash domain-separation key.
+/// ALL sighash hashing (sub-hashes and final digest) uses the SAME key.
+/// This matches the Rusty Kaspa reference: every hasher in sighash.rs
+/// is created via `TransactionSigningHash::new()`.
+const KEY_SIGNING_HASH: &[u8] = b"TransactionSigningHash";
+
+// The `blake2` 0.10 crate doesn't cleanly expose keyed hashing through
+// the high-level Digest API. Rather than fighting the API or adding a new
+// dependency, we implement a minimal keyed Blake2b-256 from scratch.
+// This is ~100 lines of pure Rust, no_std, no_alloc.
+
+/// Blake2b-256 sigma permutation table (12 rounds x 16 entries)
+const SIGMA: [[usize; 16]; 12] = [
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
+    [11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4],
+    [7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8],
+    [9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13],
+    [2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9],
+    [12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11],
+    [13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10],
+    [6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5],
+    [10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0],
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
+];
+
+/// Blake2b G mixing function
+#[inline(always)]
+fn g(v: &mut [u64; 16], a: usize, b: usize, c: usize, d: usize, x: u64, y: u64) {
+    v[a] = v[a].wrapping_add(v[b]).wrapping_add(x);
+    v[d] = (v[d] ^ v[a]).rotate_right(32);
+    v[c] = v[c].wrapping_add(v[d]);
+    v[b] = (v[b] ^ v[c]).rotate_right(24);
+    v[a] = v[a].wrapping_add(v[b]).wrapping_add(y);
+    v[d] = (v[d] ^ v[a]).rotate_right(16);
+    v[c] = v[c].wrapping_add(v[d]);
+    v[b] = (v[b] ^ v[c]).rotate_right(63);
+}
+
+/// Blake2b compress function
+fn compress(h: &mut [u64; 8], block: &[u8; 128], t: u128, last: bool) {
+    let mut v = [0u64; 16];
+    v[..8].copy_from_slice(h);
+    v[8..16].copy_from_slice(&IV);
+
+    v[12] ^= t as u64;
+    v[13] ^= (t >> 64) as u64;
+    if last {
+        v[14] = !v[14];
+    }
+
+    // Parse message block as 16 u64 LE words
+    let mut m = [0u64; 16];
+    for i in 0..16 {
+        let off = i * 8;
+        m[i] = u64::from_le_bytes([
+            block[off], block[off+1], block[off+2], block[off+3],
+            block[off+4], block[off+5], block[off+6], block[off+7],
+        ]);
+    }
+
+    // 12 rounds
+    for i in 0..12 {
+        let s = &SIGMA[i];
+        g(&mut v, 0, 4,  8, 12, m[s[ 0]], m[s[ 1]]);
+        g(&mut v, 1, 5,  9, 13, m[s[ 2]], m[s[ 3]]);
+        g(&mut v, 2, 6, 10, 14, m[s[ 4]], m[s[ 5]]);
+        g(&mut v, 3, 7, 11, 15, m[s[ 6]], m[s[ 7]]);
+        g(&mut v, 0, 5, 10, 15, m[s[ 8]], m[s[ 9]]);
+        g(&mut v, 1, 6, 11, 12, m[s[10]], m[s[11]]);
+        g(&mut v, 2, 7,  8, 13, m[s[12]], m[s[13]]);
+        g(&mut v, 3, 4,  9, 14, m[s[14]], m[s[15]]);
+    }
+
+    for i in 0..8 {
+        h[i] ^= v[i] ^ v[i + 8];
+    }
+}
+
+/// Keyed Blake2b-256 hasher (no_std, no_alloc, streaming).
+///
+/// Matches the Rusty Kaspa node's `blake2b_simd::Params::new().hash_length(32).key(k).to_state()`.
+pub struct KaspaBlake2b {
+    h: [u64; 8],
+    buf: [u8; 128],
+    buf_len: usize,
+    total: u128,
+}
+
+impl KaspaBlake2b {
+    /// Create a new keyed Blake2b-256 hasher.
+    /// The key can be 1..=64 bytes. Kaspa domain keys are ~20-22 ASCII bytes.
+    pub fn new(key: &[u8]) -> Self {
+        let key_len = key.len();
+
+        let mut h = IV;
+
+        // XOR parameter block word 0 into h[0]:
+        //   byte 0 = digest_length = 32 (0x20)
+        //   byte 1 = key_length
+        //   byte 2 = fanout = 1
+        //   byte 3 = depth = 1
+        h[0] ^= 0x20 | ((key_len as u64) << 8) | (1 << 16) | (1 << 24);
+
+        // Buffer the zero-padded key as the first 128-byte block.
+        // Don't compress yet — it might be the only (last) block.
+        let mut buf = [0u8; 128];
+        buf[..key_len].copy_from_slice(key);
+
+        Self {
+            h,
+            buf,
+            buf_len: 128, // key block fills the entire buffer
+            total: 0,
+        }
+    }
+
+    /// Feed data into the hasher.
+    pub fn update(&mut self, data: &[u8]) {
+        if data.is_empty() {
+            return;
+        }
+
+        // If buffer is full (key block or prior data) and new data is arriving,
+        // flush the buffer first — it's not the last block anymore.
+        if self.buf_len == 128 {
+            self.total += 128;
+            let block: [u8; 128] = self.buf;
+            compress(&mut self.h, &block, self.total, false);
+            self.buf_len = 0;
+        }
+
+        let mut offset = 0;
+        let len = data.len();
+
+        // Fill partial buffer from data
+        if self.buf_len > 0 {
+            let space = 128 - self.buf_len;
+            let take = if len < space { len } else { space };
+            self.buf[self.buf_len..self.buf_len + take].copy_from_slice(&data[..take]);
+            self.buf_len += take;
+            offset += take;
+        }
+
+        // Process data: flush full buffer when more data follows
+        while offset < len {
+            if self.buf_len == 128 {
+                self.total += 128;
+                let block: [u8; 128] = self.buf;
+                compress(&mut self.h, &block, self.total, false);
+                self.buf_len = 0;
+            }
+
+            let space = 128 - self.buf_len;
+            let remaining = len - offset;
+            let take = if remaining < space { remaining } else { space };
+            self.buf[self.buf_len..self.buf_len + take].copy_from_slice(&data[offset..offset + take]);
+            self.buf_len += take;
+            offset += take;
+        }
+    }
+
+    /// Finalize and return the 32-byte hash.
+    pub fn finalize(mut self) -> Hash256 {
+        self.total += self.buf_len as u128;
+
+        // Zero-pad the remaining buffer
+        for i in self.buf_len..128 {
+            self.buf[i] = 0;
+        }
+
+        let block: [u8; 128] = self.buf;
+        compress(&mut self.h, &block, self.total, true);
+
+        // Extract first 32 bytes (4 u64 words) as the hash
+        let mut hash = [0u8; 32];
+        for i in 0..4 {
+            let bytes = self.h[i].to_le_bytes();
+            hash[i * 8..(i + 1) * 8].copy_from_slice(&bytes);
+        }
+        hash
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Public API: hash helpers
+// ═══════════════════════════════════════════════════════════════════
+
+/// Hash Blake2b-256 of a buffer (unkeyed — for non-sighash uses)
 pub fn blake2b_hash(data: &[u8]) -> Hash256 {
     let mut hasher = Blake2b256::new();
     hasher.update(data);
@@ -50,15 +266,22 @@ pub fn blake2b_hash(data: &[u8]) -> Hash256 {
     hash
 }
 
-/// Hash Blake2b-256 incremental (usando un hasher)
+/// Hash Blake2b-256 with a Kaspa domain key (one-shot convenience)
+fn blake2b_keyed(key: &[u8], data: &[u8]) -> Hash256 {
+    let mut h = KaspaBlake2b::new(key);
+    h.update(data);
+    h.finalize()
+}
+
+/// Incremental keyed Blake2b-256 hasher for the final sighash digest.
 struct SigHasher {
-    hasher: Blake2b256,
+    hasher: KaspaBlake2b,
 }
 
 impl SigHasher {
     fn new() -> Self {
         Self {
-            hasher: Blake2b256::new(),
+            hasher: KaspaBlake2b::new(KEY_SIGNING_HASH),
         }
     }
 
@@ -87,37 +310,31 @@ impl SigHasher {
     }
 
     fn finalize(self) -> Hash256 {
-        let result = self.hasher.finalize();
-        let mut hash = [0u8; 32];
-        hash.copy_from_slice(&result);
-        hash
+        self.hasher.finalize()
     }
 }
 
 // ─── previousOutputsHash ──────────────────────────────────────────────
 
-/// Blake2b(serialization of all outpoints)
-/// Si ANYONECANPAY → 0x0000...0000
+/// Blake2b("TransactionOutpoints", serialization of all outpoints)
+/// If ANYONECANPAY -> 0x0000...0000
 fn previous_outputs_hash(tx: &Transaction, sighash_type: SigHashType) -> Hash256 {
     if sighash_type.is_anyone_can_pay() {
         return [0u8; 32];
     }
 
-    let mut hasher = Blake2b256::new();
+    let mut hasher = KaspaBlake2b::new(KEY_SIGNING_HASH);
     for input in tx.inputs() {
         hasher.update(&input.previous_outpoint.transaction_id);
         hasher.update(&input.previous_outpoint.index.to_le_bytes());
     }
-    let result = hasher.finalize();
-    let mut hash = [0u8; 32];
-    hash.copy_from_slice(&result);
-    hash
+    hasher.finalize()
 }
 
 // ─── sequencesHash ────────────────────────────────────────────────────
 
-/// Blake2b(serialization of all sequences)
-/// Si ANYONECANPAY, SINGLE o NONE → 0x0000...0000
+/// Blake2b("TransactionSequences", serialization of all sequences)
+/// If ANYONECANPAY, SINGLE or NONE -> 0x0000...0000
 fn sequences_hash(tx: &Transaction, sighash_type: SigHashType) -> Hash256 {
     if sighash_type.is_anyone_can_pay()
         || sighash_type.is_sighash_single()
@@ -126,42 +343,36 @@ fn sequences_hash(tx: &Transaction, sighash_type: SigHashType) -> Hash256 {
         return [0u8; 32];
     }
 
-    let mut hasher = Blake2b256::new();
+    let mut hasher = KaspaBlake2b::new(KEY_SIGNING_HASH);
     for input in tx.inputs() {
         hasher.update(&input.sequence.to_le_bytes());
     }
-    let result = hasher.finalize();
-    let mut hash = [0u8; 32];
-    hash.copy_from_slice(&result);
-    hash
+    hasher.finalize()
 }
 
 // ─── sigOpCountsHash ──────────────────────────────────────────────────
 
-/// Blake2b(serialization of all sigOpCounts)
-/// Si ANYONECANPAY → 0x0000...0000
+/// Blake2b("TransactionSigOpCounts", serialization of all sigOpCounts)
+/// If ANYONECANPAY -> 0x0000...0000
 fn sig_op_counts_hash(tx: &Transaction, sighash_type: SigHashType) -> Hash256 {
     if sighash_type.is_anyone_can_pay() {
         return [0u8; 32];
     }
 
-    let mut hasher = Blake2b256::new();
+    let mut hasher = KaspaBlake2b::new(KEY_SIGNING_HASH);
     for input in tx.inputs() {
         hasher.update(&[input.sig_op_count]);
     }
-    let result = hasher.finalize();
-    let mut hash = [0u8; 32];
-    hash.copy_from_slice(&result);
-    hash
+    hasher.finalize()
 }
 
 // ─── outputsHash ──────────────────────────────────────────────────────
 
-/// Blake2b(serialization of outputs)
+/// Blake2b("TransactionOutputs", serialization of outputs)
 ///
-/// - NONE or (SINGLE with input_index >= num_outputs) → 0x0000...0000
-/// - SINGLE with input_index < num_outputs → hash of output[input_index]
-/// - Others → hash of all outputs
+/// - NONE or (SINGLE with input_index >= num_outputs) -> 0x0000...0000
+/// - SINGLE with input_index < num_outputs -> hash of output[input_index]
+/// - Others -> hash of all outputs
 fn outputs_hash(
     tx: &Transaction,
     sighash_type: SigHashType,
@@ -175,43 +386,45 @@ fn outputs_hash(
         if input_index >= tx.num_outputs {
             return [0u8; 32];
         }
-        // Solo el output con el mismo index
+        // Only the output with the same index
         let output = &tx.outputs[input_index];
-        let mut hasher = Blake2b256::new();
+        let mut hasher = KaspaBlake2b::new(KEY_SIGNING_HASH);
         hash_output(&mut hasher, output);
-        let result = hasher.finalize();
-        let mut hash = [0u8; 32];
-        hash.copy_from_slice(&result);
-        return hash;
+        return hasher.finalize();
     }
 
     // SigHashAll: hash of all outputs
-    let mut hasher = Blake2b256::new();
+    let mut hasher = KaspaBlake2b::new(KEY_SIGNING_HASH);
     for output in tx.outputs() {
         hash_output(&mut hasher, output);
     }
-    let result = hasher.finalize();
-    let mut hash = [0u8; 32];
-    hash.copy_from_slice(&result);
-    hash
+    hasher.finalize()
 }
 
-/// Serialize an output for hashing
-fn hash_output(hasher: &mut Blake2b256, output: &TransactionOutput) {
+/// Serialize an output for hashing.
+/// Matches Rusty Kaspa's `hash_output` which calls `hash_script_public_key`,
+/// which uses `write_var_bytes` (u64 LE length prefix + raw bytes).
+fn hash_output(hasher: &mut KaspaBlake2b, output: &TransactionOutput) {
     hasher.update(&output.value.to_le_bytes());
+    // hash_script_public_key: version(u16 LE) + write_var_bytes(script)
     hasher.update(&output.script_public_key.version.to_le_bytes());
+    hasher.update(&(output.script_public_key.script_len as u64).to_le_bytes());
     hasher.update(output.script_public_key.script_bytes());
 }
 
 // ─── payloadHash ──────────────────────────────────────────────────────
 
-/// Si native (subnetwork = 0x00...00) → 0x0000...0000
-/// Sino → Blake2b(payload)
+/// If native with empty payload -> 0x0000...0000
+/// Otherwise -> keyed Blake2b(write_var_bytes(payload))
 fn payload_hash(tx: &Transaction) -> Hash256 {
-    if tx.is_native() {
+    if tx.is_native() && tx.payload_len == 0 {
         return [0u8; 32];
     }
-    blake2b_hash(&tx.payload[..tx.payload_len])
+    let mut hasher = KaspaBlake2b::new(KEY_SIGNING_HASH);
+    // write_var_bytes: length prefix (u64 LE) + raw bytes
+    hasher.update(&(tx.payload_len as u64).to_le_bytes());
+    hasher.update(&tx.payload[..tx.payload_len]);
+    hasher.finalize()
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -224,9 +437,9 @@ fn payload_hash(tx: &Transaction) -> Hash256 {
 ///
 /// `tx`: the complete transaction
 /// `input_index`: index of the input being signed
-/// `sighash_type`: tipo de sighash (normalmente SigHashAll)
+/// `sighash_type`: sighash type (normally SigHashAll)
 ///
-/// Returns 32 bytes = Blake2b of the sighash digest.
+/// Returns 32 bytes = keyed Blake2b of the sighash digest.
 pub fn calculate_sighash(
     tx: &Transaction,
     input_index: usize,
@@ -240,7 +453,7 @@ pub fn calculate_sighash(
     let outputs = outputs_hash(tx, sighash_type, input_index);
     let payload = payload_hash(tx);
 
-    // Construir el digest final
+    // Build the final digest with "TransactionSigningHash" domain key
     let mut h = SigHasher::new();
 
     // 1. tx.Version (2 bytes LE)
@@ -301,7 +514,7 @@ pub fn calculate_sighash(
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Full flow: sighash → Schnorr sign
+// Full flow: sighash -> Schnorr sign
 // ═══════════════════════════════════════════════════════════════════════
 
 /// Sign a Kaspa transaction input.
@@ -311,7 +524,7 @@ pub fn calculate_sighash(
 /// `tx`: complete transaction
 /// `input_index`: input to sign
 /// `private_key`: 32-byte private key (from BIP32 derivation)
-/// `sighash_type`: tipo (normalmente SigHashAll)
+/// `sighash_type`: type (normally SigHashAll)
 ///
 /// Returns the 64-byte Schnorr signature.
 pub fn sign_input(
@@ -329,6 +542,23 @@ pub fn sign_input(
 // ═══════════════════════════════════════════════════════════════════════
 
 #[cfg(any(test, feature = "verbose-boot"))]
+/// Test: Keyed Blake2b produces different output than unkeyed.
+pub fn test_keyed_differs() -> bool {
+    let data = b"test data for keyed hash check";
+
+    // Unkeyed
+    let plain = blake2b_hash(data);
+
+    // Keyed with signing hash domain key
+    let mut h = KaspaBlake2b::new(KEY_SIGNING_HASH);
+    h.update(data);
+    let keyed = h.finalize();
+
+    // They MUST differ — if they're the same, keying is not working
+    plain != keyed
+}
+
+#[cfg(any(test, feature = "verbose-boot"))]
 /// Test: basic sighash computation for a single-input transaction.
 pub fn test_sighash_basic() -> bool {
     // Create a simple transaction: 1 input, 1 output
@@ -337,7 +567,7 @@ pub fn test_sighash_basic() -> bool {
     tx.num_inputs = 1;
     tx.num_outputs = 1;
 
-    // Input: UTXO con 5 KAS (500_000_000 sompi)
+    // Input: UTXO with 5 KAS (500_000_000 sompi)
     tx.inputs[0].previous_outpoint.transaction_id = [0xAA; 32];
     tx.inputs[0].previous_outpoint.index = 0;
     tx.inputs[0].sequence = u64::MAX;
@@ -358,10 +588,10 @@ pub fn test_sighash_basic() -> bool {
     tx.outputs[0].script_public_key.script[33] = 0xAC;
     tx.outputs[0].script_public_key.script_len = 34;
 
-    // Calcular sighash
+    // Compute sighash
     let sighash = calculate_sighash(&tx, 0, SigHashType::All);
 
-    // El sighash no debe ser todo ceros
+    // The sighash must not be all zeros
     let all_zero = sighash.iter().all(|&b| b == 0);
     if all_zero {
         return false;
@@ -427,7 +657,7 @@ pub fn test_sign_transaction_complete() -> bool {
     use super::bip32;
     use super::schnorr;
 
-    // 1. Generar wallet
+    // 1. Generate wallet
     let entropy = [0u8; 16];
     let mnemonic = bip39::mnemonic_from_entropy_12(&entropy);
     let seed = bip39::seed_from_mnemonic_12(&mnemonic, "");
@@ -452,7 +682,7 @@ pub fn test_sign_transaction_complete() -> bool {
     tx.inputs[0].sig_op_count = 1;
     tx.inputs[0].utxo_entry.amount = 1_000_000_000; // 10 KAS
 
-    // Script del UTXO = P2PK con nuestra pubkey
+    // Script of the UTXO = P2PK with our pubkey
     tx.inputs[0].utxo_entry.script_public_key.version = 0;
     tx.inputs[0].utxo_entry.script_public_key.script[0] = 0x20; // OP_DATA_32
     tx.inputs[0].utxo_entry.script_public_key.script[1..33].copy_from_slice(&pubkey_x);
@@ -463,20 +693,20 @@ pub fn test_sign_transaction_complete() -> bool {
     tx.outputs[0].value = 999_000_000; // 9.99 KAS (fee = 0.01 KAS)
     tx.outputs[0].script_public_key.version = 0;
     tx.outputs[0].script_public_key.script[0] = 0x20;
-    tx.outputs[0].script_public_key.script[1..33].copy_from_slice(&[0xFF; 32]); // destino
+    tx.outputs[0].script_public_key.script[1..33].copy_from_slice(&[0xFF; 32]); // destination
     tx.outputs[0].script_public_key.script[33] = 0xAC;
     tx.outputs[0].script_public_key.script_len = 34;
 
-    // 3. Calcular sighash
+    // 3. Compute sighash
     let sighash = calculate_sighash(&tx, 0, SigHashType::All);
 
-    // 4. Firmar con Schnorr
+    // 4. Sign with Schnorr
     let sig = match schnorr::schnorr_sign(key.private_key_bytes(), &sighash) {
         Ok(s) => s,
         Err(_) => return false,
     };
 
-    // 5. Verificar firma
+    // 5. Verify signature
     schnorr::schnorr_verify(&pubkey_x, &sighash, &sig).is_ok()
 }
 
@@ -511,8 +741,9 @@ pub fn test_format_kas() -> bool {
 /// Run all sighash test vectors.
 pub fn run_sighash_tests() -> (u32, u32) {
     let mut passed = 0u32;
-    let total = 4u32;
+    let total = 5u32;
 
+    if test_keyed_differs() { passed += 1; }
     if test_sighash_basic() { passed += 1; }
     if test_sighash_different_inputs() { passed += 1; }
     if test_sign_transaction_complete() { passed += 1; }

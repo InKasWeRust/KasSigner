@@ -5,10 +5,10 @@ All notable changes to KasSigner will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.0.0] — 2025-03-26
+## [1.0.0] — 2026-03-28
 
 ### Added
-- Air-gapped Kaspa hardware wallet — 100% Rust, no_std, no network stack
+- Air-gapped Kaspa offline signing device — 100% Rust, no_std, no network stack
 - BIP39 seed generation (12/24 words) from hardware TRNG + camera + ADC entropy
 - BIP39 passphrase (25th word) support with hidden wallet derivation
 - BIP32 HD key derivation (Kaspa path m/44'/111111'/0')
@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Panic handler with SRAM zeroization
 - SD card format with hold-to-confirm safety (4-second red button)
 - Reproducible builds via Docker
+- Live display mirror — stream screen to Mac/PC via serial for presentations
+- Cross-platform build environment checker (tools/setup_check.rs)
 
 ### Hardware Support
 - **Waveshare ESP32-S3-Touch-LCD-2** (primary)
@@ -55,11 +57,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - Battery gauge via PMU
 
 ### Code Quality
-- 76 source files, ~41,700 lines of Rust
-- Zero compiler warnings on both platforms
+- 80 source files, ~42,900 lines of Rust
+- Zero compiler warnings on both platforms (clippy clean)
 - 1,549 lines of dead code removed during pre-release audit
 - All comments in English
 - Zero TODO/FIXME comments remaining
 - Targeted per-module `#[allow]` directives (no blanket crate-level suppression)
 - GPL v3.0 license header on every source file
-- Module description headers on all 76 files
+- Module description headers on all source files

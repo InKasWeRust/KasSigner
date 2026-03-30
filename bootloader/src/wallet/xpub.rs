@@ -27,7 +27,6 @@
 // KasWare for watch-only wallet import.
 
 
-#![allow(dead_code)]
 use sha2::{Sha256, Digest};
 use super::bip32::{ExtendedPrivKey, derive_path, Bip32Error};
 use super::hmac::zeroize_buf;
@@ -128,7 +127,7 @@ fn sha256d(data: &[u8]) -> [u8; 32] {
         h.finalize()
     };
     let mut h = Sha256::new();
-    h.update(&first);
+    h.update(first);
     let result: [u8; 32] = h.finalize().into();
     result
 }
@@ -274,7 +273,7 @@ pub fn derive_and_serialize_xprv(
     // Parent fingerprint
     let parent_sha = {
         let mut h = Sha256::new();
-        h.update(&parent_pubkey);
+        h.update(parent_pubkey);
         let result: [u8; 32] = h.finalize().into();
         result
     };

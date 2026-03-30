@@ -19,7 +19,6 @@
 // Paginated grid: 8 icons per page (4×2), category label at top,
 // nav arrows at bottom. Feature-gated behind `icon-browser`.
 
-#![allow(dead_code)]
 use embedded_graphics::prelude::*;
 use embedded_graphics::image::Image;
 use embedded_graphics::pixelcolor::Rgb565;
@@ -439,8 +438,8 @@ pub fn draw_icon_page(d: &mut impl DrawTarget<Color = Rgb565>, page: u16) {
 pub fn hit_nav(x: u16, y: u16) -> i16 {
     let nav_y = 190u16;
     if y >= nav_y && y < nav_y + 28 {
-        if x >= 4 && x < 84 { return -1; }
-        if x >= 236 && x < 316 { return 1; }
+        if (4..84).contains(&x) { return -1; }
+        if (236..316).contains(&x) { return 1; }
     }
     0
 }

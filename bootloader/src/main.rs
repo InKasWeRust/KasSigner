@@ -1,6 +1,29 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 #![allow(static_mut_refs)]
+// Clippy Phase A+B cleanup — remaining allows are architectural or intentional
+#![allow(clippy::needless_range_loop)]          // index-based loops intentional in no_std crypto/DMA
+#![allow(clippy::too_many_arguments)]           // handler functions need many params
+#![allow(clippy::identity_op)]                  // 0 | HARDENED_BIT for BIP32 path clarity
+#![allow(clippy::single_match)]                 // match with one arm often clearer than if-let
+#![allow(clippy::nonminimal_bool)]              // expanded bool for readability in crypto
+#![allow(clippy::manual_div_ceil)]              // (a + b - 1) / b — .div_ceil() not stable in no_std
+#![allow(clippy::unnecessary_min_or_max)]       // explicit min/max for bounds documentation
+#![allow(clippy::manual_clamp)]                 // explicit if/else clamp for clarity
+#![allow(clippy::manual_find)]                  // manual loop find in no_std
+#![allow(clippy::manual_is_multiple_of)]        // x % n == 0 — .is_multiple_of() not stable in no_std
+#![allow(clippy::if_same_then_else)]            // platform-specific cfg blocks
+#![allow(clippy::manual_memcpy)]                // manual slice copy in unsafe DMA blocks
+#![allow(clippy::manual_saturating_arithmetic)] // explicit saturating in crypto
+#![allow(clippy::bool_comparison)]              // explicit == true/false in some contexts
+#![allow(clippy::manual_range_patterns)]        // manual range patterns for touch zones
+#![allow(clippy::implicit_saturating_sub)]      // manual arithmetic for saturating subtract
+#![allow(clippy::manual_pattern_char_comparison)] // explicit case comparison
+#![allow(clippy::manual_ignore_case_cmp)]       // manual ASCII comparison
+#![allow(clippy::unnecessary_mut_passed)]       // mutable ref to DMA methods
+#![allow(clippy::bool_to_int_with_if)]          // if x { 1 } else { 0 } patterns
+#![allow(clippy::collapsible_else_if)]          // else { if } with trailing statements
+#![allow(clippy::doc_lazy_continuation)]        // doc comment formatting
 #![no_std]
 #![no_main]
 
@@ -595,8 +618,8 @@ fn main() -> ! {
 
     log!("   Touch ready — tap menu items to navigate");
 
-    #[cfg(feature = "screenshot")]
-    log!("   [SCREENSHOT] Feature enabled — triple-tap top-right to capture");
+    #[cfg(feature = "mirror")]
+    log!("   [MIRROR] Live display mirror active");
 
     // ─── Main loop ───────────────────────────────────────────────
     const IDLE_DIM_TICKS: u32 = 36000;
@@ -608,6 +631,10 @@ fn main() -> ! {
     let mut dim_active: bool = false;
 
     loop {
+        // ─── Mirror: send a few rows per iteration (non-blocking) ──
+        #[cfg(feature = "mirror")]
+        hw::screenshot::pump_rows();
+
         // ─── Touch polling (platform-specific API) ───────────────
         #[cfg(feature = "waveshare")]
         let (touch_state, action) = {
@@ -681,16 +708,6 @@ fn main() -> ! {
                 }
             }
 
-            #[cfg(feature = "screenshot")]
-            {
-                if hw::screenshot::check_screenshot_trigger(x, y, ad.idle_ticks) {
-                    log!("   Screenshot triggered — dumping to UART...");
-                    hw::screenshot::dump_uart();
-                    log!("   Screenshot complete.");
-                    continue;
-                }
-            }
-
             let result = match ad.app.state.handler_group() {
                 HandlerGroup::Menu => handlers::menu::handle_menu_touch(
                     &mut ad, &mut boot_display, &mut delay, &mut i2c,
@@ -709,7 +726,7 @@ fn main() -> ! {
                     x, y, is_back,
                 ),
                 HandlerGroup::Seed => handlers::seed::handle_seed_touch(
-                    &mut ad, &mut boot_display, &mut delay,
+                    &mut ad, &mut boot_display, &mut delay, &mut i2c,
                     x, y, is_back,
                 ),
                 HandlerGroup::Export => handlers::export::handle_export_touch(
@@ -804,7 +821,7 @@ fn main() -> ! {
             } else if let hw::touch::TouchAction::Drag { x, y, .. } = action {
                 // Drag on brightness bar (DisplaySettings)
                 if ad.app.state == app::input::AppState::DisplaySettings
-                    && x >= 70 && x <= 250 && y >= 60 && y <= 130
+                    && (70..=250).contains(&x) && (60..=130).contains(&y)
                 {
                     let pct = ((x as u32 - 70) * 255 / 180).min(255) as u8;
                     if pct != ad.brightness {
@@ -816,7 +833,7 @@ fn main() -> ! {
                 // Drag on cam-tune slider
                 if ad.app.state == app::input::AppState::ScanQR && ad.cam_tune_active && y >= 196 {
                     let p = ad.cam_tune_param as usize;
-                    if x >= 56 && x <= 264 {
+                    if (56..=264).contains(&x) {
                         let clamped = (x as i32 - 56).max(0).min(208) as u32;
                         ad.cam_tune_vals[p] = ((clamped * 255) / 208) as u8;
                         ad.cam_tune_dirty = true;
@@ -843,6 +860,9 @@ fn main() -> ! {
             }
             log!("   [DBG] redraw t={} state={:?}", ad.idle_ticks, ad.app.state);
             ui::redraw::redraw_screen(&mut ad, &mut boot_display, &mut i2c, &_bb_card_type);
+            // Mirror mode: request non-blocking frame dump
+            #[cfg(feature = "mirror")]
+            hw::screenshot::request_frame();
             // Waveshare: read touch after redraw to feed tracker
             #[cfg(feature = "waveshare")]
             {
