@@ -92,7 +92,7 @@ pub enum Bip32Error {
 
 /// Extended private key: private key (32 bytes) + chain code (32 bytes)
 pub struct ExtendedPrivKey {
-    /// Clave privada (escalar secp256k1, 32 bytes big-endian)
+    /// Private key (secp256k1 scalar, 32 bytes big-endian)
     key: [u8; 32],
     /// Chain code for child derivation
     chain_code: [u8; 32],
@@ -136,7 +136,7 @@ impl ExtendedPrivKey {
         &self.key
     }
 
-    /// Devuelve referencia al chain code
+    /// Returns reference to the chain code
     pub fn chain_code_bytes(&self) -> &[u8; 32] {
         &self.chain_code
     }
@@ -453,14 +453,14 @@ fn is_less_than_order(a: &[u8; 32]) -> bool {
     false // a == n → no es menor
 }
 
-/// Suma modular: (a + b) mod n
+/// Modular addition: (a + b) mod n
 /// where n is the order of secp256k1.
 ///
 /// Algoritmo:
 ///   1. Add a + b as 256-bit integers (with carry)
-///   2. Si resultado >= n, restar n
+///   2. If result >= n, subtract n
 fn scalar_add_mod_n(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
-    // Paso 1: Suma big-endian con carry
+    // Step 1: Big-endian addition with carry
     let mut result = [0u8; 32];
     let mut carry: u16 = 0;
 
@@ -470,8 +470,8 @@ fn scalar_add_mod_n(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
         carry = sum >> 8;
     }
 
-    // Paso 2: Si carry=1 o result >= n, restar n
-    // (carry=1 significa que el resultado es >= 2^256, que es > n)
+    // Step 2: If carry=1 or result >= n, subtract n
+    // (carry=1 means the result is >= 2^256, which is > n)
     let needs_reduce = carry > 0 || !less_than(&result, &SECP256K1_ORDER);
 
     if needs_reduce {
@@ -481,7 +481,7 @@ fn scalar_add_mod_n(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
     result
 }
 
-/// Compara a < b (big-endian, 32 bytes).
+/// Compares a < b (big-endian, 32 bytes).
 fn less_than(a: &[u8; 32], b: &[u8; 32]) -> bool {
     for i in 0..32 {
         if a[i] < b[i] {

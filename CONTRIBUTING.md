@@ -5,7 +5,7 @@ Thank you for your interest in contributing to KasSigner!
 ## Security Vulnerabilities
 
 **DO NOT open a public issue for security vulnerabilities.** Instead, email
-kassigner@proton.me with details. See [SECURITY.md](SECURITY.md) for our
+kassigner-security@proton.me with details. See [SECURITY.md](SECURITY.md) for our
 full security policy.
 
 ## How to Contribute

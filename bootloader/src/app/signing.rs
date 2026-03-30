@@ -274,24 +274,24 @@ pub fn run_firmware_verify(
 
         VerificationResult::VersionTooOld => {
             log!("CRITICAL: Version too old!");
-            boot_display.show_panic_screen("VERSION ANTIGUA").ok();
+            boot_display.show_panic_screen("VERSION TOO OLD").ok();
             halt_forever(delay);
         }
 
         VerificationResult::ReadError => {
             log!("ERROR: Could not read firmware");
-            boot_display.show_panic_screen("ERROR LECTURA").ok();
+            boot_display.show_panic_screen("READ ERROR").ok();
             halt_forever(delay);
         }
 
         VerificationResult::FlowViolation => {
-            log!("CRITICAL: Flow counter violation — posible fault injection!");
+            log!("CRITICAL: Flow counter violation — possible fault injection!");
             boot_display.show_panic_screen("FLOW VIOLATION").ok();
             halt_forever(delay);
         }
 
         VerificationResult::CanaryCorrupt => {
-            log!("CRITICAL: Canary corrupto — posible fault injection!");
+            log!("CRITICAL: Canary corrupt — possible fault injection!");
             boot_display.show_panic_screen("TAMPER DETECT").ok();
             halt_forever(delay);
         }

@@ -24,16 +24,16 @@
 // The flow counter detects this: if a stage is skipped, the counter
 // final value will not match the expected value.
 //
-// USO:
+// USAGE:
 //   flow::reset();
-//   flow::step();  // etapa 1
+//   flow::step();  // stage 1
 //   do_thing_1();
-//   flow::step();  // etapa 2
+//   flow::step();  // stage 2
 //   do_thing_2();
-//   flow::step();  // etapa 3
+//   flow::step();  // stage 3
 //   if flow::count() != 3 { panic!("glitch detected"); }
 //
-// LIMITACIONES:
+// LIMITATIONS:
 //   - A sophisticated glitch could increment the counter without executing
 //     the actual stage. Combine with canaries and redundant verification.
 //   - The counter uses a mutable global variable (required in no-std
@@ -41,7 +41,7 @@
 
 use core::sync::atomic::{compiler_fence, Ordering};
 
-// Contador de etapas (variable global mutable)
+// Stage counter (global mutable variable)
 static mut COUNTER: u32 = 0;
 
 // Resets the counter to zero.

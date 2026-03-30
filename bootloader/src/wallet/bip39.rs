@@ -22,7 +22,7 @@
 //   2. Indices → English wordlist words
 //   3. Mnemonic + passphrase → PBKDF2-HMAC-SHA512 (2048 iterations) → 512-bit seed
 //
-// Seguridad:
+// Security:
 //   - All sensitive memory is zeroized on completion
 //   - No heap/alloc — all in stack arrays
 //   - Compatible with official BIP39 test vectors
@@ -63,7 +63,7 @@ pub struct Mnemonic24 {
 }
 
 /// Seed BIP39 de 512 bits (64 bytes)
-/// Resultado de PBKDF2-HMAC-SHA512
+/// Result of PBKDF2-HMAC-SHA512
 pub struct Seed {
     pub bytes: [u8; 64],
 }

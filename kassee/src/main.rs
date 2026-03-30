@@ -1,4 +1,4 @@
-// KasSigner Companion — Watch-only wallet for air-gapped PSKT signing
+// KasSee — Watch-only companion wallet for air-gapped KasSigner
 // Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
 // GPL-3.0 License
 //
@@ -7,17 +7,17 @@
 // and creates unsigned PSKBs for the device to sign.
 //
 // Flow:
-//   1. companion import <kpub>        — store kpub, derive addresses
-//   2. companion balance              — connect to node, show balance
-//   3. companion send <addr> <amount> — build unsigned PSKB, show as QR
-//   4. companion broadcast <pskb>     — broadcast signed PSKB from device
+//   1. kassee import <kpub>            — store kpub, derive addresses
+//   2. kassee balance                  — connect to node, show balance
+//   3. kassee send <addr> <amount>     — build unsigned PSKB, show as QR
+//   4. kassee broadcast <pskb>         — broadcast signed PSKB from device
 
 use clap::{Parser, Subcommand};
 
 mod wallet;
 
 #[derive(Parser)]
-#[command(name = "kassigner-companion")]
+#[command(name = "kassee")]
 #[command(about = "KasSigner Companion — watch-only wallet for air-gapped signing")]
 struct Cli {
     #[command(subcommand)]

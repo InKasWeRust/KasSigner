@@ -1,12 +1,12 @@
 [package]
-name = "kassigner-companion"
+name = "kassee"
 version = "0.1.0"
 edition = "2021"
-description = "KasSigner Companion — watch-only wallet for air-gapped PSKT signing"
+description = "KasSee — watch-only companion wallet for air-gapped KasSigner"
 license = "GPL-3.0"
 
 [[bin]]
-name = "kassigner-companion"
+name = "kassee"
 path = "src/main.rs"
 
 [dependencies]

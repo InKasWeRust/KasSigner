@@ -147,6 +147,60 @@ cargo run --release --bin kassigner-mirror -- /dev/cu.usbmodem21201
 # Press reset on device — screen appears in window
 ```
 
+## KasSee — Watch-Only Companion Wallet
+
+KasSee is the online counterpart to KasSigner. It imports your kpub (extended public key), derives all receive and change addresses, tracks UTXOs via a public Kaspa node, builds unsigned transactions, and broadcasts signed ones. It never sees your private keys.
+
+### Building KasSee
+
+```bash
+cd kassee
+cargo build --release
+```
+
+No Xtensa toolchain needed — KasSee is standard Rust, runs on macOS/Linux/Windows.
+
+### Quick start
+
+```bash
+# Import your kpub from KasSigner (Seeds → Export → kpub Watch-Only)
+kassee import <kpub_string>
+
+# Check balance
+kassee balance
+
+# List addresses
+kassee addresses -n 10
+kassee addresses -n 10 --change
+
+# Send KAS (creates unsigned KSPT, displays as animated QR GIF)
+kassee send <destination_address> <amount_kas>
+
+# Broadcast a signed transaction from KasSigner
+kassee broadcast <signed_hex>
+```
+
+### Air-gapped signing flow
+
+```
+KasSee                          KasSigner
+───────                         ─────────
+1. Build unsigned KSPT
+2. Display as QR ──────────────→ 3. Scan QR
+                                 4. Review TX on screen
+                                 5. Sign with private key
+6. Scan signed QR ←───────────── 7. Display signed QR
+8. Broadcast to network
+```
+
+### Safety features
+
+- **Fee estimation** — queries node for current feerate, warns if fee too low
+- **Storage mass awareness** — warns for outputs below 0.2 KAS (KIP-9/Crescendo)
+- **Address reuse detection** — warns if destination has existing UTXOs (P2PK pubkey exposure)
+- **Change address rotation** — auto-bumps to next unused change address
+- **Balanced QR frames** — splits data evenly across frames for reliable scanning
+
 ## Project Structure
 
 ```
@@ -155,6 +209,12 @@ kassigner/
 ├── SECURITY.md
 ├── LICENSE
 ├── .gitignore
+│
+├── kassee/                         KasSee — watch-only companion wallet
+│   ├── Cargo.toml
+│   └── src/
+│       ├── main.rs                 CLI entry point (clap)
+│       └── wallet.rs              kpub import, UTXO tracking, KSPT builder
 │
 ├── docs/
 │   ├── STEGANOGRAPHY.md        JPEG EXIF steganographic backup
@@ -259,7 +319,6 @@ kassigner/
 │       └── crypto/             Low-level security primitives
 │           ├── constant_time.rs  Constant-time comparison
 │           ├── secure_zeroize.rs Memory zeroization
-│           ├── secret_box.rs     XOR-masked secret containers
 │           └── flow.rs           Flow integrity counters
 ```
 
@@ -307,10 +366,9 @@ Address keys derived on demand (index 0, 1, 2, ...)
 
 Private keys are:
 
-1. **XOR-masked in RAM** — never stored as plaintext (`crypto/secret_box.rs`)
-2. **Zeroized after use** — compiler-proof memory clearing (`crypto/secure_zeroize.rs`)
-3. **Never persisted** — all seed slots live in RAM only, lost on power-off
-4. **Encrypted for SD backup** — AES-256-GCM with user passphrase
+1. **Zeroized after use** — compiler-proof memory clearing (`crypto/secure_zeroize.rs`)
+2. **Never persisted** — all seed slots live in RAM only, lost on power-off
+3. **Encrypted for SD backup** — AES-256-GCM with user passphrase
 
 ### Boot verification
 

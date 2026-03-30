@@ -26,12 +26,12 @@
 // Blob format in flash:
 //   [version: 1B][nonce: 12B][ciphertext: variable][tag: 16B]
 //
-// Seguridad:
+// Security:
 //   - AES key is never stored — re-derived from PIN at each boot
-//   - El nonce es random (12 bytes del TRNG)
+//   - Nonce is random (12 bytes from TRNG)
 //   - AAD includes version byte to prevent downgrade attacks
 //   - Zeroization of all intermediate buffers
-//   - 3 intentos fallidos → wipe (gestionado por el caller)
+//   - 3 failed attempts → wipe (managed by the caller)
 //
 // NOTE: uses AeadInPlace to avoid alloc — all encrypt/decrypt in fixed buffers.
 

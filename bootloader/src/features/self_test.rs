@@ -107,7 +107,7 @@ pub fn run_all_tests() -> SelfTestResult {
     result.sha256_ok = test_sha256();
     log!("      {}", if result.sha256_ok { "OK" } else { "FAIL" });
 
-    // ── Test 5: Display (se verifica en Fase 2) ─────────────────
+    // ── Test 5: Display (verified in Phase 2) ─────────────────
     log!("[5/5] Display...");
     result.display_ok = true;
     log!("      Deferred (Phase 2)");
@@ -272,8 +272,8 @@ fn test_flash_data_segment() -> bool {
 
 // ─── Self-test de SHA256 ──────────────────────────────────────────────
 //
-// Verifica que el motor SHA256 funciona correctamente calculando
-// el hash de un vector de test conocido (NIST FIPS 180-4).
+// Verifies that the SHA256 engine works correctly by computing
+// the hash of a known test vector (NIST FIPS 180-4).
 //
 // Input:  "abc" (3 bytes)
 // Output: ba7816bf 8f01cfea 414140de 5dae2223 b00361a3 96177a9c b410ff61 f20015ad

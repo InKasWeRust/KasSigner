@@ -5,6 +5,42 @@ All notable changes to KasSigner will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] — 2026-03-30
+
+### Critical Fixes
+- **Sighash**: All sub-hashes and final digest now use keyed Blake2b-256 with `TransactionSigningHash` domain key (was unkeyed)
+- **Output hash**: Added `script_len` (u64 LE) prefix before script bytes in `hash_output`
+- **Schnorr challenge**: Switched from plain `SHA256(R||P||msg)` to BIP-340 tagged hash `SHA256(tag||tag||R||P||msg)`
+- **Change address signing**: `find_address_index_for_pubkey` now searches both receive (m/.../0/x) and change (m/.../1/x) chains; returns `(index, is_change)` tuple; all 3 callers updated
+
+### Added
+- **KasSee** — watch-only companion wallet integrated into monorepo (`kassee/`)
+  - Import kpub, derive addresses, track UTXOs, build unsigned KSPT
+  - Fee estimation via node RPC (`get_fee_estimate`)
+  - Storage mass awareness (KIP-9/Crescendo): warns < 0.2 KAS, errors < 0.1 KAS
+  - Address reuse detection with warning pause
+  - Change address auto-rotation
+  - Balanced QR frame splitting (equal size across frames)
+  - `addresses --change` flag for change address listing
+- **SD backup delete** with hold-to-confirm (matches seed delete UX: CANCEL left, DELETE right, HOLD 4s)
+- **SD file list** fingerprint matching ("Seed #1", "Seed #2" labels)
+- **SD progress bars** on seed restore decrypt and xprv import
+- **Pre-signing size check**: rejects transactions exceeding 1024-byte buffer with "Too many inputs! N inputs — max 5. Compound first."
+- **KSSN hex dump** as single line (was multi-line, required manual cleanup)
+- **Hex buffer overflow** handled gracefully with warning (no panic)
+
+### Fixed
+- "Wrong passphrase" → "Wrong password" on SD import failure
+- Remaining Spanish comments translated to English (5 instances)
+- Email inconsistency in CONTRIBUTING.md (now `kassigner-security@proton.me`)
+- Crate renamed from `kassigner-companion` to `kassee`
+
+### Verified on Mainnet
+- TX `2faa58b2...` — 1-input, 1-output (first air-gapped broadcast)
+- TX `450e2e2d...` — 1-input, 1-output (fee logic)
+- TX `35013c16...` — 1-input, 1-output (storage mass)
+- TX `277517da...` — 3-input, 1-output (multi-UTXO across receive + change chains)
+
 ## [1.0.0] — 2026-03-28
 
 ### Added

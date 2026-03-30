@@ -45,7 +45,7 @@ fn wallet_path() -> PathBuf {
     } else {
         PathBuf::from(".")
     };
-    p.push("kassigner-companion.json");
+    p.push("kassee.json");
     p
 }
 
@@ -58,7 +58,7 @@ fn save_wallet(data: &WalletData) -> Result<(), String> {
 fn load_wallet() -> Result<WalletData, String> {
     let path = wallet_path();
     let json = std::fs::read_to_string(&path)
-        .map_err(|_| "No wallet found. Run 'kassigner-companion import <kpub>' first.".to_string())?;
+        .map_err(|_| "No wallet found. Run 'kassee import <kpub>' first.".to_string())?;
     serde_json::from_str(&json).map_err(|e| format!("Corrupt wallet file: {}", e))
 }
 

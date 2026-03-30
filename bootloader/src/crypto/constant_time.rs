@@ -27,7 +27,7 @@
 
 use core::sync::atomic::{compiler_fence, Ordering};
 
-/// Compara dos slices de bytes en tiempo constante.
+/// Compares two byte slices in constant time.
 /// Returns true if and only if they are identical byte-by-byte.
 /// Always iterates all bytes — never short-circuits.
 #[inline(never)]
