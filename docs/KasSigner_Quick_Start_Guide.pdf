@@ -1,296 +1,1188 @@
 %PDF-1.4
-%“Œ‹ž ReportLab Generated PDF document (opensource)
+%âãÏÓ
 1 0 obj
 <<
-/F1 2 0 R /F2 3 0 R /F3 4 0 R /F4 5 0 R /F5 6 0 R /F6 7 0 R 
-  /F7 8 0 R
+/Producer (pypdf)
 >>
 endobj
 2 0 obj
 <<
-/BaseFont /Helvetica /Encoding /WinAnsiEncoding /Name /F1 /Subtype /Type1 /Type /Font
+/Type /Pages
+/Count 5
+/Kids [ 4 0 R 13 0 R 16 0 R 19 0 R 22 0 R ]
 >>
 endobj
 3 0 obj
 <<
-/BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding /Name /F2 /Subtype /Type1 /Type /Font
+/Type /Catalog
+/Pages 2 0 R
 >>
 endobj
 4 0 obj
 <<
-/BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding /Name /F3 /Subtype /Type1 /Type /Font
+/Contents 5 0 R
+/MediaBox [ 0 0 595.2756 841.8898 ]
+/Resources <<
+/Font 6 0 R
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>>
+/Rotate 0
+/Trans <<
+>>
+/Type /Page
+/Parent 2 0 R
 >>
 endobj
 5 0 obj
 <<
-/BaseFont /ZapfDingbats /Name /F4 /Subtype /Type1 /Type /Font
+/Filter [ /ASCII85Decode /FlateDecode ]
+/Length 1077
 >>
+stream
+GatU2gN'&Y&:N^lqJiiA*mYjOMc8rtnn'P[9dP)+b?,/cCB<u77.K04#>&1-Mp#*NPlr!8e)thFDT%(bS+Y[>$K/B%0&JHm*3oX5,SICYE1KEn&N_1:9IL^G6VJ5WWFgB^FSd;5em\VA7>+MRILq>@RK*qWVilU87i7I"4>^R`Eo8'^i#m;Q^_A"C_*'5X3P>1Dq"o);>PAM9h]R7R(NTQh^0TZMB*m233GB8L6jO\U5Rr=BLr18W+!VsE9p'Le:m#c\9#b<LG9<Qjhk1$'.FCfn!aE0A%*pcX8uQ5l7/ql1j$HA"AJ.nXqk>d8:/c2fQ)dEbDiJPk6W`Dn9[+"@6>@>`Bd1N*4]RpZJCiD:*ls8'V[iC\JoF"OjKD1"Yr94bc/EG8Cs1O!W,GhBiLTqV>ZiHn#?^Yi).h($=I,dm9sCkF2H<ojJChtRK.JpGPnGS"8_/7?<7'/+c$r#NgV@mZ3@IM_>O]JD3OI)]hQ5G:W@,ic]=ae1:r60)?,7.Bd%qojM5KFWa_dt*4_Q"PMg<Y`m&L8_1enV.'g^A!>RX78;u\bMrQ^04oKK(Gk1O]ELcU21:?G,24.[gba$cKP57+6c+G?V^$HVq)hM9O3WT!^B5HaHm5$rf]Y!,-mFH8Yt-h#kYi2-tI04-LhYV@cf)\f_>gT>>iM]3>4K"%f+%@ojR4@X"cZrVTk]=!p+>7?u+ps(p-qDPGM[W,o=Ofl,sGdPdf/OV">V4/BHc/-#>A4Ics+;<WHD9q/P3.hHOlWN"%44b1tHSbrTHj8']ASZ>gn!a61c<D,aJ_mD#N<Gp<lJ)W>_918MK3SfNSNJ%'NORs_A7DU#q"Y]lJO1$0@u0\X.Mem#8T4[T4Aq.k):l[?43bV#.\/0?F7]UE[,p\<nYM<mf&F:b4p!\c!3[KNia=nUl(k(a7?YPj%itU]W&W?A>ljtE*lDXN<ZBt]l`kkN[k,!A%N(@<s":@FnGr>U(&1VcUPa3IDRp(YC9#IH)GTjj^$C&mq4jkQoY)-;i*QMR9!p&N8&53#8L[5'`$j`ppjSC;?a3tlVC'jS_)HuffgGBr,od\I~>
+endstream
 endobj
 6 0 obj
 <<
-/BaseFont /Courier /Encoding /WinAnsiEncoding /Name /F5 /Subtype /Type1 /Type /Font
+/F1 7 0 R
+/F2 8 0 R
+/F3 9 0 R
+/F4 10 0 R
+/F5 11 0 R
+/F6 12 0 R
 >>
 endobj
 7 0 obj
 <<
-/BaseFont /Symbol /Name /F6 /Subtype /Type1 /Type /Font
+/BaseFont /Helvetica
+/Encoding /WinAnsiEncoding
+/Name /F1
+/Subtype /Type1
+/Type /Font
 >>
 endobj
 8 0 obj
 <<
-/BaseFont /Helvetica-BoldOblique /Encoding /WinAnsiEncoding /Name /F7 /Subtype /Type1 /Type /Font
+/BaseFont /Helvetica-Bold
+/Encoding /WinAnsiEncoding
+/Name /F2
+/Subtype /Type1
+/Type /Font
 >>
 endobj
 9 0 obj
 <<
-/Contents 23 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 22 0 R /Resources <<
-/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
->> /Rotate 0 /Trans <<
-
->> 
-  /Type /Page
+/BaseFont /Helvetica-Oblique
+/Encoding /WinAnsiEncoding
+/Name /F3
+/Subtype /Type1
+/Type /Font
 >>
 endobj
 10 0 obj
 <<
-/Contents 24 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 22 0 R /Resources <<
-/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
->> /Rotate 0 /Trans <<
-
->> 
-  /Type /Page
+/BaseFont /Courier
+/Encoding /WinAnsiEncoding
+/Name /F4
+/Subtype /Type1
+/Type /Font
 >>
 endobj
 11 0 obj
 <<
-/Contents 25 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 22 0 R /Resources <<
-/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
->> /Rotate 0 /Trans <<
-
->> 
-  /Type /Page
+/BaseFont /Symbol
+/Name /F5
+/Subtype /Type1
+/Type /Font
 >>
 endobj
 12 0 obj
 <<
-/Contents 26 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 22 0 R /Resources <<
-/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
->> /Rotate 0 /Trans <<
-
->> 
-  /Type /Page
+/BaseFont /ZapfDingbats
+/Name /F6
+/Subtype /Type1
+/Type /Font
 >>
 endobj
 13 0 obj
 <<
-/Contents 27 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 22 0 R /Resources <<
-/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
->> /Rotate 0 /Trans <<
-
->> 
-  /Type /Page
+/Contents 14 0 R
+/MediaBox [ 0 0 595.2756 841.8898 ]
+/Resources <<
+/Font <<
+/F1 7 0 R
+/F1-0 15 0 R
+/F2 8 0 R
+/F3 9 0 R
+/F4 10 0 R
+/F5 11 0 R
+/F6 12 0 R
+>>
+/ProcSet [ /ImageB /ImageC /ImageI /PDF /Text ]
+>>
+/Rotate 0
+/Trans <<
+>>
+/Type /Page
+/Annots [ ]
+/Parent 2 0 R
 >>
 endobj
 14 0 obj
 <<
-/Contents 28 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 22 0 R /Resources <<
-/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
->> /Rotate 0 /Trans <<
-
->> 
-  /Type /Page
+/Length 5330
 >>
+stream
+q
+1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
+q
+1 0 0 1 57.02362 764.5354 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (1. What You Need) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 757.8661 cm
+q
+1 w
+1 J
+.45098 .780392 .741176 RG
+n 0 0 m 481.2283 0 l S
+Q
+Q
+q
+1 0 0 1 82.20472 628.3386 cm
+q
+.101961 .419608 .352941 rg
+n 0 121.0236 430.8661 -28.50394 re f*
+.960784 .960784 .960784 rg
+n 0 92.51969 68.0315 -92.51969 re f*
+1 1 1 rg
+n 68.0315 92.51969 362.8346 -18.50394 re f*
+.960784 .960784 .960784 rg
+n 68.0315 74.01575 362.8346 -18.50394 re f*
+1 1 1 rg
+n 68.0315 55.51181 362.8346 -18.50394 re f*
+.960784 .960784 .960784 rg
+n 68.0315 37.00787 362.8346 -18.50394 re f*
+1 1 1 rg
+n 68.0315 18.50394 362.8346 -18.50394 re f*
+1 1 1 rg
+BT /F2 8 Tf 10 TL ET
+BT 1 0 0 1 5.669291 103.7717 Tm  T* ET
+BT 1 0 0 1 73.70079 108.7717 Tm (Waveshare ESP32-S3-) Tj T* ET
+BT 1 0 0 1 73.70079 98.77165 Tm (Touch-LCD-2) Tj T* ET
+BT 1 0 0 1 255.1181 108.7717 Tm (M5Stack CoreS3 /) Tj T* ET
+BT 1 0 0 1 255.1181 98.77165 Tm (CoreS3 Lite) Tj T* ET
+0 0 0 rg
+BT 1 0 0 1 5.669291 80.26772 Tm (Price) Tj T* ET
+BT /F1 8 Tf 10 TL ET
+BT 1 0 0 1 73.70079 80.26772 Tm (~$25) Tj T* ET
+BT 1 0 0 1 255.1181 80.26772 Tm (~$45) Tj T* ET
+BT /F2 8 Tf 10 TL ET
+BT 1 0 0 1 5.669291 61.76378 Tm (Display) Tj T* ET
+BT /F1 8 Tf 10 TL ET
+BT 1 0 0 1 73.70079 61.76378 Tm (ST7789T3 320\327240) Tj T* ET
+BT 1 0 0 1 255.1181 61.76378 Tm (ILI9342C 320\327240) Tj T* ET
+BT /F2 8 Tf 10 TL ET
+BT 1 0 0 1 5.669291 43.25984 Tm (Camera) Tj T* ET
+BT /F1 8 Tf 10 TL ET
+BT 1 0 0 1 73.70079 43.25984 Tm (OV5640 5MP autofocus) Tj T* ET
+BT 1 0 0 1 255.1181 43.25984 Tm (GC0308 QVGA) Tj T* ET
+BT /F2 8 Tf 10 TL ET
+BT 1 0 0 1 5.669291 24.75591 Tm (SD Card) Tj T* ET
+BT /F1 8 Tf 10 TL ET
+BT 1 0 0 1 73.70079 24.75591 Tm (SDHOST native \(fast\)) Tj T* ET
+BT 1 0 0 1 255.1181 24.75591 Tm (Bitbang SPI) Tj T* ET
+BT /F2 8 Tf 10 TL ET
+BT 1 0 0 1 5.669291 6.251969 Tm (Best for) Tj T* ET
+BT /F1 8 Tf 10 TL ET
+BT 1 0 0 1 73.70079 6.251969 Tm (QR scanning quality) Tj T* ET
+BT 1 0 0 1 255.1181 6.251969 Tm (Portability + speaker) Tj T* ET
+q
+1 J
+1 j
+.8 .8 .8 RG
+.4 w
+n 0 121.0236 m 430.8661 121.0236 l S
+n 0 0 m 430.8661 0 l S
+n 0 0 m 0 121.0236 l S
+n 430.8661 0 m 430.8661 121.0236 l S
+n 0 92.51969 m 430.8661 92.51969 l S
+n 0 74.01575 m 430.8661 74.01575 l S
+n 0 55.51181 m 430.8661 55.51181 l S
+n 0 37.00787 m 430.8661 37.00787 l S
+n 0 18.50394 m 430.8661 18.50394 l S
+n 68.0315 0 m 68.0315 121.0236 l S
+n 249.4488 0 m 249.4488 121.0236 l S
+Q
+Q
+Q
+q
+1 0 0 1 57.02362 622.6693 cm
+Q
+q
+1 0 0 1 57.02362 609.1693 cm
+q
+.101961 .101961 .101961 rg
+BT 1 0 0 1 0 4 Tm /F1 9.5 Tf 13.5 TL (You also need a computer \(macOS, Linux, or Windows\), a USB-C cable, and a terminal.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 566.1614 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (2. Install the Build Toolchain) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 559.4921 cm
+q
+1 w
+1 J
+.45098 .780392 .741176 RG
+n 0 0 m 481.2283 0 l S
+Q
+Q
+q
+1 0 0 1 57.02362 528.4843 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 4 Tm /F2 10 Tf 14 TL (Step 1: Install Rust) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 495.1457 cm
+q
+.941176 .941176 .941176 rg
+n 2.834646 -8.503937 475.5591 39.00787 re f*
+Q
+q
+BT 1 0 0 1 11.33858 14 Tm 11 TL /F4 8 Tf .101961 .101961 .101961 rg (curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh) Tj  T* (source ~/.cargo/env) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 464.1378 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 4 Tm /F2 10 Tf 14 TL (Step 2: Install espup + espflash) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 430.7992 cm
+q
+.941176 .941176 .941176 rg
+n 2.834646 -8.503937 475.5591 39.00787 re f*
+Q
+q
+BT 1 0 0 1 11.33858 14 Tm 11 TL /F4 8 Tf .101961 .101961 .101961 rg (cargo install espup &) Tj (& espup install) Tj  T* (cargo install espflash) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 399.7913 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 4 Tm /F2 10 Tf 14 TL (Step 3: Clone and verify) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 366.4528 cm
+q
+.941176 .941176 .941176 rg
+n 2.834646 -8.503937 475.5591 39.00787 re f*
+Q
+q
+BT 1 0 0 1 11.33858 14 Tm 11 TL /F4 8 Tf .101961 .101961 .101961 rg (git clone https://github.com/InKasWeRust/KasSigner.git) Tj  T* (cd KasSigner/tools &) Tj (& cargo run --bin kassigner-setup &) Tj (& cd ..) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 323.4449 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (3. Build and Flash) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 316.7756 cm
+q
+1 w
+1 J
+.45098 .780392 .741176 RG
+n 0 0 m 481.2283 0 l S
+Q
+Q
+q
+1 0 0 1 57.02362 231.2717 cm
+q
+.941176 .941176 .941176 rg
+n 2.834646 -8.503937 475.5591 94.00787 re f*
+Q
+q
+BT 1 0 0 1 11.33858 69 Tm 11 TL /F4 8 Tf .101961 .101961 .101961 rg (# Waveshare:) Tj  T* (cd bootloader) Tj  T* (ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release) Tj  T*  T* (# M5Stack:) Tj  T* (cd bootloader) Tj  T* (cargo run --release --no-default-features --features m5stack) Tj T* ET
+Q
+Q
+ 
+
+Q
+
+q
+0.0 0.0 595.2756 841.8898 re
+W
+n
+1 0 0 1 0 0 cm
+BT
+/F1-0 12 Tf
+14.4 TL
+ET
+BT
+/F1-0 7 Tf
+8.4 TL
+ET
+0.333333 0.333333 0.333333 rg
+BT
+1 0 0 1 51.02362 813.5433 Tm
+(KasSigner Quick Start Guide) Tj
+T*
+ET
+BT
+1 0 0 1 431.041 813.5433 Tm
+(github\056com\057InKasWeRust\057KasSigner) Tj
+T*
+ET
+0.866667 0.866667 0.866667 RG
+0.4 w
+n
+51.02362 809.2913 m
+544.252 809.2913 l
+S
+n
+51.02362 34.01575 m
+544.252 34.01575 l
+S
+BT
+1 0 0 1 279.7353 22.67717 Tm
+(Page 1 of 4) Tj
+T*
+ET
+Q
+
+
+endstream
 endobj
 15 0 obj
 <<
-/Contents 29 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 22 0 R /Resources <<
-/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
->> /Rotate 0 /Trans <<
-
->> 
-  /Type /Page
+/BaseFont /Helvetica
+/Encoding /WinAnsiEncoding
+/Name /F1
+/Subtype /Type1
+/Type /Font
 >>
 endobj
 16 0 obj
 <<
-/Contents 30 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 22 0 R /Resources <<
-/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
->> /Rotate 0 /Trans <<
-
->> 
-  /Type /Page
+/Contents 17 0 R
+/MediaBox [ 0 0 595.2756 841.8898 ]
+/Resources <<
+/Font <<
+/F1 7 0 R
+/F1-0 18 0 R
+/F2 8 0 R
+/F3 9 0 R
+/F4 10 0 R
+/F5 11 0 R
+/F6 12 0 R
+>>
+/ProcSet [ /ImageB /ImageC /ImageI /PDF /Text ]
+>>
+/Rotate 0
+/Trans <<
+>>
+/Type /Page
+/Annots [ ]
+/Parent 2 0 R
 >>
 endobj
 17 0 obj
 <<
-/Contents 31 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 22 0 R /Resources <<
-/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
->> /Rotate 0 /Trans <<
-
->> 
-  /Type /Page
+/Length 6660
 >>
+stream
+q
+1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
+q
+1 0 0 1 57.02362 764.5354 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (4. Create Your First Wallet) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 757.8661 cm
+q
+1 w
+1 J
+.45098 .780392 .741176 RG
+n 0 0 m 481.2283 0 l S
+Q
+Q
+q
+1 0 0 1 57.02362 735.8622 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Tap ) Tj /F2 9.5 Tf (Tools) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( ) Tj /F2 9.5 Tf (New Seed) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( choose ) Tj /F2 9.5 Tf (12 Words) Tj /F1 9.5 Tf ( or ) Tj /F2 9.5 Tf (24 Words) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 718.1102 cm
+q
+.101961 .101961 .101961 rg
+BT 1 0 0 1 22.67717 4 Tm /F1 9.5 Tf 13.5 TL (\177 Words generated from hardware TRNG + camera noise + ADC entropy) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 700.3583 cm
+q
+.101961 .101961 .101961 rg
+BT 1 0 0 1 22.67717 4 Tm /F1 9.5 Tf 13.5 TL (\177 Words shown one at a time \227 write each one on paper) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 682.6063 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Or tap ) Tj /F2 9.5 Tf (Dice Seed) Tj /F1 9.5 Tf ( for verifiable entropy \(roll a die 99 times\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 669.8504 cm
+Q
+q
+1 0 0 1 85.03937 628.8425 cm
+q
+1 .952941 .803922 rg
+n 0 41.00787 425.1969 -41.00787 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 8.503937 8.503937 cm
+q
+.101961 .101961 .101961 rg
+BT 1 0 0 1 0 15.5 Tm /F2 8.5 Tf 12 TL 2.469998 Tw (These words ARE your wallet. Anyone who sees them controls your funds. Write them down) Tj T* 0 Tw (physically. Do not photograph. Do not type into any internet-connected device.) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+1 .756863 .027451 RG
+.8 w
+n 0 41.00787 m 425.1969 41.00787 l S
+n 0 0 m 425.1969 0 l S
+n 0 0 m 0 41.00787 l S
+n 425.1969 0 m 425.1969 41.00787 l S
+Q
+Q
+Q
+q
+1 0 0 1 57.02362 620.3386 cm
+Q
+q
+1 0 0 1 57.02362 593.3386 cm
+q
+BT 1 0 0 1 0 17.5 Tm 1.252584 Tw 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (After the words, you're prompted for an optional ) Tj /F2 9.5 Tf (BIP39 passphrase) Tj /F1 9.5 Tf ( \(25th word\). This creates a hidden wallet:) Tj T* 0 Tw (words alone lead to a decoy, words + passphrase lead to the real wallet.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 550.3307 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (5. Sign Your First Transaction) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 543.6614 cm
+q
+1 w
+1 J
+.45098 .780392 .741176 RG
+n 0 0 m 481.2283 0 l S
+Q
+Q
+q
+1 0 0 1 57.02362 510.6535 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 4 Tm /F2 12 Tf 16 TL (Export the watch-only key) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 488.6496 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Tap ) Tj /F2 9.5 Tf (Seeds) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( ) Tj /F2 9.5 Tf (Export) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( ) Tj /F2 9.5 Tf (kpub Watch-Only) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 470.8976 cm
+q
+.101961 .101961 .101961 rg
+BT 1 0 0 1 22.67717 4 Tm /F1 9.5 Tf 13.5 TL (\177 Import this kpub into KasSee \(the companion CLI\):) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 440.3937 cm
+q
+.941176 .941176 .941176 rg
+n 2.834646 -8.503937 475.5591 39.00787 re f*
+Q
+q
+BT 1 0 0 1 11.33858 14 Tm 11 TL /F4 8 Tf .101961 .101961 .101961 rg (cd kassee &) Tj (& cargo build --release) Tj  T* (./target/release/kassee import <) Tj (kpub_string) Tj (>) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 407.3858 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 4 Tm /F2 12 Tf 16 TL (Build the unsigned transaction) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 387.8819 cm
+q
+.941176 .941176 .941176 rg
+n 2.834646 -8.503937 475.5591 28.00787 re f*
+Q
+q
+.101961 .101961 .101961 rg
+BT 1 0 0 1 11.33858 3 Tm /F4 8 Tf 11 TL (kassee send kaspa:qp... 2.5) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 360.2087 cm
+q
+.101961 .101961 .101961 rg
+BT 1 0 0 1 0 4 Tm /F1 9.5 Tf 13.5 TL (KasSee builds a KSPT \(compact binary format\) and displays it as an animated QR.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 327.2008 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 4 Tm /F2 12 Tf 16 TL (Scan ) Tj /F5 12 Tf 16 TL (\256) Tj /F2 12 Tf 16 TL ( Review ) Tj /F5 12 Tf 16 TL (\256) Tj /F2 12 Tf 16 TL ( Sign) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 305.1969 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 On the device: ) Tj /F2 9.5 Tf (Scan) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( point camera at the QR) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 287.4449 cm
+q
+.101961 .101961 .101961 rg
+BT 1 0 0 1 22.67717 4 Tm /F1 9.5 Tf 13.5 TL (\177 Review: total amount, fee, destination address) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 269.6929 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Tap ) Tj /F2 9.5 Tf (CONFIRM) Tj /F1 9.5 Tf ( to sign \(or ) Tj /F2 9.5 Tf (CANCEL) Tj /F1 9.5 Tf ( to abort\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 251.9409 cm
+q
+.101961 .101961 .101961 rg
+BT 1 0 0 1 22.67717 4 Tm /F1 9.5 Tf 13.5 TL (\177 Device shows signed KSPT as QR + hex over serial) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 218.9331 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 4 Tm /F2 12 Tf 16 TL (Broadcast) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 199.4291 cm
+q
+.941176 .941176 .941176 rg
+n 2.834646 -8.503937 475.5591 28.00787 re f*
+Q
+q
+BT 1 0 0 1 11.33858 3 Tm 11 TL /F4 8 Tf .101961 .101961 .101961 rg (kassee broadcast <) Tj (signed_hex) Tj (>) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 171.7559 cm
+q
+.101961 .101961 .101961 rg
+BT 1 0 0 1 0 4 Tm /F1 9.5 Tf 13.5 TL (KasSee connects to the Kaspa network and submits. On success, prints the TX ID.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 157.5827 cm
+Q
+q
+1 0 0 1 85.03937 127.5748 cm
+q
+.831373 .929412 .854902 rg
+n 0 30.00787 425.1969 -30.00787 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 8.503937 8.503937 cm
+q
+.101961 .101961 .101961 rg
+BT 1 0 0 1 0 4 Tm /F2 9 Tf 13 TL 77.66796 0 Td /F6 9 Tf 13 TL (3) Tj /F2 9 Tf 13 TL ( Your first air-gapped hardware-signed Kaspa transaction.) Tj T* -77.66796 0 Td ET
+Q
+Q
+q
+1 J
+1 j
+.156863 .654902 .270588 RG
+.8 w
+n 0 30.00787 m 425.1969 30.00787 l S
+n 0 0 m 425.1969 0 l S
+n 0 0 m 0 30.00787 l S
+n 425.1969 0 m 425.1969 30.00787 l S
+Q
+Q
+Q
+ 
+
+Q
+
+q
+0.0 0.0 595.2756 841.8898 re
+W
+n
+1 0 0 1 0 0 cm
+BT
+/F1-0 12 Tf
+14.4 TL
+ET
+BT
+/F1-0 7 Tf
+8.4 TL
+ET
+0.333333 0.333333 0.333333 rg
+BT
+1 0 0 1 51.02362 813.5433 Tm
+(KasSigner Quick Start Guide) Tj
+T*
+ET
+BT
+1 0 0 1 431.041 813.5433 Tm
+(github\056com\057InKasWeRust\057KasSigner) Tj
+T*
+ET
+0.866667 0.866667 0.866667 RG
+0.4 w
+n
+51.02362 809.2913 m
+544.252 809.2913 l
+S
+n
+51.02362 34.01575 m
+544.252 34.01575 l
+S
+BT
+1 0 0 1 279.7353 22.67717 Tm
+(Page 2 of 4) Tj
+T*
+ET
+Q
+
+
+endstream
 endobj
 18 0 obj
 <<
-/Contents 32 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 22 0 R /Resources <<
-/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
->> /Rotate 0 /Trans <<
-
->> 
-  /Type /Page
+/BaseFont /Helvetica
+/Encoding /WinAnsiEncoding
+/Name /F1
+/Subtype /Type1
+/Type /Font
 >>
 endobj
 19 0 obj
 <<
-/Contents 33 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 22 0 R /Resources <<
-/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
->> /Rotate 0 /Trans <<
-
->> 
-  /Type /Page
+/Contents 20 0 R
+/MediaBox [ 0 0 595.2756 841.8898 ]
+/Resources <<
+/Font <<
+/F1 7 0 R
+/F1-0 21 0 R
+/F2 8 0 R
+/F3 9 0 R
+/F4 10 0 R
+/F5 11 0 R
+/F6 12 0 R
+>>
+/ProcSet [ /ImageB /ImageC /ImageI /PDF /Text ]
+>>
+/Rotate 0
+/Trans <<
+>>
+/Type /Page
+/Annots [ ]
+/Parent 2 0 R
 >>
 endobj
 20 0 obj
 <<
-/PageMode /UseNone /Pages 22 0 R /Type /Catalog
+/Length 5512
 >>
+stream
+q
+1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
+q
+1 0 0 1 57.02362 764.5354 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (6. Backup Your Seed) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 757.8661 cm
+q
+1 w
+1 J
+.45098 .780392 .741176 RG
+n 0 0 m 481.2283 0 l S
+Q
+Q
+q
+1 0 0 1 57.02362 724.8583 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 4 Tm /F2 12 Tf 16 TL (Option A: Encrypted SD card) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 702.8543 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Insert FAT32 MicroSD ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Seeds ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Export ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( ) Tj /F2 9.5 Tf (Seed Backup to SD) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( enter password) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 685.1024 cm
+q
+.101961 .101961 .101961 rg
+BT 1 0 0 1 22.67717 4 Tm /F1 9.5 Tf 13.5 TL (\177 Restore: Tools ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Import from SD ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( select file ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( enter password) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 652.0945 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 4 Tm /F2 12 Tf 16 TL (Option B: Steganographic JPEG \(recommended\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 630.0906 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Seeds ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Export ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( ) Tj /F2 9.5 Tf (JPEG Stego Export) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( select photo ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( enter image descriptor) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 612.3386 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Three layers: steganography + AES-256-GCM + BIP39 passphrase. See ) Tj /F2 9.5 Tf (docs/STEGANOGRAPHY.md) Tj /F1 9.5 Tf (.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 594.5866 cm
+q
+.101961 .101961 .101961 rg
+BT 1 0 0 1 22.67717 4 Tm /F1 9.5 Tf 13.5 TL (\177 Restore: Tools ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Stego Import ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( enter the exact descriptor) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 561.5787 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 4 Tm /F2 12 Tf 16 TL (Option C: SeedQR \(paper\)) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 539.5748 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Seeds ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Export ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( ) Tj /F2 9.5 Tf (QR Export) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( print or hand-copy the QR) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 526.8189 cm
+Q
+q
+1 0 0 1 85.03937 497.811 cm
+q
+1 .952941 .803922 rg
+n 0 29.00787 425.1969 -29.00787 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+q
+1 0 0 1 8.503937 8.503937 cm
+q
+.101961 .101961 .101961 rg
+BT 1 0 0 1 0 3.5 Tm /F2 8.5 Tf 12 TL (SeedQR is unencrypted. Always use a BIP39 passphrase for real security.) Tj T* ET
+Q
+Q
+q
+1 J
+1 j
+1 .756863 .027451 RG
+.8 w
+n 0 29.00787 m 425.1969 29.00787 l S
+n 0 0 m 425.1969 0 l S
+n 0 0 m 0 29.00787 l S
+n 425.1969 0 m 425.1969 29.00787 l S
+Q
+Q
+Q
+q
+1 0 0 1 57.02362 454.8031 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (7. Tips and Features) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 448.1339 cm
+q
+1 w
+1 J
+.45098 .780392 .741176 RG
+n 0 0 m 481.2283 0 l S
+Q
+Q
+q
+1 0 0 1 57.02362 426.1299 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Multiple seeds:) Tj /F1 9.5 Tf ( up to 16 slots in RAM. Tap to switch.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 408.378 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (BIP85 child seeds:) Tj /F1 9.5 Tf ( Tools ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( BIP85 Child \227 derive independent wallets.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 390.626 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Multisig:) Tj /F1 9.5 Tf ( Tools ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Create Multisig \227 M-of-N addresses.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 372.874 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Message signing:) Tj /F1 9.5 Tf ( Tools ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Sign Message \227 prove address ownership.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 355.122 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Display mirror:) Tj /F1 9.5 Tf ( stream device screen to computer for demos.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 337.3701 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Reproducible builds:) Tj /F1 9.5 Tf ( Docker-based, bit-identical on any machine.) Tj T* ET
+Q
+Q
+ 
+
+Q
+
+q
+0.0 0.0 595.2756 841.8898 re
+W
+n
+1 0 0 1 0 0 cm
+BT
+/F1-0 12 Tf
+14.4 TL
+ET
+BT
+/F1-0 7 Tf
+8.4 TL
+ET
+0.333333 0.333333 0.333333 rg
+BT
+1 0 0 1 51.02362 813.5433 Tm
+(KasSigner Quick Start Guide) Tj
+T*
+ET
+BT
+1 0 0 1 431.041 813.5433 Tm
+(github\056com\057InKasWeRust\057KasSigner) Tj
+T*
+ET
+0.866667 0.866667 0.866667 RG
+0.4 w
+n
+51.02362 809.2913 m
+544.252 809.2913 l
+S
+n
+51.02362 34.01575 m
+544.252 34.01575 l
+S
+BT
+1 0 0 1 279.7353 22.67717 Tm
+(Page 3 of 4) Tj
+T*
+ET
+Q
+
+
+endstream
 endobj
 21 0 obj
 <<
-/Author (\(anonymous\)) /CreationDate (D:20260328115523+00'00') /Creator (\(unspecified\)) /Keywords () /ModDate (D:20260328115523+00'00') /Producer (ReportLab PDF Library - \(opensource\)) 
-  /Subject (\(unspecified\)) /Title (\(anonymous\)) /Trapped /False
+/BaseFont /Helvetica
+/Encoding /WinAnsiEncoding
+/Name /F1
+/Subtype /Type1
+/Type /Font
 >>
 endobj
 22 0 obj
 <<
-/Count 11 /Kids [ 9 0 R 10 0 R 11 0 R 12 0 R 13 0 R 14 0 R 15 0 R 16 0 R 17 0 R 18 0 R 
-  19 0 R ] /Type /Pages
+/Contents 23 0 R
+/MediaBox [ 0 0 595.2756 841.8898 ]
+/Resources <<
+/Font <<
+/F1 7 0 R
+/F1-0 24 0 R
+/F2 8 0 R
+/F3 9 0 R
+/F4 10 0 R
+/F5 11 0 R
+/F6 12 0 R
+>>
+/ProcSet [ /ImageB /ImageC /ImageI /PDF /Text ]
+>>
+/Rotate 0
+/Trans <<
+>>
+/Type /Page
+/Annots [ ]
+/Parent 2 0 R
 >>
 endobj
 23 0 obj
 <<
-/Filter [ /ASCII85Decode /FlateDecode ] /Length 1222
+/Length 4151
 >>
 stream
-Gatm:969,O%)2%/i0`q+(qrStRa*6Ag$UAIVX:&n`M.3dCrt)"g&1`!PU/uJ.SXMiO%l)HJIfO$5R]'T=nl<>!Id]"m#hD0O=YrS+sHab(J461Z+Zsq7)qF0+'K9"(g`-'IsN_LJ,Tuk7Tlf1&;^e&5_S.%A5KBP1s#q9)NlZri4uHb+G,#rQ40TESgPDGr1;KKq5SDa09CR:j;jac"VC+p$m`h`XK=P'b`jI.i-g8:#WtKp*`;!.7&6P3@Q'O0R,]Y61E(-p6q'qV7C9!q#S1;F[r^\sTu=lAlpDu6$]`i,O<D[W'#"m5+>M>n8?U]pE=]NQ=uGfCbqh9cbuepK1eMM7X*@j[A;<nOK[Bf>1IUIN?0?KU\k70.Qbh;8Eg%:LI/<DC"n183q80tRX8nHq9+RsK.csT$CPadi]IfjuLaWY0<C"e4&VftW0<9+$D/iYVn3EHUT$"KnAR<mre=M(+1f[`/l(Z;CiW+A#jTXT+?qf*,-6bgYek@:Z-*]21/9lo;Lq=(W^d7C:o&MTY:hm'4W<?'2SNS"%.ZE`+L^)+0#_LAZpro?F2V*To<`uXpTafBS'k(:(XCke[(^S[I8G,*B6fm_F"Ibofb/s[I/lK`!-SX%,j>E_:>l=9^io]Ot`L#Z`'9mjte9fn[JMmY6)DD'NCB>rddjf]<dH/DjZZ1shm#uIq:;%@kDUG2/gUO@9)RP\'h4:V3]PdXBh3:pN6H/,W%G\QC7,esDT"8J6]CO?LV[/#BZHhc%I9eIp@(N\.^n#Np?'S&af16ASoE8ltjc.Fh]J"n2>J$$HaKKGaTP[f>7<VLeUk;*>'ICV%@[Ub5E`:PLoHGN;IDjHU:DKY3eOY2T1W=a6@bAdLFP.]@1[Oq_eMjkoPYS[OZ1LS):?D.R%<*k):8OAL+Pc0Hi:YXFL[#p8SJaklOaVBPiKK9NAV@qXS/_6n<f8hSb4VHm-WfG'R4Bg*U#arhVs$r,LdrR6C6A\?<Sjh340g9DB3,7Wj\L*Lf$2lD`o#k6$V4j\?2b))<Y0[EHCrc^-W[u+l^P1&gX-"iM!i+(:K4%i<W,2N)C6a<n\n$P-.#AEaVsk8^%Q:pbf6%6I9V%==ZCS?VMmqn&g;DL_[b!/n8,0m`tnI499mn%&\dmr0K<S%(oIII@qUP0OYb!=@u#iCf/YWhYuD;<+ci-"a@F/C^P4E\*bgsGq8$[?g0[KMe-477E;Fad~>endstream
+q
+1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
+q
+1 0 0 1 57.02362 764.5354 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (8. Troubleshooting) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 757.8661 cm
+q
+1 w
+1 J
+.45098 .780392 .741176 RG
+n 0 0 m 481.2283 0 l S
+Q
+Q
+q
+1 0 0 1 57.02362 735.8622 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Stuck/frozen:) Tj /F1 9.5 Tf ( unplug USB, wait 10 seconds, reconnect.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 718.1102 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (QR not scanning:) Tj /F1 9.5 Tf ( bright even lighting, 10\22615 cm distance, hold steady.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 700.3583 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (SD not detected:) Tj /F1 9.5 Tf ( FAT32 only. Use Settings ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( SD Card ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Format.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 682.6063 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Signing failed:) Tj /F1 9.5 Tf ( check correct seed is loaded and active \(fingerprint\).) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 664.8543 cm
+q
+BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Touch unresponsive:) Tj /F1 9.5 Tf ( tap-on-lift pattern. First tap wakes from sleep.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 621.8465 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (9. Command Reference) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 615.1772 cm
+q
+1 w
+1 J
+.45098 .780392 .741176 RG
+n 0 0 m 481.2283 0 l S
+Q
+Q
+q
+1 0 0 1 57.02362 375.6732 cm
+q
+.941176 .941176 .941176 rg
+n 2.834646 -8.503937 475.5591 248.0079 re f*
+Q
+q
+BT 1 0 0 1 11.33858 223 Tm 11 TL /F4 8 Tf .101961 .101961 .101961 rg (# Clone) Tj  T* (git clone https://github.com/InKasWeRust/KasSigner.git) Tj  T* (cd KasSigner) Tj  T*  T* (# Environment check) Tj  T* (cd tools &) Tj (& cargo run --bin kassigner-setup &) Tj (& cd ..) Tj  T*  T* (# Build + flash \(Waveshare\)) Tj  T* (cd bootloader) Tj  T* (ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release) Tj  T*  T* (# Build + flash \(M5Stack\)) Tj  T* (cargo run --release --no-default-features --features m5stack) Tj  T*  T* (# Mirror \(separate terminal\)) Tj  T* (cd tools &) Tj (& cargo run --release --bin kassigner-mirror \\) Tj  T* (-- /dev/cu.usbmodem21201) Tj  T*  T* (# Docker reproducible build) Tj  T* (docker build -t kassigner-build .) Tj  T* (docker run --rm kassigner-build) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 347.3268 cm
+Q
+q
+1 0 0 1 57.02362 344.8268 cm
+q
+1.5 w
+1 J
+.45098 .780392 .741176 RG
+n 0 0 m 481.2283 0 l S
+Q
+Q
+q
+1 0 0 1 57.02362 291.4882 cm
+q
+.101961 .101961 .101961 rg
+BT 1 0 0 1 0 32.5 Tm /F1 9.5 Tf 14 TL .509432 Tw (What happens when you power off? Everything is gone. Every key, every seed, every passphrase \227 wiped from) Tj T* 0 Tw -0.064864 Tw (RAM. The device boots fresh every time. Your wallet lives in your backup. The device is just the tool that brings the) Tj T* 0 Tw (wallet to life temporarily, signs what needs signing, and then forgets.) Tj T* ET
+Q
+Q
+q
+1 0 0 1 57.02362 278.6496 cm
+q
+1.5 w
+1 J
+.45098 .780392 .741176 RG
+n 0 0 m 481.2283 0 l S
+Q
+Q
+q
+1 0 0 1 57.02362 252.4764 cm
+q
+.101961 .419608 .352941 rg
+BT 1 0 0 1 0 -1 Tm /F2 13 Tf 12 TL 122.1452 0 Td (KasSigner \227 An InKasWeRust Project) Tj T* -122.1452 0 Td ET
+Q
+Q
+q
+1 0 0 1 57.02362 234.8071 cm
+q
+.333333 .333333 .333333 rg
+BT 1 0 0 1 0 3 Tm /F4 9 Tf 12 TL 94.81417 0 Td (kassigner@proton.me | github.com/InKasWeRust/KasSigner) Tj T* -94.81417 0 Td ET
+Q
+Q
+ 
+
+Q
+
+q
+0.0 0.0 595.2756 841.8898 re
+W
+n
+1 0 0 1 0 0 cm
+BT
+/F1-0 12 Tf
+14.4 TL
+ET
+BT
+/F1-0 7 Tf
+8.4 TL
+ET
+0.333333 0.333333 0.333333 rg
+BT
+1 0 0 1 51.02362 813.5433 Tm
+(KasSigner Quick Start Guide) Tj
+T*
+ET
+BT
+1 0 0 1 431.041 813.5433 Tm
+(github\056com\057InKasWeRust\057KasSigner) Tj
+T*
+ET
+0.866667 0.866667 0.866667 RG
+0.4 w
+n
+51.02362 809.2913 m
+544.252 809.2913 l
+S
+n
+51.02362 34.01575 m
+544.252 34.01575 l
+S
+BT
+1 0 0 1 279.7353 22.67717 Tm
+(Page 4 of 4) Tj
+T*
+ET
+Q
+
+
+endstream
 endobj
 24 0 obj
 <<
-/Filter [ /ASCII85Decode /FlateDecode ] /Length 727
+/BaseFont /Helvetica
+/Encoding /WinAnsiEncoding
+/Name /F1
+/Subtype /Type1
+/Type /Font
 >>
-stream
-Gatm9?#S4H&:D6"0olJE2g5,p8.2O,#gp7T'bW0;cFjV1a,r@Rn$>S]a0hWQUa/j>3;1YAHEt_Vd*9UD?3+[V:+nT:5^!AbR7-`Tn$Buo"lHN5JnZSPLJ]M\:-70"T,CGgKnDr8&dt!Ti?Uq*=\qe@JC2FfJe/L8!$Ut7E,sgb1"<ITL$Un,f)t"ih1%bVS3ktPO/h\7CHa;:</Di!A!>CK)C=Q9@sPV``s<EUG0F,nPG#kZ`UK\V.[g9s.,)O4.T2X(D)B/No\!(\B=QXkLp'O6cQTCiX\h/C2[R<><HliW-/pi@X=q^RZDK)BXY8rGP`20&;Te\iI(dNgl+?=Rm@n9p#N(7BS9-MF-cp>a"s:a%>4',%Mn#I^KfFXE'Q`kC%'*i9_]rrFh>'/Kc'6ZiZb'>gC&.\@h`YR`29j4alp`mtOUu#"Dn==U=g=Gm23aZf^6[072#V8/\o#n)KI5&"ZTHa#A"0J:;R$XSTac/Dr7?5)2NHn*L=1EtA7.9\oEm(U9NbeQcOElqh]D,L^bNN@%P/VR4<L1&&VBk51)@a4<,+F:Js280)]To&>k^[9O&bgh`+<;W"7T"r!IXF,!1k10qHL?lLb[2[e0Orob[Kp1N#BRd6`6D#k($nS`JB1p->$ff[V4Q7r,*>%j'PIq_7T3Ca91k!(:8>LO$k!WQU29YDOs>T'QMmbZFm/3YA2d>':+%_:Cj*gZ*=!,.-nj`~>endstream
-endobj
-25 0 obj
-<<
-/Filter [ /ASCII85Decode /FlateDecode ] /Length 1737
->>
-stream
-Gatm<96])L']/F3mU?rKV`<8NP*\">dnGr3WL5M_:,[u,^b+3WfM/^:DkAP4L!>08BTel&`-m(.+anrmO2%Le+3srD%H-:L!CC46%to9L#++h.d!=i:Q"3.n+J^.].@<WB+@JBjfHWSo+lI?fp^0,1BZLM@isscgc:n:k)7lJ+IHuIhf"ilr_/Q+Vpb+/VDdu8?@IP!9Dli+@r8$M+'6Kr#b.E0oPkhB?ET)]:>q2J#'VCm,)8PG,:0Lef!=qLm.?s@2$IMW?54JafEWb+:Etb(B_%BOqo.+c%FZt-$\UiL:nKc9n#-ub6^>=]D8hUkmUZN`oR*Wk1$sRNn<1``I"O9>p@JnJ`_IH7G"mGj_9ufUYWAn]XCBFTAl@kp%#o9E(<gNU7(9hg\M`;$_I1OdQTM*ts:7W9P7\!qsR;KZ0:_i:TI>=aG3+L;*/MZ*Sp@irU6m*e<cgpHKp+'.l9HgKlRBB#idBUOrQL.GC_?,DGp@#"/)e-bK3&2`^U::k`2:UO.@Uf62IFMo:)mO:UV73Ht\lKn`AN]3`St:)hFu:b[9j5p;H6o:Pa5>f3b>#q5A=mbgj\"\k.83+RYB8Kn]M8mE;h`\4p%s"IS$k\r=meuP)L0`RcTeA\(NirRMbU)SeWf(g#F&7YcB?.oWh5:Y^1er58?'H,:(-`5)3pH`qlhp-0.nnE`p)__o`Lo`=B3LqAQAEIjSC989f(C.7)3dM^ZpG(MsNWcbJcYY:&XZ^T4,]V^7=qXJV4+B.,cfu2*-@g4>`)7Zsi.XFYnVJ(WglJr7pU,d5lN\Tk[_TQP=X)*CJ>k3!PY`g@KhJ1XmpF8TkN>QBbZHjW4OVq.O[<2j5K_hG>X>Wm(YdL4j!7E<DQNXQZB4q,,VjZI:lsKis]g7@#=cGRpg_k.c>%HiX"Eru?Y\eLrC/Al6?lQ6-4,Aa&84/7P0IL]nhl4\^g34d]F<r@BVo?"2@B:KT16ehHSi0g#ME4!(]"l48/G7K$BmBXXd'DTu'B`rPF$rRS9h.G^*_PtB#IRR6\9'<2pF;lF#D68bNP$Irq"OQ.i#+h(J[3I]BfEbi(E@il.'[oNksC=*T5CJ1@iR+O5UEn8MK7FI0,AsJ=%dh97F7E)f(RR>!XT!;Q$o15/-0>Z26m(QSAor"n8+jO]k&nh.ZFF>/7Oa->&i]2!T]#ls=L1<_hH1e2S\Kqm3UZ:\(/^frlr:(Q.*/7$GarVAr,@Xab@6<h0,J$E#-)i=I4_\Zj,0<`0\mT1XDJ"`s6BPj.GbUB90[b'3l-UXlA;YV2L+aTd%kujCP%%fH[\P^MNaS<Ok(&P4P'qZpHf:'8;E0.2UL`m(G<-`d&daR=;:!D0XtIJ\gQLgc!D\%bf`9^<K)R\+X!GtHUcC0X*,M/V]`Fn;YJD:Jp*bM]@E(@Q`jq[:Or3VKns=F%AM\%j5KsQlJq_$jk/SI&NVu,@U)pcs?G*[0Be1AhlKJuf6I4g##FC1TM7eP9\V">`8J>@!)e<K(8G8fSK?Z.-r=-d3U_?&-hb[*J?bjlN0]`Upk1uK^;HKd+Z8%,@YWBdDn$YHbq:rp6m,_,RiYl>7JOR[?765Qi-?op9]3&CTH'sU"/Fc#5Nt(6NJa-=oaZ(t0%-pjAJT5H70[bPMmX(qN^c4!i([LDF)GClk0?Lh9X<0?c?+0Dd1Z.`B=4OCPnocq/m1%+E8^$ri.44/ILV(gQ7;<dYHnH5SM0%CT"eGYomXedR~>endstream
-endobj
-26 0 obj
-<<
-/Filter [ /ASCII85Decode /FlateDecode ] /Length 1407
->>
-stream
-Gb!#[9lo&I&A@C2ln(h!Jd;o16-o2M1`qpgLH+9eHgl`d+;$?C8s!(9e&cOs!gI@jQ=DfBU"3>-Q8#Q3mDHi1Jql#EhU;PaFUX1P'I\TY%?qM9nK76YT):aF]9r[E6,XrSU$rAJJdDAd*u!qu(CGiUi(5'*?kK<`CaQY=*OZ7s/oV1&bd1NX^hti;"?r'I:%B:X9Yp$ik:;@h.SmB=QS0N]!q@e1a!JGpjh`Ha./dF(!k()Oj+MC17@6^r4[3C8E_=4L5/3_SDM8.:&.p@2NX%Qq+'kIm6jgY4rW!J<Gc7hp/1O7DWlN53l*=;Hd#.qnkK^G1!t8^.W"_=@;30a^7'90j7/B%(!R)i%#hok%,U\Or!k:`_09dV:$J)E9:*VG,3V9/0[dM#KU1=L&J@$CgaGr`J/FAlGk4?0`g'V0aP-o.D?=9GNbq14Mk%;..(VNp%9L]pghUSDVn.1o1EF;A*R]:.$"lC(@9q"ea;!%'^"9ef4,gq1@`Wp4LW1F[8f*gH7nQhFCe^c/]_%_$-ArpV)AX&+Te2ljb(3Ep"Ut&I:cH)+-GmQk3Ca*?_,#Y<+C:K_H?%2>^r7.gq,gbu*cdg2pZEm!o_W_$%0WTslmlfl]g%69N*^1$86k!#eO6u7g";>G%^oH+SH'PIi'1lP`H(*7)FfsLKLD7.lF4J(;C;?*L^@V`Mac/(F9gGDqY#XTm/W%9KoisiS%tq=8'9f,Uf"*<=M63N^W9,'7$"5@NKg2O\Aj_>'3j1f$_#1oAK<"W3HRL%mmL3V7Y5f?ZB-WsS^i+Kup6O.*\h^k!RQF'_(#5fYYOA&XMT_(a,5g,0!K2+ppF/j?n,l1(UJ^aqkMH"hP',@Z&&[Boq0QTM<;(8^nC(9R9%=KCE.=n:'b!kRf$V_*RB'oJQ$CDUlOn(JA),#5;=2XI:@T-H6j@=L^jSs+(P>tt=n"EA(<D#[G!oAUcQAHUm&Z1Vj+GU,&+^so'Bcq!HUWrWJj&=k#"jYSr$N/PnrsNUSb\KT+iIUN8.$=CG]B_T#!L"@8u'ehiUmPXCc*Q!=0$5=ZG<X[cD,!bX3MdA+g^./bkA\qDPoFY?%.O?2*/jQY+!pL2n)7"hmJk)2h9aeBWOn<R/s>(AC\-_8G+i3SLYIVo[l"%oiIZ'b5XZbn!EM8Etg^MK-D')AK#$d_]'N/rDW/-llFCnc$O9K9D<`p2qO(Ukh5i3bD:+sErj-J"\@.s&@2c4j<JMY,80A(K9EK(E',2AK/)^J6n#0mp'2Y81*)Ad>]r0AJRt<-/\LQE8c`0O9E77&)hiSVEW<`?GlSLI&b/5LNkl./&X^psOi.24kCFLoOWG/'8,NXObPYGtbVr+!Wtj9k<SSO9X0I;af.9\"P7ab@lC8/SPD4jn5@mWc[:&PYYQ$FG~>endstream
-endobj
-27 0 obj
-<<
-/Filter [ /ASCII85Decode /FlateDecode ] /Length 1511
->>
-stream
-Gb!;c>Ar7S'RnB33'^j+TV=l4Pc+S/8COGOS#f3BXV_TlTI&;mX,AK+anjHC^-gS>0=cAa?5=\-78i=BIHU*QJr^H0rh_!WlOaP$.8U5D#uFAVN6^AKkht1r?(MHB$"F`LLdXLA*6.aoDA2<q$O+Cen0O/]YaA@&V?\N5p1co2Q)K98o:64(3X(.d_!<m31/LsTVhHl^YVQ`dGuNS!7_aW((Dn/R6S@nSa;@ZLUC<I.#e7c.*tAPmIZ297dLTfA,H!@*iTf5beO_0?LG=o(chL=%nu-dO&LmKQr0B_*3CJRB_mr48F6i@0^`]n.%eL$%lDi:3m2R.uWla0W=7CS-g,jT:h_:@L9!K',ST-U^HkC^Yf3c>J`VpD(jHK&')$["=J9fsQ;"M4uNB,_1Q@PY\kkN#^GS/ul&WNc?&K1)"LYt`J&<\/&!'"E2(C20:75BHa_rS%#[:)3eHikfCn@/ic--MAXOD[+ikP[FK0R*Vp8j=U0B:Lo5_S@kS\&5R!XVmIJVTZl+[la*]cLS"6l[`uUrJiQPp+OH6kD+D;ad493,5.XKL`L=Xc,:pQo0s!''AnjoPBK1MY\iBI<k$f,0KnB3EY0uY$+s-kVDI]-jGh4R+H@"1a+Ae4*:>nTSg=kI1[u..8M_K"33I%$e1/qlRL\QSc*,0#2^b5H4+7.sjs%>s5/0,Xo]GNoF_WXj;UnHVB\EeUYL/&)Arf8*JtG^$*Gj"i@TE7>MbKn0!/@Pr=`3mraS5ep:>>d^R0OpsZ`<^S4]-')]noduD7%.0ITd*=6M>eG\6pSB)1<Wi"6TM(1(&D[Fm<iNa1CCsjU^3k`ko5YBretB8O&RY5`&L^ilh!;Xikuri)CEpA9tDZ9NPr2c1O^28NSj,>H=g$#h-nG+2UCi7]1Bo)$6R9cU$IA8"tf[GMD#k@'[F^(U_2\Bl.-*S#<4RHWOe6-%SK<:GkK(,**rJXBRBb\j`ZZf%lILas?eidLFFc'!IS-dCOqAgs3?m%jlGR\2;=O&Tg*M*Y4E5<NdOm3]!sI<7chDDq=($e1AqKJiY$8Jen/ML*<9&`%g6'"frQ#D1U#qae9,Gj@82Z?SEC>8h>82Z,a[r56.lo>#<o@j=bOnj$mVSg81D%I<OCY%@)r2Na@i(oq0[0DB("7W9<7HqU^@V1);%KN,K9G]"3@d$<3=n+tZjCgW0Ee24o4d2L@*q@-_\H*9s-?bAA:0n/fY3nebY+(*XedjTGL2H(lmcfXPcA:p)P:f3G*%pM[*<Ir!`p4hYk'0p.gYo=/XC=':([=*9$*d5A]c<c*Lk,*D^Z-ZI0:klM]cE6/RMKDU5UEP&G2L>B7n,VVe*obAo2==;[2Rq$`a,*/k[]/Itl^bnI]i'L-qK!l9gVjcQ#R0`C/LjZeu9Y\$p9]V_+rVm&u3R_c+4pF-*q2R8%ji;Z,9jQA=JQp,VLGt,h1I6cUiORZ]C-t$p!mROg[e)"LRs%K0Ae*^"q"89JeJ^O9Q#=ZpK>.FNnfuc~>endstream
-endobj
-28 0 obj
-<<
-/Filter [ /ASCII85Decode /FlateDecode ] /Length 2094
->>
-stream
-GauHL=]='G&:WeDoV6I]d2]`B,8ZX3('JS.[8jjJp=NEmQ'%$cJ%sea=h]*F/4lc_(re^G?XJ:-%N^(=pO/8,]H+kYNuYZ[i<6Z"$AO&ILZ-@a'Ai-c":JZNEsR39GT=Zs3W(\n*ra$-.=?@P0^4KtENmn*[)opi!Z5NoKE0uY&L*kM#)^5YCNOFOmp^1n@q)JWmW=ndq?7;B_XJk&\Ak^>5SV8f,2!%f@=`bhT.oAR0`hY+:W<I.MXrNPRu<Kc=i`i30oI72j$=$]8'UXe7D<N]D`OT6)=E[rj:^Y:dd]lDi3kNin2%R.\Zt4uL>4>Q11pIAIKjf1Gi\>P&@`lOPV!m*^qh:B>B"bW"QuA3+UiK"mVq?@qomt6!EJOHb0U-G*9rrC=cjT#7b3s>#O!jRZ'>/fTI)?>/*l:<r`=I!8(rus/mql0pL-pp<=eR"B0jIc$2@fIQWOL%X#em$IQtVc>SM?d_8I*,bg;Q-[K_IFQP]BLH?c,/;tRs`HZ<Vj52aNZA7Q0s1+=b:)4O;4rK(LRo%Fl@&fk3mF0J*%@QTM^"*"`lP*r>:F&FdN$QTTqhVe4cL7S&"&c'\!c9:fJnO!m*@dT0"'DYhVMF@\A+th*hgJ;0eloM^P>*3<afB=.K`:h&jB+s>,/EI3J(5n]oXOO)OCbL7HMki1;PNf0g,$r7.,No4mIa\%J%,#)RSH3aYXQkN\%:eV,#`Dr=01-M=D_=ZGC>=mdF6"d+`ecSOR!E!T@DsAb,:?)Cm?Xt#-SJ7XB=VIL20PE94*-'"C!4SY+N!cl=GADUa.=AA8Cq,A.L,#=,#nQu(m/8b8(n(!e>]S-#Ph-%gLV55E&[SQ^\Q5%DrKgfKCaI^3Es]78n1<#a^A(E[AIf4-hA=q$=3)*<J1T0L#m,R,pP7UAFR<`]VohLW/IY*jim,\f'?o#=F_Ye@ab(8IP<Z=odQK#Ro-kj%>1P;%d!:<rr5TI$iM1T,R0:g`bF4J*/Ih@bLYqDen>&,F)gkSDen%\h7^)^R*"Z(IHr-RX:+G6VQ)V.X0PKX>c2No6jVu90fE=:X/_[mNTn/!#eutAXS6-=(&CU]+?G%WWBM(?[j^dAb],h_oX`_@C/d1rk;?6SNi3r)"5Rq;)EPcf9e$u?M,`Gg>nWPOj0?_\$Jsm(1Nuq[7!+=:]gWt^K,P(MG!qK3m04k7Yo+;"f&gaaLEnb3Q<lGnYS#mFLM7]Z9tQu@\m4^YVCqI'WG:G7P\Rt<R@1.\b9i@^_4^m0?!-/eCllW[fRl>kRm<UP8;KV>r4*H(BCJuSA(i*E9Nb<e&.qMA`dR+?kiBG"3'N`hGdQE_2h%;qG&p->V9u_Tkqa^D>(HmHb/K407=rL^@?T\M@nV_2dfV[u8B<pg*<PGP,G:N)YBDbX"T8j:Po;/gA<J>4UONnem'AsrcgM.Z]*/5fU#Vpu;n\us<%A4PPp_Uqrp6+cX@Mg'0OQXGpAt;1nZ"D?n@^Ahm:p1*ld>(K[G7N#$2.KH+8W49oE,kdB`C!_56L_DUog]Qf*>;eK=qLR))2j1l??2Y`=-[a'ZhkaA.NXr@mVU:gf/5cUP%!@I=jjtCmn[S*A]1N;Wg"T>:Lu*^iX'2h;KC62;FUTp7g@nq]9Bi.%]5qC83XaJk-sE`F@["%m"h7=6JUe&AgQ5P%fs$<a2+rH:66^3#?[?=87B$>QgVUN$HjP/4SHKdfuGC?IVU;.Xt7aG"^/WG^Dl!F^*OY+4ZS9c02#Q\sgQbdZrl"LXcT%P&e@r[=PF;@:$j`o?5=X+]'/fU'Q!DbDI[r.c'KCrM_-HX7X=A3@C5)PubU?:p2A]E)a4dIoE\:Y$K+-FCr#59=jQX4tL!K2DrqU3&^N*.0nqOG#es_8^dL?$u](3iWtIA>9ec;I70=4Qj%>T?qo!4fR<0GO[Kcn7N`m%<M8,_2!X()l2V4Do47J!\$a4L>g*kWJ4;W:(Hk4+k&&'9hqj96c@g2]AE`PXB=bJ[B0pVcl<Y.tF/D#F_Rhg[:clrZnia7U;c5M`TOk.`pW\,U?6_EQYi4)dFX9kn'AmV/T->N**uL0bRnl&LT=L@kopbBr%9mfB&,00Z_#~>endstream
-endobj
-29 0 obj
-<<
-/Filter [ /ASCII85Decode /FlateDecode ] /Length 1745
->>
-stream
-Gau`T>Bed\&:WeDbTl@d(!2am\SkX)A:)K'32^E8iC*bJDQqC^'$@uHO_c")_U^lH]=F=8,CMB>br7Fj5k1>S^XF%XO"m/3112/^kJ0(90`DLLa1]67XM-L[8.^(j""AW7_B?eCiS0#_r.b=3GbGJ#0>*B&a;-qoP;UA`0TPZ/%m4Tfn,dr%?P"&CMZbkq1S*TQ>"!(F#30VUIV"ST_s`p7E/*O(^P3k=KD0c[&M@aQ&>Z%Lki%d_-3G)kob+`$$p4fP;Kr_+'o\/jcP06.qZdlX>RrFIQ%eEi=uju53*o'7i(pU70J?KXcr'LKU"='9K,dUHOp0'2klrK+-Qu&)0uYKa*akE`M/iLp?%>\YYYLsh+@#QpTG.\H@m:bP^'dc^JLWoD$#J'G6T"=:-PjoqY?%NN8UnEI'6AUaR%1kWJ-d5l),ic[;@buC-'Lh]4(2%(LNoA%L%F`M]"EfDQH!mEEJ\l>,q+m"4?9?+AoqICe0C1$TQjp('WI#O-_7Fukh.LCH/8S"mh%kI@E/7$c?E."?KnT`hX0OU(kZR/(L`!+/h`?^("?9-:<l,fB\V>S8MN"Acr6##4qCCV7gg(u3HuFcb[WIe*=+&-^'Y"H:`OUWjdmiD*Hu\o_b3Y4AK%&i;!9br+:bjWG^hR#*V<#.W4:&93OnTPL^"[I0%q=RnURionPf&Ied@fQjAa/HdoPBF%bA:EZrWchb]JC$8J9J@jD_:X@hKJiSM.)pc_E&:+YT`l9O<s*a?.A.LQY1mn4o)M6Y*m`31mV.V*c#;W<`rV[JP&6HUb:rNchdY>HdMhl(\4o)J``NQ:^Tbjp'9]9%IR9T;Q7/Y8qEj=MpR%h'UoVGb1C4oQ7XmDH-41A'IX'Rh\QXUjr"/)J(\KnE&TSMsIG<PHtaB@8eBPs**3TW#5G!BM^5a2qOB<L0lKRP_m6RcUVD:8lT3+!BVmm;nq`Y&3s>PRCFTfZ])?K(Dha&WR(ug+0i<GiD$YC@;GM88);Hj!jiTfHe+$/D#Sf.'I^&?Id"s9V*ZYr_R>MNJqnk=pEUR$1(&Ai>tVL[rVViIB7=mZ[sApH7aJk4RV[niVpNi6$C+?(WY2!B=LB8*5$Zf!JSB_T[E-MG[X#i4]CTuk<`NW2J$ihu'rP<]i81sZ%#[iE>Dh*GEPE.;Vk=eOBn?#ne0odahetDB;?R?+7]:GAZQ1g=*dTJ7nPc6P2;9oGXn;$e]!k?Dmr$s*Cs0G#.=lMrd0tMFe9G+P0BRu];Uof3O@l-lKEq.RD>E:.Em[jr9iNZL&G)pPC,_#n5gWZJ:Tb2#4\e,>jJbH"2?onMK)FUnciG(#W"$SbZ.Vft2P/]:WLch,?KB-hN3.>q5hOuF6e@CLc4^5IdgX"DDCEY)o.Z^h,OpYek5V.;Fdu0MU:9SUK).%cbDi&k%BQo"d1.c>ArD,^TsR_XoP.E=G#7!(XL@D^mud:GHTOi-Gk$L'f;3Im)igp;9X]%,[m&YoQ+DSt._iE.6:G.Pb/$3bXJ-b;XQ+s3s"@TsZ+9$1#ror7!fp9MHZ0UMn1fq1):P\?%;QS))ki>r2$ku+p'VA6LRI-8-DU]=&KJ6hHf!2#.M$`71jsmO@7T@Y1.(f9M?j^8$\PNoq>T7mUGU!30I4B.XDLY;ehT]u@oW%^WLGWe.1.p761=td*:f#c#:ZF:Qg^r+MgVPq\n+iVGO>cjM5%;bqZ<Ur]I0X'k8t?7oN*ie)L^H^g=cp\rrC<"Rgf~>endstream
-endobj
-30 0 obj
-<<
-/Filter [ /ASCII85Decode /FlateDecode ] /Length 1631
->>
-stream
-Gb!Slhf%7-&:Vr4EGooRL*8!DPk$RTXV55N[kp"I%EJoedC'hhRRG3hJ%m3S40%&:o&]s?'-N/\P5!egGMbu&5k13:^U"p<EXHG\$lFca*1.iMVE_nAHLg5*lXkmAKJAN*-lER3LG>sLa+R=&@6as%BETTB4;J@j`<ktSG%O(.k%K>KVp5DUSUjX/i)7lB<u(X>Y%j=@PIuM3+#*ZM)?56%?NM>e>)@h@J:of*q=0+D8Rhmr+r\B>YC\JD_VOlViHN@/KJA<-S3nHPac"nP7O414cbI0Z^411h+-YPGlM^UVZ>!IW`Arm8=hUf98RV*)B"Caq_)qX=G=*)Yb#i`k*fc/D@L>L2$StH1b^*Cc9I[J#)H0keE-3lE34r%"FkL1B!%Od4ag_HGU?0t_Zi-6<GG#oX)Y!IHY/3?O>__'u4b$l;Yq".fK@b7`]GhnPo34]<&lUY1&qUcgeUBOVlh$,DCMM3"R$Kam8!Rt\C0BlB!8cD*JOd%l.#2Am$c8a!s,2hQ1#d]Ke1T]h4?:BRT3f9Xru)gSK]BX0VKLj`gMi@#(R)PVN*r5hAq2sB&W2;AR6)g'9EdQBg^./.!f4NKJcGQ4lFaY`N@epe%b%`-H5uPbgO8ot$9ia>SZ^\od7s$83NpVRbG*gUd@knG-8RID"*<[(j&u#u)tN[Cb"rZc+qK^3J!]=PZ"B\fE`).;REja2g[TEaJ8d`Qc)f-1;^<^#Il.5"&1!K4*kUKN="&jCV?L$Q92pGEbRP:Va[78NPi%ifqQRIlQJIi/,!dHjA8q07:"kJDWH"kCG<AC'9QRm$OI0W\V_.`47s::YE&7%5HYSGl3J;5nMFgKEG\eJUg<a!2!M,lKJuaJN;f?'3(0Ks8m/_9bK"<Rin4kB$64k:[l1?uRW8rpOHjo3o9bN'Z0:F^P*i^l]mi!&CG&mhtYr^95%tMnN$"A#gC^Ts[ncch,PY`g5/PObMRVjiG<gJdUTZC*#Ym)FZP]a,b!^E"^A[9.``]?%]#-#REL"5B%An6nS0t,O[JoR`KJP9uUh*<uUW\,mO&@6Vqoo_ARq#2,Ra8nU=9i(OB8B*O0hpQ<9&,386p\D=I2UhZ^5Lr9_6[O*"Mb`sAs)t\X#0qmKcIF9b7RlEJ%J*S^B[g)KR?jZ?\Z,,EJUba7mWjQDCMV<j;\*OQJd*KX"8+lq]raW/%JVoBf*gJ#C:r](`q>s<dXWGFTg0sbpXo#In=+LV5sF'IGq*)C]U%2;6nlDp/h%M7``a;#U=[QaDkRDSr<C4EPMJYEMeZ_+Ghn-]4#A)"4<QbP_9lV*S-40:nP[f06NKN]_n(Vh$J(k.C275-UrC2H>h!Hh:T7J-J5/Hu7BhLF@]@,D(Ae9BPD"eEAq\W%eph);qntUn1P9G1Rp,8^eB<UJrk+o>\(k9`_6892S<8F4+sJ87T#]V@6$G-u3H-\Z]7Z5S5&s=GP:?VTO[+T:T7W$Yl"6)2$B4h:<B>JK9L1F@Y?W1B64Ru#'SFf)=+>G,Z#`CR0aSP*I:m_54_L"#-JG$]%!-#n-)-PF#dNQO7t-TOV[Hd1m[sZ;*LGWkM/nR[-Wg7*K&5qp/\j+:PMI%BmF;<Tc@'k7i9F[oh5[_m4/9L&i8cP:eWj)~>endstream
-endobj
-31 0 obj
-<<
-/Filter [ /ASCII85Decode /FlateDecode ] /Length 1555
->>
-stream
-Gau0CgMYb*&:Ml+%'VC&&^dC*8lU@iBPuXLP;\C0oYj'\9=1g\DG*l!oCk>2A4LX'`a(DU+<f``B$TAjaFN92[EkWK31@\YMuiNY[KIA-!+tD53]m-2JG#)!:VtbF)+8j==<,>j&!mTtp^[H>i/7pb'CNmA"2-`\SSW'gKNWjQI.4*kiJ5^o-mC?Fen4$dJ1OWdA[QdcZ[ZBVeli$1^Sa1"(n)&#h?+73..c\R"J!Kq5pYY>p@0.W(56`#iLk!E'G,pP&HZMlj=l!_4VL6QTN=?CiM/dTYm:C9L:&#/XL4.u9^KFb$:](P7F2*W'Qio@PK_Oe]SD3d<bknhA)?l&)jR0'G5@K.?g3N1jus<"p@Kl>dJh<.;_;'YngmdeO/&A4K[^N=S#bc[*(uk%:4deW^V94r;g4=gbN]Y)PqJjq"Kc2q^=/KM@$RuMo+hZT6^YSKDo].[>(UT`,j>R)k+ckc<ggAFCB!?9Ul@hmpj*)jOl[`g=i3j'%9ZSo%P+LHF_)Jn`q[Ab\JN[J+IJIuNqB'fD-#g,N)JmRRFK_o.puetNq$CXK80_6mk6_p\7k:cS#en&2S8AKliAct6j+Z_D0SPm0*N7sB6j=n_HBn#s!&%8c,ZsK\aN%=M=9qHAZBL!O4*`Fmpr"?]17D^rJ9r&G]cp<1H4"P[rHDHM2XI-dG+22iDiP>1WVE'=JM,^%$NO_O5b!e:2!<JJcGS:TT=,IDIk>bo=p9R.I)PFns1))!Mj%4=:+U_(;B7GUS_Z2DUeV+`:0.WQpkl(I9M.W6DHg4$lhJCnp'*NRt64^G2T#FN,ofgC#9he9PZ1oo8tP?27ea?/o=XSB)ZBQ^Mus,&`'"1?>tgZcEG:\qBY&Ej:#XEf]t(X@0(P2SuUNr_6ZhB;Pbm@&h[]M^-"lZbHu;,aRu.[ZWWt-SDG_XLgE,Fb7]k.ehrb4"'EB:is$99/L=Co2caY`1>5;J#S"7A?ein,]5L)A+rE$@_B8tW&<<O<"@F,tJF?EsLVX:n;2ei!nni/W5S(cCDBcU+3A`)M!TFpP,m4H=pe)Lp#95U<V.qfn4'kq07BZL7_1>"RD;-"W4e5ncs7QBhqY87sZ]?320;mG@XtRMZSGlY;<p#K7]rGJflM!ECE[;0,_Yc]Pk:Nrd@!fg)Yq^4MH#[M8ZJ'B+JJn<(_5C<\2Zk_)[c2RDjeZ]@Z04:eH,b$DNDoZebJ!ST>ak>Z$O_ofVVD_pYs8^[;Pmb]60OmU*E72U#T;Mjj(a+mhP.#d?HLI5fHEfeAXkN^$dT\0Jm2V"5:GjRn2qOtr/[%r1hKTaW@E;X;mm@?cVON,`Lm>Tp)tFNKXVba!r)nN8RN"^IWP77rXpJ]Pf4p7Y<WqfmLOKuO#,PbnQ*RQ!PT[^oOINRrg%0MJqC1#QJ;J3[^P\!_;Q<D+ps[>Sh`>los9"h(/,EP4,G@)K%YSlJ;G6_Z+\KN#A.a?:e]J4*:/2i4b')<Drmulg@b_03M(?Sb*>m>Y2oZ55W^kiF;#VM,OI!Tfk*OS,`P$S\GMc,C5a0ON=L'H_11n%Z;p~>endstream
-endobj
-32 0 obj
-<<
-/Filter [ /ASCII85Decode /FlateDecode ] /Length 1424
->>
-stream
-Gatm;?!#c?&:Mm.QoEGV79I"[O2k.km;BNMa<(&+(L\hS]!g[bA?u%**BD+K.9U[^8Idr:A'M^YFU&6SIVAbnBE1e?E,n6qL+o)!NCaPbcYu(;r&^U)AJ1.O%s&(,M[7Rk*8eZSKEh2V"VTiAaFHZ0b[V!WRc'TUFHaMA5o1\tJTh\QhSD#n0Jg;PYD$7qmA-c=_!E#aIe1:WnFN1MR%fcq)Z2BnU<W-?'!i]Ns(N6:H&1(>dPQO@%hmKccp4,^,g4O]J/W<K*`"STYrLI3[rpN((I-?C_)d02]c1B*YG'Ld_0ortDup2E8itD%:bPaAncYornZ/n@Vc_g-g'ZbQ"a5m*d7QH:!5FLM"tra;R_Yc"=.kh/f'(9G`^>IjhfT=3VS_j2:,[^j5p9_`TJZ6SSi94)BQ.XtcbtGe"Ba7jru_KLD9_GLCgk7giJqBaJonW1?\!aTT8@b_!Z!,A_JBP-O1HsqiENCb/26ig=Q+&43J>LSM)T1cXW[+I%enT_a0jJMp;:*:pm4c005%LoaP*O\=Got01RnZCS1p#rK&1":Q`AWL`%787XnSsEIdY+Y:XVRGnKa0=-S<D0K0tiGg.<PLkH_P#P\pLl^(-&)QO8,@b]Ti+UR+9Q/0RU%L1^87n_2f[4RGTIe*Bapn+#Ij%H^StgTC^ZXQ+Fd4FB8,lI.FLl4a-*'?Y>4R>`S6B!k,1=NX/K-G-mE-$1t'1]\\HO#59Cg_C3!Ehe#)@?^RLg]M>F"#C?m#A%[ArM`MDh1:tI`Ik+3gL+mm22jkQ@9n,V(f44hTif[cXK[hkL'W/a]'KbOZ)@L]BO3dd#JhXsI6o$Q,gPE*[EiMC)B9[lpUh)m6`Gc>7h,b=NnUOL-kO%>)/>Zg,Y,EB(%[<G362qHrU`'N[PIt7X\5U([ID%,TV#\LNX!OgiR0D=g5CSr5i=:0Le;UgZG:_B9lKh0C-"<5mZ$ZE?@M4A"7]a!rR']j[(>AIpUPjt%r0a@9Z7;_8PIU(WJVQ6%1^t[1ZW;nIO(2qM8G*i%u;A=asd37c/D$;nST+r-kZkU*#hjbd(Cb[;:;^^[IX4E$Iu\Oo=6QhGs(;=@S'L]k.!D<N+EQ[#)C4h$bLBu-+]=ITi]n8R"+(=OI(Mf)'r_:?IsX1&a_)p/Y`o\79I*s`S+U!iTKg=Fm\nn$AU'FKY(mBP+bj!n#H=IX)P_4og;irCcD<_AQbE"\EC?R@<'UUX.1HQg.nCA#I^g3_\.9`B3:[47\Vl!q]1+]#IcXt;FpV`PF*Uh'pdR/:?"Nm]+>"Y='c2lj9G#OgV-05=?\!&"1h'9]XL0RojkAuIusWMN*`di2pNh4\&e3_haqlon[9/YptNMqL7Q^f+#Im2#-!U2it)AS`C]X]oEl>3]-i;M:-L+Sqc6t^PWKbRDO^lon*8h)F8~>endstream
-endobj
-33 0 obj
-<<
-/Filter [ /ASCII85Decode /FlateDecode ] /Length 1520
->>
-stream
-Gau0BD/\/e&H;*)EBo*#m:'7`W4)iGQDR7)Y$$t@=>1j_+A7s$6kWL_NYc(fIRd"-A0Z"3YQTb!^>(mGh!s?#E:B4J^M*l@E=UGB$IjcT%[7P0o<3*m++56YDJ.mj+Eh6%U$iR3#;MgfAO7F8LB:oZE?ZNsn&C<<>`R/XmG.n!YL%t2Y%(_HJT3B(#onc$9'Qi1H-R_>;uR9hf._\m]V"0O@gEo?2j)]8n6prr^5N?hSJVrlOlOD5IMntj!9_Ctg01G*"YkiXguCX+Z_u#'cQeRum`ieSRGBM#=G'6jNs.(b8ORsul@nGS&_D/Qn7Y',-]C?3aPU3'"%F\ni'i(tDX:a68.Nr?L6Uqb&!7ald$)*5PtMt/JV-kM*;#+U,K2N9[:RW[2dR7<;S0Ti\ksQH;k.!m(F0aGoQ0t8U+Z6:>3RJrB#V(<P2M(Mo4\F-8j@)mhS:4<(ASt%ejYu-YAXdtlAF3JVmR)4K"#o@r"d^K/d9==%?no.W8T(#ar6m#Y1Lp+@g7VQHMhG^r<R\:W"iQt09TPB<f,n(n$\`=K[?PdZ2s+XiU$4%fDVmS#N'tpqL![53]l4`\N9Q[l0p'_lD33%-@*]H`F!Y8im2_0hRp`$,K=_&Mb1q[A6nIlc4dmW>iBK`XF+U'n"TTqDg<cM_fWrtj]L=Q%4GQF'?ueC6U^qtDRd?,3'RDM\Yjf#phO1&U-#[9Lq:5d=LCCjZ9U(.W!b3<&/\JC94[p$,7^lSIq`5iA:f`2X$!2VjqE\h3eZ#!S3@Y5,Fit&%a(M[m[u+mX`VMeFM<p+Zo.>k.="t']Jr;Jn>pXo^*/C5-Va2;O"_e!f)1gh1Fp]k.VcbXrbkX5>9.a83\SV%`@B9>8t#tU#FcI3iD-JJ&K<>gjS@,f(&P@?;e%f"jml0MML#S_JgDb4Zu`0T`GM>0h!hp=i-%_4Sos(?H6%X"YgDuU@#!\GbFr'1>JRB\_PV!k#.YE_?tK_h;'7ZD>GU'2;2%Z1]?Ys[.eNb==A-kP=`TKJK;jRA`Z\cA2f[Z$0Ij[<@,`:8NmmQQ&/kt$K+cq1g'F+G4Y+ca:(NEU?F9=1:St_/G%HE5SXm638ZYj^D.,kRY#1n[<hlNO8G![PnH+b'Q/0i=f)kL*G^rkTOGPM\Us`K`P8d1pNBWVu^ls+QhHau=Q4%aAPl[!1+'Okf5Z$P'Wck.f"O%CKXD0\)rJ&o_%.q8BT[`Z\Y,P"X0bWJk6U1k9rf(YK^L+n:D1g<RX,%?][LYS9O<9QD$s8;:ZTk\kh8S]fG^YAii'oGpN($SK[hl2SnA3\M-5D<NiMDmOa1lJn_uI)/=:M51KB_).Qh\"-X2+J6_2+2XIa1JSf)nJHInYHs"+4DP0'Wi;6YpBZdWS%"`ZRKYlQX"CHoImVj)pK(BN#,5ac`DW%*Iosam4Qcj-Y(Yb[E4(g`W!2";CIqm-B8f]gRlV&-U_oVCf5C:6nBD175KDaZRu5k2Kr-h,BLGJf7a(Y)b8N\8D2P<IhMcoFI:;.Lu~>endstream
 endobj
 xref
-0 34
+0 25
 0000000000 65535 f 
-0000000061 00000 n 
-0000000155 00000 n 
-0000000262 00000 n 
-0000000374 00000 n 
-0000000489 00000 n 
-0000000572 00000 n 
-0000000677 00000 n 
-0000000754 00000 n 
-0000000873 00000 n 
-0000001078 00000 n 
-0000001284 00000 n 
-0000001490 00000 n 
-0000001696 00000 n 
-0000001902 00000 n 
-0000002108 00000 n 
-0000002314 00000 n 
-0000002520 00000 n 
-0000002726 00000 n 
-0000002932 00000 n 
-0000003138 00000 n 
-0000003208 00000 n 
-0000003489 00000 n 
-0000003623 00000 n 
-0000004937 00000 n 
-0000005755 00000 n 
-0000007584 00000 n 
-0000009083 00000 n 
-0000010686 00000 n 
-0000012872 00000 n 
-0000014709 00000 n 
-0000016432 00000 n 
-0000018079 00000 n 
-0000019595 00000 n 
+0000000015 00000 n 
+0000000054 00000 n 
+0000000141 00000 n 
+0000000190 00000 n 
+0000000389 00000 n 
+0000001558 00000 n 
+0000001642 00000 n 
+0000001749 00000 n 
+0000001861 00000 n 
+0000001976 00000 n 
+0000002082 00000 n 
+0000002160 00000 n 
+0000002244 00000 n 
+0000002533 00000 n 
+0000007916 00000 n 
+0000008024 00000 n 
+0000008313 00000 n 
+0000015026 00000 n 
+0000015134 00000 n 
+0000015423 00000 n 
+0000020988 00000 n 
+0000021096 00000 n 
+0000021385 00000 n 
+0000025589 00000 n 
 trailer
 <<
-/ID 
-[<b044f86b4960dce9baf8f1c7bf98329c><b044f86b4960dce9baf8f1c7bf98329c>]
-% ReportLab generated PDF document -- digest (opensource)
-
-/Info 21 0 R
-/Root 20 0 R
-/Size 34
+/Size 25
+/Root 3 0 R
+/Info 1 0 R
 >>
 startxref
-21207
+25697
 %%EOF
