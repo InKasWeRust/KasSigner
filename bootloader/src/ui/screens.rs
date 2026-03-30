@@ -2471,7 +2471,7 @@ pub fn draw_home_grid(&mut self) {
                 }
 
                 // Delete button — trash icon on right edge of card
-                let del_rect = Rectangle::new(Point::new(start_x as i32 + card_w as i32 - 44, row_y + 3), Size::new(38, 36));
+                let del_rect = Rectangle::new(Point::new(start_x + card_w as i32 - 44, row_y + 3), Size::new(38, 36));
                 let del_corner = CornerRadii::new(Size::new(4, 4));
                 RoundedRectangle::new(del_rect, del_corner)
                     .into_styled(PrimitiveStyle::with_fill(COLOR_RED_BTN))
@@ -2479,7 +2479,7 @@ pub fn draw_home_grid(&mut self) {
                 use embedded_graphics::image::ImageRawLE;
                 let trash_raw: ImageRawLE<Rgb565> = ImageRawLE::new(
                     crate::hw::icon_data::ICON_TRASH, crate::hw::icon_data::ICON_TRASH_W);
-                Image::new(&trash_raw, Point::new(start_x as i32 + card_w as i32 - 35, row_y + 9)).draw(&mut self.display).ok();
+                Image::new(&trash_raw, Point::new(start_x + card_w as i32 - 35, row_y + 9)).draw(&mut self.display).ok();
             } else {
                 RoundedRectangle::new(slot_rect, card_corner)
                     .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))

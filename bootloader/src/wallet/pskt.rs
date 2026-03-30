@@ -1008,7 +1008,7 @@ pub fn test_serialize_parse_roundtrip() -> bool {
     tx.inputs[0].utxo_entry.script_public_key.script[33] = 0xAC;
     tx.inputs[0].utxo_entry.script_public_key.script_len = 34;
 
-    // Output 0: destino (4.5 KAS)
+    // Output 0: destination (4.5 KAS)
     tx.outputs[0].value = 450_000_000;
     tx.outputs[0].script_public_key.version = 0;
     tx.outputs[0].script_public_key.script[0] = 0x20;
@@ -1095,7 +1095,7 @@ pub fn test_full_sign_flow() -> bool {
     tx.inputs[0].utxo_entry.script_public_key.script[33] = 0xAC;
     tx.inputs[0].utxo_entry.script_public_key.script_len = 34;
 
-    tx.outputs[0].value = 500_000_000; // 5 KAS al destino
+    tx.outputs[0].value = 500_000_000; // 5 KAS to destination
     tx.outputs[0].script_public_key.version = 0;
     tx.outputs[0].script_public_key.script[0] = 0x20;
     tx.outputs[0].script_public_key.script[1..33].copy_from_slice(&[0xFF; 32]);
@@ -1105,7 +1105,7 @@ pub fn test_full_sign_flow() -> bool {
     tx.outputs[1].value = 499_000_000; // 4.99 KAS change
     tx.outputs[1].script_public_key.version = 0;
     tx.outputs[1].script_public_key.script[0] = 0x20;
-    tx.outputs[1].script_public_key.script[1..33].copy_from_slice(&pubkey_x); // change a nosotros
+    tx.outputs[1].script_public_key.script[1..33].copy_from_slice(&pubkey_x); // change to ourselves
     tx.outputs[1].script_public_key.script[33] = 0xAC;
     tx.outputs[1].script_public_key.script_len = 34;
 
