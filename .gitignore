@@ -34,3 +34,4 @@ screenshots/
 # SD card test files
 *.KAS
 *.jpg.bak
+*.log

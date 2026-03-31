@@ -86,9 +86,24 @@ pub fn handle_seed_touch(
                                         Ok(child) => {
                                             ad.bip85_child_wc = 12;
                                             for i in 0..12 { ad.bip85_child_indices[i] = child.indices[i]; }
+                                            // Auto-load child seed into a new slot immediately
+                                            if let Some(slot_idx) = ad.seed_mgr.store(
+                                                &ad.bip85_child_indices, 12, b"", 0,
+                                            ) {
+                                                ad.seed_mgr.activate(slot_idx);
+                                                ad.seed_loaded = true;
+                                                ad.word_count = 12;
+                                                ad.mnemonic_indices = [0u16; 24];
+                                                for j in 0..12 { ad.mnemonic_indices[j] = ad.bip85_child_indices[j]; }
+                                                ad.pubkeys_cached = false;
+                                                ad.current_addr_index = 0;
+                                                ad.extra_pubkey_index = 0xFFFF;
+                                            }
+                                            sound::success(delay);
                                             ad.app.state = crate::app::input::AppState::Bip85ShowWord { word_idx: 0, word_count: 12 };
                                         }
                                         Err(_) => {
+                                            sound::beep_error(delay);
                                             ad.app.state = crate::app::input::AppState::ToolsMenu;
                                         }
                                     }
@@ -97,9 +112,24 @@ pub fn handle_seed_touch(
                                         Ok(child) => {
                                             ad.bip85_child_wc = 24;
                                             for i in 0..24 { ad.bip85_child_indices[i] = child.indices[i]; }
+                                            // Auto-load child seed into a new slot immediately
+                                            if let Some(slot_idx) = ad.seed_mgr.store(
+                                                &ad.bip85_child_indices, 24, b"", 0,
+                                            ) {
+                                                ad.seed_mgr.activate(slot_idx);
+                                                ad.seed_loaded = true;
+                                                ad.word_count = 24;
+                                                ad.mnemonic_indices = [0u16; 24];
+                                                for j in 0..24 { ad.mnemonic_indices[j] = ad.bip85_child_indices[j]; }
+                                                ad.pubkeys_cached = false;
+                                                ad.current_addr_index = 0;
+                                                ad.extra_pubkey_index = 0xFFFF;
+                                            }
+                                            sound::success(delay);
                                             ad.app.state = crate::app::input::AppState::Bip85ShowWord { word_idx: 0, word_count: 24 };
                                         }
                                         Err(_) => {
+                                            sound::beep_error(delay);
                                             ad.app.state = crate::app::input::AppState::ToolsMenu;
                                         }
                                     }
@@ -116,15 +146,15 @@ pub fn handle_seed_touch(
                         if is_back {
                             // Zeroize child indices
                             for i in ad.bip85_child_indices.iter_mut() { *i = 0; }
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::MainMenu;
                         } else {
                             let next = word_idx + 1;
                             if next < bwc {
                                 ad.app.state = crate::app::input::AppState::Bip85ShowWord { word_idx: next, word_count: bwc };
                             } else {
-                                // Done — zeroize and go back
+                                // Done viewing words — zeroize and go to main menu
                                 for i in ad.bip85_child_indices.iter_mut() { *i = 0; }
-                                ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                ad.app.state = crate::app::input::AppState::MainMenu;
                             }
                         }
                         needs_redraw = true;

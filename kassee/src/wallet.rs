@@ -1,5 +1,23 @@
-// KasSigner Companion — wallet module
-// Handles kpub import, address derivation, UTXO tracking, PSKB creation
+// KasSee — Watch-only companion wallet for air-gapped KasSigner
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+// kassee/wallet.rs — Watch-only wallet operations
+//
+// Handles kpub import, address derivation, UTXO tracking, KSPT creation,
+// multisig P2SH funding/spending, and transaction broadcast.
 
 use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
@@ -137,14 +155,14 @@ pub async fn import_kpub(kpub_str: &str) -> Result<ImportInfo, String> {
 
 // ─── Balance ───
 
-pub async fn show_balance() -> Result<BalanceInfo, String> {
+pub async fn show_balance(node_url: Option<&str>) -> Result<BalanceInfo, String> {
     let data = load_wallet()?;
     let all_addresses: Vec<&str> = data.receive_addresses.iter()
         .chain(data.change_addresses.iter())
         .map(|s| s.as_str())
         .collect();
 
-    let client = connect_to_node().await?;
+    let client = connect_to_node(node_url).await?;
 
     let mut total_sompi: u64 = 0;
     let mut utxo_count: usize = 0;
@@ -174,18 +192,16 @@ pub async fn show_addresses_with_type(count: u32, change: bool) -> Result<Vec<St
     Ok(addrs[..n].to_vec())
 }
 
-// ─── Send (create unsigned PSKB) ───
+// ─── Send (create unsigned KSPT) ───
 
-pub async fn create_pskb(dest_address: &str, amount_kas: f64, fee: u64) -> Result<String, String> {
+pub async fn create_pskb(dest_address: &str, amount_kas: f64, fee: u64, node_url: Option<&str>) -> Result<String, String> {
     let mut data = load_wallet()?;
     let amount_sompi = (amount_kas * 100_000_000.0) as u64;
 
     let _dest = Address::try_from(dest_address)
         .map_err(|e| format!("Invalid destination address: {}", e))?;
 
-    let client = connect_to_node().await?;
-
-    // Fetch fee estimate from node
+    let client = connect_to_node(node_url).await?;
     {
         use kaspa_rpc_core::api::rpc::RpcApi;
         match client.get_fee_estimate().await {
@@ -328,7 +344,7 @@ pub async fn create_pskb(dest_address: &str, amount_kas: f64, fee: u64) -> Resul
     ).await
 }
 
-/// Internal: build PSKB/KSPT from selected UTXOs and output parameters.
+/// Internal: build KSPT from selected UTXOs and output parameters.
 async fn build_and_serialize_kspt(
     data: &mut WalletData,
     _client: &kaspa_wrpc_client::KaspaRpcClient,
@@ -420,7 +436,7 @@ async fn build_and_serialize_kspt(
         .map_err(|e| format!("PSKB serialize error: {}", e))?;
 
     // Serialize as KSPT binary for QR transport (compact, fits in 1-2 QR frames)
-    let kspt = serialize_kspt(&selected, amount_sompi, &dest_script, change_amount, &change_script)?;
+    let kspt = serialize_kspt(selected, amount_sompi, &dest_script, change_amount, &change_script)?;
 
     // Bump change address index so next TX uses a fresh one
     if change_amount > 0 {
@@ -511,7 +527,7 @@ fn serialize_kspt(
 
 // ─── Broadcast ───
 
-pub async fn broadcast_pskb(signed_hex: &str) -> Result<String, String> {
+pub async fn broadcast_pskb(signed_hex: &str, node_url: Option<&str>) -> Result<String, String> {
     let bytes = hex::decode(signed_hex)
         .map_err(|e| format!("Invalid hex: {}", e))?;
 
@@ -521,11 +537,15 @@ pub async fn broadcast_pskb(signed_hex: &str) -> Result<String, String> {
     }
     let version = bytes[4];
     let flags = bytes[5];
-    if flags != 0x01 {
-        return Err(format!("Not a signed KSPT (flags={:#x}, expected 0x01)", flags));
+
+    if version == 0x01 && flags != 0x01 {
+        return Err(format!("Not a signed KSPT v1 (flags={:#x}, expected 0x01)", flags));
+    }
+    if version == 0x02 && flags == 0x00 {
+        return Err("Partially signed KSPT — needs more signatures before broadcast".into());
     }
 
-    println!("  Parsing signed KSPT v{}, {} bytes", version, bytes.len());
+    println!("  Parsing signed KSPT v{}, flags={:#x}, {} bytes", version, flags, bytes.len());
 
     let mut pos: usize = 6;
 
@@ -561,23 +581,94 @@ pub async fn broadcast_pskb(signed_hex: &str) -> Result<String, String> {
         let spk_len = bytes[pos] as usize; pos += 1;
         let spk_script = &bytes[pos..pos+spk_len]; pos += spk_len;
 
-        // Signature
-        let sig_len = bytes[pos] as usize; pos += 1;
         let mut sig_script = Vec::new();
-        if sig_len > 0 {
-            let sig_bytes = &bytes[pos..pos+sig_len]; pos += sig_len;
-            let sighash_type = bytes[pos]; pos += 1;
 
-            // Build signature script: <sig_len+1> <sig_bytes> <sighash_type>
-            // Schnorr signature script format for Kaspa
-            sig_script.push((sig_len + 1) as u8); // push opcode: data length
-            sig_script.extend_from_slice(sig_bytes);
-            sig_script.push(sighash_type);
-
-            println!("  Input {}: signed ({} byte sig, sighash={:#x})", i, sig_len, sighash_type);
+        if version == 0x01 {
+            // v1: sig_len(1) + sig(64) + sighash_type(1)
+            let sig_len = bytes[pos] as usize; pos += 1;
+            if sig_len > 0 {
+                let sig_bytes = &bytes[pos..pos+sig_len]; pos += sig_len;
+                let sighash_type = bytes[pos]; pos += 1;
+                sig_script.push((sig_len + 1) as u8);
+                sig_script.extend_from_slice(sig_bytes);
+                sig_script.push(sighash_type);
+                println!("  Input {}: P2PK signed ({} byte sig)", i, sig_len);
+            } else {
+                return Err(format!("Input {} has no signature", i));
+            }
         } else {
-            println!("  Input {}: UNSIGNED", i);
-            return Err(format!("Input {} has no signature", i));
+            // v2: sig_count(1) + [pubkey_pos(1) + sighash_type(1) + sig(64)]×sig_count
+            let sig_count = bytes[pos] as usize; pos += 1;
+            if sig_count == 0 {
+                return Err(format!("Input {} has no signatures", i));
+            }
+
+            // Detect script type to build correct sig_script
+            let is_p2sh = spk_len == 35
+                && spk_script[0] == 0xAA  // OP_BLAKE2B
+                && spk_script[1] == 0x20  // OP_DATA_32
+                && spk_script[34] == 0x87; // OP_EQUAL
+            let is_multisig = !is_p2sh && spk_len >= 37
+                && spk_script[spk_len - 1] == 0xAE  // OP_CHECKMULTISIG
+                && spk_script[0] >= 0x51 && spk_script[0] <= 0x55;
+
+            if is_multisig || is_p2sh {
+                // Multisig/P2SH sig_script: [<65> <sig+sighash>]×M
+                // Signatures must be in pubkey order
+                let mut sigs: Vec<(u8, Vec<u8>)> = Vec::new(); // (pubkey_pos, sig+sighash)
+                for _s in 0..sig_count {
+                    let pubkey_pos = bytes[pos]; pos += 1;
+                    let sighash_type = bytes[pos]; pos += 1;
+                    let sig_bytes = &bytes[pos..pos+64]; pos += 64;
+                    let mut sig_data = Vec::with_capacity(65);
+                    sig_data.extend_from_slice(sig_bytes);
+                    sig_data.push(sighash_type);
+                    sigs.push((pubkey_pos, sig_data));
+                }
+                // Sort by pubkey position (required by Kaspa consensus)
+                sigs.sort_by_key(|s| s.0);
+                for (_pk_pos, sig_data) in &sigs {
+                    sig_script.push(sig_data.len() as u8); // push opcode
+                    sig_script.extend_from_slice(sig_data);
+                }
+
+                // Read redeem script (always present in v2 after sigs)
+                let rs_len = bytes[pos] as usize; pos += 1;
+                if rs_len > 0 {
+                    let redeem_script = &bytes[pos..pos+rs_len]; pos += rs_len;
+                    if is_p2sh {
+                        // P2SH: append redeem script as data push
+                        if rs_len <= 75 {
+                            sig_script.push(rs_len as u8); // OP_DATA_N
+                        } else {
+                            sig_script.push(0x4C); // OP_PUSHDATA1
+                            sig_script.push(rs_len as u8);
+                        }
+                        sig_script.extend_from_slice(redeem_script);
+                        println!("  Input {}: P2SH multisig {}/{} sigs, redeem {} bytes", i, sig_count, sig_op_count, rs_len);
+                    } else {
+                        println!("  Input {}: multisig {}/{} sigs", i, sig_count, sig_op_count);
+                    }
+                } else {
+                    println!("  Input {}: multisig {}/{} sigs (no redeem script)", i, sig_count, sig_op_count);
+                }
+            } else {
+                // P2PK with v2 format — use first sig
+                let _pubkey_pos = bytes[pos]; pos += 1;
+                let sighash_type = bytes[pos]; pos += 1;
+                let sig_bytes = &bytes[pos..pos+64]; pos += 64;
+                sig_script.push(65u8);
+                sig_script.extend_from_slice(sig_bytes);
+                sig_script.push(sighash_type);
+                // Skip remaining sigs if any
+                for _ in 1..sig_count {
+                    pos += 1 + 1 + 64; // pubkey_pos + sighash + sig
+                }
+                // Skip redeem script
+                let rs_len = bytes[pos] as usize; pos += 1;
+                if rs_len > 0 { pos += rs_len; }
+                println!("  Input {}: P2PK signed (v2 format)", i);
+            }
         }
 
         let outpoint = TransactionOutpoint::new(
@@ -595,7 +686,7 @@ pub async fn broadcast_pskb(signed_hex: &str) -> Result<String, String> {
         utxo_entries.push(kaspa_consensus_core::tx::UtxoEntry::new(
             amount,
             ScriptPublicKey::from_vec(spk_version, spk_script.to_vec()),
-            0, // block_daa_score — not needed for broadcast
+            0,
             false,
         ));
     }
@@ -619,24 +710,22 @@ pub async fn broadcast_pskb(signed_hex: &str) -> Result<String, String> {
         tx_version,
         tx_inputs,
         tx_outputs,
-        0, // locktime
+        0,
         SUBNETWORK_ID_NATIVE,
-        0, // gas
-        vec![], // payload
+        0,
+        vec![],
     );
 
     let tx_id = tx.id();
     println!("  TX ID: {}", tx_id);
-    println!("  TX version: {}", tx_version);
     println!("  Inputs: {}", num_inputs);
     for (i, inp) in tx.inputs.iter().enumerate() {
-        println!("    Input {}: sig_script {} bytes = {}",
-            i, inp.signature_script.len(), hex::encode(&inp.signature_script));
+        println!("    Input {}: sig_script {} bytes", i, inp.signature_script.len());
     }
     println!("  Outputs: {}", num_outputs);
 
     // Connect and submit
-    let client = connect_to_node().await?;
+    let client = connect_to_node(node_url).await?;
 
     use kaspa_rpc_core::api::rpc::RpcApi;
     use kaspa_rpc_core::model::tx::{RpcTransaction, RpcTransactionInput, RpcTransactionOutput, RpcTransactionOutpoint};
@@ -692,9 +781,10 @@ pub async fn show_info() -> Result<String, String> {
 
 // ─── Test KSPT generator ───
 
+#[allow(clippy::needless_range_loop)]
 pub fn generate_test_kspt(num_inputs: u8, num_outputs: u8) -> Result<String, String> {
-    let ni = num_inputs.max(1).min(8) as usize;
-    let no = num_outputs.max(1).min(4) as usize;
+    let ni = num_inputs.clamp(1, 8) as usize;
+    let no = num_outputs.clamp(1, 4) as usize;
 
     let mut buf = Vec::with_capacity(1024);
 
@@ -751,12 +841,463 @@ pub fn generate_test_kspt(num_inputs: u8, num_outputs: u8) -> Result<String, Str
     Ok(hex::encode(&buf))
 }
 
+/// Generate a fake multisig KSPT for testing co-signing on the device.
+///
+/// Creates inputs with M-of-N multisig scripts using deterministic fake pubkeys.
+/// The device will recognize these as multisig inputs and require M signatures
+/// from different seeds to fully sign.
+///
+/// Kaspa multisig script format:
+///   OP_M [OP_DATA_32 <pubkey>]×N OP_N OP_CHECKMULTISIG
+///
+/// Where OP_1=0x51..OP_5=0x55, OP_DATA_32=0x20, OP_CHECKMULTISIG=0xAE
+#[allow(clippy::needless_range_loop)]
+pub fn generate_test_multisig_kspt(m: u8, n: u8, num_inputs: u8) -> Result<String, String> {
+    let m = m.clamp(1, 5);
+    let n = n.max(m).min(5);
+    let ni = num_inputs.clamp(1, 4) as usize;
+
+    // Build M-of-N multisig script
+    // OP_M + N*(OP_DATA_32 + 32-byte-pubkey) + OP_N + OP_CHECKMULTISIG
+    let script_len = 1 + (n as usize) * 33 + 1 + 1;
+    let mut ms_script = vec![0u8; script_len];
+    ms_script[0] = 0x50 + m; // OP_M
+    for k in 0..n as usize {
+        ms_script[1 + k * 33] = 0x20; // OP_DATA_32
+        // Deterministic fake pubkey per key position
+        for b in 0..32 {
+            ms_script[1 + k * 33 + 1 + b] = ((k * 47 + b * 23 + 5) & 0xFF) as u8;
+        }
+    }
+    ms_script[script_len - 2] = 0x50 + n; // OP_N
+    ms_script[script_len - 1] = 0xAE;     // OP_CHECKMULTISIG
+
+    let mut buf = Vec::with_capacity(1024);
+
+    // Header
+    buf.extend_from_slice(b"KSPT");
+    buf.push(0x01); // version
+    buf.push(0x00); // flags
+
+    // Global
+    buf.extend_from_slice(&0u16.to_le_bytes());  // tx_version
+    buf.push(ni as u8);                           // num_inputs
+    buf.push(2u8);                                // num_outputs (dest + change)
+    buf.extend_from_slice(&0u64.to_le_bytes());  // locktime
+    buf.extend_from_slice(&[0u8; 20]);           // subnetwork_id
+    buf.extend_from_slice(&0u64.to_le_bytes());  // gas
+    buf.extend_from_slice(&0u16.to_le_bytes());  // payload_len
+
+    // Inputs — each references the multisig script
+    for i in 0..ni {
+        // Fake tx_id
+        let mut tx_id = [0u8; 32];
+        for b in 0..32 { tx_id[b] = ((i * 37 + b * 13 + 7) & 0xFF) as u8; }
+        buf.extend_from_slice(&tx_id);
+        buf.extend_from_slice(&(i as u32).to_le_bytes());      // prev_index
+        buf.extend_from_slice(&500_000_000u64.to_le_bytes());  // amount (5 KAS)
+        buf.extend_from_slice(&0u64.to_le_bytes());            // sequence
+        buf.push(n);                                            // sig_op_count = N
+        buf.extend_from_slice(&0u16.to_le_bytes());            // spk version
+        buf.push(script_len as u8);                             // spk len
+        buf.extend_from_slice(&ms_script);                      // multisig script
+    }
+
+    // Outputs — standard P2PK scripts
+    let total_in = ni as u64 * 500_000_000;
+    let fee = 10_000u64;
+    let dest_amount = total_in / 2;
+    let change_amount = total_in - dest_amount - fee;
+
+    // Output 1: destination (fake P2PK)
+    buf.extend_from_slice(&dest_amount.to_le_bytes());
+    buf.extend_from_slice(&0u16.to_le_bytes()); // spk version
+    buf.push(34u8);                              // P2PK script len
+    buf.push(0x20);                              // OP_DATA_32
+    let mut dest_pk = [0u8; 32];
+    for b in 0..32 { dest_pk[b] = ((b * 53 + 11) & 0xFF) as u8; }
+    buf.extend_from_slice(&dest_pk);
+    buf.push(0xAC);                              // OP_CHECKSIG
+
+    // Output 2: change (fake P2PK)
+    buf.extend_from_slice(&change_amount.to_le_bytes());
+    buf.extend_from_slice(&0u16.to_le_bytes());
+    buf.push(34u8);
+    buf.push(0x20);
+    let mut chg_pk = [0u8; 32];
+    for b in 0..32 { chg_pk[b] = ((b * 59 + 17) & 0xFF) as u8; }
+    buf.extend_from_slice(&chg_pk);
+    buf.push(0xAC);
+
+    println!("  Multisig KSPT: {} bytes ({}-of-{}, {} inputs, script {} bytes)",
+        buf.len(), m, n, ni, script_len);
+    println!("  Pubkeys in multisig script:");
+    for k in 0..n as usize {
+        let pk_start = 1 + k * 33 + 1;
+        let pk = &ms_script[pk_start..pk_start + 32];
+        print!("    Key {}: ", k);
+        for b in pk { print!("{:02x}", b); }
+        println!();
+    }
+
+    Ok(hex::encode(&buf))
+}
+
+/// Generate a multisig KSPT using real kpubs for end-to-end co-signing tests.
+///
+/// Derives address at `addr_index` from each kpub, builds an M-of-N multisig
+/// script with those real pubkeys, and creates a KSPT the device can actually sign.
+#[allow(clippy::needless_range_loop)]
+pub fn generate_real_multisig_kspt(m: u8, kpubs: &[String], addr_index: u32) -> Result<String, String> {
+    let n = kpubs.len();
+    if !(2..=5).contains(&n) { return Err("Need 2-5 kpubs".into()); }
+    let m = m.max(1).min(n as u8);
+
+    // Derive x-only pubkey at addr_index for each kpub
+    let mut pubkeys: Vec<[u8; 32]> = Vec::new();
+    for (i, kpub_str) in kpubs.iter().enumerate() {
+        let xpub: ExtendedPublicKey<secp256k1::PublicKey> = kpub_str.parse()
+            .map_err(|e: kaspa_bip32::Error| format!("kpub #{} parse error: {}", i, e))?;
+        // Derive /0/addr_index (receive chain)
+        let receive_chain = xpub.derive_child(ChildNumber::new(0, false)
+            .map_err(|e| format!("derive /0: {}", e))?)
+            .map_err(|e| format!("derive receive chain: {}", e))?;
+        let child = receive_chain.derive_child(ChildNumber::new(addr_index, false)
+            .map_err(|e| format!("child {}: {}", addr_index, e))?)
+            .map_err(|e| format!("derive receive/{}: {}", addr_index, e))?;
+        let compressed = child.public_key().serialize();
+        let mut x_only = [0u8; 32];
+        x_only.copy_from_slice(&compressed[1..33]);
+        println!("  Key #{} (addr {}): {}", i, addr_index, hex::encode(x_only));
+        pubkeys.push(x_only);
+    }
+
+    // Build M-of-N multisig script
+    let script_len = 1 + n * 33 + 1 + 1;
+    let mut ms_script = vec![0u8; script_len];
+    ms_script[0] = 0x50 + m;  // OP_M
+    for k in 0..n {
+        ms_script[1 + k * 33] = 0x20; // OP_DATA_32
+        ms_script[1 + k * 33 + 1..1 + k * 33 + 33].copy_from_slice(&pubkeys[k]);
+    }
+    ms_script[script_len - 2] = 0x50 + n as u8; // OP_N
+    ms_script[script_len - 1] = 0xAE;            // OP_CHECKMULTISIG
+
+    let mut buf = Vec::with_capacity(512);
+
+    // Header
+    buf.extend_from_slice(b"KSPT");
+    buf.push(0x01);
+    buf.push(0x00);
+
+    // Global: 1 input, 2 outputs
+    buf.extend_from_slice(&0u16.to_le_bytes());
+    buf.push(1u8);  // num_inputs
+    buf.push(2u8);  // num_outputs
+    buf.extend_from_slice(&0u64.to_le_bytes());
+    buf.extend_from_slice(&[0u8; 20]);
+    buf.extend_from_slice(&0u64.to_le_bytes());
+    buf.extend_from_slice(&0u16.to_le_bytes());
+
+    // Input: fake UTXO with 5 KAS, referencing multisig script
+    let mut tx_id = [0u8; 32];
+    for b in 0..32 { tx_id[b] = ((b * 37 + 7) & 0xFF) as u8; }
+    buf.extend_from_slice(&tx_id);
+    buf.extend_from_slice(&0u32.to_le_bytes());
+    buf.extend_from_slice(&500_000_000u64.to_le_bytes()); // 5 KAS
+    buf.extend_from_slice(&0u64.to_le_bytes());
+    buf.push(n as u8); // sig_op_count
+    buf.extend_from_slice(&0u16.to_le_bytes());
+    buf.push(script_len as u8);
+    buf.extend_from_slice(&ms_script);
+
+    // Output 1: destination (2.5 KAS to fake P2PK)
+    let dest_amount = 250_000_000u64;
+    buf.extend_from_slice(&dest_amount.to_le_bytes());
+    buf.extend_from_slice(&0u16.to_le_bytes());
+    buf.push(34u8);
+    buf.push(0x20);
+    buf.extend_from_slice(&pubkeys[0]); // send to first signer's address
+    buf.push(0xAC);
+
+    // Output 2: change (remaining minus fee)
+    let change_amount = 500_000_000 - dest_amount - 10_000;
+    buf.extend_from_slice(&change_amount.to_le_bytes());
+    buf.extend_from_slice(&0u16.to_le_bytes());
+    buf.push(34u8);
+    buf.push(0x20);
+    buf.extend_from_slice(&pubkeys[if n > 1 { 1 } else { 0 }]); // change to second signer
+    buf.push(0xAC);
+
+    println!("  Multisig KSPT: {} bytes ({}-of-{}, script {} bytes)", buf.len(), m, n, script_len);
+
+    Ok(hex::encode(&buf))
+}
+
+// ─── Real Multisig Transactions ───
+
+/// Helper: derive x-only pubkeys from kpubs and build M-of-N multisig script.
+fn build_multisig_script(m: u8, kpubs: &[String], addr_index: u32) -> Result<(Vec<u8>, Vec<[u8; 32]>), String> {
+    let n = kpubs.len();
+    if !(2..=5).contains(&n) { return Err("Need 2-5 kpubs".into()); }
+    let m = m.max(1).min(n as u8);
+
+    let mut pubkeys: Vec<[u8; 32]> = Vec::new();
+    for (i, kpub_str) in kpubs.iter().enumerate() {
+        let xpub: ExtendedPublicKey<secp256k1::PublicKey> = kpub_str.parse()
+            .map_err(|e: kaspa_bip32::Error| format!("kpub #{} parse error: {}", i, e))?;
+        let receive_chain = xpub.derive_child(ChildNumber::new(0, false)
+            .map_err(|e| format!("derive /0: {}", e))?)
+            .map_err(|e| format!("derive receive chain: {}", e))?;
+        let child = receive_chain.derive_child(ChildNumber::new(addr_index, false)
+            .map_err(|e| format!("child {}: {}", addr_index, e))?)
+            .map_err(|e| format!("derive receive/{}: {}", addr_index, e))?;
+        let compressed = child.public_key().serialize();
+        let mut x_only = [0u8; 32];
+        x_only.copy_from_slice(&compressed[1..33]);
+        pubkeys.push(x_only);
+    }
+
+    // Sort pubkeys lexicographically — ensures the same set of kpubs
+    // always produces the same redeem script regardless of input order
+    pubkeys.sort();
+
+    let script_len = 1 + n * 33 + 1 + 1;
+    let mut ms_script = vec![0u8; script_len];
+    ms_script[0] = 0x50 + m;
+    for k in 0..n {
+        ms_script[1 + k * 33] = 0x20;
+        ms_script[1 + k * 33 + 1..1 + k * 33 + 33].copy_from_slice(&pubkeys[k]);
+    }
+    ms_script[script_len - 2] = 0x50 + n as u8;
+    ms_script[script_len - 1] = 0xAE;
+
+    println!("  Multisig script: {}-of-{}, {} bytes", m, n, script_len);
+    for (i, pk) in pubkeys.iter().enumerate() {
+        println!("    Key #{}: {}", i, hex::encode(pk));
+    }
+
+    Ok((ms_script, pubkeys))
+}
+
+/// Send KAS from the imported wallet to a multisig output.
+/// Creates a KSPT where the destination output uses the raw multisig script.
+/// After signing + broadcast, note the TX ID to use with send-from-multisig.
+pub async fn send_to_multisig(
+    amount_kas: f64, m: u8, kpubs: &[String], addr_index: u32, fee: u64,
+    node_url: Option<&str>,
+) -> Result<String, String> {
+    let mut data = load_wallet()?;
+    let amount_sompi = (amount_kas * 100_000_000.0) as u64;
+
+    let (ms_script, _pubkeys) = build_multisig_script(m, kpubs, addr_index)?;
+
+    let client = connect_to_node(node_url).await?;
+
+    // Gather UTXOs from our wallet
+    let all_addresses: Vec<&str> = data.receive_addresses.iter()
+        .chain(data.change_addresses.iter())
+        .map(|s| s.as_str())
+        .collect();
+
+    let mut all_utxos = Vec::new();
+    for addr_str in &all_addresses {
+        let utxos = fetch_utxos(&client, addr_str).await?;
+        all_utxos.extend(utxos);
+    }
+
+    let total_needed = amount_sompi + fee;
+    let mut selected = Vec::new();
+    let mut selected_total: u64 = 0;
+    all_utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
+    for utxo in &all_utxos {
+        selected.push(utxo.clone());
+        selected_total += utxo.amount;
+        if selected_total >= total_needed { break; }
+    }
+    if selected_total < total_needed {
+        return Err(format!("Insufficient funds: have {} sompi, need {}", selected_total, total_needed));
+    }
+
+    let change_amount = selected_total - amount_sompi - fee;
+
+    // Change address (P2PK, from our wallet)
+    let chg_idx = data.next_change_index;
+    if chg_idx >= data.change_addresses.len() {
+        return Err("No more change addresses".into());
+    }
+    let change_addr = Address::try_from(data.change_addresses[chg_idx].as_str())
+        .map_err(|e| format!("Invalid change address: {}", e))?;
+    let change_script = kaspa_txscript::pay_to_address_script(&change_addr);
+
+    println!("  Send {} KAS to {}-of-{} multisig (P2SH)", amount_kas, m, kpubs.len());
+
+    // Compute P2SH script: blake2b_256(redeem_script) → OP_BLAKE2B OP_DATA_32 <hash> OP_EQUAL
+    let script_hash = {
+        let mut hasher = blake2b_simd::Params::new().hash_length(32).to_state();
+        hasher.update(&ms_script);
+        let h = hasher.finalize();
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(h.as_bytes());
+        hash
+    };
+    let mut p2sh_script = [0u8; 35];
+    p2sh_script[0] = 0xAA;  // OP_BLAKE2B
+    p2sh_script[1] = 0x20;  // OP_DATA_32
+    p2sh_script[2..34].copy_from_slice(&script_hash);
+    p2sh_script[34] = 0x87; // OP_EQUAL
+
+    // Compute and display the P2SH address
+    let p2sh_addr = Address::new(Prefix::Mainnet, Version::ScriptHash, &script_hash);
+    println!("  P2SH address: {}", p2sh_addr);
+    println!("  Redeem script: {} bytes ({})", ms_script.len(), hex::encode(&ms_script));
+    println!("  Change: {:.8} KAS to {}", change_amount as f64 / 1e8, data.change_addresses[chg_idx]);
+    println!("  Fee: {} sompi", fee);
+
+    // Build KSPT with multisig output
+    let mut buf = Vec::with_capacity(512);
+    let num_outputs = if change_amount > 0 { 2u8 } else { 1u8 };
+
+    // Header
+    buf.extend_from_slice(b"KSPT");
+    buf.push(0x01);
+    buf.push(0x00);
+
+    // Global
+    buf.extend_from_slice(&0u16.to_le_bytes());
+    buf.push(selected.len() as u8);
+    buf.push(num_outputs);
+    buf.extend_from_slice(&0u64.to_le_bytes());
+    buf.extend_from_slice(&[0u8; 20]);
+    buf.extend_from_slice(&0u64.to_le_bytes());
+    buf.extend_from_slice(&0u16.to_le_bytes());
+
+    // Inputs (P2PK from our wallet)
+    for utxo in &selected {
+        let tx_id_bytes = hex::decode(&utxo.tx_id)
+            .map_err(|e| format!("Bad tx_id: {}", e))?;
+        buf.extend_from_slice(&tx_id_bytes);
+        buf.extend_from_slice(&utxo.index.to_le_bytes());
+        buf.extend_from_slice(&utxo.amount.to_le_bytes());
+        buf.extend_from_slice(&0u64.to_le_bytes());
+        buf.push(1u8);
+        buf.extend_from_slice(&0u16.to_le_bytes());
+        buf.push(utxo.script_public_key.len() as u8);
+        buf.extend_from_slice(&utxo.script_public_key);
+    }
+
+    // Output 1: P2SH multisig destination
+    buf.extend_from_slice(&amount_sompi.to_le_bytes());
+    buf.extend_from_slice(&0u16.to_le_bytes());
+    buf.push(35u8); // P2SH script is always 35 bytes
+    buf.extend_from_slice(&p2sh_script);
+
+    // Output 2: change (P2PK)
+    if change_amount > 0 {
+        buf.extend_from_slice(&change_amount.to_le_bytes());
+        let chg_s = change_script.script();
+        buf.extend_from_slice(&change_script.version().to_le_bytes());
+        buf.push(chg_s.len() as u8);
+        buf.extend_from_slice(chg_s);
+    }
+
+    // Bump change index
+    if change_amount > 0 {
+        data.next_change_index += 1;
+        save_wallet(&data)?;
+    }
+
+    println!("  KSPT: {} bytes", buf.len());
+    Ok(hex::encode(&buf))
+}
+
+/// Create a KSPT to spend from a multisig UTXO.
+/// Requires the exact TX ID, output index, and amount of the multisig UTXO.
+#[allow(clippy::too_many_arguments)]
+pub fn send_from_multisig(
+    dest_address: &str, txid: &str, vout: u32, utxo_amount: u64,
+    m: u8, kpubs: &[String], addr_index: u32, fee: u64,
+) -> Result<String, String> {
+    let _dest = Address::try_from(dest_address)
+        .map_err(|e| format!("Invalid destination: {}", e))?;
+    let dest_script = kaspa_txscript::pay_to_address_script(&_dest);
+
+    let (ms_script, _pubkeys) = build_multisig_script(m, kpubs, addr_index)?;
+
+    let tx_id_bytes = hex::decode(txid)
+        .map_err(|e| format!("Invalid txid hex: {}", e))?;
+    if tx_id_bytes.len() != 32 {
+        return Err(format!("txid must be 32 bytes, got {}", tx_id_bytes.len()));
+    }
+
+    // Compute the P2SH script (same as funding) for the UTXO's scriptPubKey
+    let script_hash = {
+        let mut hasher = blake2b_simd::Params::new().hash_length(32).to_state();
+        hasher.update(&ms_script);
+        let h = hasher.finalize();
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(h.as_bytes());
+        hash
+    };
+    let mut p2sh_script = [0u8; 35];
+    p2sh_script[0] = 0xAA;  // OP_BLAKE2B
+    p2sh_script[1] = 0x20;  // OP_DATA_32
+    p2sh_script[2..34].copy_from_slice(&script_hash);
+    p2sh_script[34] = 0x87; // OP_EQUAL
+
+    let send_amount = utxo_amount - fee;
+    println!("  Spend from P2SH multisig: {} sompi ({:.8} KAS)", utxo_amount, utxo_amount as f64 / 1e8);
+    println!("  Send: {} sompi to {}", send_amount, dest_address);
+    println!("  Fee: {} sompi", fee);
+    println!("  Redeem script: {} bytes", ms_script.len());
+
+    let mut buf = Vec::with_capacity(512);
+
+    // Header — flags 0x02 = has redeem scripts
+    buf.extend_from_slice(b"KSPT");
+    buf.push(0x01); // version
+    buf.push(0x02); // flags: bit 1 = has redeem scripts
+
+    // Global: 1 input, 1 output
+    buf.extend_from_slice(&0u16.to_le_bytes());
+    buf.push(1u8);
+    buf.push(1u8);
+    buf.extend_from_slice(&0u64.to_le_bytes());
+    buf.extend_from_slice(&[0u8; 20]);
+    buf.extend_from_slice(&0u64.to_le_bytes());
+    buf.extend_from_slice(&0u16.to_le_bytes());
+
+    // Input: the P2SH UTXO
+    buf.extend_from_slice(&tx_id_bytes);
+    buf.extend_from_slice(&vout.to_le_bytes());
+    buf.extend_from_slice(&utxo_amount.to_le_bytes());
+    buf.extend_from_slice(&0u64.to_le_bytes());
+    buf.push(kpubs.len() as u8); // sig_op_count = N
+    buf.extend_from_slice(&0u16.to_le_bytes());
+    buf.push(35u8); // P2SH script is 35 bytes
+    buf.extend_from_slice(&p2sh_script);
+
+    // Redeem script for this input (flags 0x02 tells device to read this)
+    buf.push(ms_script.len() as u8);
+    buf.extend_from_slice(&ms_script);
+
+    // Output: destination P2PK
+    buf.extend_from_slice(&send_amount.to_le_bytes());
+    let dest_s = dest_script.script();
+    buf.extend_from_slice(&dest_script.version().to_le_bytes());
+    buf.push(dest_s.len() as u8);
+    buf.extend_from_slice(dest_s);
+
+    println!("  KSPT: {} bytes", buf.len());
+    Ok(hex::encode(&buf))
+}
+
 // ─── QR display ───
 
 /// Maximum payload per QR frame.
 /// Each frame: 3 bytes header + data. Must produce QR version ≤8 (192 byte binary capacity).
 /// 120 bytes data + 3 byte header = 123 bytes → version 7 QR (154 capacity). Safe for all cameras.
-const MAX_FRAME_DATA: usize = 120;
+const MAX_FRAME_DATA: usize = 78;
 
 pub fn display_qr(hex_data: &str) {
     // Decode hex to raw bytes for binary QR
@@ -787,7 +1328,7 @@ fn display_single_qr(data: &[u8]) {
 }
 
 fn display_multiframe_qr(data: &[u8]) {
-    let total_frames = (data.len() + MAX_FRAME_DATA - 1) / MAX_FRAME_DATA;
+    let total_frames = data.len().div_ceil(MAX_FRAME_DATA);
     if total_frames > 16 {
         eprintln!("Error: data too large ({} bytes, {} frames needed, max 16)",
             data.len(), total_frames);
@@ -796,7 +1337,7 @@ fn display_multiframe_qr(data: &[u8]) {
 
     let total = total_frames as u8;
     // Compute balanced frame size: split evenly so all frames are similar size
-    let balanced_frame_size = (data.len() + total_frames - 1) / total_frames;
+    let balanced_frame_size = data.len().div_ceil(total_frames);
     println!("Multi-frame QR: {} frame(s) ({} bytes total)", total, data.len());
 
     // Build all QR frame images
@@ -902,10 +1443,12 @@ fn display_multiframe_qr(data: &[u8]) {
             }
         }
 
-        let mut frame = gif::Frame::default();
-        frame.width = max_size as u16;
-        frame.height = max_size as u16;
-        frame.delay = 150;
+        let mut frame = gif::Frame {
+            width: max_size as u16,
+            height: max_size as u16,
+            delay: 150,
+            ..gif::Frame::default()
+        };
         frame.dispose = gif::DisposalMethod::Background;
         frame.transparent = None;
         frame.needs_user_input = false;
@@ -926,22 +1469,49 @@ fn display_multiframe_qr(data: &[u8]) {
 
 // ─── Node connection ───
 
-async fn connect_to_node() -> Result<kaspa_wrpc_client::KaspaRpcClient, String> {
+async fn connect_to_node(node_url: Option<&str>) -> Result<kaspa_wrpc_client::KaspaRpcClient, String> {
     use kaspa_wrpc_client::{KaspaRpcClient, Resolver, WrpcEncoding};
     use kaspa_consensus_core::network::{NetworkType, NetworkId};
 
-    let resolver = Resolver::default();
     let network_id = NetworkId::new(NetworkType::Mainnet);
 
-    let client = KaspaRpcClient::new(
-        WrpcEncoding::Borsh,
-        None,
-        Some(resolver),
-        Some(network_id),
-        None,
-    ).map_err(|e| format!("RPC client error: {}", e))?;
+    let client = if let Some(url) = node_url {
+        // Warn if ws:// (unencrypted) to a non-local address
+        if url.starts_with("ws://") {
+            let is_local = url.starts_with("ws://127.")
+                || url.starts_with("ws://localhost")
+                || url.starts_with("ws://192.168.")
+                || url.starts_with("ws://10.")
+                || url.starts_with("ws://172.16.")
+                || url.starts_with("ws://[::1]");
+            if !is_local {
+                eprintln!("  \u{26A0} Warning: unencrypted connection to remote node.");
+                eprintln!("    Use wss:// for nodes outside your LAN.");
+                eprintln!();
+            }
+        }
+        // Direct connection to user's own node
+        println!("  Connecting to node: {}...", url);
+        KaspaRpcClient::new(
+            WrpcEncoding::Borsh,
+            Some(url),
+            None,
+            Some(network_id),
+            None,
+        ).map_err(|e| format!("RPC client error: {}", e))?
+    } else {
+        // Use default resolver (public nodes)
+        let resolver = Resolver::default();
+        println!("  Connecting to Kaspa network...");
+        KaspaRpcClient::new(
+            WrpcEncoding::Borsh,
+            None,
+            Some(resolver),
+            Some(network_id),
+            None,
+        ).map_err(|e| format!("RPC client error: {}", e))?
+    };
 
-    println!("  Connecting to Kaspa network...");
     client.connect(None).await
         .map_err(|e| format!("Connection failed: {}", e))?;
     println!("  Connected!");

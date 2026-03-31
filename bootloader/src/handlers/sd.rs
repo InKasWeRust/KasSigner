@@ -186,7 +186,7 @@ pub fn handle_sd_touch(
                                         ad.app.state = crate::app::input::AppState::SdDeleteConfirm;
                                     } else {
                                     // Read first bytes to auto-detect format
-                                    boot_display.draw_saving_screen("Importing...");
+                                    boot_display.draw_loading_screen("Loading...");
                                     let peek_result = sdcard::with_sd_card(i2c, delay, |ct| {
                                         let fat32 = sdcard::mount_fat32(ct)?;
                                         let (entry, _, _) = sdcard::find_file_in_root(ct, &fat32, &ad.sd_selected_file)?;
@@ -214,7 +214,7 @@ pub fn handle_sd_touch(
                                             // Plain text xprv string
                                             match wallet::xpub::import_xprv(&buf[..len]) {
                                                 Ok(acct_key) => {
-                                                    boot_display.draw_saving_screen("Importing xprv...");
+                                                    boot_display.draw_loading_screen("Importing xprv...");
                                                     let raw = acct_key.to_raw();
                                                     ad.acct_key_raw.copy_from_slice(&raw);
                                                     // Derive pubkeys
@@ -446,7 +446,7 @@ pub fn handle_sd_touch(
                                 4 => { ad.pp_input.backspace(); }
                                 5 => { ad.pp_input.push_char(b' '); }
                                 6 => { // OK — read from SD and decrypt
-                                    boot_display.draw_saving_screen("Reading from SD...");
+                                    boot_display.draw_loading_screen("Reading from SD...");
                                     let pp_bytes_len = ad.pp_input.len;
                                     let mut pp_copy = [0u8; 64];
                                     pp_copy[..pp_bytes_len].copy_from_slice(&ad.pp_input.buf[..pp_bytes_len]);
@@ -649,7 +649,7 @@ pub fn handle_sd_touch(
                                 4 => { ad.pp_input.backspace(); }
                                 5 => { ad.pp_input.push_char(b' '); }
                                 6 => { // OK — read from SD, decrypt, import xprv
-                                    boot_display.draw_saving_screen("Reading from SD...");
+                                    boot_display.draw_loading_screen("Reading from SD...");
                                     let pp_bytes_len = ad.pp_input.len;
                                     let mut pp_copy = [0u8; 64];
                                     pp_copy[..pp_bytes_len].copy_from_slice(&ad.pp_input.buf[..pp_bytes_len]);

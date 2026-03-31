@@ -7,3 +7,4 @@ bootloader/target/
 *.key
 dev_signing_key.bin
 screenshots/
+*.log

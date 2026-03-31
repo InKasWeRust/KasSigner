@@ -94,6 +94,9 @@ pub struct AppData {
     pub signed_qr_len: usize,
     pub signed_qr_frame: u8,
     pub signed_qr_nframes: u8,
+    /// Multisig signature status after signing (for ShowQR display)
+    pub tx_sigs_present: u8,
+    pub tx_sigs_required: u8,
     pub scanned_addr: [u8; 80],
     pub scanned_addr_len: usize,
     pub scanned_addr_valid: bool,
@@ -244,6 +247,8 @@ pub fn new() -> Self {
             signed_qr_len: 0,
             signed_qr_frame: 0,
             signed_qr_nframes: 0,
+            tx_sigs_present: 0,
+            tx_sigs_required: 0,
             scanned_addr: [0u8; 80],
             scanned_addr_len: 0,
             scanned_addr_valid: false,

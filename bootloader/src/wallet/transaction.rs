@@ -32,8 +32,8 @@ pub const MAX_INPUTS: usize = 8;
 /// Maximum supported outputs
 pub const MAX_OUTPUTS: usize = 4;
 
-/// Maximum script size (P2PK = 34 bytes, P2SH = 35 bytes)
-pub const MAX_SCRIPT_SIZE: usize = 64;
+/// Maximum script size (P2PK=34, 2-of-3 multisig=102, 5-of-5=168)
+pub const MAX_SCRIPT_SIZE: usize = 170;
 
 /// Maximum payload size
 pub const MAX_PAYLOAD_SIZE: usize = 128;
@@ -164,6 +164,8 @@ pub const OP_4: u8 = 0x54;       // push value 4
 pub const OP_5: u8 = 0x55;       // push value 5
 pub const OP_CHECKSIG: u8 = 0xAC;
 pub const OP_CHECKMULTISIG: u8 = 0xAE;
+pub const OP_BLAKE2B: u8 = 0xAA;
+pub const OP_EQUAL: u8 = 0x87;
 
 // ─── Multisig Script Info ────────────────────────────────────────────
 
@@ -184,10 +186,12 @@ impl MultisigInfo {
 
 /// Script type detected from scriptPublicKey
 #[derive(Debug, Clone, Copy, PartialEq)]
-/// Detected script type (P2PK, multisig, or unknown).
+/// Detected script type (P2PK, P2SH, multisig, or unknown).
 pub enum ScriptType {
     /// Standard P2PK Schnorr: OP_DATA_32 <pubkey> OP_CHECKSIG
     P2PK,
+    /// P2SH: OP_BLAKE2B OP_DATA_32 <script_hash> OP_EQUAL
+    P2SH,
     /// M-of-N multisig: OP_M <pubkeys> OP_N OP_CHECKMULTISIG
     Multisig,
     /// Unknown/unsupported script
@@ -198,6 +202,10 @@ pub enum ScriptType {
 pub fn detect_script_type(script: &[u8], len: usize) -> ScriptType {
     if len == 34 && script[0] == OP_DATA_32 && script[33] == OP_CHECKSIG {
         return ScriptType::P2PK;
+    }
+    // P2SH: OP_BLAKE2B(0xAA) OP_DATA_32(0x20) <32-byte hash> OP_EQUAL(0x87) = 35 bytes
+    if len == 35 && script[0] == OP_BLAKE2B && script[1] == OP_DATA_32 && script[34] == OP_EQUAL {
+        return ScriptType::P2SH;
     }
     // Multisig: OP_m [OP_DATA_32 <32 bytes>]xN OP_n OP_CHECKMULTISIG
     if len >= 37 && script[len - 1] == OP_CHECKMULTISIG {
@@ -284,6 +292,9 @@ pub struct TransactionInput {
     pub signature: [u8; 64],
     pub sig_len: u8,
     pub sighash_type: u8,
+    /// P2SH redeem script (the actual multisig script inside the P2SH wrapper)
+    pub redeem_script: [u8; MAX_SCRIPT_SIZE],
+    pub redeem_script_len: usize,
 }
 
 // ─── Transaction Output ───────────────────────────────────────────────
@@ -336,6 +347,8 @@ impl Transaction {
                 signature: [0u8; 64],
                 sig_len: 0,
                 sighash_type: 0,
+                redeem_script: [0u8; MAX_SCRIPT_SIZE],
+                redeem_script_len: 0,
             }),
             num_inputs: 0,
             outputs: core::array::from_fn(|_| TransactionOutput {

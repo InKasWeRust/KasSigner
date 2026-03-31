@@ -94,7 +94,9 @@ pub fn handle_stego_touch(
                                 });
                                 if scan_ok.is_err() || (ad.jpeg_file_count) == 0 {
                                     boot_display.draw_rejected_screen("No .JPG files on SD");
+                                    sound::beep_error(delay);
                                     delay.delay_millis(2000);
+                                    ad.app.state = crate::app::input::AppState::ExportChoice;
                                 } else {
                                     (ad.jpeg_selected) = 0;
                                     ad.app.state = crate::app::input::AppState::StegoJpegPick;

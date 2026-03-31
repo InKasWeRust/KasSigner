@@ -257,7 +257,8 @@ pub fn parse_pskt(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
         return Err(PsktError::UnsupportedVersion);
     }
 
-    let _flags = r.read_u8()?; // Reserved
+    let flags = r.read_u8()?; // bit 0x02 = has redeem scripts
+    let has_redeem = (flags & 0x02) != 0;
 
     // Global
     tx.version = r.read_u16_le()?;
@@ -315,6 +316,20 @@ pub fn parse_pskt(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
         let spk_bytes = r.read_bytes(spk_len)?;
         tx.inputs[i].utxo_entry.script_public_key.script[..spk_len]
             .copy_from_slice(spk_bytes);
+
+        // Optional redeem script for P2SH inputs
+        tx.inputs[i].redeem_script_len = 0;
+        if has_redeem {
+            let rs_len = r.read_u8()? as usize;
+            if rs_len > 0 {
+                if rs_len > MAX_SCRIPT_SIZE {
+                    return Err(PsktError::ScriptTooLong);
+                }
+                let rs_bytes = r.read_bytes(rs_len)?;
+                tx.inputs[i].redeem_script[..rs_len].copy_from_slice(rs_bytes);
+                tx.inputs[i].redeem_script_len = rs_len;
+            }
+        }
     }
 
     // Outputs
@@ -660,9 +675,25 @@ pub fn sign_transaction_multi_addr(
 // ═══════════════════════════════════════════════════════════════════
 
 /// Analyze a transaction input's script type.
+/// For P2SH inputs with a redeem script, returns the redeem script's type.
 pub fn analyze_input_script(tx: &Transaction, input_idx: usize) -> (ScriptType, Option<MultisigInfo>) {
     let script = &tx.inputs[input_idx].utxo_entry.script_public_key;
     let st = detect_script_type(&script.script, script.script_len);
+
+    // P2SH: use the redeem script for pubkey analysis
+    if st == ScriptType::P2SH && tx.inputs[input_idx].redeem_script_len > 0 {
+        let rs = &tx.inputs[input_idx].redeem_script;
+        let rs_len = tx.inputs[input_idx].redeem_script_len;
+        let rs_type = detect_script_type(rs, rs_len);
+        let ms = if rs_type == ScriptType::Multisig {
+            parse_multisig_script(rs, rs_len)
+        } else {
+            None
+        };
+        // Return P2SH as the script type so callers know it's wrapped
+        return (ScriptType::P2SH, ms);
+    }
+
     let ms = if st == ScriptType::Multisig {
         parse_multisig_script(&script.script, script.script_len)
     } else {
@@ -742,7 +773,7 @@ pub fn sign_transaction_multisig(
                 }
             }
 
-            ScriptType::Multisig => {
+            ScriptType::Multisig | ScriptType::P2SH => {
                 if let Some(ref ms) = ms_info {
                     for pos in 0..ms.n as usize {
                         // Already have a sig for this position? skip
@@ -804,7 +835,7 @@ pub fn is_fully_signed(tx: &Transaction) -> bool {
             ScriptType::P2PK => {
                 if tx.inputs[i].sig_len == 0 { return false; }
             }
-            ScriptType::Multisig => {
+            ScriptType::Multisig | ScriptType::P2SH => {
                 if let Some(ref ms) = ms_info {
                     if tx.inputs[i].sig_count < ms.m { return false; }
                 } else {
@@ -829,7 +860,7 @@ pub fn signature_status(tx: &Transaction) -> (u8, u8) {
                 required += 1;
                 if tx.inputs[i].sig_len > 0 { present += 1; }
             }
-            ScriptType::Multisig => {
+            ScriptType::Multisig | ScriptType::P2SH => {
                 if let Some(ref ms) = ms_info {
                     required += ms.m;
                     present += tx.inputs[i].sig_count.min(ms.m);
@@ -889,6 +920,12 @@ pub fn serialize_signed_pskt_v2(tx: &Transaction, output: &mut [u8]) -> Result<u
                 w.write_u8(input.sigs[s].sighash_type)?;
                 w.write_bytes(&input.sigs[s].signature)?;
             }
+        }
+
+        // Redeem script for P2SH round-trip
+        w.write_u8(input.redeem_script_len as u8)?;
+        if input.redeem_script_len > 0 {
+            w.write_bytes(&input.redeem_script[..input.redeem_script_len])?;
         }
     }
 
@@ -970,6 +1007,15 @@ pub fn parse_signed_pskt_v2(data: &[u8], tx: &mut Transaction) -> Result<(), Psk
             tx.inputs[i].signature = tx.inputs[i].sigs[0].signature;
             tx.inputs[i].sig_len = 64;
             tx.inputs[i].sighash_type = tx.inputs[i].sigs[0].sighash_type;
+        }
+
+        // Redeem script for P2SH round-trip
+        let rs_len = r.read_u8()? as usize;
+        tx.inputs[i].redeem_script_len = rs_len;
+        if rs_len > 0 {
+            if rs_len > MAX_SCRIPT_SIZE { return Err(PsktError::ScriptTooLong); }
+            let rs = r.read_bytes(rs_len)?;
+            tx.inputs[i].redeem_script[..rs_len].copy_from_slice(rs);
         }
     }
 

@@ -22,7 +22,7 @@ KasSigner is an open-source signing device built on ESP32-S3. It generates priva
 - **Schnorr signing** — native Kaspa transaction signing (secp256k1)
 - **KSPT support** — scan, parse, sign, and export KasSigner Packed Transactions via QR
 - **Message signing** — sign arbitrary messages with address keys (type or load from SD)
-- **Multisig** — M-of-N address generation with multiple seeds or scanned pubkeys
+- **Multisig** — M-of-N P2SH multisig: create addresses, co-sign between devices via QR, broadcast. First air-gapped multisig on Kaspa mainnet.
 - **Multi-seed management** — store and switch between up to 16 seed slots in RAM (never persisted)
 - **Steganographic backup** — hide encrypted seeds inside ordinary JPEG photos on SD card
 - **Encrypted SD backup** — AES-256-GCM encrypted seed backup to MicroSD
@@ -139,8 +139,6 @@ ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release --features skip-tests
 | `production` | Silent boot + strict firmware verification |
 | `verbose-boot` | Extra boot diagnostics on UART |
 | `mirror` | Live display mirror — streams screen to Mac/PC via serial |
-| `screenshot` | Shadow framebuffer (internal, implied by `mirror`) |
-| `icon-browser` | Enable icon browser debug screen |
 
 ### Live display mirror (for presentations)
 
@@ -175,13 +173,16 @@ See [docs/REPRODUCIBLE_BUILD.md](docs/REPRODUCIBLE_BUILD.md) for details.
 
 ## KasSee — Watch-Only Companion Wallet
 
-KasSee is the online counterpart to KasSigner. It imports your kpub (extended public key), derives all receive and change addresses, tracks UTXOs via a public Kaspa node, builds unsigned transactions, and broadcasts signed ones. It never sees your private keys.
+KasSee is the online counterpart to KasSigner. It imports your kpub (extended public key), derives all receive and change addresses, tracks UTXOs via a Kaspa node, builds unsigned transactions, and broadcasts signed ones. It never sees your private keys.
 
 ### Building KasSee
 
 ```bash
 cd kassee
 cargo build --release
+
+# Optional: install globally so you can run 'kassee' from anywhere
+cargo install --path .
 ```
 
 No Xtensa toolchain needed — KasSee is standard Rust, runs on macOS/Linux/Windows.
@@ -192,8 +193,11 @@ No Xtensa toolchain needed — KasSee is standard Rust, runs on macOS/Linux/Wind
 # Import your kpub from KasSigner (Seeds → Export → kpub Watch-Only)
 kassee import <kpub_string>
 
-# Check balance
+# Check balance (uses public node by default)
 kassee balance
+
+# Connect to your own node
+kassee --node ws://192.168.1.X:17110 balance
 
 # List addresses
 kassee addresses -n 10
@@ -205,6 +209,23 @@ kassee send <destination_address> <amount_kas>
 # Broadcast a signed transaction from KasSigner
 kassee broadcast <signed_hex>
 ```
+
+### Multisig commands
+
+```bash
+# Fund a 2-of-2 P2SH multisig (sends from your wallet to multisig address)
+kassee --node ws://... send-to-multisig 1.0 -m 2 <kpub1> <kpub2>
+# Sign with your device, broadcast, note the TX ID
+
+# Spend from multisig (creates KSPT for co-signing)
+kassee send-from-multisig <dest_addr> --txid <TXID> --vout 0 --utxo-amount <sompi> -m 2 <kpub1> <kpub2>
+# Co-sign with both devices, broadcast the fully signed TX
+
+# Test multisig flow (fake UTXOs, real pubkeys)
+kassee test-multisig-real -m 2 <kpub1> <kpub2>
+```
+
+Pubkeys are automatically sorted lexicographically — kpub order on the command line doesn't matter.
 
 ### Air-gapped signing flow
 
@@ -219,13 +240,49 @@ KasSee                          KasSigner
 8. Broadcast to network
 ```
 
+### Multisig co-signing flow (via KasSee relay)
+
+```
+KasSee                    Device A              Device B
+───────                   ────────              ────────
+1. Build KSPT
+2. Display QR ──────────→ 3. Scan, review
+                          4. Sign (1/2)
+                          5. Show partial QR
+                             (copy hex from serial)
+6. kassee relay <hex>
+7. Display partial QR ──────────────────────→ 8. Scan, review
+                                               9. Sign (2/2)
+                                              10. Show fully signed QR
+                                                  (copy hex from serial)
+11. kassee broadcast <hex>
+```
+
+### Multisig co-signing flow (direct device-to-device)
+
+```
+KasSee                    Device A              Device B
+───────                   ────────              ────────
+1. Build KSPT
+2. Display QR ──────────→ 3. Scan, review
+                          4. Sign (1/2)
+                          5. Show partial QR ──→ 6. Scan directly from A's screen
+                                                 7. Sign (2/2)
+                                                 8. Show fully signed QR
+                                                    (copy hex from serial)
+9. kassee broadcast <hex>
+```
+
 ### Safety features
 
+- **Own-node connection** — `--node ws://...` for privacy and verification
+- **Remote node warning** — warns when using unencrypted `ws://` to non-local IPs
 - **Fee estimation** — queries node for current feerate, warns if fee too low
 - **Storage mass awareness** — warns for outputs below 0.2 KAS (KIP-9/Crescendo)
 - **Address reuse detection** — warns if destination has existing UTXOs (P2PK pubkey exposure)
 - **Change address rotation** — auto-bumps to next unused change address
 - **Balanced QR frames** — splits data evenly across frames for reliable scanning
+- **Sorted multisig keys** — deterministic P2SH addresses regardless of kpub input order
 
 ## Project Structure
 
@@ -252,11 +309,13 @@ KasSigner/
 │
 ├── kassee/                         KasSee — watch-only companion wallet
 │   ├── Cargo.toml
+│   ├── Cargo.lock
 │   └── src/
-│       ├── main.rs                 CLI entry point (clap)
-│       └── wallet.rs               kpub import, UTXO tracking, KSPT builder
+│       ├── main.rs                 CLI entry point (clap) — import, send, broadcast, relay, multisig
+│       └── wallet.rs               kpub import, UTXO tracking, KSPT builder, P2SH multisig, QR output
 │
 ├── docs/
+│   ├── BUILD_FLASH_GUIDE.md        Build, sign, and flash guide (all device types)
 │   ├── STEGANOGRAPHY.md            JPEG EXIF steganographic backup design
 │   ├── KEY_DERIVATION.md           BIP32/39/85 derivation architecture
 │   ├── EFUSE_RUNBOOK.md            eFuse secure boot procedure (irreversible!)

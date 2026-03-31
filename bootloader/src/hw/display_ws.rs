@@ -508,6 +508,35 @@ impl<'a> BootDisplay<'a> {
         draw_lato_hint(&mut self.display, text, bx + pad, by + 11, KASPA_TEAL);
     }
 
+    /// Draw multisig signature status overlay on the QR screen.
+    /// Shows "PARTIAL — next signer" or "FULLY SIGNED" with sig count.
+    pub fn draw_sig_status(&mut self, present: u8, required: u8) {
+        let (label, color) = if present >= required {
+            ("FULLY SIGNED", KASPA_TEAL)
+        } else {
+            ("PARTIAL", COLOR_ORANGE)
+        };
+        // Status badge bottom-left
+        let tw = measure_hint(label);
+        let pad = 6i32;
+        let corner = CornerRadii::new(Size::new(4, 4));
+        RoundedRectangle::new(
+            Rectangle::new(Point::new(4, 224), Size::new((tw + pad * 2) as u32, 14)),
+            corner,
+        ).into_styled(PrimitiveStyle::with_fill(COLOR_BG)).draw(&mut self.display).ok();
+        draw_lato_hint(&mut self.display, label, 4 + pad, 235, color);
+        // Sig count badge bottom-right (or left of frame counter)
+        let mut sc: heapless::String<8> = heapless::String::new();
+        core::fmt::Write::write_fmt(&mut sc, format_args!("{}/{}", present, required)).ok();
+        let sw = measure_hint(sc.as_str());
+        let sx = 4 + pad + tw + 6;
+        RoundedRectangle::new(
+            Rectangle::new(Point::new(sx, 224), Size::new((sw + pad * 2) as u32, 14)),
+            corner,
+        ).into_styled(PrimitiveStyle::with_fill(COLOR_BG)).draw(&mut self.display).ok();
+        draw_lato_hint(&mut self.display, &sc, sx + pad, 235, color);
+    }
+
     pub fn draw_back_button(&mut self) {
         use embedded_graphics::image::{Image, ImageRawLE};
         let back: ImageRawLE<Rgb565> = ImageRawLE::new(

@@ -5,6 +5,53 @@ All notable changes to KasSigner will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] — 2026-03-31
+
+### Milestone: First Air-Gapped Multisig on Kaspa Mainnet
+- **P2SH multisig** — fund and spend from M-of-N Pay-to-Script-Hash multisig addresses
+- **Co-signing flow** — device A signs partial → QR → device B adds signature → fully signed
+- **Two co-signing modes** — direct device-to-device QR, or via KasSee relay on laptop
+- TX `8a6652fb...` — first P2SH multisig funding on Kaspa mainnet (air-gapped)
+- TX `d1ffdb9f...` — first P2SH multisig spend (2-of-2, direct device-to-device)
+- TX `2b53e35a...` — second P2SH funding (reversed kpub order, sorted keys verified)
+- TX `2b718bd5...` — second P2SH multisig spend (2-of-2, via KasSee relay)
+
+### Added — Device Firmware
+- **P2SH script detection** (`OP_BLAKE2B OP_DATA_32 <hash> OP_EQUAL`) in transaction analysis
+- **Redeem script** field on transaction inputs for P2SH round-trip
+- **v2 PSKT serializer/parser** carries redeem scripts between signers
+- **KSPT v1 flags 0x02** — optional redeem script per input for P2SH spending
+- **ShowQR sig status overlay** — "PARTIAL 1/2" (orange) or "FULLY SIGNED 2/2" (teal)
+- **Multi-frame v2 PSKT detection** in camera — previously only single-frame v2 was recognized
+- **QR frame padding** — last frame padded to minimum 20 bytes for reliable scanning
+- **"No seed loaded"** warning replaces generic "TX Cancelled" when signing without a seed
+- **BIP85 auto-load** — derived child seed loads into slot immediately after derivation
+- **BIP85 success sound** — plays "tururi" (success) instead of "bip" (task_done)
+- **Home button** on SD format warning screen (was dead zone)
+- **Click sound** on back/home during format warning
+
+### Fixed — Device Firmware
+- **No JPEG on SD loop** — stego export now returns to menu instead of looping
+- **Import from SD "Saving"** — all read operations now show "Loading" screen
+- **Multisig slot label overlap** — "Slot N" moved above delete button
+- **MAX_SCRIPT_SIZE** — bumped from 64 to 170 bytes (supports up to 5-of-5 multisig)
+- **QR frame payload** — reduced from 103 to 53 bytes for reliable device-to-device scanning
+
+### Added — KasSee Companion
+- **`--node` flag** — connect to your own Kaspa node (`ws://192.168.1.X:17110`)
+- **Security warning** — warns when using unencrypted `ws://` to non-local addresses
+- **`send-to-multisig`** — fund P2SH multisig addresses (blake2b-256 script hash)
+- **`send-from-multisig`** — spend from P2SH multisig UTXOs with co-signing
+- **`relay`** — display any KSPT (partial or signed) as animated QR for the next signer
+- **`test-multisig`** — generate fake multisig KSPT for testing
+- **`test-multisig-real`** — generate multisig KSPT using real kpubs
+- **Sorted pubkeys** — multisig scripts use lexicographic key ordering (like Bitcoin's `sortedmulti`)
+- **v2 PSKT broadcast** — parses multisig signatures, builds P2SH sig_script with redeem script push
+- **P2SH address display** — shows `kaspa:p...` address when funding multisig
+- **QR frame size** — 78 bytes/frame for laptop-to-device scanning (V5 QR, reliable at QVGA)
+- **GPL v3 license headers** on all source files
+- **Zero clippy warnings**
+
 ## [1.0.1] — 2026-03-30
 
 ### Critical Fixes

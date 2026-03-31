@@ -3178,11 +3178,11 @@ pub fn draw_home_grid(&mut self) {
                     draw_lato_hint(&mut self.display, "PP", start_x + 170, row_y + 26, COLOR_ORANGE);
                 }
 
-                // Slot number
+                // Slot number — top-right, clear of delete button
                 let mut slot_buf: heapless::String<8> = heapless::String::new();
                 core::fmt::Write::write_fmt(&mut slot_buf, format_args!("Slot {}", i + 1)).ok();
                 let sw = measure_hint(slot_buf.as_str());
-                draw_lato_hint(&mut self.display, &slot_buf, start_x + card_w as i32 - 48 - sw, row_y + 34, COLOR_TEXT_DIM);
+                draw_lato_hint(&mut self.display, &slot_buf, start_x + card_w as i32 - 48 - sw, row_y + 14, COLOR_TEXT_DIM);
 
                 // Delete button — trash icon (rightmost area of card)
                 let del_rect = Rectangle::new(Point::new(start_x + card_w as i32 - 44, row_y + 3), Size::new(38, 36));

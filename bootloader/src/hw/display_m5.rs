@@ -650,6 +650,32 @@ impl<'a> BootDisplay<'a> {
         draw_lato_hint(&mut self.display, text, bx + pad, by + 11, KASPA_TEAL);
     }
 
+    /// Draw multisig signature status overlay on the QR screen.
+    pub fn draw_sig_status(&mut self, present: u8, required: u8) {
+        let (label, color) = if present >= required {
+            ("FULLY SIGNED", KASPA_TEAL)
+        } else {
+            ("PARTIAL", COLOR_ORANGE)
+        };
+        let tw = measure_hint(label);
+        let pad = 6i32;
+        let corner = CornerRadii::new(Size::new(4, 4));
+        RoundedRectangle::new(
+            Rectangle::new(Point::new(4, 224), Size::new((tw + pad * 2) as u32, 14)),
+            corner,
+        ).into_styled(PrimitiveStyle::with_fill(COLOR_BG)).draw(&mut self.display).ok();
+        draw_lato_hint(&mut self.display, label, 4 + pad, 235, color);
+        let mut sc: heapless::String<8> = heapless::String::new();
+        core::fmt::Write::write_fmt(&mut sc, format_args!("{}/{}", present, required)).ok();
+        let sw = measure_hint(sc.as_str());
+        let sx = 4 + pad + tw + 6;
+        RoundedRectangle::new(
+            Rectangle::new(Point::new(sx, 224), Size::new((sw + pad * 2) as u32, 14)),
+            corner,
+        ).into_styled(PrimitiveStyle::with_fill(COLOR_BG)).draw(&mut self.display).ok();
+        draw_lato_hint(&mut self.display, &sc, sx + pad, 235, color);
+    }
+
     /// Draw back button (top-left) and home button (top-right)
     /// Both 34x34. Back at (0,0), Home at (286,0).
     /// Touch zones: back x=0..36, y=0..36. Home x=284..320, y=0..36.

@@ -536,18 +536,41 @@ pub fn run_camera_cycle(
                                                                 }
                                                                 log!("   → All {} frames, {} bytes", total, pos);
                                                                 sound::qr_decoded(delay);
-                                                                match wallet::pskt::parse_pskt(
-                                                                    &assembled[..pos], &mut ad.demo_tx) {
-                                                                    Ok(()) => {
-                                                                        log!("   → PSKT: {} in, {} out",
-                                                                            ad.demo_tx.num_inputs, ad.demo_tx.num_outputs);
-                                                                        ad.app.start_review(
-                                                                            ad.demo_tx.num_outputs as u8,
-                                                                            ad.demo_tx.num_inputs as u8);
-                                                                        ad.needs_redraw = true;
+                                                                let data = &assembled[..pos];
+                                                                if pos >= 5 && &data[..4] == b"KSPT" && data[4] == 0x02 {
+                                                                    // v2 PSKT: partially signed (from another signer)
+                                                                    match wallet::pskt::parse_signed_pskt_v2(data, &mut ad.demo_tx) {
+                                                                        Ok(()) => {
+                                                                            let (present, required) = wallet::pskt::signature_status(&ad.demo_tx);
+                                                                            ad.tx_sigs_present = present;
+                                                                            ad.tx_sigs_required = required;
+                                                                            log!("   → PSKT v2 (multi-frame): {} in, {} out, sigs {}/{}",
+                                                                                ad.demo_tx.num_inputs, ad.demo_tx.num_outputs, present, required);
+                                                                            ad.app.start_review(
+                                                                                ad.demo_tx.num_outputs as u8,
+                                                                                ad.demo_tx.num_inputs as u8);
+                                                                            ad.needs_redraw = true;
+                                                                        }
+                                                                        Err(e) => {
+                                                                            log!("   → PSKT v2 parse error: {:?}", e);
+                                                                        }
                                                                     }
-                                                                    Err(e) => {
-                                                                        log!("   → PSKT error: {:?}", e);
+                                                                } else {
+                                                                    // v1 PSKT: unsigned
+                                                                    ad.tx_sigs_present = 0;
+                                                                    ad.tx_sigs_required = 0;
+                                                                    match wallet::pskt::parse_pskt(data, &mut ad.demo_tx) {
+                                                                        Ok(()) => {
+                                                                            log!("   → PSKT: {} in, {} out",
+                                                                                ad.demo_tx.num_inputs, ad.demo_tx.num_outputs);
+                                                                            ad.app.start_review(
+                                                                                ad.demo_tx.num_outputs as u8,
+                                                                                ad.demo_tx.num_inputs as u8);
+                                                                            ad.needs_redraw = true;
+                                                                        }
+                                                                        Err(e) => {
+                                                                            log!("   → PSKT error: {:?}", e);
+                                                                        }
                                                                     }
                                                                 }
                                                                 MF_TOTAL = 0;
@@ -623,6 +646,8 @@ pub fn run_camera_cycle(
                                                             match wallet::pskt::parse_signed_pskt_v2(data, &mut ad.demo_tx) {
                                                                 Ok(()) => {
                                                                     let (present, required) = wallet::pskt::signature_status(&ad.demo_tx);
+                                                                    ad.tx_sigs_present = present;
+                                                                    ad.tx_sigs_required = required;
                                                                     log!("   → PSKT v2: {} in, {} out, sigs {}/{}",
                                                                         ad.demo_tx.num_inputs, ad.demo_tx.num_outputs, present, required);
                                                                     ad.app.start_review(
@@ -636,6 +661,8 @@ pub fn run_camera_cycle(
                                                             }
                                                         } else {
                                                             // v1 PSKT: unsigned (original format)
+                                                            ad.tx_sigs_present = 0;
+                                                            ad.tx_sigs_required = 0;
                                                             match wallet::pskt::parse_pskt(data, &mut ad.demo_tx) {
                                                                 Ok(()) => {
                                                                     log!("   → PSKT v1: {} in, {} out",

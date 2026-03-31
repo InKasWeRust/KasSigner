@@ -314,7 +314,7 @@ pub fn redraw_screen(
                 }
                 crate::app::input::AppState::ShowQR => {
                     if ad.signed_qr_len > 0 {
-                        let max_payload = 103usize; // V5-L payload per frame
+                        let max_payload = 53usize; // V3-L: 56/77 capacity, max ECC headroom for device-to-device
                         if ad.signed_qr_len <= 134 {
                             // Fits in single QR — display directly
                             boot_display.draw_qr_screen(&ad.signed_qr_buf[..ad.signed_qr_len]);
@@ -328,7 +328,8 @@ pub fn redraw_screen(
                             frame_buf[1] = n_frames as u8;
                             frame_buf[2] = frag_len as u8;
                             frame_buf[3..3 + frag_len].copy_from_slice(&ad.signed_qr_buf[..frag_len]);
-                            boot_display.draw_qr_screen(&frame_buf[..3 + frag_len]);
+                            let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
+                            boot_display.draw_qr_screen(&frame_buf[..qr_len]);
                             // Frame counter overlay
                             let mut fc_buf: heapless::String<8> = heapless::String::new();
                             core::fmt::Write::write_fmt(&mut fc_buf,
@@ -337,6 +338,10 @@ pub fn redraw_screen(
                             // Store state for cycling
                             ad.signed_qr_frame = 0;
                             ad.signed_qr_nframes = n_frames as u8;
+                        }
+                        // Multisig sig status overlay
+                        if ad.tx_sigs_required > 0 {
+                            boot_display.draw_sig_status(ad.tx_sigs_present, ad.tx_sigs_required);
                         }
                     } else {
                         boot_display.draw_rejected_screen("Signing Failed");

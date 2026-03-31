@@ -194,8 +194,9 @@ pub fn handle_settings_touch(
                                     let ts = crate::hw::touch::read_touch(i2c);
                                     match ts {
                                         crate::hw::touch::TouchState::One(pt) => {
-                                            // Back button = cancel
-                                            if pt.x <= 40 && pt.y <= 40 {
+                                            // Back button or Home button = cancel
+                                            if (pt.x <= 40 && pt.y <= 40) || (pt.x >= 268 && pt.y <= 52) {
+                                                sound::click(delay);
                                                 break;
                                             }
                                             if pt.x >= 50 && pt.x <= 270 && pt.y >= 170 && pt.y <= 214 {

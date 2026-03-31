@@ -45,3 +45,6 @@ bs58 = { version = "0.5", features = ["check"] }
 
 # Hex encoding
 hex = "0.4"
+
+# Blake2b for P2SH script hashing
+blake2b_simd = "1"

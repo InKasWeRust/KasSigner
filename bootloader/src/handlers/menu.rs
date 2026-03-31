@@ -105,7 +105,7 @@ pub fn handle_menu_touch(
                                     6 => {
                                         // Import from SD — show only compatible files
                                         if bb_card_type.is_some() {
-                                            boot_display.draw_saving_screen("Scanning SD...");
+                                            boot_display.draw_loading_screen("Scanning SD...");
                                             ad.sd_file_count = 0;
                                             let scan_result = sdcard::with_sd_card(i2c, delay, |ct| {
                                                 let fat32 = sdcard::mount_fat32(ct)?;

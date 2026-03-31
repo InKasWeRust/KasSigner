@@ -196,10 +196,10 @@ pub fn sign_and_serialize_multisig(
     );
     match signed {
         Ok(_new_sigs) => {
-            // Use v2 serialization if any input is multisig, else v1 for compat
+            // Use v2 serialization if any input is multisig or P2SH, else v1 for compat
             let has_multisig = (0..tx.num_inputs).any(|i| {
                 let (st, _) = wallet::pskt::analyze_input_script(tx, i);
-                st == wallet::transaction::ScriptType::Multisig
+                st == wallet::transaction::ScriptType::Multisig || st == wallet::transaction::ScriptType::P2SH
             });
             if has_multisig {
                 wallet::pskt::serialize_signed_pskt_v2(tx, buf).unwrap_or(0)
@@ -320,6 +320,13 @@ pub fn handle_signing_step(
         if let crate::app::input::AppState::Signing { input_idx } = ad.app.state {
             if !ad.seed_loaded {
                 log!("   ✗ No seed loaded — cannot sign");
+                boot_display.draw_rejected_screen("No seed loaded");
+                {
+                    use crate::hw::display::*;
+                    let msg = "Load a seed to sign transactions";
+                    let mw = measure_body(msg);
+                    draw_lato_body(&mut boot_display.display, msg, (320 - mw) / 2, 155, COLOR_TEXT_DIM);
+                }
                 ad.app.state = crate::app::input::AppState::Rejected;
                 ad.needs_redraw = true;
             } else {
@@ -369,10 +376,10 @@ pub fn handle_signing_step(
                                 unsafe { core::ptr::write_volatile(b, 0); }
                             }
                         } else {
-                            // Check if any input is multisig — use multisig signer
+                            // Check if any input is multisig or P2SH — use multisig signer
                             let has_multisig = (0..ad.demo_tx.num_inputs).any(|i| {
                                 let (st, _) = wallet::pskt::analyze_input_script(&ad.demo_tx, i);
-                                st == wallet::transaction::ScriptType::Multisig
+                                st == wallet::transaction::ScriptType::Multisig || st == wallet::transaction::ScriptType::P2SH
                             });
                             if has_multisig {
                                 // Multisig: sign with ALL loaded seed slots
@@ -380,6 +387,8 @@ pub fn handle_signing_step(
                                     &mut ad.demo_tx, &ad.seed_mgr,
                                     &mut ad.signed_qr_buf);
                                 let (present, required) = wallet::pskt::signature_status(&ad.demo_tx);
+                                ad.tx_sigs_present = present;
+                                ad.tx_sigs_required = required;
                                 if present < required {
                                     log!("   Partial: {}/{} sigs — pass to next signer", present, required);
                                 } else {
@@ -387,6 +396,8 @@ pub fn handle_signing_step(
                                 }
                             } else {
                                 // Standard P2PK: sign with active slot seed
+                                ad.tx_sigs_present = 0;
+                                ad.tx_sigs_required = 0;
                                 let pp = slot.passphrase_str();
                                 let seed = derive_seed(&ad.mnemonic_indices, ad.word_count, pp);
                                 ad.signed_qr_len = sign_and_serialize_multi(&mut ad.demo_tx, &seed.bytes, &mut ad.signed_qr_buf);
@@ -439,7 +450,7 @@ pub fn cycle_signed_qr(
         if let crate::app::input::AppState::ShowQR = ad.app.state {
             if ad.signed_qr_nframes > 1 {
                 ad.signed_qr_frame = (ad.signed_qr_frame + 1) % ad.signed_qr_nframes;
-                let max_payload = 103usize;
+                let max_payload = 53usize;
                 let offset = ad.signed_qr_frame as usize * max_payload;
                 let remaining = ad.signed_qr_len.saturating_sub(offset);
                 let frag_len = remaining.min(max_payload);
@@ -450,7 +461,9 @@ pub fn cycle_signed_qr(
                     frame_buf[2] = frag_len as u8;
                     frame_buf[3..3 + frag_len]
                         .copy_from_slice(&ad.signed_qr_buf[offset..offset + frag_len]);
-                    boot_display.draw_qr_screen(&frame_buf[..3 + frag_len]);
+                    // Pad short frames to minimum 20 bytes payload for reliable QR scanning
+                    let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
+                    boot_display.draw_qr_screen(&frame_buf[..qr_len]);
                     let mut fc_buf: heapless::String<8> = heapless::String::new();
                     core::fmt::Write::write_fmt(&mut fc_buf,
                         format_args!("{}/{}", ad.signed_qr_frame + 1, ad.signed_qr_nframes)).ok();
