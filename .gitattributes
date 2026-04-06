@@ -6,3 +6,10 @@ Dockerfile linguist-vendored
 Dockerfile.base linguist-vendored
 Makefile linguist-vendored
 *.txt linguist-vendored
+kassee/web/lib/*.js linguist-vendored
+kassee/web/js/*.js linguist-vendored
+kassee/web/css/*.css linguist-vendored
+kassee/web/*.html linguist-vendored
+kassee/web/constellation/*.html linguist-vendored
+kassee/web/pkg/*.js linguist-vendored
+kassee/web/pkg/*.d.ts linguist-vendored
