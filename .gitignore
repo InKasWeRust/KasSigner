@@ -25,7 +25,6 @@ keys/*.bin
 *.map
 
 # Generated files (rebuilt by build system)
-bootloader/src/firmware_hash.rs
 bootloader/src/logo_data.rs
 
 # Screenshots (dev feature)
