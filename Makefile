@@ -1,6 +1,7 @@
-# KasSigner — Build targets
-# Device firmware requires Xtensa toolchain (espup install)
-# KasSee companion requires standard Rust only
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0
+#
 
 .PHONY: firmware firmware-m5 kassee clean help
 

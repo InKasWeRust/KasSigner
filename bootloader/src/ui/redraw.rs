@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -314,30 +314,37 @@ pub fn redraw_screen(
                 }
                 crate::app::input::AppState::ShowQR => {
                     if ad.signed_qr_len > 0 {
-                        let max_payload = 53usize; // V3-L: 56/77 capacity, max ECC headroom for device-to-device
+                        let max_payload = 106usize; // V5-L: 106 bytes, fewer frames for KasSee companion
                         if ad.signed_qr_len <= 134 {
                             // Fits in single QR — display directly
                             boot_display.draw_qr_screen(&ad.signed_qr_buf[..ad.signed_qr_len]);
                         } else {
-                            // Multi-frame: build frame 0 and start cycling
                             let n_frames = (ad.signed_qr_len + max_payload - 1) / max_payload;
-                            // Build frame 0
-                            let frag_len = (ad.signed_qr_len).min(max_payload);
+                            // First time entering multi-frame: show mode choice
+                            if ad.signed_qr_nframes == 0 {
+                                ad.signed_qr_frame = 0;
+                                ad.signed_qr_nframes = n_frames as u8;
+                                ad.app.state = crate::app::input::AppState::ShowQrModeChoice;
+                                boot_display.draw_qr_mode_choice();
+                                return; // skip rest of redraw
+                            }
+                            // Build current frame
+                            let frame = ad.signed_qr_frame as usize;
+                            let offset = frame * max_payload;
+                            let remaining = ad.signed_qr_len.saturating_sub(offset);
+                            let frag_len = remaining.min(max_payload);
                             let mut frame_buf = [0u8; 134];
-                            frame_buf[0] = 0; // frame_num
+                            frame_buf[0] = frame as u8;
                             frame_buf[1] = n_frames as u8;
                             frame_buf[2] = frag_len as u8;
-                            frame_buf[3..3 + frag_len].copy_from_slice(&ad.signed_qr_buf[..frag_len]);
+                            frame_buf[3..3 + frag_len].copy_from_slice(&ad.signed_qr_buf[offset..offset + frag_len]);
                             let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
                             boot_display.draw_qr_screen(&frame_buf[..qr_len]);
                             // Frame counter overlay
                             let mut fc_buf: heapless::String<8> = heapless::String::new();
                             core::fmt::Write::write_fmt(&mut fc_buf,
-                                format_args!("1/{}", n_frames)).ok();
+                                format_args!("{}/{}", frame + 1, n_frames)).ok();
                             boot_display.draw_frame_counter(&fc_buf);
-                            // Store state for cycling
-                            ad.signed_qr_frame = 0;
-                            ad.signed_qr_nframes = n_frames as u8;
                         }
                         // Multisig sig status overlay
                         if ad.tx_sigs_required > 0 {
@@ -479,6 +486,30 @@ pub fn redraw_screen(
                     } else {
                         boot_display.draw_fw_update_screen("", false);
                     }
+                }
+                // ─── SD KSPT Redraws ────────────
+                crate::app::input::AppState::SdImportMenu => {
+                    boot_display.draw_menu_screen("IMPORT FROM SD", &ad.sd_import_menu);
+                }
+                crate::app::input::AppState::SdKsptFileList => {
+                    // Reuse file list UI — no fingerprint highlighting for .KSP files
+                    let fps: [[u8; 4]; 4] = [[0; 4]; 4];
+                    boot_display.draw_sd_file_list_ex(&ad.sd_file_list, ad.sd_file_count, ad.sd_file_scroll, &fps, 0);
+                }
+                crate::app::input::AppState::ShowQrPopup => {
+                    boot_display.draw_showqr_popup();
+                }
+                crate::app::input::AppState::SdKsptFilename => {
+                    boot_display.draw_keyboard_screen_full(&ad.pp_input, "FILENAME");
+                }
+                crate::app::input::AppState::SdKsptEncryptAsk => {
+                    boot_display.draw_kspt_encrypt_ask();
+                }
+                crate::app::input::AppState::SdKsptEncryptPass => {
+                    boot_display.draw_keyboard_screen_full(&ad.pp_input, "PASSWORD");
+                }
+                crate::app::input::AppState::ShowQrModeChoice => {
+                    boot_display.draw_qr_mode_choice();
                 }
                 crate::app::input::AppState::About => {
                     boot_display.draw_about_screen();

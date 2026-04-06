@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -538,13 +538,13 @@ pub fn run_camera_cycle(
                                                                 sound::qr_decoded(delay);
                                                                 let data = &assembled[..pos];
                                                                 if pos >= 5 && &data[..4] == b"KSPT" && data[4] == 0x02 {
-                                                                    // v2 PSKT: partially signed (from another signer)
+                                                                    // v2 KSPT: partially signed (from another signer)
                                                                     match wallet::pskt::parse_signed_pskt_v2(data, &mut ad.demo_tx) {
                                                                         Ok(()) => {
                                                                             let (present, required) = wallet::pskt::signature_status(&ad.demo_tx);
                                                                             ad.tx_sigs_present = present;
                                                                             ad.tx_sigs_required = required;
-                                                                            log!("   → PSKT v2 (multi-frame): {} in, {} out, sigs {}/{}",
+                                                                            log!("   → KSPT v2 (multi-frame): {} in, {} out, sigs {}/{}",
                                                                                 ad.demo_tx.num_inputs, ad.demo_tx.num_outputs, present, required);
                                                                             ad.app.start_review(
                                                                                 ad.demo_tx.num_outputs as u8,
@@ -552,16 +552,16 @@ pub fn run_camera_cycle(
                                                                             ad.needs_redraw = true;
                                                                         }
                                                                         Err(e) => {
-                                                                            log!("   → PSKT v2 parse error: {:?}", e);
+                                                                            log!("   → KSPT v2 parse error: {:?}", e);
                                                                         }
                                                                     }
                                                                 } else {
-                                                                    // v1 PSKT: unsigned
+                                                                    // v1 KSPT: unsigned
                                                                     ad.tx_sigs_present = 0;
                                                                     ad.tx_sigs_required = 0;
                                                                     match wallet::pskt::parse_pskt(data, &mut ad.demo_tx) {
                                                                         Ok(()) => {
-                                                                            log!("   → PSKT: {} in, {} out",
+                                                                            log!("   → KSPT: {} in, {} out",
                                                                                 ad.demo_tx.num_inputs, ad.demo_tx.num_outputs);
                                                                             ad.app.start_review(
                                                                                 ad.demo_tx.num_outputs as u8,
@@ -569,7 +569,7 @@ pub fn run_camera_cycle(
                                                                             ad.needs_redraw = true;
                                                                         }
                                                                         Err(e) => {
-                                                                            log!("   → PSKT error: {:?}", e);
+                                                                            log!("   → KSPT error: {:?}", e);
                                                                         }
                                                                     }
                                                                 }
@@ -639,16 +639,16 @@ pub fn run_camera_cycle(
                                                         ad.app.state = crate::app::input::AppState::ShowAddress;
                                                         ad.needs_redraw = true;
                                                     } else if result.len >= 4 && &data[..4] == b"KSPT" {
-                                                        // PSKT transaction — check version
+                                                        // KSPT transaction — check version
                                                         let pskt_version = if result.len >= 5 { data[4] } else { 0x01 };
                                                         if pskt_version == 0x02 {
-                                                            // v2 PSKT: partially signed (from another signer)
+                                                            // v2 KSPT: partially signed (from another signer)
                                                             match wallet::pskt::parse_signed_pskt_v2(data, &mut ad.demo_tx) {
                                                                 Ok(()) => {
                                                                     let (present, required) = wallet::pskt::signature_status(&ad.demo_tx);
                                                                     ad.tx_sigs_present = present;
                                                                     ad.tx_sigs_required = required;
-                                                                    log!("   → PSKT v2: {} in, {} out, sigs {}/{}",
+                                                                    log!("   → KSPT v2: {} in, {} out, sigs {}/{}",
                                                                         ad.demo_tx.num_inputs, ad.demo_tx.num_outputs, present, required);
                                                                     ad.app.start_review(
                                                                         ad.demo_tx.num_outputs as u8,
@@ -656,16 +656,16 @@ pub fn run_camera_cycle(
                                                                     ad.needs_redraw = true;
                                                                 }
                                                                 Err(e) => {
-                                                                    log!("   → PSKT v2 parse error: {:?}", e);
+                                                                    log!("   → KSPT v2 parse error: {:?}", e);
                                                                 }
                                                             }
                                                         } else {
-                                                            // v1 PSKT: unsigned (original format)
+                                                            // v1 KSPT: unsigned (original format)
                                                             ad.tx_sigs_present = 0;
                                                             ad.tx_sigs_required = 0;
                                                             match wallet::pskt::parse_pskt(data, &mut ad.demo_tx) {
                                                                 Ok(()) => {
-                                                                    log!("   → PSKT v1: {} in, {} out",
+                                                                    log!("   → KSPT v1: {} in, {} out",
                                                                         ad.demo_tx.num_inputs, ad.demo_tx.num_outputs);
                                                                     ad.app.start_review(
                                                                         ad.demo_tx.num_outputs as u8,
@@ -673,7 +673,7 @@ pub fn run_camera_cycle(
                                                                     ad.needs_redraw = true;
                                                                 }
                                                                 Err(e) => {
-                                                                    log!("   → PSKT v1 parse error: {:?}", e);
+                                                                    log!("   → KSPT v1 parse error: {:?}", e);
                                                                 }
                                                             }
                                                         }

@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@
 //   2. BIP39 seed derivation: mnemonic + passphrase → PBKDF2 → 64-byte seed
 //   3. BIP32 account key: seed → m/44'/111111'/0' (cached after first derivation)
 //   4. Address derivation: account key → /0/{0..19} receive + /1/{0..4} change
-//   5. TX signing: PSKT input → sighash (Blake2b) → Schnorr sign → serialized response
+//   5. TX signing: KSPT input → sighash (Blake2b) → Schnorr sign → serialized response
 //
 // All key material is zeroized after use. PBKDF2 takes ~5s on ESP32-S3 at 240MHz.
 
@@ -159,7 +159,7 @@ pub fn sign_and_serialize_multi(
 }
 
 /// Sign a transaction with multisig support: tries all loaded seed slots,
-/// signs P2PK and multisig inputs, outputs v2 PSKT with partial/full sigs.
+/// signs P2PK and multisig inputs, outputs v2 KSPT with partial/full sigs.
 #[inline(never)]
 pub fn sign_and_serialize_multisig(
     tx: &mut wallet::transaction::Transaction,
@@ -327,7 +327,12 @@ pub fn handle_signing_step(
                     let mw = measure_body(msg);
                     draw_lato_body(&mut boot_display.display, msg, (320 - mw) / 2, 155, COLOR_TEXT_DIM);
                 }
-                ad.app.state = crate::app::input::AppState::Rejected;
+                // Hold the message on screen, then return to main menu
+                {
+                    let d = esp_hal::delay::Delay::new();
+                    d.delay_millis(3000);
+                }
+                ad.app.go_main_menu();
                 ad.needs_redraw = true;
             } else {
                 // Pre-check: will the signed TX fit in the 1024-byte output buffer?
@@ -365,6 +370,11 @@ pub fn handle_signing_step(
                 // On last input, sign all and serialize
                 // Use multi-address signing: each input is matched to the correct key
                 if (input_idx + 1) >= ad.app.total_inputs {
+                    // Reset frame state from any previous signing
+                    ad.signed_qr_nframes = 0;
+                    ad.signed_qr_frame = 0;
+                    ad.qr_manual_frames = false;
+
                     boot_display.draw_saving_screen("Signing TX...");
                     if let Some(slot) = ad.seed_mgr.active_slot() {
                         if slot.is_raw_key() {
@@ -444,13 +454,17 @@ pub fn handle_signing_step(
 pub fn cycle_signed_qr(
     ad: &mut AppData,
     boot_display: &mut display::BootDisplay<'_>,
-    delay: &mut esp_hal::delay::Delay,
-    i2c: &mut esp_hal::i2c::master::I2c<'_, esp_hal::Blocking>,
+    _delay: &mut esp_hal::delay::Delay,
+    _i2c: &mut esp_hal::i2c::master::I2c<'_, esp_hal::Blocking>,
 ) {
         if let crate::app::input::AppState::ShowQR = ad.app.state {
-            if ad.signed_qr_nframes > 1 {
+            if ad.signed_qr_nframes > 1 && !ad.qr_manual_frames {
+                // Non-blocking: only advance frame every ~2000 ticks
+                if ad.idle_ticks % 2000 != 0 {
+                    return;
+                }
                 ad.signed_qr_frame = (ad.signed_qr_frame + 1) % ad.signed_qr_nframes;
-                let max_payload = 53usize;
+                let max_payload = 106usize;
                 let offset = ad.signed_qr_frame as usize * max_payload;
                 let remaining = ad.signed_qr_len.saturating_sub(offset);
                 let frag_len = remaining.min(max_payload);
@@ -461,22 +475,12 @@ pub fn cycle_signed_qr(
                     frame_buf[2] = frag_len as u8;
                     frame_buf[3..3 + frag_len]
                         .copy_from_slice(&ad.signed_qr_buf[offset..offset + frag_len]);
-                    // Pad short frames to minimum 20 bytes payload for reliable QR scanning
                     let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
                     boot_display.draw_qr_screen(&frame_buf[..qr_len]);
                     let mut fc_buf: heapless::String<8> = heapless::String::new();
                     core::fmt::Write::write_fmt(&mut fc_buf,
                         format_args!("{}/{}", ad.signed_qr_frame + 1, ad.signed_qr_nframes)).ok();
                     boot_display.draw_frame_counter(&fc_buf);
-                }
-                for _ in 0..25 {
-                    delay.delay_millis(100);
-                    let ts = crate::hw::touch::read_touch(i2c);
-                    if !matches!(ts, crate::hw::touch::TouchState::NoTouch) {
-                        ad.app.go_main_menu();
-                        ad.needs_redraw = true;
-                        break;
-                    }
                 }
             }
         }

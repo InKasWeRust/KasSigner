@@ -1,5 +1,5 @@
 // KasSigner Mirror — Live display mirror tool
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // Reads the KasSigner serial output, captures SCREENSHOT_BEGIN/END
 // framebuffer hex dumps, converts RGB565 to RGB888, and displays

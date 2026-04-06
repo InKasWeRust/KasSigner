@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -30,7 +30,7 @@ pub fn handle_menu_touch(
     boot_display: &mut display::BootDisplay<'_>,
     delay: &mut esp_hal::delay::Delay,
     i2c: &mut esp_hal::i2c::master::I2c<'_, esp_hal::Blocking>,
-    bb_card_type: &Option<sdcard::SdCardType>,
+    _bb_card_type: &Option<sdcard::SdCardType>,
     dvp_camera_opt: &mut Option<DvpCamera<'_>>,
     cam_dma_buf_opt: &mut Option<DmaRxBuf>,
     grid_zones: &[touch::TouchZone; 4],
@@ -103,75 +103,9 @@ pub fn handle_menu_touch(
                                         ad.app.state = crate::app::input::AppState::ImportPrivKey;
                                     }
                                     6 => {
-                                        // Import from SD — show only compatible files
-                                        if bb_card_type.is_some() {
-                                            boot_display.draw_loading_screen("Scanning SD...");
-                                            ad.sd_file_count = 0;
-                                            let scan_result = sdcard::with_sd_card(i2c, delay, |ct| {
-                                                let fat32 = sdcard::mount_fat32(ct)?;
-                                                let mut candidates: [[u8; 11]; 16] = [[b' '; 11]; 16];
-                                                let mut cand_count = 0u8;
-                                                sdcard::list_root_dir(ct, &fat32, |entry| {
-                                                    if !entry.is_dir()
-                                                        && entry.file_size > 0
-                                                        && entry.file_size <= 1024
-                                                        && (cand_count as usize) < 16
-                                                    {
-                                                        candidates[cand_count as usize] = entry.name;
-                                                        cand_count += 1;
-                                                    }
-                                                    true
-                                                })?;
-                                                let mut peek_buf = [0u8; 512];
-                                                for c in 0..cand_count as usize {
-                                                    if ad.sd_file_count >= 8 { break; }
-                                                    let name = &candidates[c];
-                                                    if let Ok((entry, _, _)) = sdcard::find_file_in_root(ct, &fat32, name) {
-                                                        let cluster = entry.first_cluster();
-                                                        if cluster >= 2 {
-                                                            let sector = fat32.cluster_to_sector(cluster);
-                                                            if sdcard::sd_read_block(ct, sector, &mut peek_buf).is_ok() {
-                                                                let sz = entry.file_size as usize;
-                                                                let is_enc_seed = sz >= 57 && peek_buf[0] == b'K' && peek_buf[1] == b'A' && peek_buf[2] == b'S' && peek_buf[3] == 0x01;
-                                                                let is_enc_xprv = sz >= 40 && peek_buf[0] == b'K' && peek_buf[1] == b'A' && peek_buf[2] == b'S' && peek_buf[3] == 0x02;
-                                                                let is_plain_xprv = sz >= 100 && peek_buf[0] == b'x' && peek_buf[1] == b'p' && peek_buf[2] == b'r' && peek_buf[3] == b'v';
-                                                                let is_plain_hex = (64..=66).contains(&sz) && {
-                                                                    let mut ok = true;
-                                                                    for b in &peek_buf[..64.min(sz)] {
-                                                                        if !((*b >= b'0' && *b <= b'9') || (*b >= b'a' && *b <= b'f') || (*b >= b'A' && *b <= b'F')) {
-                                                                            ok = false; break;
-                                                                        }
-                                                                    }
-                                                                    ok
-                                                                };
-                                                                if is_enc_seed || is_enc_xprv || is_plain_xprv || is_plain_hex {
-                                                                    ad.sd_file_list[ad.sd_file_count as usize] = *name;
-                                                                    ad.sd_file_count += 1;
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                Ok(())
-                                            });
-                                            match scan_result {
-                                                Ok(()) if ad.sd_file_count > 0 => {
-                                                    ad.app.state = crate::app::input::AppState::SdFileList;
-                                                }
-                                                Ok(()) => {
-                                                    boot_display.draw_rejected_screen("No compatible files");
-                                                    delay.delay_millis(2000);
-                                                }
-                                                Err(e) => {
-                                                    log!("[SD-IMPORT] Scan failed: {}", e);
-                                                    boot_display.draw_rejected_screen("SD read error");
-                                                    delay.delay_millis(2000);
-                                                }
-                                            }
-                                        } else {
-                                            boot_display.draw_rejected_screen("No SD card detected");
-                                            delay.delay_millis(2000);
-                                        }
+                                        // Import from SD → submenu
+                                        ad.sd_import_menu.reset();
+                                        ad.app.state = crate::app::input::AppState::SdImportMenu;
                                     }
                                     7 => {
                                         // Create Multisig
@@ -540,8 +474,31 @@ pub fn handle_menu_touch(
                         }
                         ad.needs_redraw = true;
                     }
-                    crate::app::input::AppState::ShowQR
-                    | crate::app::input::AppState::Rejected
+                    crate::app::input::AppState::ShowQR => {
+                        if is_back {
+                            // Reset nframes so re-entry shows mode choice again
+                            ad.signed_qr_nframes = 0;
+                            ad.app.go_main_menu();
+                        } else if ad.signed_qr_len > 0 {
+                            if ad.qr_manual_frames && ad.signed_qr_nframes > 1 {
+                                // Manual mode: tap advances to next frame, no cycling
+                                let next = ad.signed_qr_frame + 1;
+                                if next >= ad.signed_qr_nframes {
+                                    // Last frame shown → go to save popup
+                                    ad.app.state = crate::app::input::AppState::ShowQrPopup;
+                                } else {
+                                    ad.signed_qr_frame = next;
+                                }
+                            } else {
+                                // Single frame or auto mode: tap → popup
+                                ad.app.state = crate::app::input::AppState::ShowQrPopup;
+                            }
+                        } else {
+                            ad.app.go_main_menu();
+                        }
+                        ad.needs_redraw = true;
+                    }
+                    crate::app::input::AppState::Rejected
                     | crate::app::input::AppState::ViewSeed => {
                         // Back button or tap anywhere → main menu
                         ad.app.go_main_menu();

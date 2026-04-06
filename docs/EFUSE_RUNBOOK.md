@@ -1,3 +1,7 @@
+<!-- KasSigner — Air-gapped offline signing device for Kaspa -->
+<!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
+<!-- License: GPL-3.0 -->
+
 # KasSigner — eFuse Secure Boot Runbook
 
 **WARNING: eFuse operations are IRREVERSIBLE. A mistake here can permanently brick the board. Read this entire document before touching any commands.**

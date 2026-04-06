@@ -1,3 +1,7 @@
+<!-- KasSigner — Air-gapped offline signing device for Kaspa -->
+<!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
+<!-- License: GPL-3.0 -->
+
 # Changelog
 
 All notable changes to KasSigner will be documented in this file.
@@ -5,12 +9,12 @@ All notable changes to KasSigner will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.0.2] — 2026-03-31
+## [1.0.1] — 2026-03-31
 
 ### Milestone: First Air-Gapped Multisig on Kaspa Mainnet
 - **P2SH multisig** — fund and spend from M-of-N Pay-to-Script-Hash multisig addresses
 - **Co-signing flow** — device A signs partial → QR → device B adds signature → fully signed
-- **Two co-signing modes** — direct device-to-device QR, or via KasSee relay on laptop
+- **Two co-signing modes** — direct device-to-device QR, or via KasSee relay
 - TX `8a6652fb...` — first P2SH multisig funding on Kaspa mainnet (air-gapped)
 - TX `d1ffdb9f...` — first P2SH multisig spend (2-of-2, direct device-to-device)
 - TX `2b53e35a...` — second P2SH funding (reversed kpub order, sorted keys verified)
@@ -19,56 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added — Device Firmware
 - **P2SH script detection** (`OP_BLAKE2B OP_DATA_32 <hash> OP_EQUAL`) in transaction analysis
 - **Redeem script** field on transaction inputs for P2SH round-trip
-- **v2 PSKT serializer/parser** carries redeem scripts between signers
+- **v2 KSPT serializer/parser** carries redeem scripts between signers
 - **KSPT v1 flags 0x02** — optional redeem script per input for P2SH spending
 - **ShowQR sig status overlay** — "PARTIAL 1/2" (orange) or "FULLY SIGNED 2/2" (teal)
-- **Multi-frame v2 PSKT detection** in camera — previously only single-frame v2 was recognized
+- **Multi-frame v2 KSPT detection** in camera — previously only single-frame v2 was recognized
 - **QR frame padding** — last frame padded to minimum 20 bytes for reliable scanning
 - **"No seed loaded"** warning replaces generic "TX Cancelled" when signing without a seed
 - **BIP85 auto-load** — derived child seed loads into slot immediately after derivation
 - **BIP85 success sound** — plays "tururi" (success) instead of "bip" (task_done)
 - **Home button** on SD format warning screen (was dead zone)
 - **Click sound** on back/home during format warning
-
-### Fixed — Device Firmware
-- **No JPEG on SD loop** — stego export now returns to menu instead of looping
-- **Import from SD "Saving"** — all read operations now show "Loading" screen
-- **Multisig slot label overlap** — "Slot N" moved above delete button
-- **MAX_SCRIPT_SIZE** — bumped from 64 to 170 bytes (supports up to 5-of-5 multisig)
-- **QR frame payload** — reduced from 103 to 53 bytes for reliable device-to-device scanning
-
-### Added — KasSee Companion
-- **`--node` flag** — connect to your own Kaspa node (`ws://192.168.1.X:17110`)
-- **Security warning** — warns when using unencrypted `ws://` to non-local addresses
-- **`send-to-multisig`** — fund P2SH multisig addresses (blake2b-256 script hash)
-- **`send-from-multisig`** — spend from P2SH multisig UTXOs with co-signing
-- **`relay`** — display any KSPT (partial or signed) as animated QR for the next signer
-- **`test-multisig`** — generate fake multisig KSPT for testing
-- **`test-multisig-real`** — generate multisig KSPT using real kpubs
-- **Sorted pubkeys** — multisig scripts use lexicographic key ordering (like Bitcoin's `sortedmulti`)
-- **v2 PSKT broadcast** — parses multisig signatures, builds P2SH sig_script with redeem script push
-- **P2SH address display** — shows `kaspa:p...` address when funding multisig
-- **QR frame size** — 78 bytes/frame for laptop-to-device scanning (V5 QR, reliable at QVGA)
-- **GPL v3 license headers** on all source files
-- **Zero clippy warnings**
-
-## [1.0.1] — 2026-03-30
-
-### Critical Fixes
-- **Sighash**: All sub-hashes and final digest now use keyed Blake2b-256 with `TransactionSigningHash` domain key (was unkeyed)
-- **Output hash**: Added `script_len` (u64 LE) prefix before script bytes in `hash_output`
-- **Schnorr challenge**: Switched from plain `SHA256(R||P||msg)` to BIP-340 tagged hash `SHA256(tag||tag||R||P||msg)`
-- **Change address signing**: `find_address_index_for_pubkey` now searches both receive (m/.../0/x) and change (m/.../1/x) chains; returns `(index, is_change)` tuple; all 3 callers updated
-
-### Added
-- **KasSee** — watch-only companion wallet integrated into monorepo (`kassee/`)
-  - Import kpub, derive addresses, track UTXOs, build unsigned KSPT
-  - Fee estimation via node RPC (`get_fee_estimate`)
-  - Storage mass awareness (KIP-9/Crescendo): warns < 0.2 KAS, errors < 0.1 KAS
-  - Address reuse detection with warning pause
-  - Change address auto-rotation
-  - Balanced QR frame splitting (equal size across frames)
-  - `addresses --change` flag for change address listing
 - **SD backup delete** with hold-to-confirm (matches seed delete UX: CANCEL left, DELETE right, HOLD 4s)
 - **SD file list** fingerprint matching ("Seed #1", "Seed #2" labels)
 - **SD progress bars** on seed restore decrypt and xprv import
@@ -76,11 +40,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **KSSN hex dump** as single line (was multi-line, required manual cleanup)
 - **Hex buffer overflow** handled gracefully with warning (no panic)
 
-### Fixed
+### Fixed — Device Firmware
+- **Sighash**: All sub-hashes and final digest now use keyed Blake2b-256 with `TransactionSigningHash` domain key (was unkeyed)
+- **Output hash**: Added `script_len` (u64 LE) prefix before script bytes in `hash_output`
+- **Schnorr challenge**: Switched from plain `SHA256(R||P||msg)` to BIP-340 tagged hash `SHA256(tag||tag||R||P||msg)`
+- **Change address signing**: `find_address_index_for_pubkey` now searches both receive (m/.../0/x) and change (m/.../1/x) chains; returns `(index, is_change)` tuple; all 3 callers updated
+- **No JPEG on SD loop** — stego export now returns to menu instead of looping
+- **Import from SD "Saving"** — all read operations now show "Loading" screen
+- **Multisig slot label overlap** — "Slot N" moved above delete button
+- **MAX_SCRIPT_SIZE** — bumped from 64 to 170 bytes (supports up to 5-of-5 multisig)
+- **QR frame payload** — reduced from 103 to 53 bytes for reliable device-to-device scanning
 - "Wrong passphrase" → "Wrong password" on SD import failure
-- Remaining Spanish comments translated to English (5 instances)
-- Email inconsistency in CONTRIBUTING.md (now `kassigner-security@proton.me`)
-- Crate renamed from `kassigner-companion` to `kassee`
+- Remaining Spanish comments translated to English
+
+### Added — KasSee Web
+- **KasSee Web** — browser-based watch-only companion wallet (Pure Rust → WASM)
+  - Import kpub via QR scan or paste
+  - Derive receive and change addresses
+  - Track UTXOs and balance via Kaspa node (public or custom)
+  - Build unsigned KSPT transactions
+  - Fee estimation via GetFeeEstimate RPC with low / normal / priority levels
+  - Send Max (sweep all UTXOs)
+  - Broadcast signed transactions from KasSigner
+  - UTXO explorer with manual selection
+  - Address list with tap-to-verify and long-press-to-copy
+  - Address verification with QR + derivation path
+  - Animated QR frame indicator for multi-frame scanning
+  - P2SH multisig address creation and multisig spend transactions
+  - Custom node connection via Settings (WebSocket)
+  - WebSocket retry logic on connection drops
+  - Storage mass awareness (KIP-9/Crescendo): warns < 0.2 KAS
+  - Camera QR scanner (kpub, signed TX, descriptors)
+  - PWA installable on mobile
+  - Sorted pubkeys — deterministic P2SH addresses regardless of kpub input order
+  - v2 KSPT broadcast — parses multisig signatures, builds P2SH sig_script
+  - GPL v3 license headers on all source files
+  - Zero clippy warnings
 
 ### Verified on Mainnet
 - TX `2faa58b2...` — 1-input, 1-output (first air-gapped broadcast)
@@ -97,7 +92,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - BIP32 HD key derivation (Kaspa path m/44'/111111'/0')
 - BIP85 child mnemonic derivation (deterministic child wallets)
 - Schnorr signing (secp256k1) for Kaspa transactions
-- PSKT (Partially Signed Kaspa Transaction) scanning, review, and signing
+- KSPT (KasSigner Packed Transaction) scanning, review, and signing
 - Message signing with address keys (type or load from SD)
 - M-of-N multisig address generation, co-signing, and wallet descriptor export
 - Change address detection in TX review (flags OWN and CHANGE outputs)
@@ -122,7 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Cross-platform build environment checker (tools/setup_check.rs)
 
 ### Hardware Support
-- **Waveshare ESP32-S3-Touch-LCD-2** (primary)
+- **Waveshare ESP32-S3-Touch-LCD-2**
   - ST7789T3 320x240 display (SPI)
   - CST816D capacitive touch with hardware gestures (I2C)
   - OV5640 5MP camera with autofocus (DVP)
@@ -130,7 +125,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - Battery ADC monitoring (GPIO5)
   - Secure Boot V2 ready (eFuse)
 
-- **M5Stack CoreS3 / CoreS3 Lite** (secondary)
+- **M5Stack CoreS3 / CoreS3 Lite**
   - ILI9342C 320x240 display (SPI)
   - FT6336U capacitive touch (I2C)
   - GC0308 QVGA camera (DVP, Y-only grayscale)

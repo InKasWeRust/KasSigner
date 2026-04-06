@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -148,7 +148,7 @@ impl FirmwareInfo {
         Self {
             version_major: 1,
             version_minor: 0,
-            version_patch: 0,
+            version_patch: 1,
             expected_hash: EXPECTED_FIRMWARE_HASH,
             min_version: 100,
         }

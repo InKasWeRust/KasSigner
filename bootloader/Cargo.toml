@@ -1,6 +1,13 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0
+#
+# ~45,000 lines of bare-metal no_std Rust. No operating system.
+# No vendor libraries in the signing path.
+
 [package]
 name = "kassigner-bootloader"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 authors = ["KasSigner Team"]
 

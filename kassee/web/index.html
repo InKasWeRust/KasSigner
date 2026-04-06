@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<!-- KasSigner / KasSee Web — Watch-only companion wallet -->
+<!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
+<!-- License: GPL-3.0 -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0d1117">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' wss://*.kaspa.stream wss://*.kaspa.green wss://*.kaspa.blue wss://*.kaspa.red https://*.kaspa.stream https://*.kaspa.green https://*.kaspa.blue https://*.kaspa.red https://api.kasplex.org https://tn10api.kasplex.org https://mainnet.krc721.stream https://testnet-10.krc721.stream https://gateway.pinata.cloud; img-src 'self' https://gateway.pinata.cloud data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com">
+    <title>KasSee v1.0.1 — KasSigner Companion</title>
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="css/app.css?v=101">
+    <link rel="manifest" href="manifest.json">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header id="header">
+            <div class="header-brand">
+                <img src="img/logo-sm.png" alt="KasSigner" class="header-logo" id="btn-logo" style="cursor:pointer">
+            </div>
+            <div class="header-right">
+                <a href="https://x.com/KasSigner" target="_blank" rel="noopener" class="header-social" title="X / Twitter">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                </a>
+                <a href="https://github.com/InKasWeRust/KasSigner" target="_blank" rel="noopener" class="header-social" title="GitHub">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+                </a>
+                <button class="header-settings-btn" id="btn-header-settings" title="Settings">⚙</button>
+                <a href="https://kaspa.stream/" target="_blank" rel="noopener" class="header-social" title="Kaspa Explorer" id="btn-explorer">
+                    <img src="img/kaspa-icon.png" alt="Kaspa" width="16" height="16" style="filter:brightness(0.7)">
+                </a>
+                <div class="header-status" id="status-dot">
+                    <span class="dot offline"></span>
+                    <span class="label">Offline</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Gear menu panel -->
+        <div id="gear-menu" class="gear-menu">
+            <div class="gear-menu-tabs">
+                <button class="gear-tab active" data-target="addresses" id="gear-tab-addresses">Addresses</button>
+                <button class="gear-tab" data-target="utxos" id="gear-tab-utxos">UTXOs</button>
+                <button class="gear-tab" data-target="tokens" id="gear-tab-tokens">Tokens</button>
+                <button class="gear-tab" data-target="history" id="gear-tab-history">History</button>
+                <button class="gear-tab" data-target="settings" id="gear-tab-settings">Node</button>
+            </div>
+        </div>
+
+        <!-- Screens (only one visible at a time) -->
+        <main id="main">
+            <!-- Welcome / Import screen -->
+            <section id="screen-welcome" class="screen active">
+                <div class="screen-content">
+                    <h2>Welcome to KasSee</h2>
+                    <p class="subtitle">Watch-only companion for KasSigner</p>
+                    <div class="card">
+                        <p style="text-align:center;margin-bottom:18px">Scan your <strong>kpub</strong> from KasSigner to start.</p>
+                        <button class="btn btn-primary" id="btn-scan-kpub">
+                            Scan kpub QR
+                        </button>
+                        <div class="divider">or</div>
+                        <input type="text" id="input-kpub" class="input-text"
+                               placeholder="Paste kpub string..." autocomplete="off" spellcheck="false">
+                        <button class="btn btn-secondary" id="btn-import-kpub">
+                            Import kpub
+                        </button>
+                        <div class="divider">or</div>
+                        <button class="btn btn-outline" id="btn-multisig-welcome" style="font-size:13px">
+                            Multisig Spend
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Dashboard (balance + actions) -->
+            <section id="screen-dashboard" class="screen">
+                <div class="screen-content">
+                    <div class="balance-card">
+                        <div class="balance-label">Balance</div>
+                        <div class="balance-amount" id="balance-kas">—</div>
+                        <div class="balance-sub" id="balance-sompi"></div>
+                        <div class="balance-info" id="balance-info"></div>
+                    </div>
+                    <div class="actions">
+                        <button class="btn btn-primary btn-large" id="btn-send">
+                            Send KAS
+                        </button>
+                        <button class="btn btn-secondary btn-large" id="btn-receive">
+                            Receive
+                        </button>
+                        <button class="btn btn-outline btn-large" id="btn-broadcast">
+                            Broadcast TX
+                        </button>
+                        <button class="btn btn-outline btn-large" id="btn-multisig-spend" style="margin-top:4px">
+                            Multisig Spend
+                        </button>
+                    </div>
+                    <button class="btn btn-link" id="btn-refresh">
+                        Refresh Balance
+                    </button>
+                    <button class="btn btn-link btn-danger" id="btn-reset-wallet">
+                        Reset Wallet
+                    </button>
+                </div>
+            </section>
+
+            <!-- Addresses screen -->
+            <section id="screen-addresses" class="screen">
+                <div class="screen-content">
+                    <h2>Addresses</h2>
+                    <p class="subtitle">Tap to verify · long-press to copy</p>
+                    <button class="btn btn-link" id="btn-addresses-back-top">Back</button>
+                    <div id="address-list" class="address-list"></div>
+                    <button class="btn btn-link" id="btn-addresses-back">Back</button>
+                </div>
+            </section>
+
+            <!-- Address Verify screen -->
+            <section id="screen-verify" class="screen">
+                <div class="screen-content">
+                    <h2>Verify Address</h2>
+                    <p class="subtitle" id="verify-path"></p>
+                    <div id="verify-qr" class="qr-container"></div>
+                    <div id="verify-address" class="address-display" style="font-size:13px;line-height:1.8"></div>
+                    <p class="subtitle" style="margin-top:12px;font-size:11px;color:var(--text-muted)">
+                        Compare with your KasSigner or other wallet.<br>
+                        Every character must match exactly.
+                    </p>
+                    <button class="btn btn-secondary" id="btn-verify-copy">Copy Address</button>
+                    <button class="btn btn-link" id="btn-verify-back">Back to Addresses</button>
+                </div>
+            </section>
+
+            <!-- UTXO screen -->
+            <section id="screen-utxos" class="screen">
+                <div class="screen-content">
+                    <h2>UTXOs</h2>
+                    <p class="subtitle" id="utxo-summary"></p>
+                    <div id="utxo-list" class="address-list"></div>
+                    <button class="btn btn-outline" id="btn-consolidate" style="margin-top:12px">
+                        Consolidate All
+                    </button>
+                    <button class="btn btn-link" id="btn-utxos-back">Back</button>
+                </div>
+            </section>
+
+            <!-- Transaction History screen -->
+            <section id="screen-history" class="screen">
+                <div class="screen-content">
+                    <h2>Transaction History</h2>
+                    <p class="subtitle" id="history-summary"></p>
+                    <div id="history-list" class="address-list"></div>
+                    <button class="btn btn-link" id="btn-clear-history" style="color:var(--text-muted);font-size:11px">Clear History</button>
+                    <button class="btn btn-link" id="btn-history-back">Back</button>
+                </div>
+            </section>
+
+            <!-- Tokens (KRC20) screen -->
+            <section id="screen-tokens" class="screen">
+                <div class="screen-content">
+                    <h2>Tokens</h2>
+                    <p class="subtitle" id="tokens-summary">KRC-20 token balances</p>
+                    <div id="tokens-list" class="address-list"></div>
+                    <button class="btn btn-link" id="btn-tokens-back">Back</button>
+                </div>
+            </section>
+
+            <!-- Node Settings screen -->
+            <section id="screen-settings" class="screen">
+                <div class="screen-content">
+                    <h2>Node Connection</h2>
+                    <p class="subtitle">Default: auto-connect to public nodes</p>
+                    <div class="card">
+                        <label class="input-label">Network</label>
+                        <select id="select-network" class="input-text" style="appearance:auto;cursor:pointer">
+                            <option value="mainnet">Mainnet</option>
+                            <option value="testnet-10">Testnet-10</option>
+                            <option value="testnet-12">Testnet-12 (custom node)</option>
+                        </select>
+                        <label class="input-label">Custom Node URL (wRPC Borsh)</label>
+                        <input type="text" id="input-node-url" class="input-text"
+                               placeholder="wss://your-node:17110" autocomplete="off" spellcheck="false">
+                        <p class="subtitle" style="margin-top:0;text-align:left;font-size:11px">
+                            Leave empty for public nodes. Your node must have<br>
+                            <code>--rpclisten-borsh=0.0.0.0:17110</code> enabled.
+                        </p>
+                        <button class="btn btn-primary" id="btn-save-settings">
+                            Save
+                        </button>
+                        <button class="btn btn-link" id="btn-use-public">
+                            Reset to Public Nodes
+                        </button>
+                        <button class="btn btn-link" id="btn-settings-back">Back</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Send screen -->
+            <section id="screen-send" class="screen">
+                <div class="screen-content">
+                    <h2>Send KAS</h2>
+                    <div id="send-balance-ref" class="send-balance-ref"></div>
+                    <div class="card">
+                        <label class="input-label">Destination Address</label>
+                        <div style="display:flex;gap:8px;align-items:start">
+                            <input type="text" id="input-dest" class="input-text" style="flex:1;margin-bottom:0"
+                                   placeholder="kaspa:..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline" id="btn-scan-dest"
+                                    style="width:auto;padding:13px 16px;flex-shrink:0;margin-top:0" title="Scan QR">📷</button>
+                        </div>
+                        <label class="input-label">Amount (KAS)</label>
+                        <div style="display:flex;gap:8px;align-items:start">
+                            <input type="number" id="input-amount" class="input-text" style="flex:1;margin-bottom:0"
+                                   placeholder="0.0" step="0.00000001" min="0">
+                            <button class="btn btn-outline" id="btn-send-max"
+                                    style="width:auto;padding:13px 16px;flex-shrink:0;margin-top:0">Max</button>
+                        </div>
+                        <!-- Compound TX — hidden until KasSigner QR frame fix
+                        <div id="extra-recipients"></div>
+                        <button class="btn btn-link" id="btn-add-recipient" style="font-size:12px;padding:4px 0;margin-bottom:8px;text-align:left;color:var(--teal)">
+                            + Add recipient
+                        </button>
+                        -->
+                        <label class="input-label">Fee</label>
+                        <div class="fee-cards">
+                            <button class="fee-card" id="btn-fee-low">
+                                <div class="fee-card-label">Low</div>
+                                <div class="fee-card-amount" id="fee-low-amount">2,500</div>
+                                <div class="fee-card-time" id="fee-low-time"></div>
+                            </button>
+                            <button class="fee-card fee-card-active" id="btn-fee-normal">
+                                <div class="fee-card-label">Normal</div>
+                                <div class="fee-card-amount" id="fee-normal-amount">5,000</div>
+                                <div class="fee-card-time" id="fee-normal-time"></div>
+                            </button>
+                            <button class="fee-card" id="btn-fee-priority">
+                                <div class="fee-card-label">Priority</div>
+                                <div class="fee-card-amount" id="fee-priority-amount">10,000</div>
+                                <div class="fee-card-time" id="fee-priority-time"></div>
+                            </button>
+                        </div>
+                        <input type="number" id="input-fee" class="input-text"
+                               value="10000" step="1000" min="1000">
+                        <button class="btn btn-link" id="btn-toggle-utxos" style="font-size:12px;padding:4px 0;margin-bottom:8px;text-align:left">
+                            Select UTXOs manually ▸
+                        </button>
+                        <div id="send-utxo-list" class="address-list hidden"></div>
+                        <button class="btn btn-primary" id="btn-create-tx">
+                            Create Transaction
+                        </button>
+                        <button class="btn btn-link" id="btn-send-back">Back</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- QR Display screen (shows KSPT as animated QR) -->
+            <section id="screen-qr-display" class="screen">
+                <div class="screen-content">
+                    <h2 id="qr-display-title">Scan with KasSigner</h2>
+                    <div id="qr-container" class="qr-container"></div>
+                    <div id="qr-frame-info" class="qr-frame-info"></div>
+                    <button class="btn btn-secondary" id="btn-scan-next-sig" style="display:none;margin-top:12px">
+                        Scan Next Signature
+                    </button>
+                    <button class="btn btn-outline" id="btn-copy-kspt" style="display:none;margin-top:8px;font-size:12px">
+                        Copy KSPT Hex
+                    </button>
+                    <button class="btn btn-link" id="btn-qr-back">Done</button>
+                </div>
+            </section>
+
+            <!-- Camera scanner screen -->
+            <section id="screen-scanner" class="screen">
+                <div class="screen-content scanner-content">
+                    <h2 id="scanner-title">Scan QR Code</h2>
+                    <div class="scanner-viewport">
+                        <video id="scanner-video" autoplay playsinline></video>
+                        <canvas id="scanner-canvas" class="hidden"></canvas>
+                        <div class="scanner-guide"></div>
+                    </div>
+                    <div id="scanner-status" class="scanner-status">
+                        Waiting for camera...
+                    </div>
+                    <button class="btn btn-link" id="btn-scanner-cancel">Cancel</button>
+                </div>
+            </section>
+
+            <!-- Receive screen (show address) -->
+            <section id="screen-receive" class="screen">
+                <div class="screen-content">
+                    <h2>Receive KAS</h2>
+                    <div class="card">
+                        <div id="receive-qr" class="qr-container"></div>
+                        <div id="receive-address" class="address-display"></div>
+                        <button class="btn btn-secondary" id="btn-copy-address">
+                            Copy Address
+                        </button>
+                        <button class="btn btn-link" id="btn-receive-back">Back</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Multisig Spend screen -->
+            <section id="screen-multisig" class="screen">
+                <div class="screen-content">
+                    <h2>Multisig Spend</h2>
+                    <p class="subtitle">Spend from a P2SH multisig address</p>
+                    <div class="card">
+                        <label class="input-label">Descriptor</label>
+                        <textarea id="input-ms-descriptor" class="input-text input-textarea"
+                                  placeholder="multi(2,pk1hex,pk2hex,pk3hex)" rows="3"
+                                  autocomplete="off" spellcheck="false"></textarea>
+                        <button class="btn btn-outline" id="btn-scan-ms-descriptor"
+                                style="width:100%;margin-top:4px;font-size:12px">📷 Scan Descriptor QR</button>
+                        <label class="input-label">Source Address (P2SH)</label>
+                        <div style="display:flex;gap:8px;align-items:start">
+                            <input type="text" id="input-ms-source" class="input-text" style="flex:1;margin-bottom:0"
+                                   placeholder="kaspa:pr..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline" id="btn-scan-ms-source"
+                                    style="width:auto;padding:13px 16px;flex-shrink:0;margin-top:0" title="Scan QR">📷</button>
+                        </div>
+                        <label class="input-label">Destination Address</label>
+                        <div style="display:flex;gap:8px;align-items:start">
+                            <input type="text" id="input-ms-dest" class="input-text" style="flex:1;margin-bottom:0"
+                                   placeholder="kaspa:..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline" id="btn-scan-ms-dest"
+                                    style="width:auto;padding:13px 16px;flex-shrink:0;margin-top:0" title="Scan QR">📷</button>
+                        </div>
+                        <label class="input-label">Amount (KAS)</label>
+                        <div style="display:flex;gap:8px;align-items:start">
+                            <input type="number" id="input-ms-amount" class="input-text" style="flex:1;margin-bottom:0"
+                                   placeholder="0.0" step="0.00000001" min="0">
+                            <button class="btn btn-outline" id="btn-ms-max"
+                                    style="width:auto;padding:13px 16px;flex-shrink:0;margin-top:0">Max</button>
+                        </div>
+                        <div id="ms-balance-info" class="send-balance-ref" style="margin-top:8px"></div>
+                        <button class="btn btn-primary" id="btn-ms-create" style="margin-top:12px">
+                            Create Multisig TX
+                        </button>
+                        <button class="btn btn-link" id="btn-ms-back">Back</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Broadcast screen -->
+            <section id="screen-broadcast" class="screen">
+                <div class="screen-content">
+                    <h2>Broadcast Transaction</h2>
+                    <p class="subtitle">Scan the signed QR from KasSigner</p>
+                    <div class="card">
+                        <button class="btn btn-primary" id="btn-scan-signed">
+                            Scan Signed QR
+                        </button>
+                        <div class="divider">or</div>
+                        <textarea id="input-signed-hex" class="input-text input-textarea"
+                                  placeholder="Paste signed KSPT hex..." rows="4"></textarea>
+                        <button class="btn btn-secondary" id="btn-broadcast-hex">
+                            Broadcast
+                        </button>
+                        <button class="btn btn-link" id="btn-broadcast-back">Back</button>
+                    </div>
+                    <div id="broadcast-result" class="result-card hidden">
+                        <div id="broadcast-result-icon" class="result-icon"></div>
+                        <div id="broadcast-result-msg" class="result-msg"></div>
+                        <div id="broadcast-result-txid" class="tx-id"></div>
+                        <button class="btn btn-link" id="btn-copy-txid" style="display:none;margin-top:4px">Copy TX ID</button>
+                        <button class="btn btn-secondary" id="btn-broadcast-done" style="margin-top:12px">Back to Dashboard</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Support KasSigner screen -->
+            <section id="screen-donate" class="screen">
+                <div class="screen-content" style="text-align:center">
+                    <div class="donate-motto">Don't trust, verify. Sign offline. Broadcast sovereign.</div>
+                    <div id="donate-qr" class="qr-container donate-qr"></div>
+                    <div class="donate-kns">kassigner.kns</div>
+                    <div id="donate-address" class="address-display" style="font-size:11px"></div>
+                    <p class="subtitle" style="margin-top:8px">KasSee is free & open source. InKasWeRust</p>
+                    <div class="donate-buttons">
+                        <button class="btn btn-outline" id="btn-copy-donate">Donate</button>
+                        <button class="btn btn-outline" id="btn-donate-skip">Skip</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Loading overlay -->
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <div id="loading-msg" class="loading-msg">Connecting...</div>
+            </div>
+
+            <!-- Toast notifications -->
+            <div id="toast" class="toast hidden"></div>
+        </main>
+    </div>
+
+    <!-- jsQR for camera QR decoding (bundled locally — no CDN dependency) -->
+    <script src="lib/jsQR.js"></script>
+    <script type="module" src="js/app.js?v=101"></script>
+</body>
+</html>

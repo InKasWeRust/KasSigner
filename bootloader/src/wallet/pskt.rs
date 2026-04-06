@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-// KasSigner — PSKT (Partially Signed Kaspa Transaction) Parser
+// KasSigner — KSPT (KasSigner Packed Transaction) Parser
 // 100% Rust, no-std, no-alloc
 //
 // Compact binary format for air-gapped communication (QR/camera).
@@ -25,7 +25,7 @@
 // the signatures as QR.
 //
 // ═══════════════════════════════════════════════════════════════════
-// BINARY FORMAT: KasSigner PSKT v1
+// BINARY FORMAT: KasSigner KSPT v1
 // ═══════════════════════════════════════════════════════════════════
 //
 // Header:
@@ -80,7 +80,7 @@
 
 use super::transaction::*;
 
-/// Magic bytes for unsigned PSKT
+/// Magic bytes for unsigned KSPT
 const PSKT_MAGIC: [u8; 4] = [0x4B, 0x53, 0x50, 0x54]; // "KSPT"
 
 /// Magic bytes for signed response
@@ -92,9 +92,9 @@ const FORMAT_VERSION: u8 = 0x01;
 /// Maximum signatures in response
 pub const MAX_SIGNATURES: usize = MAX_INPUTS;
 
-/// PSKT parser errors
+/// KSPT parser errors
 #[derive(Debug, Clone, Copy, PartialEq)]
-/// Errors during PSKT parsing, signing, or serialization.
+/// Errors during KSPT parsing, signing, or serialization.
 pub enum PsktError {
     /// Buffer too short
     BufferTooShort,
@@ -237,7 +237,7 @@ impl<'a> ByteWriter<'a> {
 // Public API: Deserialization (QR -> Transaction)
 // ═══════════════════════════════════════════════════════════════════
 
-/// Parse a binary PSKT buffer and populate a Transaction.
+/// Parse a binary KSPT buffer and populate a Transaction.
 ///
 /// The companion app generates this buffer, encodes it as QR(s),
 /// KasSigner reads it with the camera and parses it here.
@@ -356,7 +356,7 @@ pub fn parse_pskt(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
 // Public API: Serialization (Transaction -> bytes for QR)
 // ═══════════════════════════════════════════════════════════════════
 
-/// Serialize a Transaction to the PSKT binary format.
+/// Serialize a Transaction to the KSPT binary format.
 ///
 /// Useful for tests and for the companion app to generate the payload.
 ///
@@ -406,9 +406,9 @@ pub fn serialize_pskt(tx: &Transaction, output: &mut [u8]) -> Result<usize, Pskt
     Ok(w.written())
 }
 
-/// Serialize a signed Transaction to PSKT binary format.
-/// Same as serialize_pskt but with signatures appended per input.
-/// flags byte = 0x01 to indicate signed PSKT.
+/// Serialize a signed Transaction to KSPT binary format.
+/// Same as serialize_kspt but with signatures appended per input.
+/// flags byte = 0x01 to indicate signed KSPT.
 pub fn serialize_signed_pskt(tx: &Transaction, output: &mut [u8]) -> Result<usize, PsktError> {
     let mut w = ByteWriter::new(output);
 
@@ -567,8 +567,8 @@ impl SignedResponse {
 
 /// Sign all inputs of a parsed transaction.
 ///
-/// Typical hardware wallet flow:
-/// 1. companion app -> QR -> parse_pskt() -> Transaction
+/// Typical signing device flow:
+/// 1. companion app -> QR -> parse KSPT -> Transaction
 /// 2. show user: destination, amount, fee
 /// 3. user confirms -> sign_transaction()
 /// 4. serialize SignedResponse -> QR -> companion app
@@ -873,10 +873,10 @@ pub fn signature_status(tx: &Transaction) -> (u8, u8) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Serialization: Signed PSKT with multisig support
+// Serialization: Signed KSPT with multisig support
 // ═══════════════════════════════════════════════════════════════════
 
-/// Serialize a partially or fully signed PSKT with multisig support.
+/// Serialize a partially or fully signed KSPT with multisig support.
 /// For each input, writes sig_count followed by each (pubkey_pos, sighash_type, 64-byte sig).
 /// This format allows round-tripping partial signatures between signers.
 pub fn serialize_signed_pskt_v2(tx: &Transaction, output: &mut [u8]) -> Result<usize, PsktError> {
@@ -941,8 +941,8 @@ pub fn serialize_signed_pskt_v2(tx: &Transaction, output: &mut [u8]) -> Result<u
     Ok(w.written())
 }
 
-/// Parse a v2 signed PSKT (with multisig signatures) back into a Transaction.
-/// Reads the sig_count + per-sig fields written by serialize_signed_pskt_v2.
+/// Parse a v2 signed KSPT (with multisig signatures) back into a Transaction.
+/// Reads the sig_count + per-sig fields written by the v2 serializer.
 pub fn parse_signed_pskt_v2(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
     let mut r = ByteReader::new(data);
 
@@ -1034,7 +1034,7 @@ pub fn parse_signed_pskt_v2(data: &[u8], tx: &mut Transaction) -> Result<(), Psk
 }
 
 #[cfg(any(test, feature = "verbose-boot"))]
-/// Test: PSKT serialize/parse round-trip.
+/// Test: KSPT serialize/parse round-trip.
 pub fn test_serialize_parse_roundtrip() -> bool {
     // Create transaction, serialize, parse, verify equality
     let mut tx = Transaction::new();
@@ -1096,7 +1096,7 @@ pub fn test_serialize_parse_roundtrip() -> bool {
 }
 
 #[cfg(any(test, feature = "verbose-boot"))]
-/// Test: invalid PSKT magic bytes are rejected.
+/// Test: invalid KSPT magic bytes are rejected.
 pub fn test_invalid_magic() -> bool {
     let bad_data = [0x00, 0x00, 0x00, 0x00, 0x01, 0x00];
     let mut tx = Transaction::new();
@@ -1104,7 +1104,7 @@ pub fn test_invalid_magic() -> bool {
 }
 
 #[cfg(any(test, feature = "verbose-boot"))]
-/// Test: complete PSKT parse → sign → serialize flow.
+/// Test: complete KSPT parse → sign → serialize flow.
 pub fn test_full_sign_flow() -> bool {
     use super::bip39;
     use super::bip32;
@@ -1215,7 +1215,7 @@ pub fn test_signed_response_size() -> bool {
     }
 }
 
-/// Run all PSKT tests
+/// Run all KSPT tests
 #[cfg(any(test, feature = "verbose-boot"))]
 pub fn run_pskt_tests() -> (u32, u32) {
     let mut passed = 0u32;

@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -337,7 +337,7 @@ pub enum AppState {
     ReviewTx { page: u8 },
     /// Confirm page with OK/Cancel selection
     ConfirmTx,
-    /// Sign TX guide — step-by-step instructions before scanning PSKT
+    /// Sign TX guide — step-by-step instructions before scanning KSPT
     SignTxGuide,
     /// Sign Message — choose how to enter message (type / load TXT)
     SignMsgChoice,
@@ -481,6 +481,20 @@ pub enum AppState {
     StegoHintPassphrase,
     /// Firmware update: verification result screen
     FwUpdateResult,
+    /// SD import: submenu (Seed Backup, Transaction, future KRC20/721...)
+    SdImportMenu,
+    /// SD KSPT: list .KSP files on SD to load
+    SdKsptFileList,
+    /// ShowQR popup: Save to SD / Back to QR / header back = menu
+    ShowQrPopup,
+    /// SD KSPT: keyboard for naming the .KSP file before save
+    SdKsptFilename,
+    /// SD KSPT: ask user whether to encrypt the file
+    SdKsptEncryptAsk,
+    /// SD KSPT: password keyboard for encrypting .KSP file
+    SdKsptEncryptPass,
+    /// QR display mode choice: Auto Cycle / Manual (tap to advance)
+    ShowQrModeChoice,
 }
 
 /// Result of handling a button event
@@ -628,6 +642,10 @@ pub fn new() -> Self {
             | AppState::SdFileList | AppState::SdRestorePassphrase | AppState::SdRestoreReading
             | AppState::SdDeleteConfirm
             | AppState::SdXprvExportPassphrase | AppState::SdXprvFileList | AppState::SdXprvImportPassphrase
+            | AppState::SdImportMenu | AppState::SdKsptFileList
+            | AppState::ShowQrPopup | AppState::SdKsptFilename
+            | AppState::SdKsptEncryptAsk | AppState::SdKsptEncryptPass
+            | AppState::ShowQrModeChoice
             | AppState::MultisigChooseMN | AppState::MultisigPickSeed { .. }
             | AppState::MultisigPickAddr { .. }
             | AppState::MultisigAddKey { .. } | AppState::MultisigShowAddress
@@ -823,6 +841,10 @@ pub fn handler_group(&self) -> HandlerGroup {
             SdBackupWarning | SdBackupPassphrase | SdFileList
             | SdRestorePassphrase | SdDeleteConfirm | SdXprvExportPassphrase
             | SdXprvFileList | SdXprvImportPassphrase
+            | SdImportMenu | SdKsptFileList
+            | ShowQrPopup | SdKsptFilename
+            | SdKsptEncryptAsk | SdKsptEncryptPass
+            | ShowQrModeChoice
                 => HandlerGroup::Sd,
 
             // Seed management

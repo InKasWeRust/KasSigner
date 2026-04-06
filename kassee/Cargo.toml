@@ -1,50 +1,66 @@
+# KasSee Web — Watch-only companion wallet for KasSigner
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0
+#
+# Pure Rust → WASM. Zero C dependencies. No ring, no rustls, no tokio.
+# Browser provides WebSocket (TLS handled natively) and crypto.getRandomValues.
+
 [package]
-name = "kassee"
-version = "0.1.0"
+name = "kassee-web"
+version = "1.0.1"
 edition = "2021"
-description = "KasSee — watch-only companion wallet for air-gapped KasSigner"
+description = "KasSee Web — browser-based watch-only wallet for air-gapped KasSigner"
 license = "GPL-3.0"
 
-[[bin]]
-name = "kassee"
-path = "src/main.rs"
+[lib]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Kaspa SDK
-kaspa-wrpc-client = "0.15"
-kaspa-rpc-core = "0.15"
-kaspa-consensus-core = "0.15"
-kaspa-wallet-keys = "0.15"
-kaspa-wallet-pskt = "0.15"
-kaspa-bip32 = "0.15"
-kaspa-addresses = "0.15"
-kaspa-txscript = "0.15"
-kaspa-hashes = "0.15"
-
-# Async runtime
-tokio = { version = "1", features = ["full"] }
-
-# CLI
-clap = { version = "4", features = ["derive"] }
+# WASM bindings
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "console",
+    "WebSocket",
+    "MessageEvent",
+    "BinaryType",
+    "ErrorEvent",
+    "CloseEvent",
+] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde-wasm-bindgen = "0.6"
 
-# QR display in terminal + PNG output
-qrcode = { version = "0.14", features = ["image"] }
+# Borsh for Kaspa wRPC protocol
+borsh = { version = "1", features = ["derive"] }
 
-# Image output
-image = "0.24"
+# Pure Rust crypto (no C, no ring)
+k256 = { version = "0.13", features = ["ecdsa", "arithmetic"] }
+sha2 = "0.10"
+hmac = "0.12"
+ripemd = "0.1"
 
-# GIF animation for multi-frame QR
-gif = "0.13"
-
-# Base58 for kpub decoding  
+# Base58 for kpub decoding
 bs58 = { version = "0.5", features = ["check"] }
+
+# Blake2b for Kaspa hashing
+blake2b_simd = "1"
+
+# QR generation (pure Rust)
+qrcode = "0.14"
 
 # Hex encoding
 hex = "0.4"
 
-# Blake2b for P2SH script hashing
-blake2b_simd = "1"
+# Better panic messages in browser console
+console_error_panic_hook = "0.1"
+
+# getrandom for WASM
+getrandom = { version = "0.2", features = ["js"] }
+
+[profile.release]
+opt-level = "s"
+lto = true

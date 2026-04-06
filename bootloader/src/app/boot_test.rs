@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -235,12 +235,12 @@ pub fn run_phase1_tests(delay: &mut esp_hal::delay::Delay) {
         }
 
         let (passed_ps, total_ps) = wallet::pskt::run_pskt_tests();
-        log!("   PSKT tests: {}/{} passed", passed_ps, total_ps);
+        log!("   KSPT tests: {}/{} passed", passed_ps, total_ps);
 
         if passed_ps != total_ps {
-            log!("   CRITICAL: PSKT implementation has failures!");
+            log!("   CRITICAL: KSPT implementation has failures!");
         } else {
-            log!("   PSKT module verified OK");
+            log!("   KSPT module verified OK");
         }
         log!();
 

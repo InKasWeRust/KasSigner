@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -84,7 +84,7 @@ impl<'a> BootDisplay<'a> {
                 "Open your Kaspa wallet",
                 "Import the kpub",
                 "Create a Send transaction",
-                "Show the PSKT QR code",
+                "Show the KSPT QR code",
             ];
             let step_h: i32 = 26;
             let block_h = steps.len() as i32 * step_h;
@@ -97,7 +97,7 @@ impl<'a> BootDisplay<'a> {
                 draw_lato_18(&mut self.display, step, (320 - sw) / 2, sy, COLOR_TEXT);
             }
 
-            // "SCAN PSKT" button — moved down
+            // "SCAN KSPT" button — moved down
             let btn_w: u32 = 200;
             let btn_h: u32 = 36;
             let btn_x: i32 = (320 - btn_w as i32) / 2;
@@ -107,8 +107,8 @@ impl<'a> BootDisplay<'a> {
             RoundedRectangle::new(btn_rect, btn_corner)
                 .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
                 .draw(&mut self.display).ok();
-            let lw = measure_title("SCAN PSKT");
-            draw_lato_title(&mut self.display, "SCAN PSKT", btn_x + (btn_w as i32 - lw) / 2, btn_y + 26, COLOR_BG);
+            let lw = measure_title("SCAN KSPT");
+            draw_lato_title(&mut self.display, "SCAN KSPT", btn_x + (btn_w as i32 - lw) / 2, btn_y + 26, COLOR_BG);
         }
 
         self.draw_back_button();
@@ -816,8 +816,8 @@ pub fn draw_home_grid(&mut self) {
             .draw(&mut self.display).ok();
 
         // Version
-        let vw = measure_title("v1.0.0");
-        draw_lato_title(&mut self.display, "v1.0.0", (320 - vw) / 2, 122, COLOR_TEXT);
+        let vw = measure_title("v1.0.1");
+        draw_lato_title(&mut self.display, "v1.0.1", (320 - vw) / 2, 122, COLOR_TEXT);
 
         // Tagline
         let s1 = "Secure Hardware Wallet for Kaspa";
@@ -3334,14 +3334,22 @@ pub fn draw_home_grid(&mut self) {
             y_pos += 22;
         }
 
-        // === SD CARD button (centered, teal fill, black text) — y=195..225 ===
+        // === QR button (left) — y=195..225, x=10..150 ===
         let btn_corner = CornerRadii::new(Size::new(8, 8));
-        let sd_rect = Rectangle::new(Point::new(80, 195), Size::new(160, 30));
+        let qr_rect = Rectangle::new(Point::new(10, 195), Size::new(140, 30));
+        RoundedRectangle::new(qr_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let qw = measure_title("SHOW QR");
+        draw_lato_title(&mut self.display, "SHOW QR", 10 + (140 - qw) / 2, 217, COLOR_BG);
+
+        // === SD CARD button (right) — y=195..225, x=160..310 ===
+        let sd_rect = Rectangle::new(Point::new(170, 195), Size::new(140, 30));
         RoundedRectangle::new(sd_rect, btn_corner)
             .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
             .draw(&mut self.display).ok();
         let sw = measure_title("SD CARD");
-        draw_lato_title(&mut self.display, "SD CARD", 80 + (160 - sw) / 2, 217, COLOR_BG);
+        draw_lato_title(&mut self.display, "SD CARD", 170 + (140 - sw) / 2, 217, COLOR_BG);
 
         self.draw_back_button();
     }
@@ -3933,6 +3941,132 @@ pub fn draw_home_grid(&mut self) {
             .draw(&mut self.display).ok();
         let dw = measure_title("DELETE");
         draw_lato_title(&mut self.display, "DELETE", 170 + (120 - dw) / 2, 212, COLOR_TEXT);
+
+        self.draw_back_button();
+    }
+
+    /// Draw the ShowQR popup: "Save to SD" / "Back to QR" with header back = main menu
+    pub fn draw_showqr_popup(&mut self) {
+        self.display.clear(COLOR_BG).ok();
+
+        let tw = measure_header("SIGNED TX");
+        draw_oswald_header(&mut self.display, "SIGNED TX", (320 - tw) / 2, 30, KASPA_TEAL);
+        Line::new(Point::new(20, 40), Point::new(300, 40))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        let w1 = measure_body("Transaction signed successfully.");
+        draw_lato_body(&mut self.display, "Transaction signed successfully.", (320 - w1) / 2, 75, COLOR_TEXT);
+        let w2 = measure_body("Save to SD card or return");
+        draw_lato_body(&mut self.display, "Save to SD card or return", (320 - w2) / 2, 95, COLOR_TEXT);
+        let w3 = measure_body("to view the QR code.");
+        draw_lato_body(&mut self.display, "to view the QR code.", (320 - w3) / 2, 115, COLOR_TEXT);
+
+        let btn_corner = CornerRadii::new(Size::new(6, 6));
+
+        // "Save to SD" button — left (teal, primary action)
+        let save_rect = Rectangle::new(Point::new(30, 140), Size::new(125, 45));
+        RoundedRectangle::new(save_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let sw = measure_title("Save to SD");
+        draw_lato_title(&mut self.display, "Save to SD", 30 + (125 - sw) / 2, 169, COLOR_BG);
+
+        // "Back to QR" button — right (card color, secondary)
+        let back_rect = Rectangle::new(Point::new(165, 140), Size::new(125, 45));
+        RoundedRectangle::new(back_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
+            .draw(&mut self.display).ok();
+        RoundedRectangle::new(back_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_stroke(COLOR_CARD_BORDER, 1))
+            .draw(&mut self.display).ok();
+        let bw = measure_title("Back to QR");
+        draw_lato_title(&mut self.display, "Back to QR", 165 + (125 - bw) / 2, 169, COLOR_TEXT);
+
+        self.draw_back_button();
+    }
+
+    /// Draw the KSPT encrypt ask screen: "Encrypt?" with Yes / No buttons
+    pub fn draw_kspt_encrypt_ask(&mut self) {
+        self.display.clear(COLOR_BG).ok();
+
+        let tw = measure_header("ENCRYPT FILE?");
+        draw_oswald_header(&mut self.display, "ENCRYPT FILE?", (320 - tw) / 2, 30, KASPA_TEAL);
+        Line::new(Point::new(20, 40), Point::new(300, 40))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        let w1 = measure_body("Encrypt the transaction file");
+        draw_lato_body(&mut self.display, "Encrypt the transaction file", (320 - w1) / 2, 75, COLOR_TEXT);
+        let w2 = measure_body("with a password before saving?");
+        draw_lato_body(&mut self.display, "with a password before saving?", (320 - w2) / 2, 95, COLOR_TEXT);
+        let w3 = measure_hint("KSPT data contains no private keys.");
+        draw_lato_hint(&mut self.display, "KSPT data contains no private keys.", (320 - w3) / 2, 120, COLOR_HINT);
+
+        let btn_corner = CornerRadii::new(Size::new(6, 6));
+
+        // "Yes" button — left (teal)
+        let yes_rect = Rectangle::new(Point::new(30, 140), Size::new(125, 45));
+        RoundedRectangle::new(yes_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let yw = measure_title("Yes");
+        draw_lato_title(&mut self.display, "Yes", 30 + (125 - yw) / 2, 169, COLOR_BG);
+
+        // "No" button — right (card)
+        let no_rect = Rectangle::new(Point::new(165, 140), Size::new(125, 45));
+        RoundedRectangle::new(no_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
+            .draw(&mut self.display).ok();
+        RoundedRectangle::new(no_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_stroke(COLOR_CARD_BORDER, 1))
+            .draw(&mut self.display).ok();
+        let nw = measure_title("No");
+        draw_lato_title(&mut self.display, "No", 165 + (125 - nw) / 2, 169, COLOR_TEXT);
+
+        self.draw_back_button();
+    }
+
+    /// Draw QR mode choice screen: "Auto Cycle" / "Manual" for multi-frame QR display
+    pub fn draw_qr_mode_choice(&mut self) {
+        self.display.clear(COLOR_BG).ok();
+
+        let tw = measure_header("QR DISPLAY MODE");
+        draw_oswald_header(&mut self.display, "QR DISPLAY MODE", (320 - tw) / 2, 30, KASPA_TEAL);
+        Line::new(Point::new(20, 40), Point::new(300, 40))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        let w1 = measure_body("Multiple QR frames required.");
+        draw_lato_body(&mut self.display, "Multiple QR frames required.", (320 - w1) / 2, 75, COLOR_TEXT);
+        let w2 = measure_body("Choose display mode:");
+        draw_lato_body(&mut self.display, "Choose display mode:", (320 - w2) / 2, 95, COLOR_TEXT);
+
+        let btn_corner = CornerRadii::new(Size::new(6, 6));
+
+        // "Auto Cycle" button — left (teal, primary)
+        let auto_rect = Rectangle::new(Point::new(30, 140), Size::new(125, 45));
+        RoundedRectangle::new(auto_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let aw = measure_title("Auto Cycle");
+        draw_lato_title(&mut self.display, "Auto Cycle", 30 + (125 - aw) / 2, 169, COLOR_BG);
+
+        // "Manual" button — right (card, secondary)
+        let manual_rect = Rectangle::new(Point::new(165, 140), Size::new(125, 45));
+        RoundedRectangle::new(manual_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
+            .draw(&mut self.display).ok();
+        RoundedRectangle::new(manual_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_stroke(COLOR_CARD_BORDER, 1))
+            .draw(&mut self.display).ok();
+        let mw = measure_title("Manual");
+        draw_lato_title(&mut self.display, "Manual", 165 + (125 - mw) / 2, 169, COLOR_TEXT);
+
+        let h1 = measure_hint("Auto: frames cycle automatically");
+        draw_lato_hint(&mut self.display, "Auto: frames cycle automatically", (320 - h1) / 2, 200, COLOR_HINT);
+        let h2 = measure_hint("Manual: tap to advance frames");
+        draw_lato_hint(&mut self.display, "Manual: tap to advance frames", (320 - h2) / 2, 216, COLOR_HINT);
 
         self.draw_back_button();
     }

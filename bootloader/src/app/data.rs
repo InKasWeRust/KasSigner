@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -37,6 +37,7 @@ pub struct AppData {
     pub qr_export_menu: crate::app::input::Menu,
     pub xprv_export_menu: crate::app::input::Menu,
     pub settings_menu: crate::app::input::Menu,
+    pub sd_import_menu: crate::app::input::Menu,
 
     // ─── Seed management ───
     pub seed_mgr: seed_manager::SeedManager,
@@ -80,6 +81,12 @@ pub struct AppData {
     pub sd_file_count: u8,
     pub sd_file_scroll: u8,
     pub sd_selected_file: [u8; 11],
+    /// KSPT save: 8.3 filename entered by user (8 name + 3 ext)
+    pub kspt_filename: [u8; 11],
+    /// KSPT save: whether user chose to encrypt
+    pub kspt_encrypt: bool,
+    /// QR multi-frame display: true = manual tap-to-advance, false = auto-cycle
+    pub qr_manual_frames: bool,
 
     // ─── Transaction / multisig ───
     pub demo_tx: wallet::transaction::Transaction,
@@ -197,6 +204,9 @@ pub fn new() -> Self {
             settings_menu: crate::app::input::Menu::from_items(
                 &["Display", "Audio", "SD Card", "About"]
             ),
+            sd_import_menu: crate::app::input::Menu::from_items(
+                &["Seed Backup", "Transaction"]
+            ),
 
             seed_mgr: seed_manager::SeedManager::new(),
             mnemonic_indices: [0; 24],
@@ -235,6 +245,9 @@ pub fn new() -> Self {
             sd_file_count: 0,
             sd_file_scroll: 0,
             sd_selected_file: [b' '; 11],
+            kspt_filename: [b' '; 11],
+            kspt_encrypt: false,
+            qr_manual_frames: false,
 
             demo_tx: wallet::transaction::Transaction::new(),
             ms_store: wallet::transaction::MultisigStore::new(),

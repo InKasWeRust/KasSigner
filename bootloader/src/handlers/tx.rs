@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -42,7 +42,7 @@ pub fn handle_tx_touch(
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
                             needs_redraw = true;
                         } else if ad.seed_loaded {
-                            // "SCAN PSKT" button: drawn at y=194..230, x=60..260
+                            // "SCAN KSPT" button: drawn at y=194..230, x=60..260
                             if (190..=234).contains(&y) && (55..=265).contains(&x) {
                                 ad.app.state = crate::app::input::AppState::ScanQR;
                                 needs_redraw = true;
@@ -377,7 +377,7 @@ pub fn handle_tx_touch(
                     crate::app::input::AppState::MultisigDescriptor => {
                         if is_back {
                             ad.app.go_main_menu();
-                        } else if (190..=230).contains(&y) && (80..=240).contains(&x) {
+                        } else if (190..=230).contains(&y) && (170..=310).contains(&x) {
                                 // SD CARD button — write descriptor text to SD
                                 boot_display.draw_loading_screen("Saving to SD...");
                                 boot_display.update_progress_bar(30);
@@ -418,6 +418,26 @@ pub fn handle_tx_touch(
                                 }
                                 delay.delay_millis(2000);
                                 ad.app.go_main_menu();
+                        } else if (190..=230).contains(&y) && (10..=150).contains(&x) {
+                                // QR button — show descriptor as QR for KasSee to scan
+                                let hex = b"0123456789abcdef";
+                                let mut pos: usize = 0;
+                                for &b in b"multi(" { ad.signed_qr_buf[pos] = b; pos += 1; }
+                                ad.signed_qr_buf[pos] = b'0' + ad.ms_creating.m; pos += 1;
+                                for i in 0..ad.ms_creating.n as usize {
+                                    ad.signed_qr_buf[pos] = b','; pos += 1;
+                                    let pk = &ad.ms_creating.pubkeys[i];
+                                    for j in 0..32 {
+                                        ad.signed_qr_buf[pos] = hex[(pk[j] >> 4) as usize]; pos += 1;
+                                        ad.signed_qr_buf[pos] = hex[(pk[j] & 0x0f) as usize]; pos += 1;
+                                    }
+                                }
+                                ad.signed_qr_buf[pos] = b')'; pos += 1;
+                                ad.signed_qr_len = pos;
+                                ad.signed_qr_nframes = 0;
+                                ad.signed_qr_frame = 0;
+                                ad.qr_manual_frames = false;
+                                ad.app.state = crate::app::input::AppState::ShowQR;
                         }
                         needs_redraw = true;
                     }

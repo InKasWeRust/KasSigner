@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -135,6 +135,14 @@ fn pbkdf2_derive_key(password: &[u8], salt: &[u8], iterations: u32) -> [u8; 32] 
 /// PBKDF2 key derivation with progress callback
 pub fn pbkdf2_derive_key_progress(password: &[u8], salt: &[u8], iterations: u32, progress: &mut dyn FnMut(u32, u32)) -> [u8; 32] {
     crate::wallet::storage::pbkdf2_sha256_progress(password, salt, iterations, progress)
+}
+
+/// PBKDF2 key derivation for KSPT encryption (domain-separated salt)
+const KSPT_SALT: &[u8] = b"KasSigner-KSPT-v1";
+
+/// Derive AES-256 key for KSPT file encryption with progress callback
+pub fn pbkdf2_key_for_kspt(password: &[u8], progress: &mut dyn FnMut(u32, u32)) -> [u8; 32] {
+    pbkdf2_derive_key_progress(password, KSPT_SALT, PBKDF2_ITERATIONS, progress)
 }
 
 // ─── Serialize / Deserialize ─────────────────────────────────────────

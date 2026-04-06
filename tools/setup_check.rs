@@ -1,5 +1,5 @@
 // KasSigner Setup Check — Cross-platform build environment validator
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // Run: cargo run --bin kassigner-setup
 //

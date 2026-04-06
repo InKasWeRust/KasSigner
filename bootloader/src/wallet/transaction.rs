@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,11 +20,11 @@
 // 100% Rust, no-std, no-alloc
 //
 // Types representing Kaspa transactions as received by
-// KasSigner from the companion app (via QR/PSKT).
+// KasSigner from the companion app (via QR/KSPT).
 //
 // Note: we use fixed arrays and maximum limits because we have no allocator.
 // A typical Kaspa transaction has 1-5 inputs and 1-2 outputs.
-// We support up to MAX_INPUTS=8 and MAX_OUTPUTS=4 (enough for a hardware wallet).
+// We support up to MAX_INPUTS=8 and MAX_OUTPUTS=4 (enough for a signing device).
 
 /// Maximum supported inputs
 pub const MAX_INPUTS: usize = 8;

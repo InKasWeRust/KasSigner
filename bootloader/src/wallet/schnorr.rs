@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@
 //
 // Kaspa uses Schnorr over secp256k1 similar to Bitcoin BIP340.
 // The main difference is in the sighash hash (Blake2b vs SHA256),
-// but that is handled in the PSKT module, not here.
+// but that is handled in the KSPT module, not here.
 //
 // This implementation signs a 32-byte message (the pre-computed sighash).
 //
@@ -99,7 +99,7 @@ pub enum SchnorrError {
 ///   5. s = (k + e * d) mod n
 ///   6. Signature = R.x || s
 ///
-/// `message` must be the 32-byte sighash (pre-computed by the PSKT module).
+/// `message` must be the 32-byte sighash (pre-computed by the KSPT module).
 /// `private_key` is the 32-byte BIP32 private key.
 pub fn schnorr_sign(
     private_key: &[u8; 32],

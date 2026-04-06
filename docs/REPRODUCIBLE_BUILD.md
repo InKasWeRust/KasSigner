@@ -1,3 +1,7 @@
+<!-- KasSigner — Air-gapped offline signing device for Kaspa -->
+<!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
+<!-- License: GPL-3.0 -->
+
 # KasSigner — Reproducible Build Verification
 
 ## Don't Trust, Verify
@@ -18,7 +22,7 @@ was built from the public source code — no trust required.
 ```bash
 git clone https://github.com/InKasWeRust/KasSigner.git
 cd KasSigner
-git checkout v1.0.0  # or whatever release tag you're verifying
+git checkout v1.0.1  # or whatever release tag you're verifying
 ```
 
 ### 2. Build in Docker
@@ -65,10 +69,11 @@ Open an issue on GitHub.
 The Dockerfile pins every component of the build environment:
 
 - **Ubuntu 24.04** — base OS
+- **Rust 1.85.0** — host Rust compiler
 - **espup 0.16.0** — installs exact Xtensa Rust toolchain
-- **Rust 1.92.0-nightly (esp fork)** — the compiler
+- **Xtensa Rust (esp fork)** — the cross-compiler (version pinned by espup)
 - **Cargo.lock** — pins every dependency version
-- **espflash 4.1.0** — image creation tool
+- **espflash 4.3.0** — image creation tool
 
 Because every input is frozen, the output is deterministic.
 Same source + same tools = same binary, every time.

@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -214,6 +214,7 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
         s if s.starts_with("kpub")        => draw_icon!(size24px::finance::AppleWallet),
         s if s.starts_with("xprv")        => draw_icon!(size24px::security::Lock),
         s if s.starts_with("Seed Backup") => draw_icon!(size24px::actions::Upload),
+        s if s.starts_with("Transaction") => draw_icon!(size24px::users::Group),
         s if s.starts_with("XPrv Backup") => draw_icon!(size24px::actions::UploadSquare),
         s if s.starts_with("JPEG Stego")  => draw_icon!(size24px::actions::EyeOff),
         s if s.starts_with("Display")     => draw_icon!(size24px::devices::Laptop),
@@ -463,8 +464,8 @@ impl<'a> BootDisplay<'a> {
         let raw_img: ImageRawLE<Rgb565> = ImageRawLE::new(LOGO_DATA, 320);
         Image::new(&raw_img, Point::new(0, -20)).draw(&mut self.display).ok();
 
-        let vw = measure_title("v1.0.0");
-        draw_lato_title(&mut self.display, "v1.0.0", (320 - vw) / 2, 122, COLOR_TEXT);
+        let vw = measure_title("v1.0.1");
+        draw_lato_title(&mut self.display, "v1.0.1", (320 - vw) / 2, 122, COLOR_TEXT);
 
         let s1 = "Secure Hardware Wallet for Kaspa";
         draw_lato_body(&mut self.display, s1, (320 - measure_body(s1)) / 2, 146, COLOR_TEXT_DIM);

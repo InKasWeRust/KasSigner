@@ -1,5 +1,5 @@
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@
 //   - schnorr: Schnorr signing (Kaspa-compatible)
 //   - hmac: HMAC-SHA512, PBKDF2
 //   - address: Kaspa address encoding
-//   - pskt: PSKT parse/sign/serialize
+//   - pskt: KSPT parse/sign/serialize
 //   - sighash: Transaction sighash computation
 //   - transaction: Transaction/Input/Output structs
 //   - xpub: Extended public key (kpub/xprv)

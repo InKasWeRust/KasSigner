@@ -1,0 +1,36 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const broadcast_signed: (a: number, b: number, c: number, d: number) => any;
+export const create_compound_kspt: (a: number, b: number, c: number, d: number, e: bigint, f: number, g: number) => any;
+export const create_consolidate_kspt: (a: number, b: number, c: bigint, d: number, e: number) => any;
+export const create_multisig_kspt: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: bigint, i: number, j: number, k: number, l: number) => any;
+export const create_send_kspt: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number) => any;
+export const create_send_kspt_selected: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number, i: number, j: number) => any;
+export const decode_address: (a: number, b: number) => [number, number, number, number];
+export const decode_qr_frame: (a: number, b: number) => [number, number, number, number];
+export const decoder_progress: () => [number, number];
+export const encode_p2pk_address: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+export const encode_p2sh_address: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+export const fetch_balance: (a: number, b: number, c: number, d: number) => any;
+export const fetch_utxos: (a: number, b: number, c: number, d: number) => any;
+export const fetch_utxos_for_address_js: (a: number, b: number, c: number, d: number) => any;
+export const generate_qr_frames: (a: number, b: number) => [number, number, number, number];
+export const get_fee_estimate: (a: number, b: number) => any;
+export const import_kpub: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+export const init: () => void;
+export const reset_qr_decoder: () => void;
+export const version: () => [number, number];
+export const wasm_bindgen__convert__closures_____invoke__h86a363bee197a948: (a: number, b: number, c: any) => [number, number];
+export const wasm_bindgen__convert__closures_____invoke__h0aed6e2ac94953e2: (a: number, b: number, c: any, d: any) => void;
+export const wasm_bindgen__convert__closures_____invoke__h26dccb8c5ba9e942: (a: number, b: number, c: any) => void;
+export const wasm_bindgen__convert__closures_____invoke__h26dccb8c5ba9e942_2: (a: number, b: number, c: any) => void;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+export const __wbindgen_exn_store: (a: number) => void;
+export const __externref_table_alloc: () => number;
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_destroy_closure: (a: number, b: number) => void;
+export const __externref_table_dealloc: (a: number) => void;
+export const __wbindgen_start: () => void;

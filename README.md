@@ -1,4 +1,8 @@
-# KasSigner
+<!-- KasSigner — Air-gapped offline signing device for Kaspa -->
+<!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
+<!-- License: GPL-3.0 -->
+
+# KasSigner v1.0.1
 
 **Air-gapped offline signing device for the Kaspa blockchain.**
 
@@ -6,7 +10,7 @@
 
 KasSigner is an open-source signing device built on ESP32-S3. It generates private keys offline, signs transactions via QR code exchange, and never connects to any network. All key material lives in RAM only and is destroyed when the device powers off.
 
-~45,000 lines of bare-metal `no_std` Rust. No operating system. No vendor libraries in the signing path.
+100% Rust. Bare-metal `no_std`. No operating system. No vendor libraries in the signing path.
 
 > **This project is under active development.** It has not yet undergone a formal security audit. Do not store significant funds until the codebase has been independently reviewed.
 
@@ -14,7 +18,6 @@ KasSigner is an open-source signing device built on ESP32-S3. It generates priva
 
 - **Fully air-gapped** — no WiFi, Bluetooth, or USB data. All I/O via QR codes, touchscreen, and SD card
 - **No persistent storage** — all keys live in RAM only, wiped on every power-off
-- **Live display mirror** — stream the device screen to a Mac/PC for presentations (`--features mirror`)
 - **BIP39 seed generation** — 12 or 24 words from hardware TRNG or manual dice rolls (verifiable entropy)
 - **BIP32 HD key derivation** — Kaspa path `m/44'/111111'/0'`
 - **BIP39 passphrase (25th word)** — optional passphrase creates a hidden wallet; decoy wallet without it
@@ -32,6 +35,26 @@ KasSigner is an open-source signing device built on ESP32-S3. It generates priva
 - **KRC-20 token detection** — recognizes KRC-20 token transactions during review
 - **kpub/xprv export** — account-level public key export for watch-only wallets, encrypted xprv via SD
 - **Reproducible builds** — Docker-based, bit-identical binaries on any platform
+
+## Verify First — Reproducible Builds
+
+Before anything else: verify that the firmware you flash matches the source code. This is the most important step.
+
+Verify that a binary matches the source — bit for bit. Requires Docker.
+
+```bash
+# Build toolchain base image (once)
+docker build --platform linux/amd64 -f Dockerfile.base -t kassigner-toolchain:v2 .
+
+# Build firmware (both platforms)
+docker build --platform linux/amd64 -t kassigner-build .
+
+# Verify hashes
+docker run --rm kassigner-build
+```
+
+See [docs/REPRODUCIBLE_BUILD.md](docs/REPRODUCIBLE_BUILD.md) for details.
+
 
 ## Steganographic Backup — A beautiful way
 
@@ -61,11 +84,11 @@ See [docs/KEY_DERIVATION.md](docs/KEY_DERIVATION.md) for the full derivation arc
 
 ## Supported Hardware
 
-KasSigner runs on ESP32-S3 platforms. The Waveshare board is the primary target:
+KasSigner runs on two ESP32-S3 platforms:
 
 | | Waveshare ESP32-S3-Touch-LCD-2 | M5Stack CoreS3 / CoreS3 Lite |
 |---|---|---|
-| **Status** | Primary (Secure Boot ready) | Secondary (fully functional) |
+| **Status** | Secure Boot ready | Fully functional |
 | **MCU** | ESP32-S3 dual-core 240MHz | ESP32-S3 dual-core 240MHz |
 | **Display** | ST7789T3 320×240 SPI | ILI9342C 320×240 SPI |
 | **Camera** | OV5640 5MP DVP (autofocus) | GC0308 QVGA DVP |
@@ -129,6 +152,16 @@ cargo run --release --no-default-features --features m5stack
 ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release --features skip-tests
 ```
 
+### One-step installer (macOS only)
+
+For macOS users, the install script handles everything — toolchain installation, build, and flash:
+
+```bash
+bash KasSigner_Install_v1_0_1.sh
+```
+
+The script asks permission at every step (Y/N). It detects your environment, installs missing tools (Xcode CLI Tools, Rust, ESP32 toolchain, espflash), builds from source, and flashes the device. Linux and Windows users should follow the manual build steps above.
+
 ### Feature flags
 
 | Flag | Purpose |
@@ -154,134 +187,94 @@ cd tools
 cargo run --release --bin kassigner-mirror -- /dev/cu.usbmodem21201
 ```
 
-### Reproducible builds (Docker)
-
-Verify that a binary matches the source — bit for bit. Requires Docker.
-
-```bash
-# Build toolchain base image (once)
-docker build --platform linux/amd64 -f Dockerfile.base -t kassigner-toolchain:v1 .
-
-# Build firmware (both platforms)
-docker build --platform linux/amd64 -t kassigner-build .
-
-# Verify hashes
-docker run --rm kassigner-build
-```
-
-See [docs/REPRODUCIBLE_BUILD.md](docs/REPRODUCIBLE_BUILD.md) for details.
-
 ## KasSee — Watch-Only Companion Wallet
 
-KasSee is the online counterpart to KasSigner. It imports your kpub (extended public key), derives all receive and change addresses, tracks UTXOs via a Kaspa node, builds unsigned transactions, and broadcasts signed ones. It never sees your private keys.
+KasSee is a browser-based watch-only wallet that pairs with KasSigner. It imports your kpub (extended public key), derives all receive and change addresses, tracks UTXOs via a Kaspa node, builds unsigned transactions, and broadcasts signed ones. It never sees your private keys.
 
-### Building KasSee
+Pure Rust compiled to WebAssembly. Zero install. No backend. Runs entirely in your browser.
+
+### Using KasSee
+
+Open `kassee/web/index.html` in any modern browser, or visit the hosted version on GitHub Pages.
+
+KasSee connects to a public Kaspa node automatically. To use your own node, open Settings and enter your WebSocket URL (`wss://` or `ws://`).
+
+### Features
+
+- **Import kpub** — scan QR or paste the extended public key exported from KasSigner
+- **Dashboard** — live balance, UTXO count, funded addresses
+- **Send** — build unsigned KSPT transactions with fee estimation (low / normal / priority)
+- **Send Max** — sweep all UTXOs to a single destination
+- **Receive** — display receive address with QR code and tap-to-verify
+- **Broadcast** — scan signed QR from KasSigner and submit to the network
+- **UTXO explorer** — view and manually select UTXOs for transaction building
+- **Address list** — all derived addresses with tap-to-verify and long-press-to-copy
+- **Address verification** — display address QR + derivation path for on-device verification
+- **Multisig** — create P2SH multisig addresses, build multisig spend transactions
+- **Transaction history** — track confirmed transactions
+- **Custom node** — connect to your own Kaspa node via Settings
+- **Camera scanner** — scan QR codes directly from the browser (kpub, signed TX, descriptors)
+- **Animated QR** — multi-frame QR display with frame indicator for reliable scanning
+- **PWA** — installable as a progressive web app on mobile
+
+### Building KasSee from source
+
+KasSee ships with pre-built WASM in `kassee/web/pkg/` — it works out of the box. To rebuild from source:
 
 ```bash
 cd kassee
-cargo build --release
 
-# Optional: install globally so you can run 'kassee' from anywhere
-cargo install --path .
+# Prerequisites (once)
+cargo install wasm-pack
+rustup target add wasm32-unknown-unknown --toolchain stable
+
+# Build
+RUSTUP_TOOLCHAIN=stable ./build.sh
 ```
 
-No Xtensa toolchain needed — KasSee is standard Rust, runs on macOS/Linux/Windows.
-
-### Quick start
+Then open `kassee/web/index.html` in a browser or serve locally:
 
 ```bash
-# Import your kpub from KasSigner (Seeds → Export → kpub Watch-Only)
-kassee import <kpub_string>
-
-# Check balance (uses public node by default)
-kassee balance
-
-# Connect to your own node
-kassee --node ws://192.168.1.X:17110 balance
-
-# List addresses
-kassee addresses -n 10
-kassee addresses -n 10 --change
-
-# Send KAS (creates unsigned KSPT, displays as animated QR GIF)
-kassee send <destination_address> <amount_kas>
-
-# Broadcast a signed transaction from KasSigner
-kassee broadcast <signed_hex>
+cd web && python3 -m http.server 8080
+# Open http://localhost:8080
 ```
-
-### Multisig commands
-
-```bash
-# Fund a 2-of-2 P2SH multisig (sends from your wallet to multisig address)
-kassee --node ws://... send-to-multisig 1.0 -m 2 <kpub1> <kpub2>
-# Sign with your device, broadcast, note the TX ID
-
-# Spend from multisig (creates KSPT for co-signing)
-kassee send-from-multisig <dest_addr> --txid <TXID> --vout 0 --utxo-amount <sompi> -m 2 <kpub1> <kpub2>
-# Co-sign with both devices, broadcast the fully signed TX
-
-# Test multisig flow (fake UTXOs, real pubkeys)
-kassee test-multisig-real -m 2 <kpub1> <kpub2>
-```
-
-Pubkeys are automatically sorted lexicographically — kpub order on the command line doesn't matter.
 
 ### Air-gapped signing flow
 
 ```
-KasSee                          KasSigner
-───────                         ─────────
+KasSee (browser)                KasSigner (device)
+────────────────                ──────────────────
 1. Build unsigned KSPT
-2. Display as QR ──────────────→ 3. Scan QR
-                                 4. Review TX on screen
-                                 5. Sign with private key
-6. Scan signed QR ←───────────── 7. Display signed QR
+2. Display as animated QR ─────→ 3. Scan QR
+                                  4. Review TX on screen
+                                  5. Sign with private key
+6. Scan signed QR ←────────────── 7. Display signed QR
 8. Broadcast to network
 ```
 
-### Multisig co-signing flow (via KasSee relay)
+### Multisig co-signing flow
 
 ```
-KasSee                    Device A              Device B
-───────                   ────────              ────────
+KasSee (browser)          Device A              Device B
+────────────────          ────────              ────────
 1. Build KSPT
 2. Display QR ──────────→ 3. Scan, review
                           4. Sign (1/2)
-                          5. Show partial QR
-                             (copy hex from serial)
-6. kassee relay <hex>
-7. Display partial QR ──────────────────────→ 8. Scan, review
-                                               9. Sign (2/2)
-                                              10. Show fully signed QR
-                                                  (copy hex from serial)
-11. kassee broadcast <hex>
-```
-
-### Multisig co-signing flow (direct device-to-device)
-
-```
-KasSee                    Device A              Device B
-───────                   ────────              ────────
-1. Build KSPT
-2. Display QR ──────────→ 3. Scan, review
-                          4. Sign (1/2)
-                          5. Show partial QR ──→ 6. Scan directly from A's screen
+                          5. Show partial QR ──→ 6. Scan from A's screen
                                                  7. Sign (2/2)
                                                  8. Show fully signed QR
-                                                    (copy hex from serial)
-9. kassee broadcast <hex>
+9. Scan signed QR
+10. Broadcast to network
 ```
 
 ### Safety features
 
-- **Own-node connection** — `--node ws://...` for privacy and verification
-- **Remote node warning** — warns when using unencrypted `ws://` to non-local IPs
-- **Fee estimation** — queries node for current feerate, warns if fee too low
+- **Custom node connection** — connect to your own Kaspa node via Settings
+- **Public node resolver** — auto-discovers healthy public nodes when no custom node is set
+- **Fee estimation** — queries node for current feerate with low / normal / priority levels
 - **Storage mass awareness** — warns for outputs below 0.2 KAS (KIP-9/Crescendo)
-- **Address reuse detection** — warns if destination has existing UTXOs (P2PK pubkey exposure)
-- **Change address rotation** — auto-bumps to next unused change address
-- **Balanced QR frames** — splits data evenly across frames for reliable scanning
+- **WebSocket retry** — automatic reconnection on connection drops
+- **Animated QR frames** — balanced frame splitting with indicator for reliable scanning
 - **Sorted multisig keys** — deterministic P2SH addresses regardless of kpub input order
 
 ## Project Structure
@@ -297,6 +290,7 @@ KasSigner/
 ├── Makefile                        Convenience build targets
 ├── Dockerfile.base                 Frozen toolchain image (Rust 1.84.0 + espup 0.16.0)
 ├── Dockerfile                      Reproducible firmware build (both platforms)
+├── KasSigner_Install_v1_0_1.sh     One-step installer script
 ├── .dockerignore
 ├── .gitignore
 ├── .gitattributes
@@ -307,12 +301,31 @@ KasSigner/
 │       ├── bug_report.md
 │       └── feature_request.md
 │
-├── kassee/                         KasSee — watch-only companion wallet
-│   ├── Cargo.toml
+├── kassee/                         KasSee — browser-based watch-only companion wallet
+│   ├── Cargo.toml                  WASM crate manifest (Pure Rust, no C deps)
 │   ├── Cargo.lock
-│   └── src/
-│       ├── main.rs                 CLI entry point (clap) — import, send, broadcast, relay, multisig
-│       └── wallet.rs               kpub import, UTXO tracking, KSPT builder, P2SH multisig, QR output
+│   ├── build.sh                    wasm-pack build script
+│   ├── src/
+│   │   ├── lib.rs                  WASM entry point + JS bindings
+│   │   ├── address.rs              Kaspa address derivation + Bech32
+│   │   ├── bip32.rs                HD key derivation (kpub → addresses)
+│   │   ├── kspt.rs                 KSPT build / parse / sign
+│   │   ├── qr.rs                   QR code generation
+│   │   └── rpc.rs                  Kaspa wRPC client (Borsh over WebSocket)
+│   └── web/
+│       ├── index.html              KasSee Web application
+│       ├── js/app.js               Application logic
+│       ├── css/app.css             Styles
+│       ├── img/                    Logo and icons
+│       ├── lib/jsQR.js             QR scanner library
+│       ├── manifest.json           PWA manifest
+│       ├── favicon.ico
+│       ├── pkg/                    Pre-built WASM (works out of the box)
+│       │   ├── kassee_web.js
+│       │   ├── kassee_web_bg.wasm
+│       │   └── ...
+│       └── constellation/
+│           └── index.html          KasSigner project landing page
 │
 ├── docs/
 │   ├── BUILD_FLASH_GUIDE.md        Build, sign, and flash guide (all device types)
@@ -322,6 +335,8 @@ KasSigner/
 │   ├── REPRODUCIBLE_BUILD.md       Docker reproducible build verification
 │   ├── KasSigner_User_Guide_v1.0.pdf  Complete user guide (44 pages)
 │   ├── KasSigner_Quick_Start_Guide.pdf Quick start (5 pages)
+│   ├── KasSigner_Security_Architecture_v101.pdf  Security architecture document
+│   ├── KasSee_User_Guide.pdf       KasSee Web companion wallet guide
 │   ├── KasSigner_Seed_Cards.pdf    Printable seed backup cards
 │   └── kaspa_transaction_utxo_flow.svg  UTXO transaction flow diagram
 │
@@ -335,7 +350,7 @@ KasSigner/
 │   ├── build_with_hash.sh          Iterative hash convergence build
 │   └── build_production.sh         Production build wrapper
 │
-└── bootloader/                     Device firmware (~42,600 lines of Rust)
+└── bootloader/                     Device firmware (bare-metal Rust)
     ├── Cargo.toml
     ├── Cargo.lock
     ├── build.rs                    Linker configuration
@@ -446,8 +461,8 @@ KasSigner/
 ## What KasSigner Is NOT
 
 - **NOT a hardware wallet** — it has no secure element, no tamper detection, no persistent key storage. It runs on a consumer ESP32-S3 microcontroller.
-- **NOT a replacement for Ledger, Trezor, or Coldcard** — those devices have dedicated security chips designed to resist physical attacks. KasSigner does not.
-- **NOT audited** — the cryptographic implementation has not been reviewed by a professional security firm. The code is open for community review.
+- **NOT a replacement for hardware wallets** — hardware wallets have dedicated security chips designed to resist physical attacks. KasSigner does not.
+- **NOT professionally audited** — the codebase has undergone internal security review (see [docs/KasSigner_Security_Architecture_v101.pdf](docs/KasSigner_Security_Architecture_v101.pdf)) but has not been reviewed by an independent professional security firm. Known findings are documented and tracked. The code is open for community review.
 - **NOT resistant to physical attacks** — an attacker with physical access and lab equipment (JTAG probes, voltage glitching, flash readers) may be able to extract secrets from the ESP32-S3 while it is powered on.
 - **NOT a place to store keys long-term** — the device wipes everything on power-off. Your backup (seed words, stego JPEG, SD card) is your permanent storage, not the device.
 
@@ -479,7 +494,7 @@ Address keys derived on demand (index 0, 1, 2, ...)
 
 Private keys are:
 
-1. **Zeroized after use** — compiler-proof memory clearing
+1. **Zeroized after use** — memory clearing after signing operations
 2. **Never persisted** — all seed slots live in RAM only, lost on power-off
 3. **Encrypted for SD backup** — AES-256-GCM with user passphrase
 
@@ -521,6 +536,8 @@ A tampered binary fails verification and halts boot.
 
 - [docs/KasSigner_User_Guide_v1.0.pdf](docs/KasSigner_User_Guide_v1.0.pdf) — complete user guide (44 pages)
 - [docs/KasSigner_Quick_Start_Guide.pdf](docs/KasSigner_Quick_Start_Guide.pdf) — quick start (5 pages)
+- [docs/KasSigner_Security_Architecture_v101.pdf](docs/KasSigner_Security_Architecture_v101.pdf) — security architecture
+- [docs/KasSee_User_Guide.pdf](docs/KasSee_User_Guide.pdf) — KasSee Web companion wallet guide
 - [docs/KasSigner_Seed_Cards.pdf](docs/KasSigner_Seed_Cards.pdf) — printable seed backup cards
 - [docs/STEGANOGRAPHY.md](docs/STEGANOGRAPHY.md) — JPEG EXIF steganographic backup system
 - [docs/KEY_DERIVATION.md](docs/KEY_DERIVATION.md) — BIP32/39/85 derivation tree explained
@@ -534,7 +551,7 @@ A tampered binary fails verification and halts boot.
 
 ## Hardware References
 
-KasSigner runs on the [Waveshare ESP32-S3-Touch-LCD-2](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-2). These are the datasheets and reference manuals for the components used:
+KasSigner runs on the Waveshare ESP32-S3-Touch-LCD-2 and M5Stack CoreS3. These are the datasheets and reference manuals for the components used:
 
 - [ESP32-S3 Technical Reference Manual](https://www.espressif.com/sites/default/files/documentation/esp32-s3_technical_reference_manual_en.pdf) — register-level peripheral documentation
 - [ESP32-S3 Datasheet](https://www.espressif.com/sites/default/files/documentation/esp32-s3_datasheet_en.pdf) — pinout, electrical characteristics, memory map

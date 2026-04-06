@@ -1,3 +1,7 @@
+<!-- KasSigner — Air-gapped offline signing device for Kaspa -->
+<!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
+<!-- License: GPL-3.0 -->
+
 # Code of Conduct
 
 ## Our Pledge
@@ -11,7 +15,7 @@ welcoming and respectful environment for everyone, regardless of background.
 - Focus on technical merit
 - Accept constructive criticism gracefully
 - Prioritize security over features
-- Report vulnerabilities responsibly (see SECURITY.md)
+- Report vulnerabilities responsibly (see [SECURITY.md](SECURITY.md))
 
 ## Enforcement
 

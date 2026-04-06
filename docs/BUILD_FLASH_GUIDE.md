@@ -1,3 +1,7 @@
+<!-- KasSigner — Air-gapped offline signing device for Kaspa -->
+<!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
+<!-- License: GPL-3.0 -->
+
 # KasSigner — Build, Sign & Flash Guide
 
 > Step-by-step guide for building, signing, and flashing KasSigner firmware.
@@ -6,7 +10,7 @@
 ## Prerequisites
 
 - Docker Desktop installed and running
-- `kassigner-toolchain:v1` Docker image present (`docker images | grep kassigner-toolchain`)
+- `kassigner-toolchain:v2` Docker image present (`docker images | grep kassigner-toolchain`)
 - `esptool` installed (`pip install esptool`)
 - `espflash` installed (`cargo install espflash`)
 - ESP Rust toolchain installed (for local builds only)
@@ -21,27 +25,27 @@ This produces binaries with converged self-verifying hashes. No signing keys nee
 cd /path/to/KasSigner
 
 # Build (includes hash convergence — 3 passes per target)
-docker build -t kassigner-build:v1.0 . 2>&1 | tee docker_build.log
+docker build -t kassigner-build:v1.0.1 . 2>&1 | tee docker_build.log
 
 # Verify reproducibility (optional — run a second time with --no-cache)
-docker build --no-cache -t kassigner-build:v1.0-verify . 2>&1 | tee docker_verify.log
+docker build --no-cache -t kassigner-build:v1.0.1-verify . 2>&1 | tee docker_verify.log
 
 # Compare hashes — should be identical
-docker run --rm kassigner-build:v1.0
-docker run --rm kassigner-build:v1.0-verify
+docker run --rm kassigner-build:v1.0.1
+docker run --rm kassigner-build:v1.0.1-verify
 ```
 
 ### Extract binaries from Docker
 
 ```bash
 # Waveshare
-docker create --name ks-extract kassigner-build:v1.0
+docker create --name ks-extract kassigner-build:v1.0.1
 docker cp ks-extract:/build/kassigner-waveshare.bin kassigner-waveshare.bin
 docker rm ks-extract
 shasum -a 256 kassigner-waveshare.bin
 
 # M5Stack
-docker create --name ks-extract kassigner-build:v1.0
+docker create --name ks-extract kassigner-build:v1.0.1
 docker cp ks-extract:/build/kassigner-m5stack.bin kassigner-m5stack.bin
 docker rm ks-extract
 shasum -a 256 kassigner-m5stack.bin
@@ -88,7 +92,7 @@ and `espflash monitor --no-stub` for serial monitoring.
 
 ```bash
 # 1. Extract Docker binary (already hash-converged)
-docker create --name ks-extract kassigner-build:v1.0
+docker create --name ks-extract kassigner-build:v1.0.1
 docker cp ks-extract:/build/kassigner-waveshare.bin kassigner-waveshare.bin
 docker rm ks-extract
 
@@ -193,7 +197,7 @@ cargo run --release --no-default-features --features m5stack
 Or from Docker binary:
 
 ```bash
-docker create --name ks-extract kassigner-build:v1.0
+docker create --name ks-extract kassigner-build:v1.0.1
 docker cp ks-extract:/build/kassigner-m5stack.bin kassigner-m5stack.bin
 docker rm ks-extract
 
@@ -201,23 +205,26 @@ esptool --port /dev/cu.usbmodem21201 write_flash 0x10000 kassigner-m5stack.bin
 espflash monitor
 ```
 
-## 5. Build KasSee (Companion Wallet)
+## 5. Build KasSee Web (Companion Wallet)
+
+KasSee ships with pre-built WASM in `kassee/web/pkg/` — it works out of the box.
+Open `kassee/web/index.html` in any modern browser.
+
+To rebuild from source:
 
 ```bash
 cd kassee
-cargo build --release
 
-# Verify clean
-cargo clippy --release 2>&1 | grep "warning:" | wc -l
-# Should be 0
+# Prerequisites (once)
+cargo install wasm-pack
+rustup target add wasm32-unknown-unknown --toolchain stable
 
-# Optional: install globally
-cargo install --path .
+# Build
+RUSTUP_TOOLCHAIN=stable ./build.sh
 
-# Test
-kassee --help
-kassee import <kpub_from_device>
-kassee --node ws://192.168.1.X:17110 balance
+# Serve locally
+cd web && python3 -m http.server 8080
+# Open http://localhost:8080
 ```
 
 ## Troubleshooting
@@ -254,7 +261,7 @@ cargo build --release
 ### Docker `cat` produces oversized binary
 Use `docker cp` instead of `docker run cat`:
 ```bash
-docker create --name ks-extract kassigner-build:v1.0
+docker create --name ks-extract kassigner-build:v1.0.1
 docker cp ks-extract:/build/kassigner-waveshare.bin .
 docker rm ks-extract
 ```

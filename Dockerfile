@@ -1,4 +1,10 @@
-FROM --platform=linux/amd64 kassigner-toolchain:v1
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0
+#
+# Reproducible firmware build (both platforms)
+
+FROM --platform=linux/amd64 kassigner-toolchain:v2
 
 SHELL ["/bin/bash", "-c"]
 

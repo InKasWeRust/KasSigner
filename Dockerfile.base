@@ -1,11 +1,17 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0
+#
+# Frozen toolchain base image (build once, reuse forever)
+
 FROM --platform=linux/amd64 ubuntu:24.04
 
 # ============================================================
-# KasSigner — Toolchain Base Image (build once, reuse forever)
+# KasSigner — Toolchain Base Image v2 (build once, reuse forever)
 # ============================================================
 # Forces x86_64 platform for identical hashes across all hosts.
 #
-#   docker build --platform linux/amd64 -f Dockerfile.base -t kassigner-toolchain:v1 .
+#   docker build --platform linux/amd64 -f Dockerfile.base -t kassigner-toolchain:v2 .
 # ============================================================
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -16,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-    sh -s -- -y --default-toolchain 1.84.0
+    sh -s -- -y --default-toolchain 1.85.0
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN curl -L "https://github.com/esp-rs/espup/releases/download/v0.16.0/espup-x86_64-unknown-linux-gnu" \

@@ -23,12 +23,13 @@
 #![allow(clippy::unnecessary_mut_passed)]       // mutable ref to DMA methods
 #![allow(clippy::bool_to_int_with_if)]          // if x { 1 } else { 0 } patterns
 #![allow(clippy::collapsible_else_if)]          // else { if } with trailing statements
+#![allow(clippy::manual_range_contains)]        // explicit range checks in SD filename parsing
 #![allow(clippy::doc_lazy_continuation)]        // doc comment formatting
 #![no_std]
 #![no_main]
 
-// KasSigner — Air-gapped hardware wallet for Kaspa
-// Copyright (C) 2025 KasSigner Project (kassigner@proton.me)
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -858,7 +859,6 @@ fn main() -> ! {
                 #[cfg(feature = "waveshare")]
                 { ad.ms_scroll = 0; }
             }
-            log!("   [DBG] redraw t={} state={:?}", ad.idle_ticks, ad.app.state);
             ui::redraw::redraw_screen(&mut ad, &mut boot_display, &mut i2c, &_bb_card_type);
             // Mirror mode: request non-blocking frame dump
             #[cfg(feature = "mirror")]
