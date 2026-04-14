@@ -7,13 +7,14 @@
 
 [package]
 name = "kassigner-bootloader"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 authors = ["KasSigner Team"]
 
 [features]
 default = ["waveshare"]
 waveshare = []
+ov2640-wide = ["waveshare"]
 m5stack = []
 production = ["silent"]
 silent = []
@@ -31,6 +32,7 @@ esp-println = { version = "0.13", default-features = false, features = ["esp32s3
 esp-alloc = "0.7"
 esp-bootloader-esp-idf = { version = "0.2", features = ["esp32s3"] }
 esp32s3 = { version = "0.30", features = ["rt"] }
+rqrr = { path = "../rqrr_nostd", default-features = false }
 
 # Display — ST7789 instead of ILI9342C (mipidsi supports both)
 mipidsi = "0.9"

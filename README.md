@@ -2,7 +2,7 @@
 <!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
 <!-- License: GPL-3.0 -->
 
-# KasSigner v1.0.1
+# KasSigner
 
 **Air-gapped offline signing device for the Kaspa blockchain.**
 
@@ -30,7 +30,7 @@ KasSigner is an open-source signing device built on ESP32-S3. It generates priva
 - **Steganographic backup** — hide encrypted seeds inside ordinary JPEG photos on SD card
 - **Encrypted SD backup** — AES-256-GCM encrypted seed backup to MicroSD
 - **Secure boot** — firmware hash + Schnorr signature verified at every boot
-- **QR scanner** — built-in camera for scanning KSPTs, SeedQR import, and pubkey exchange
+- **QR scanner** — built-in camera with rqrr V1–V40 decoder (Reed-Solomon verified, single-pass) for KSPTs, SeedQR import, and pubkey exchange
 - **CompactSeedQR** — SeedSigner-compatible compact seed backup with grid view for manual card filling
 - **KRC-20 token detection** — recognizes KRC-20 token transactions during review
 - **kpub/xprv export** — account-level public key export for watch-only wallets, encrypted xprv via SD
@@ -80,7 +80,6 @@ KasSigner stores wallets in up to 16 RAM slots (never persisted to flash). Each 
 
 **Raw private key** — a single 32-byte secp256k1 scalar. Controls exactly one address. Imported via hex keypad. Compatible with KasWare-style key exports.
 
-See [docs/KEY_DERIVATION.md](docs/KEY_DERIVATION.md) for the full derivation architecture.
 
 ## Supported Hardware
 
@@ -91,7 +90,7 @@ KasSigner runs on two ESP32-S3 platforms:
 | **Status** | Secure Boot ready | Fully functional |
 | **MCU** | ESP32-S3 dual-core 240MHz | ESP32-S3 dual-core 240MHz |
 | **Display** | ST7789T3 320×240 SPI | ILI9342C 320×240 SPI |
-| **Camera** | OV5640 5MP DVP (autofocus) | GC0308 QVGA DVP |
+| **Camera** | OV2640 / OV5640 DVP (auto-detect) | GC0308 QVGA DVP |
 | **Touch** | CST816D capacitive I2C | FT6336U capacitive I2C |
 | **SD Card** | SDHOST native 1-bit mode | Bitbang SPI |
 | **Audio** | — | AW88298 I2S speaker |
@@ -157,7 +156,7 @@ ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release --features skip-tests
 For macOS users, the install script handles everything — toolchain installation, build, and flash:
 
 ```bash
-bash KasSigner_Install_v1_0_1.sh
+bash Install.sh
 ```
 
 The script asks permission at every step (Y/N). It detects your environment, installs missing tools (Xcode CLI Tools, Rust, ESP32 toolchain, espflash), builds from source, and flashes the device. Linux and Windows users should follow the manual build steps above.
@@ -195,7 +194,7 @@ Pure Rust compiled to WebAssembly. Zero install. No backend. Runs entirely in yo
 
 ### Using KasSee
 
-Open `kassee/web/index.html` in any modern browser, or visit the hosted version on GitHub Pages.
+Open `kassee/web/index.html` in any modern browser, or visit [kassigner.org](https://kassigner.org).
 
 KasSee connects to a public Kaspa node automatically. To use your own node, open Settings and enter your WebSocket URL (`wss://` or `ws://`).
 
@@ -290,7 +289,7 @@ KasSigner/
 ├── Makefile                        Convenience build targets
 ├── Dockerfile.base                 Frozen toolchain image (Rust 1.84.0 + espup 0.16.0)
 ├── Dockerfile                      Reproducible firmware build (both platforms)
-├── KasSigner_Install_v1_0_1.sh     One-step installer script
+├── Install.sh                       One-step installer script
 ├── .dockerignore
 ├── .gitignore
 ├── .gitattributes
@@ -325,20 +324,18 @@ KasSigner/
 │       │   ├── kassee_web_bg.wasm
 │       │   └── ...
 │       └── constellation/
-│           └── index.html          KasSigner project landing page
+│           └── index.html          Interactive key derivation & architecture explorer
 │
 ├── docs/
 │   ├── BUILD_FLASH_GUIDE.md        Build, sign, and flash guide (all device types)
 │   ├── STEGANOGRAPHY.md            JPEG EXIF steganographic backup design
-│   ├── KEY_DERIVATION.md           BIP32/39/85 derivation architecture
 │   ├── EFUSE_RUNBOOK.md            eFuse secure boot procedure (irreversible!)
 │   ├── REPRODUCIBLE_BUILD.md       Docker reproducible build verification
-│   ├── KasSigner_User_Guide_v1.0.pdf  Complete user guide (44 pages)
+│   ├── KasSigner_User_Guide.pdf       Complete user guide (44 pages)
 │   ├── KasSigner_Quick_Start_Guide.pdf Quick start (5 pages)
-│   ├── KasSigner_Security_Architecture_v101.pdf  Security architecture document
+│   ├── KasSigner_Security_Architecture.pdf  Security architecture document
 │   ├── KasSee_User_Guide.pdf       KasSee Web companion wallet guide
-│   ├── KasSigner_Seed_Cards.pdf    Printable seed backup cards
-│   └── kaspa_transaction_utxo_flow.svg  UTXO transaction flow diagram
+│   └── KasSigner_Seed_Cards.pdf    Printable seed backup cards
 │
 ├── tools/
 │   ├── Cargo.toml
@@ -349,6 +346,21 @@ KasSigner/
 │   ├── gen_keypair.rs              Developer signing key generator
 │   ├── build_with_hash.sh          Iterative hash convergence build
 │   └── build_production.sh         Production build wrapper
+│
+├── rqrr_nostd/                     QR decoder — no_std fork of rqrr 0.10.1
+│   ├── Cargo.toml
+│   ├── src/
+│   │   ├── lib.rs                  V1–V40, all ECC levels, Reed-Solomon verified
+│   │   ├── detect.rs               Finder pattern detection
+│   │   ├── identify.rs             Grid sampling and format decoding
+│   │   ├── decode.rs               Data stream decoding + error correction
+│   │   ├── prepare.rs              Image binarization
+│   │   ├── geometry.rs             Perspective transform
+│   │   ├── galois.rs               GF(256) arithmetic for RS
+│   │   └── version_db.rs           Version/ECC parameter tables
+│   ├── LICENSE-MIT
+│   ├── LICENSE-APACHE
+│   └── LICENSE-ISC
 │
 └── bootloader/                     Device firmware (bare-metal Rust)
     ├── Cargo.toml
@@ -384,8 +396,10 @@ KasSigner/
         │   ├── lockdown.rs         Radio kill + JTAG disable (Waveshare)
         │   ├── display_ws.rs       ST7789T3 SPI driver (Waveshare)
         │   ├── display_m5.rs       ILI9342C SPI driver (M5Stack)
-        │   ├── camera_ov5640.rs    OV5640 DVP driver (Waveshare)
+        │   ├── camera_ov2640.rs    OV2640 DVP driver (Waveshare, wide-angle)
+        │   ├── camera_ov5640.rs    OV5640 DVP driver (Waveshare, alternate)
         │   ├── camera_gc0308.rs    GC0308 DVP driver (M5Stack)
+        │   ├── cam_dma.rs          DMA-based 480×480 capture pipeline (Waveshare)
         │   ├── touch_cst816d.rs    CST816D I2C + gestures (Waveshare)
         │   ├── touch_ft6336u.rs    FT6336U I2C (M5Stack)
         │   ├── sdcard_ws.rs        SDHOST native SD (Waveshare)
@@ -414,11 +428,9 @@ KasSigner/
         │   ├── prop_fonts.rs       Proportional fonts (Lato, Oswald, Rubik)
         │   └── logo_data.rs        Boot splash logo bitmap
         │
-        ├── qr/                     QR code engine (pure Rust, no crate)
+        ├── qr/                     QR code engine
         │   ├── mod.rs
-        │   ├── encoder.rs          QR generation V1–V6, byte mode
-        │   ├── decoder_ws.rs       Waveshare decoder (5-pass voting)
-        │   └── decoder_m5.rs       M5Stack decoder (3-consecutive match)
+        │   └── encoder.rs          QR generation V1–V6, byte mode
         │
         ├── wallet/                 Cryptographic wallet (pure Rust, no-std)
         │   ├── mod.rs
@@ -462,7 +474,7 @@ KasSigner/
 
 - **NOT a hardware wallet** — it has no secure element, no tamper detection, no persistent key storage. It runs on a consumer ESP32-S3 microcontroller.
 - **NOT a replacement for hardware wallets** — hardware wallets have dedicated security chips designed to resist physical attacks. KasSigner does not.
-- **NOT professionally audited** — the codebase has undergone internal security review (see [docs/KasSigner_Security_Architecture_v101.pdf](docs/KasSigner_Security_Architecture_v101.pdf)) but has not been reviewed by an independent professional security firm. Known findings are documented and tracked. The code is open for community review.
+- **NOT professionally audited** — the codebase has undergone internal security review (see [docs/KasSigner_Security_Architecture.pdf](docs/KasSigner_Security_Architecture.pdf)) but has not been reviewed by an independent professional security firm. Known findings are documented and tracked. The code is open for community review.
 - **NOT resistant to physical attacks** — an attacker with physical access and lab equipment (JTAG probes, voltage glitching, flash readers) may be able to extract secrets from the ESP32-S3 while it is powered on.
 - **NOT a place to store keys long-term** — the device wipes everything on power-off. Your backup (seed words, stego JPEG, SD card) is your permanent storage, not the device.
 
@@ -534,16 +546,15 @@ A tampered binary fails verification and halts boot.
 
 ## Documentation
 
-- [docs/KasSigner_User_Guide_v1.0.pdf](docs/KasSigner_User_Guide_v1.0.pdf) — complete user guide (44 pages)
+- [docs/KasSigner_User_Guide.pdf](docs/KasSigner_User_Guide.pdf) — complete user guide (44 pages)
 - [docs/KasSigner_Quick_Start_Guide.pdf](docs/KasSigner_Quick_Start_Guide.pdf) — quick start (5 pages)
-- [docs/KasSigner_Security_Architecture_v101.pdf](docs/KasSigner_Security_Architecture_v101.pdf) — security architecture
+- [docs/KasSigner_Security_Architecture.pdf](docs/KasSigner_Security_Architecture.pdf) — security architecture
 - [docs/KasSee_User_Guide.pdf](docs/KasSee_User_Guide.pdf) — KasSee Web companion wallet guide
 - [docs/KasSigner_Seed_Cards.pdf](docs/KasSigner_Seed_Cards.pdf) — printable seed backup cards
 - [docs/STEGANOGRAPHY.md](docs/STEGANOGRAPHY.md) — JPEG EXIF steganographic backup system
-- [docs/KEY_DERIVATION.md](docs/KEY_DERIVATION.md) — BIP32/39/85 derivation tree explained
 - [docs/EFUSE_RUNBOOK.md](docs/EFUSE_RUNBOOK.md) — eFuse secure boot procedure (irreversible!)
 - [docs/REPRODUCIBLE_BUILD.md](docs/REPRODUCIBLE_BUILD.md) — verify builds with Docker
-- [docs/kaspa_transaction_utxo_flow.svg](docs/kaspa_transaction_utxo_flow.svg) — UTXO transaction flow diagram
+- [Constellation](https://kassigner.org/constellation/) — interactive key derivation & architecture explorer
 - [SECURITY.md](SECURITY.md) — security model, threat analysis, responsible disclosure
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — community standards
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute, code standards
@@ -556,7 +567,7 @@ KasSigner runs on the Waveshare ESP32-S3-Touch-LCD-2 and M5Stack CoreS3. These a
 - [ESP32-S3 Technical Reference Manual](https://www.espressif.com/sites/default/files/documentation/esp32-s3_technical_reference_manual_en.pdf) — register-level peripheral documentation
 - [ESP32-S3 Datasheet](https://www.espressif.com/sites/default/files/documentation/esp32-s3_datasheet_en.pdf) — pinout, electrical characteristics, memory map
 - [Waveshare ESP32-S3-Touch-LCD-2 Wiki](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-2) — board schematic, GPIO assignments, setup guide
-- [OV5640 Datasheet](https://cdn.sparkfun.com/datasheets/Sensors/LightImaging/OV5640_datasheet.pdf) — camera sensor registers, PLL configuration, DVP interface
+- [OV2640 Datasheet](https://www.uctronics.com/download/cam_module/OV2640DS.pdf) — camera sensor registers, DVP interface
 - [ST7789 Datasheet](https://www.newhavendisplay.com/appnotes/datasheets/LCDs/ST7789V.pdf) — display controller commands, SPI protocol, initialization sequence
 
 ## Cryptographic Notice

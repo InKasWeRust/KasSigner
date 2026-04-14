@@ -354,6 +354,12 @@ pub fn handle_menu_touch(
                                         }
 
                                         // Round 2: Camera frames (8 frames, full data)
+                                        // Waveshare: ensure cam_dma is capturing
+                                        #[cfg(feature = "waveshare")]
+                                        if dvp_camera_opt.is_none() {
+                                            crate::hw::cam_dma::start_capture();
+                                            delay.delay_millis(100); // let a few frames arrive
+                                        }
                                         for frame_idx in 0..8u8 {
                                             if let Some(cam) = dvp_camera_opt.take() {
                                                 if let Some(dma_buf) = cam_dma_buf_opt.take() {
@@ -391,7 +397,36 @@ pub fn handle_menu_touch(
                                                     *dvp_camera_opt = Some(cam);
                                                 }
                                             }
+                                            // Waveshare cam_dma fallback: DvpCamera is None,
+                                            // use cam_dma::get_frame() for PSRAM pixel entropy
+                                            #[cfg(feature = "waveshare")]
+                                            if dvp_camera_opt.is_none() {
+                                                // Poll until a frame arrives (max ~50ms per frame at 20fps)
+                                                for _ in 0..500u16 {
+                                                    if crate::hw::cam_dma::poll_done() { break; }
+                                                    delay.delay_millis(1);
+                                                }
+                                                if let Some(pixels) = crate::hw::cam_dma::get_frame() {
+                                                    let t0 = ad.idle_ticks;
+                                                    use sha2::{Sha256, Digest};
+                                                    let mut hasher = Sha256::new();
+                                                    hasher.update(pixels);
+                                                    hasher.update([frame_idx, (t0 & 0xFF) as u8, 0xCA]);
+                                                    let rng_mid = unsafe {
+                                                        core::ptr::read_volatile(0x6003_5110u32 as *const u32)
+                                                    };
+                                                    hasher.update(rng_mid.to_le_bytes());
+                                                    let hash = hasher.finalize();
+                                                    for i in 0..32 { pool[i] ^= hash[i]; }
+                                                    got_entropy = true;
+                                                }
+                                            }
                                             delay.delay_millis(30);
+                                        }
+                                        // Waveshare: stop cam_dma after entropy collection
+                                        #[cfg(feature = "waveshare")]
+                                        if dvp_camera_opt.is_none() {
+                                            crate::hw::cam_dma::stop();
                                         }
 
                                         // Round 3: Final TRNG + ADC noise whitening
@@ -474,10 +509,29 @@ pub fn handle_menu_touch(
                         }
                         ad.needs_redraw = true;
                     }
+                    crate::app::input::AppState::ShowQrFrameChoice => {
+                        if is_back {
+                            ad.signed_qr_nframes = 0;
+                            ad.signed_qr_large = false;
+                            ad.app.go_main_menu();
+                        } else if x < 160 {
+                            // Left: Single (standard frames for KasSee)
+                            ad.signed_qr_large = false;
+                            ad.signed_qr_nframes = 0;
+                            ad.app.state = crate::app::input::AppState::ShowQR;
+                        } else {
+                            // Right: Multi (large QR for device scanning)
+                            ad.signed_qr_large = true;
+                            ad.signed_qr_nframes = 0;
+                            ad.app.state = crate::app::input::AppState::ShowQR;
+                        }
+                        ad.needs_redraw = true;
+                    }
                     crate::app::input::AppState::ShowQR => {
                         if is_back {
                             // Reset nframes so re-entry shows mode choice again
                             ad.signed_qr_nframes = 0;
+                            ad.signed_qr_large = false;
                             ad.app.go_main_menu();
                         } else if ad.signed_qr_len > 0 {
                             if ad.qr_manual_frames && ad.signed_qr_nframes > 1 {

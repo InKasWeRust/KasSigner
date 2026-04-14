@@ -695,7 +695,6 @@ pub fn sd_read_block(card_type: SdCardType, block: u32, buf: &mut [u8; 512]) -> 
         if rint & INT_RTO != 0 { return Err("CMD17 RTO"); }
 
         // Read 512 bytes from FIFO (128 x 32-bit words)
-        let _word_idx = 0usize;
         let mut bytes_read = 0usize;
 
         for _attempt in 0..5_000_000u32 {

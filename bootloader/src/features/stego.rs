@@ -15,143 +15,17 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 // features/stego.rs — Steganography codec (JPEG EXIF)
-
-// KasSigner — Steganography Mode 4: Zero-Width Text Steganography
-// 100% Rust, no-std, no-alloc
 //
-// Hides encrypted seed data as invisible Unicode characters between
-// visible text characters. The result looks like an innocent message
-// but contains the full encrypted seed payload.
+// Hides encrypted seed data inside JPEG EXIF metadata fields.
+// The image pixels are untouched — survives recompression, resizing,
+// filters, cloud upload (if metadata is preserved).
 //
-// Encoding: 2 bits per zero-width character
-//   U+200B (zero-width space)         = 00
-//   U+200C (zero-width non-joiner)    = 01
-//   U+200D (zero-width joiner)        = 10
-//   U+FEFF (zero-width no-break space) = 11
+// EXIF layout:
+//   ImageDescription = plain cover text (innocent photo caption)
+//   UserComment      = base64(encrypted_seed) [| base64(encrypted_hint)]
 //
-// Flow (encode):
-//   1. Encrypt CompactSeedQR payload (16 or 32 bytes) with AES-256-CBC
-//   2. Prepend salt (16B) + iv (16B) = total 48 or 64 bytes
-//   3. Encode as zero-width chars (4 chars per byte = 192 or 256 chars)
-//   4. Interleave between visible template text characters
-//   5. Display combined string as QR code
-//
-// Flow (decode):
-//   1. Scan QR containing the stego text
-//   2. Extract zero-width chars from between visible characters
-//   3. Decode 2-bit pairs back to bytes
-//   4. Split into salt + iv + ciphertext
-//   5. Derive AES key from passphrase + salt
-//   6. Decrypt → validate BIP39 checksum
-
-/// Zero-width character encodings (UTF-8 byte sequences)
-/// U+200B = E2 80 8B (zero-width space)
-/// U+200C = E2 80 8C (zero-width non-joiner)
-/// U+200D = E2 80 8D (zero-width joiner)
-/// U+FEFF = EF BB BF (zero-width no-break space / BOM)
-const ZW_00: [u8; 3] = [0xE2, 0x80, 0x8B]; // U+200B
-const ZW_01: [u8; 3] = [0xE2, 0x80, 0x8C]; // U+200C
-const ZW_10: [u8; 3] = [0xE2, 0x80, 0x8D]; // U+200D
-const ZW_11: [u8; 3] = [0xEF, 0xBB, 0xBF]; // U+FEFF
-
-/// Maximum payload: 64 bytes (24-word seed: salt 16 + iv 16 + ciphertext 32)
-pub const MAX_STEGO_PAYLOAD: usize = 128;
-
-/// Maximum output buffer: visible text + zero-width chars
-/// 200 visible chars + 256 ZW chars * 3 bytes each = ~968 bytes
-pub const MAX_STEGO_OUTPUT: usize = 1536;
-
-/// Template messages — innocent-looking text for interleaving
-/// Each must be >= 193 visible chars (to provide 192+ insertion points for 12-word seed)
-/// For 24-word seed we need 257 insertion points (256 ZW chars + visible chars)
-const TEMPLATES: [&str; 4] = [
-    "Hey thanks so much for the amazing dinner last weekend it was really great to catch up with everyone and the paella recipe you shared was incredible I tried making it yesterday and it turned out pretty well the kids loved it too hope we can do it again soon maybe next month",
-    "Just wanted to let you know that the hotel in Barcelona was absolutely wonderful the room had an amazing view of the sea and the breakfast buffet was the best we have ever had I would definitely recommend it to anyone visiting the city the staff were so friendly and helpful too",
-    "The quarterly report looks good overall but I think we should review the marketing budget numbers before the board meeting next Tuesday also please send me the updated spreadsheet with the regional breakdown when you get a chance I want to double check the totals before presenting",
-    "Happy birthday to the most amazing person I know wishing you all the best on your special day may this year bring you joy happiness and everything you have been dreaming of sending lots of love and warm hugs from the whole family we miss you and hope to see you very soon take care",
-];
-/// Decode zero-width characters from a stego text back into payload bytes.
-/// Returns the number of payload bytes extracted, or 0 on error.
-///
-/// `input`: the stego text (visible + zero-width chars)
-/// `input_len`: length of input
-/// `payload`: output buffer for extracted bytes (must be >= MAX_STEGO_PAYLOAD)
-pub fn decode_stego_text(
-    input: &[u8],
-    input_len: usize,
-    payload: &mut [u8],
-) -> usize {
-    if payload.len() < MAX_STEGO_PAYLOAD {
-        return 0;
-    }
-
-    let mut bits_collected: usize = 0;
-    let mut current_byte: u8 = 0;
-    let mut byte_count: usize = 0;
-    let mut i: usize = 0;
-
-    while i < input_len {
-        // Check for 3-byte zero-width character sequences
-        if i + 2 < input_len {
-            let b0 = input[i];
-            let b1 = input[i + 1];
-            let b2 = input[i + 2];
-
-            let bits = if b0 == 0xE2 && b1 == 0x80 && b2 == 0x8B {
-                Some(0b00u8) // U+200B
-            } else if b0 == 0xE2 && b1 == 0x80 && b2 == 0x8C {
-                Some(0b01u8) // U+200C
-            } else if b0 == 0xE2 && b1 == 0x80 && b2 == 0x8D {
-                Some(0b10u8) // U+200D
-            } else if b0 == 0xEF && b1 == 0xBB && b2 == 0xBF {
-                Some(0b11u8) // U+FEFF
-            } else {
-                None
-            };
-
-            if let Some(pair) = bits {
-                current_byte = (current_byte << 2) | pair;
-                bits_collected += 2;
-
-                if bits_collected == 8 {
-                    if byte_count < MAX_STEGO_PAYLOAD {
-                        payload[byte_count] = current_byte;
-                        byte_count += 1;
-                    }
-                    current_byte = 0;
-                    bits_collected = 0;
-                }
-
-                i += 3; // consumed 3-byte ZW char
-                continue;
-            }
-        }
-
-        // Not a ZW char — skip visible character
-        i += 1;
-    }
-
-    byte_count
-}
-
-/// Check if a byte sequence contains zero-width steganography markers.
-/// Quick detection: scan for any of the 4 ZW character sequences.
-pub fn contains_stego(data: &[u8], len: usize) -> bool {
-    let mut i = 0;
-    while i + 2 < len {
-        if data[i] == 0xE2 && data[i + 1] == 0x80 &&
-            (data[i + 2] == 0x8B || data[i + 2] == 0x8C || data[i + 2] == 0x8D) {
-            return true;
-        }
-        if data[i] == 0xEF && data[i + 1] == 0xBB && data[i + 2] == 0xBF {
-            return true;
-        }
-        i += 1;
-    }
-    false
-}
-/// Number of available templates
-pub const TEMPLATE_COUNT: usize = 4;
+// Encryption: AES-256-GCM with PBKDF2-derived key (100K iterations).
+// Recovery hint is encrypted separately with the descriptor as password.
 
 // ─── Recovery Hint Presets ──────────────────────────────────────────
 

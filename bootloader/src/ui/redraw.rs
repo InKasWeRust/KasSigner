@@ -201,11 +201,67 @@ pub fn redraw_screen(
                 }
                 crate::app::input::AppState::ExportKpub => {
                     if ad.kpub_len > 0 {
-                        boot_display.draw_export_kpub_screen(&ad.kpub_data, ad.kpub_len);
+                        // First time: show frame count selector
+                        if ad.kpub_nframes == 0 && ad.kpub_user_nframes == 0 {
+                            ad.app.state = crate::app::input::AppState::ExportKpubFrameCount;
+                            boot_display.draw_kpub_frame_count_choice();
+                            return;
+                        }
+                        // Single frame: raw kpub as one QR (for KasSee/phone)
+                        if ad.kpub_user_nframes == 1 {
+                            ad.kpub_nframes = 1;
+                            boot_display.draw_qr_screen(&ad.kpub_data[..ad.kpub_len]);
+                            return;
+                        }
+                        // Multi-frame: use user-chosen frame count
+                        let n_frames = ad.kpub_user_nframes as usize;
+                        // Balanced split: equal-sized frames
+                        let balanced = (ad.kpub_len + n_frames - 1) / n_frames;
+                        // Show mode choice (auto/manual)
+                        if ad.kpub_nframes == 0 {
+                            ad.kpub_frame = 0;
+                            ad.kpub_nframes = n_frames as u8;
+                            ad.app.state = crate::app::input::AppState::ExportKpubModeChoice;
+                            boot_display.draw_qr_mode_choice();
+                            return;
+                        }
+                        // Build current frame: [frame_idx, total, frag_len, ...data]
+                        let frame = ad.kpub_frame as usize;
+                        let offset = frame * balanced;
+                        let remaining = ad.kpub_len.saturating_sub(offset);
+                        let frag_len = remaining.min(balanced);
+                        let mut frame_buf = [0u8; 134];
+                        frame_buf[0] = frame as u8;
+                        frame_buf[1] = n_frames as u8;
+                        frame_buf[2] = frag_len as u8;
+                        frame_buf[3..3 + frag_len].copy_from_slice(&ad.kpub_data[offset..offset + frag_len]);
+                        let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
+                        boot_display.draw_qr_screen(&frame_buf[..qr_len]);
+                        // Frame counter + label
+                        let mut fc_buf: heapless::String<16> = heapless::String::new();
+                        core::fmt::Write::write_fmt(&mut fc_buf,
+                            format_args!("kpub {}/{}", frame + 1, n_frames)).ok();
+                        boot_display.draw_frame_counter(&fc_buf);
                     }
+                }
+                crate::app::input::AppState::ExportKpubFrameCount => {
+                    boot_display.draw_kpub_frame_count_choice();
+                }
+                crate::app::input::AppState::ExportKpubModeChoice => {
+                    boot_display.draw_qr_mode_choice();
+                }
+                crate::app::input::AppState::ExportKpubPopup => {
+                    boot_display.draw_kpub_export_popup();
+                }
+                crate::app::input::AppState::KpubScannedPopup => {
+                    boot_display.draw_kpub_scanned_popup();
                 }
                 crate::app::input::AppState::ExportPrivKey => {
                     boot_display.draw_export_privkey_screen(&ad.export_key_hex);
+                }
+                crate::app::input::AppState::ExportPrivKeyIndex => {
+                    let input_str = core::str::from_utf8(&ad.addr_input_buf[..ad.addr_input_len as usize]).unwrap_or("");
+                    boot_display.draw_addr_index_screen(input_str);
                 }
                 crate::app::input::AppState::ExportChoice => {
                     boot_display.draw_export_choice_screen(&ad.export_menu);
@@ -290,9 +346,9 @@ pub fn redraw_screen(
                     let amt_str = core::str::from_utf8(&amt_buf[..amt_len]).unwrap_or("?.??");
                     let fee_str = core::str::from_utf8(&fee_buf_fmt[..fee_len]).unwrap_or("?.??");
                     let mut amt_kas: heapless::String<24> = heapless::String::new();
-                    core::fmt::Write::write_fmt(&mut amt_kas, format_args!("{} KAS", amt_str)).ok();
+                    core::fmt::Write::write_fmt(&mut amt_kas, format_args!("{amt_str} KAS")).ok();
                     let mut fee_kas: heapless::String<24> = heapless::String::new();
-                    core::fmt::Write::write_fmt(&mut fee_kas, format_args!("{} KAS", fee_str)).ok();
+                    core::fmt::Write::write_fmt(&mut fee_kas, format_args!("{fee_str} KAS")).ok();
 
                     // Detect multisig
                     let has_multisig = (0..ad.demo_tx.num_inputs).any(|i| {
@@ -312,10 +368,13 @@ pub fn redraw_screen(
                         ad.app.total_inputs as usize,
                     );
                 }
+                crate::app::input::AppState::ShowQrFrameChoice => {
+                    boot_display.draw_kspt_frame_choice();
+                }
                 crate::app::input::AppState::ShowQR => {
                     if ad.signed_qr_len > 0 {
-                        let max_payload = 106usize; // V5-L: 106 bytes, fewer frames for KasSee companion
-                        if ad.signed_qr_len <= 134 {
+                        let max_payload = if ad.signed_qr_large { 30usize } else { 106usize };
+                        if !ad.signed_qr_large && ad.signed_qr_len <= 134 {
                             // Fits in single QR — display directly
                             boot_display.draw_qr_screen(&ad.signed_qr_buf[..ad.signed_qr_len]);
                         } else {
@@ -328,11 +387,12 @@ pub fn redraw_screen(
                                 boot_display.draw_qr_mode_choice();
                                 return; // skip rest of redraw
                             }
-                            // Build current frame
+                            // Build current frame — balanced sizing
                             let frame = ad.signed_qr_frame as usize;
-                            let offset = frame * max_payload;
+                            let balanced = (ad.signed_qr_len + n_frames - 1) / n_frames;
+                            let offset = frame * balanced;
                             let remaining = ad.signed_qr_len.saturating_sub(offset);
-                            let frag_len = remaining.min(max_payload);
+                            let frag_len = remaining.min(balanced);
                             let mut frame_buf = [0u8; 134];
                             frame_buf[0] = frame as u8;
                             frame_buf[1] = n_frames as u8;
@@ -408,6 +468,13 @@ pub fn redraw_screen(
                     boot_display.draw_multisig_descriptor(
                         ad.ms_creating.m, ad.ms_creating.n,
                         &ad.ms_creating.pubkeys[..ad.ms_creating.n as usize], label);
+                }
+                crate::app::input::AppState::MultisigSaveAddrAsk => {
+                    boot_display.draw_yes_no_ask(
+                        "SAVE ADDRESS?",
+                        "Save the multisig address",
+                        "to SD card?",
+                    );
                 }
                 // ─── Steganography Redraws ────────────
                 crate::app::input::AppState::StegoModeSelect => {
@@ -496,14 +563,53 @@ pub fn redraw_screen(
                     let fps: [[u8; 4]; 4] = [[0; 4]; 4];
                     boot_display.draw_sd_file_list_ex(&ad.sd_file_list, ad.sd_file_count, ad.sd_file_scroll, &fps, 0);
                 }
+                crate::app::input::AppState::SdKpubFileList => {
+                    let fps: [[u8; 4]; 4] = [[0; 4]; 4];
+                    boot_display.draw_sd_file_list_ex(&ad.sd_file_list, ad.sd_file_count, ad.sd_file_scroll, &fps, 0);
+                }
                 crate::app::input::AppState::ShowQrPopup => {
                     boot_display.draw_showqr_popup();
                 }
                 crate::app::input::AppState::SdKsptFilename => {
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "FILENAME");
                 }
+                crate::app::input::AppState::SdKpubFilename => {
+                    boot_display.draw_keyboard_screen_full(&ad.pp_input, "KPUB FILENAME");
+                }
+                crate::app::input::AppState::SdSeedFilename => {
+                    boot_display.draw_keyboard_screen_full(&ad.pp_input, "SEED FILENAME");
+                }
+                crate::app::input::AppState::SdXprvFilename => {
+                    boot_display.draw_keyboard_screen_full(&ad.pp_input, "XPRV FILENAME");
+                }
+                crate::app::input::AppState::SdMsAddrFilename => {
+                    boot_display.draw_keyboard_screen_full(&ad.pp_input, "ADDRESS FILENAME");
+                }
+                crate::app::input::AppState::SdMsAddrEncryptAsk => {
+                    boot_display.draw_kspt_encrypt_ask();
+                }
                 crate::app::input::AppState::SdKsptEncryptAsk => {
                     boot_display.draw_kspt_encrypt_ask();
+                }
+                crate::app::input::AppState::SdKpubEncryptAsk => {
+                    boot_display.draw_kspt_encrypt_ask();
+                }
+                crate::app::input::AppState::SdOverwriteWarning => {
+                    // Show filename in the warning so the user knows which file
+                    let mut disp = [0u8; 13];
+                    let dlen = crate::hw::sd_backup::format_83_display(&ad.kspt_filename, &mut disp);
+                    // Build line: "Overwrite FILENAME.EXT?"
+                    let mut line_buf = [0u8; 32];
+                    let mut pos = 0usize;
+                    for &b in b"Overwrite " {
+                        if pos < line_buf.len() { line_buf[pos] = b; pos += 1; }
+                    }
+                    for &b in &disp[..dlen] {
+                        if pos < line_buf.len() { line_buf[pos] = b; pos += 1; }
+                    }
+                    if pos < line_buf.len() { line_buf[pos] = b'?'; pos += 1; }
+                    let line = core::str::from_utf8(&line_buf[..pos]).unwrap_or("Overwrite?");
+                    boot_display.draw_yes_no_ask("FILE EXISTS", line, "");
                 }
                 crate::app::input::AppState::SdKsptEncryptPass => {
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "PASSWORD");

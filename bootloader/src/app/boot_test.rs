@@ -16,21 +16,33 @@
 
 // app/boot_test.rs — Boot-time validation and self-test runner
 //
-// QR encoder/decoder round-trip (V1-V6) and BIP85 test vector.
+// QR encoder/rqrr decoder round-trip (V1-V6) and BIP85 test vector.
 
 extern crate alloc;
 
 use crate::log;
-use crate::{qr::decoder, qr::encoder, wallet, features::self_test, app::input, ui::pin_ui, ui::setup_wizard, ui::seed_manager};
+use crate::{qr::encoder, wallet, features::self_test, app::input, ui::pin_ui, ui::setup_wizard, ui::seed_manager};
 use crate::features::self_test::run_all_tests;
+
+/// Decode QR from grayscale image using rqrr. Returns Option<(data, len)>.
+fn rqrr_test_decode(img: &[u8], w: usize, h: usize) -> Option<alloc::vec::Vec<u8>> {
+    let mut prepared = rqrr::PreparedImage::prepare_from_greyscale(w, h, |x, y| {
+        img[y * w + x]
+    });
+    let grids = prepared.detect_grids();
+    for grid in grids {
+        let mut out = alloc::vec::Vec::new();
+        if grid.decode_to(&mut out).is_ok() {
+            return Some(out);
+        }
+    }
+    None
+}
 
 #[cfg(not(feature = "silent"))]
 /// Run all boot-time validation tests.
 pub fn run_boot_tests() {
     {
-        let (rsp, rst) = crate::qr::decoder::run_tests();
-        log!("   QR decoder tests: {}/{}", rsp, rst);
-
         // Test payloads sized to fit each version (ECC Level L byte capacity)
         // V1: 17 max, V2: 32, V3: 53, V4: 78, V5: 106, V6: 134
         let test_payloads: [&[u8]; 6] = [
@@ -53,7 +65,6 @@ pub fn run_boot_tests() {
             if let Ok(qr) = crate::qr::encoder::encode(payload) {
                 let qr_size = qr.size as usize;
                 // Pick scale to fit in 160x120 with quiet zone
-                // total_px = (qr_size + 2) * scale must be <= 110 (leave margin)
                 let scale = if qr_size + 2 <= 27 { 4 }     // V1-V2: scale 4
                             else { 2 };                       // V3-V6: scale 2
                 let total_px = (qr_size + 2) * scale;
@@ -81,16 +92,16 @@ pub fn run_boot_tests() {
                             }
                         }
                     }
-                    match crate::qr::decoder::decode(&test_img, 160, 120) {
-                        Ok(r) if r.len == payload.len() && r.data[..r.len] == **payload => {
+                    match rqrr_test_decode(&test_img, 160, 120) {
+                        Some(decoded) if decoded.len() == payload.len() && decoded[..] == **payload => {
                             qr_ok += 1;
                             log!("   V{} ({} bytes, {}x{}, scale {}): OK", ver, payload.len(), qr_size, qr_size, scale);
                         }
-                        Ok(r) => {
-                            log!("   V{} ({} bytes): WRONG len={}", ver, payload.len(), r.len);
+                        Some(decoded) => {
+                            log!("   V{} ({} bytes): WRONG len={}", ver, payload.len(), decoded.len());
                         }
-                        Err(e) => {
-                            log!("   V{} ({} bytes, {}x{}, scale {}): FAIL {:?}", ver, payload.len(), qr_size, qr_size, scale, e);
+                        None => {
+                            log!("   V{} ({} bytes, {}x{}, scale {}): FAIL (no decode)", ver, payload.len(), qr_size, qr_size, scale);
                         }
                     }
                 } else {
@@ -101,7 +112,7 @@ pub fn run_boot_tests() {
             }
         }
         drop(test_img);
-        log!("   QR V1-V6 round-trip: {}/{}", qr_ok, qr_total);
+        log!("   QR V1-V6 round-trip (rqrr): {}/{}", qr_ok, qr_total);
 
         // Also test at camera decode resolution (240x180) with realistic scale
         {
@@ -135,11 +146,11 @@ pub fn run_boot_tests() {
                             }
                         }
                     }
-                    match crate::qr::decoder::decode(&big_img, 240, 180) {
-                        Ok(r) if r.len == payload.len() => {
+                    match rqrr_test_decode(&big_img, 240, 180) {
+                        Some(decoded) if decoded.len() == payload.len() => {
                             log!("   240x180 {}x{} s{}: OK", qr_size, qr_size, scale);
                         }
-                        Err(e) => { log!("   240x180 {}x{} s{}: {:?}", qr_size, qr_size, scale, e); }
+                        None => { log!("   240x180 {}x{} s{}: FAIL (no decode)", qr_size, qr_size, scale); }
                         _ => { log!("   240x180 {}x{} s{}: WRONG", qr_size, qr_size, scale); }
                     }
                 }
@@ -254,14 +265,8 @@ pub fn run_phase1_tests(delay: &mut esp_hal::delay::Delay) {
             log!("   QR encoder verified OK");
         }
 
-        // QR Decoder tests
-        let (passed_qrd, total_qrd) = crate::qr::decoder::run_tests();
-        log!("   QR decoder tests: {}/{} passed", passed_qrd, total_qrd);
-        if passed_qrd != total_qrd {
-            log!("   CRITICAL: QR decoder has failures!");
-        } else {
-            log!("   QR decoder verified OK");
-        }
+        // QR decoder: rqrr has no internal test suite — round-trip tests in run_boot_tests() cover this
+        log!("   QR decoder: rqrr V1-V40 (round-trip tested at boot)");
         log!();
 
         // App Input / State Machine tests

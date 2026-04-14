@@ -111,7 +111,10 @@ async function resolveNodeUrl() {
         console.log(`[KasSee] Using custom node: ${customNodeUrl}`);
         return customNodeUrl;
     }
+    return resolvePublicNode();
+}
 
+async function resolvePublicNode() {
     const shuffled = [...RESOLVERS].sort(() => Math.random() - 0.5);
 
     for (const resolver of shuffled) {
@@ -237,7 +240,7 @@ function bindEvents() {
     el('btn-broadcast-back').onclick = () => showScreen('dashboard');
     el('btn-broadcast-done').onclick = () => {
         hideBroadcastResult();
-        showScreen('dashboard');
+        showDonateScreen();
     };
     el('btn-copy-txid').onclick = () => {
         const txid = el('broadcast-result-txid').textContent.trim();
@@ -294,10 +297,51 @@ function el(id) { return document.getElementById(id); }
 // ─── kpub import ───
 
 function handleKpubScan(data) {
+    const bytes = new Uint8Array(data);
+
+    // Check if this is a multi-frame fragment:
+    // [frame_num][total_frames][frag_len][data...] where total >= 2
+    const isMF = bytes.length >= 7
+        && bytes[1] >= 2 && bytes[1] <= 20
+        && bytes[0] < bytes[1] && bytes[2] > 0
+        && (bytes[0] > 0 || (bytes.length >= 7
+            && String.fromCharCode(bytes[3], bytes[4], bytes[5], bytes[6]) === 'kpub'));
+
+    if (isMF) {
+        // Multi-frame: feed through decoder, keep scanning
+        const hexStr = Array.from(bytes)
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+        try {
+            const result = decode_qr_frame(hexStr);
+            if (result && result.length > 0) {
+                stopScanner();
+                // Convert assembled hex back to ASCII kpub string
+                const assembled = [];
+                for (let i = 0; i < result.length; i += 2) {
+                    assembled.push(parseInt(result.substr(i, 2), 16));
+                }
+                const kpubStr = new TextDecoder().decode(new Uint8Array(assembled)).trim();
+                handleKpubImport(kpubStr);
+            } else {
+                // Show frame progress
+                const prog = JSON.parse(decoder_progress());
+                if (prog.total > 0) {
+                    let dots = '';
+                    for (let i = 0; i < prog.total; i++) {
+                        dots += `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;margin:0 3px;background:${prog.bits[i] ? 'var(--teal)' : 'var(--border)'};${prog.bits[i] ? 'box-shadow:0 0 6px var(--teal-glow)' : ''}"></span>`;
+                    }
+                    el('scanner-status').innerHTML = dots + `<div style="margin-top:6px;font-size:12px">${prog.count} / ${prog.total} kpub frames</div>`;
+                }
+            }
+        } catch (e) {
+            console.error('kpub multi-frame decode error:', e);
+        }
+        return;
+    }
+
+    // Single-frame: direct kpub text
     // Guard: only process once
     if (!scanCallback) return;
-
-    // Stop scanner immediately to prevent repeated callbacks
     scanCallback = null;
     if (scanAnimFrame) { cancelAnimationFrame(scanAnimFrame); scanAnimFrame = null; }
     if (scanStream) { scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
@@ -336,6 +380,17 @@ async function withNodeRetry(fn, maxRetries = 3) {
             if (msg.includes('WebSocket error') && attempt < maxRetries) {
                 console.log(`[KasSee] Retry ${attempt}/${maxRetries}: ${msg}`);
                 continue;
+            }
+            // Custom node exhausted retries — fall back to public
+            if (customNodeUrl) {
+                console.log(`[KasSee] Custom node failed, falling back to public`);
+                toast('Custom node unreachable — using public', 'info', 3000);
+                try {
+                    const publicUrl = await resolvePublicNode();
+                    return await fn(publicUrl);
+                } catch (e2) {
+                    throw e2;
+                }
             }
             throw e;
         }
@@ -711,14 +766,30 @@ function displayKsptQr(ksptHex, title) {
             qrCycleTimer = setInterval(() => {
                 qrFrameIdx = (qrFrameIdx + 1) % qrFrames.length;
                 renderQrFrame(qrFrameIdx);
-            }, 1800);
+            }, 2500);
             el('btn-frame-prev').onclick = () => {
                 qrFrameIdx = (qrFrameIdx - 1 + qrFrames.length) % qrFrames.length;
                 renderQrFrame(qrFrameIdx);
+                // Reset timer so manual nav isn't immediately overridden
+                if (qrCycleTimer) {
+                    clearInterval(qrCycleTimer);
+                    qrCycleTimer = setInterval(() => {
+                        qrFrameIdx = (qrFrameIdx + 1) % qrFrames.length;
+                        renderQrFrame(qrFrameIdx);
+                    }, 2500);
+                }
             };
             el('btn-frame-next').onclick = () => {
                 qrFrameIdx = (qrFrameIdx + 1) % qrFrames.length;
                 renderQrFrame(qrFrameIdx);
+                // Reset timer so manual nav isn't immediately overridden
+                if (qrCycleTimer) {
+                    clearInterval(qrCycleTimer);
+                    qrCycleTimer = setInterval(() => {
+                        qrFrameIdx = (qrFrameIdx + 1) % qrFrames.length;
+                        renderQrFrame(qrFrameIdx);
+                    }, 2500);
+                }
             };
             el('btn-frame-pause').onclick = () => {
                 if (qrCycleTimer) {
@@ -729,7 +800,7 @@ function displayKsptQr(ksptHex, title) {
                     qrCycleTimer = setInterval(() => {
                         qrFrameIdx = (qrFrameIdx + 1) % qrFrames.length;
                         renderQrFrame(qrFrameIdx);
-                    }, 1800);
+                    }, 2500);
                     el('btn-frame-pause').textContent = '\u23F8';
                 }
             };
@@ -1155,7 +1226,6 @@ async function showUtxos() {
 async function handleConsolidate() {
     if (!walletData) return;
     const fee = 10000;
-    if (!confirm('Consolidate all UTXOs into one?\nFee: ' + fee + ' sompi')) return;
 
     showLoading('Building consolidation TX...');
     try {
@@ -1510,7 +1580,7 @@ function exitSettings() {
 function resetWallet() {
     if (!confirm('Reset wallet? You will need to re-import your kpub.')) return;
     walletData = null;
-    customNodeUrl = null;
+    // Preserve customNodeUrl — user's personal node config survives reset
     // Keep network setting — don't reset to mainnet
     lastFeeEstimate = null;
     selectedUtxoIndices = null;

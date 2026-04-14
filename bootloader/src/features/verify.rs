@@ -148,7 +148,7 @@ impl FirmwareInfo {
         Self {
             version_major: 1,
             version_minor: 0,
-            version_patch: 1,
+            version_patch: 2,
             expected_hash: EXPECTED_FIRMWARE_HASH,
             min_version: 100,
         }
@@ -479,7 +479,7 @@ pub fn hash_to_hex_short(&self, hash: &[u8; 32]) -> heapless::String<16> {
         use core::fmt::Write;
         let mut s = heapless::String::new();
         for byte in &hash[0..4] {
-            write!(&mut s, "{:02x}", byte).unwrap_or(());
+            write!(&mut s, "{byte:02x}").unwrap_or(());
         }
         s
     }

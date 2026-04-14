@@ -214,6 +214,9 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
         s if s.starts_with("kpub")        => draw_icon!(size24px::finance::AppleWallet),
         s if s.starts_with("xprv")        => draw_icon!(size24px::security::Lock),
         s if s.starts_with("Seed Backup") => draw_icon!(size24px::actions::Upload),
+        s if s.starts_with("Private Key") => draw_icon!(size24px::security::PasswordCursor),
+        s if s.starts_with("Multisig A")  => draw_icon!(size24px::other::QrCode),
+        s if s.starts_with("Multisig D")  => draw_icon!(size24px::docs::Page),
         s if s.starts_with("Transaction") => draw_icon!(size24px::users::Group),
         s if s.starts_with("XPrv Backup") => draw_icon!(size24px::actions::UploadSquare),
         s if s.starts_with("JPEG Stego")  => draw_icon!(size24px::actions::EyeOff),
@@ -430,13 +433,13 @@ impl<'a> BootDisplay<'a> {
 
         let mut version_text = heapless::String::<48>::new();
         use core::fmt::Write;
-        write!(&mut version_text, "Version: {}", version).ok();
+        write!(&mut version_text, "Version: {version}").ok();
         let vw = measure_title(version_text.as_str());
         draw_lato_title(&mut self.display, version_text.as_str(), (320 - vw) / 2, 135, COLOR_TEXT);
 
         let mut hash_text = heapless::String::<48>::new();
         let hash_display = &hash[..core::cmp::min(16, hash.len())];
-        write!(&mut hash_text, "Hash: {}", hash_display).ok();
+        write!(&mut hash_text, "Hash: {hash_display}").ok();
         let hw = measure_body(hash_text.as_str());
         draw_lato_body(&mut self.display, hash_text.as_str(), (320 - hw) / 2, 165, COLOR_TEXT_DIM);
 
@@ -464,8 +467,13 @@ impl<'a> BootDisplay<'a> {
         let raw_img: ImageRawLE<Rgb565> = ImageRawLE::new(LOGO_DATA, 320);
         Image::new(&raw_img, Point::new(0, -20)).draw(&mut self.display).ok();
 
-        let vw = measure_title("v1.0.1");
-        draw_lato_title(&mut self.display, "v1.0.1", (320 - vw) / 2, 122, COLOR_TEXT);
+        let mut vbuf = [0u8; 12];
+        let vlen = crate::features::fw_update::format_version(
+            crate::features::fw_update::CURRENT_VERSION, &mut vbuf[1..]);
+        vbuf[0] = b'v';
+        let vtxt = core::str::from_utf8(&vbuf[..vlen + 1]).unwrap_or("v?");
+        let vw = measure_title(vtxt);
+        draw_lato_title(&mut self.display, vtxt, (320 - vw) / 2, 122, COLOR_TEXT);
 
         let s1 = "Secure Hardware Wallet for Kaspa";
         draw_lato_body(&mut self.display, s1, (320 - measure_body(s1)) / 2, 146, COLOR_TEXT_DIM);
@@ -528,7 +536,7 @@ impl<'a> BootDisplay<'a> {
         draw_lato_hint(&mut self.display, label, 4 + pad, 235, color);
         // Sig count badge bottom-right (or left of frame counter)
         let mut sc: heapless::String<8> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut sc, format_args!("{}/{}", present, required)).ok();
+        core::fmt::Write::write_fmt(&mut sc, format_args!("{present}/{required}")).ok();
         let sw = measure_hint(sc.as_str());
         let sx = 4 + pad + tw + 6;
         RoundedRectangle::new(

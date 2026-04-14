@@ -21,8 +21,8 @@
 // Each child mnemonic is a standalone wallet — deterministically reproducible
 // from the parent but cryptographically independent.
 //
-// Derivation path: m/83696968'/39'/language'/words'/index'
-//   - 83696968 = BIP number in hex (0x04F4B490... no, it's decimal for the purpose code)
+// Derivation path: m/83_696_968'/39'/language'/words'/index'
+//   - 83_696_968 = BIP number in hex (0x04F4B490... no, it's decimal for the purpose code)
 //   - 39 = BIP39 mnemonic application
 //   - language = 0 (English)
 //   - words = 12 or 24
@@ -64,8 +64,8 @@ macro_rules! log {
 
 // ─── Constants ──────────────────────────────────────────────────────
 
-/// BIP85 purpose constant (decimal 83696968)
-const BIP85_PURPOSE: u32 = 83696968;
+/// BIP85 purpose constant (decimal 83_696_968)
+const BIP85_PURPOSE: u32 = 83_696_968;
 
 /// BIP85 application: BIP39 mnemonic
 const BIP85_APP_BIP39: u32 = 39;
@@ -91,7 +91,7 @@ pub enum Bip85Error {
 
 /// Derive 64 bytes of entropy from a BIP39 seed at the given BIP85 path.
 ///
-/// Path: m/83696968'/39'/0'/words'/index'
+/// Path: m/83_696_968'/39'/0'/words'/index'
 ///
 /// Returns 64 bytes of raw entropy (caller takes first 16 or 32 as needed).
 fn derive_bip85_entropy(
@@ -101,7 +101,7 @@ fn derive_bip85_entropy(
 ) -> Result<[u8; 64], Bip85Error> {
     // Build the BIP85 derivation path (all hardened)
     let path: [u32; 5] = [
-        BIP85_PURPOSE | HARDENED_BIT,     // 83696968'
+        BIP85_PURPOSE | HARDENED_BIT,     // 83_696_968'
         BIP85_APP_BIP39 | HARDENED_BIT,   // 39'
         BIP85_LANG_ENGLISH | HARDENED_BIT, // 0'
         words | HARDENED_BIT,              // 12' or 24'

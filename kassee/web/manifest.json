@@ -1,7 +1,6 @@
 {
-    "name": "KasSee v1.0.1 — KasSigner Companion",
+    "name": "KasSee — KasSigner Companion",
     "short_name": "KasSee",
-    "version": "1.0.1",
     "description": "Watch-only wallet companion for KasSigner air-gapped signing device. Pure Rust/WASM. Zero install.",
     "start_url": "./",
     "display": "standalone",

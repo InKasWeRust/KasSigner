@@ -127,10 +127,10 @@ export interface InitOutput {
     readonly init: () => void;
     readonly reset_qr_decoder: () => void;
     readonly version: () => [number, number];
-    readonly wasm_bindgen__convert__closures_____invoke__h86a363bee197a948: (a: number, b: number, c: any) => [number, number];
-    readonly wasm_bindgen__convert__closures_____invoke__h0aed6e2ac94953e2: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h26dccb8c5ba9e942: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h26dccb8c5ba9e942_2: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h200a37f11e89f6da: (a: number, b: number, c: any) => [number, number];
+    readonly wasm_bindgen__convert__closures_____invoke__h1256d05cffb1a37b: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h018fad21341449ee: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h018fad21341449ee_2: (a: number, b: number, c: any) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

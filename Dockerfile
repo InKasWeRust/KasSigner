@@ -3,6 +3,13 @@
 # License: GPL-3.0
 #
 # Reproducible firmware build (both platforms)
+#
+# Usage:
+#   Without signing key (anyone — unsigned reproducible build):
+#     docker build --platform linux/amd64 -t kassigner-build .
+#
+#   With signing key (developer only — signed reproducible build):
+#     docker build --platform linux/amd64 --secret id=signkey,src=dev_signing_key.bin -t kassigner-build .
 
 FROM --platform=linux/amd64 kassigner-toolchain:v2
 
@@ -30,11 +37,16 @@ RUN source /root/esp-env.sh && \
     ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features skip-tests
 
 # Pass 1: Generate .bin, compute hash, write firmware_hash.rs
-RUN source /root/esp-env.sh && \
+RUN --mount=type=secret,id=signkey,required=false \
+    source /root/esp-env.sh && \
     espflash save-image --chip esp32s3 \
         bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
         /build/ws-pass1.bin 2>&1 | grep -v INFO && \
-    cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-pass1.bin 2>&1 && \
+    if [ -f /run/secrets/signkey ]; then \
+        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-pass1.bin /run/secrets/signkey 2>&1; \
+    else \
+        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-pass1.bin 2>&1; \
+    fi && \
     echo "=== Pass 1 hash ===" && \
     grep FIRMWARE_HASH_HEX bootloader/src/firmware_hash.rs
 
@@ -44,11 +56,16 @@ RUN source /root/esp-env.sh && \
     ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features skip-tests
 
 # Pass 2: Recompute hash — should converge
-RUN source /root/esp-env.sh && \
+RUN --mount=type=secret,id=signkey,required=false \
+    source /root/esp-env.sh && \
     espflash save-image --chip esp32s3 \
         bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
         /build/ws-pass2.bin 2>&1 | grep -v INFO && \
-    cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-pass2.bin 2>&1 && \
+    if [ -f /run/secrets/signkey ]; then \
+        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-pass2.bin /run/secrets/signkey 2>&1; \
+    else \
+        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-pass2.bin 2>&1; \
+    fi && \
     echo "=== Pass 2 hash ===" && \
     grep FIRMWARE_HASH_HEX bootloader/src/firmware_hash.rs
 
@@ -80,11 +97,16 @@ RUN source /root/esp-env.sh && \
     cargo build --release --no-default-features --features m5stack
 
 # Pass 1: Generate .bin, compute hash, write firmware_hash.rs
-RUN source /root/esp-env.sh && \
+RUN --mount=type=secret,id=signkey,required=false \
+    source /root/esp-env.sh && \
     espflash save-image --chip esp32s3 \
         bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
         /build/m5-pass1.bin 2>&1 | grep -v INFO && \
-    cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/m5-pass1.bin 2>&1 && \
+    if [ -f /run/secrets/signkey ]; then \
+        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/m5-pass1.bin /run/secrets/signkey 2>&1; \
+    else \
+        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/m5-pass1.bin 2>&1; \
+    fi && \
     echo "=== M5 Pass 1 hash ===" && \
     grep FIRMWARE_HASH_HEX bootloader/src/firmware_hash.rs
 
@@ -94,11 +116,16 @@ RUN source /root/esp-env.sh && \
     cargo build --release --no-default-features --features m5stack
 
 # Pass 2: Recompute hash
-RUN source /root/esp-env.sh && \
+RUN --mount=type=secret,id=signkey,required=false \
+    source /root/esp-env.sh && \
     espflash save-image --chip esp32s3 \
         bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
         /build/m5-pass2.bin 2>&1 | grep -v INFO && \
-    cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/m5-pass2.bin 2>&1 && \
+    if [ -f /run/secrets/signkey ]; then \
+        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/m5-pass2.bin /run/secrets/signkey 2>&1; \
+    else \
+        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/m5-pass2.bin 2>&1; \
+    fi && \
     echo "=== M5 Pass 2 hash ===" && \
     grep FIRMWARE_HASH_HEX bootloader/src/firmware_hash.rs
 

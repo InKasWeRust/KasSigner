@@ -14,7 +14,7 @@
 #
 #   Usage — from the extracted KasSigner folder, run:
 #
-#     bash KasSigner_Install_v1_0_1.sh
+#     bash Install.sh
 #
 # ══════════════════════════════════════════════════════════════
 

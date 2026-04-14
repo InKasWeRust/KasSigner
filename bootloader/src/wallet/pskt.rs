@@ -785,6 +785,7 @@ pub fn sign_transaction_multisig(
 
                         for s in 0..num_seeds {
                             if let Some(ref acct) = acct_keys[s] {
+                                // Try address-level match first (m/44'/111111'/0'/0/idx)
                                 if let Some((idx, is_chg)) = bip32::find_address_index_for_pubkey(acct, target_pk) {
                                     let key_result = if is_chg {
                                         bip32::derive_change_key(acct, idx)
@@ -804,6 +805,26 @@ pub fn sign_transaction_multisig(
                                                 total_new_sigs += 1;
                                             }
                                             break;
+                                        }
+                                    }
+                                } else {
+                                    // Fallback: check account-level x-only pubkey
+                                    // (for multisigs built with kpub account keys instead of address keys)
+                                    if let Ok(acct_xonly) = acct.public_key_x_only() {
+                                        if &acct_xonly == target_pk {
+                                            let privkey = acct.private_key_bytes();
+                                            if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
+                                                let sc = tx.inputs[i].sig_count as usize;
+                                                if sc < MAX_SIGS_PER_INPUT {
+                                                    tx.inputs[i].sigs[sc].signature = sig.bytes;
+                                                    tx.inputs[i].sigs[sc].sighash_type = sighash_type.to_byte();
+                                                    tx.inputs[i].sigs[sc].pubkey_pos = pos as u8;
+                                                    tx.inputs[i].sigs[sc].present = true;
+                                                    tx.inputs[i].sig_count += 1;
+                                                    total_new_sigs += 1;
+                                                }
+                                                break;
+                                            }
                                         }
                                     }
                                 }

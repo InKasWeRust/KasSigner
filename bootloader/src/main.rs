@@ -25,6 +25,46 @@
 #![allow(clippy::collapsible_else_if)]          // else { if } with trailing statements
 #![allow(clippy::manual_range_contains)]        // explicit range checks in SD filename parsing
 #![allow(clippy::doc_lazy_continuation)]        // doc comment formatting
+// Clippy pedantic — suppressed (intentional in no_std embedded)
+#![allow(clippy::cast_possible_truncation)]     // ubiquitous u32→u8, usize→u8 in byte manipulation
+#![allow(clippy::cast_possible_wrap)]           // u32→i32 in display coordinates
+#![allow(clippy::cast_sign_loss)]               // i32→u32 in display/touch coordinates
+#![allow(clippy::cast_lossless)]                // u8 as u32 — explicit for clarity in packed structs
+#![allow(clippy::items_after_statements)]       // local structs/consts near point of use in handlers
+#![allow(clippy::doc_markdown)]                 // technical terms without backticks
+#![allow(clippy::wildcard_imports)]             // embedded-graphics prelude pattern
+#![allow(clippy::used_underscore_binding)]      // _var used intentionally then read
+#![allow(clippy::ptr_as_ptr)]                   // raw pointer casts in DMA/register code
+#![allow(clippy::similar_names)]                // pos/prev, bw/bh, x0/x1 etc
+#![allow(clippy::unreadable_literal)]           // hex/binary constants (0x6a09e667f3bcc908, 0b01110)
+#![allow(clippy::map_unwrap_or)]                // .map().unwrap_or() clearer than map_or in some contexts
+#![allow(clippy::explicit_iter_loop)]           // .iter() explicit for clarity in no_std
+#![allow(clippy::match_same_arms)]              // platform-specific cfg blocks with identical arms
+#![allow(clippy::unnecessary_wraps)]            // consistent Result return in handler chains
+#![allow(clippy::ref_option)]                   // &Option<T> in existing function signatures
+#![allow(clippy::inline_always)]                // intentional for register read/write hot paths
+#![allow(clippy::trivially_copy_pass_by_ref)]   // &u8 in trait-matching signatures
+#![allow(clippy::single_char_lifetime_names)]   // standard Rust lifetime naming
+#![allow(clippy::struct_excessive_bools)]        // hardware state structs
+#![allow(clippy::manual_let_else)]              // explicit if/return pattern
+#![allow(clippy::redundant_else)]               // explicit else after return for clarity
+#![allow(clippy::if_not_else)]                   // !flag reads fine
+#![allow(clippy::single_match_else)]            // match with else arm for clarity
+#![allow(clippy::many_single_char_names)]       // x, y, w, h, r in geometry code
+#![allow(clippy::borrow_as_ptr)]                // &mut x as *mut in DMA code
+#![allow(clippy::manual_midpoint)]              // (a + b) / 2 — .midpoint() not stable in no_std
+#![allow(clippy::ref_as_ptr)]                   // &x as *const in register/DMA code
+#![allow(clippy::ptr_cast_constness)]           // *mut as *const in DMA
+#![allow(clippy::unnecessary_operation)]        // explicit ops for clarity
+#![allow(clippy::match_wildcard_for_single_variants)] // _ arm for future-proofing enums
+#![allow(clippy::too_many_lines)]               // large embedded handler functions
+#![allow(clippy::needless_lifetimes)]           // explicit lifetimes for documentation
+#![allow(clippy::unused_self)]                  // trait conformance
+#![allow(clippy::enum_glob_use)]                // use Enum::* for variant-heavy matches
+#![allow(clippy::doc_link_with_quotes)]         // doc comment formatting
+#![allow(clippy::verbose_bit_mask)]             // explicit bit mask for clarity in register code
+#![allow(clippy::redundant_closure_for_method_calls)] // .map(|s| s.method()) in handler chains
+#![allow(clippy::needless_continue)]            // explicit continue in match arms for clarity
 #![no_std]
 #![no_main]
 
@@ -120,6 +160,11 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 /// Global flag: redraw sets this to reset QR decoder state on screen change.
 pub static mut QR_RESET_FLAG: bool = false;
+
+/// Active sensor type on Waveshare (runtime auto-detect).
+/// false = OV5640 (default), true = OV2640.
+#[cfg(feature = "waveshare")]
+pub static mut SENSOR_OV2640: bool = false;
 
 // ═══════════════════════════════════════════════════════════════════════
 //  ENTRY POINT
@@ -248,182 +293,192 @@ fn main() -> ! {
         };
 
         // Camera + LEDC XCLK + Backlight
-        log!("   LCD_CAM + DVP init (esp-hal master mode)...");
-        let cam_config = CamConfig::default().with_frequency(Rate::from_mhz(20));
-
-        let lcd_cam = LcdCam::new(peripherals.LCD_CAM);
-        // QVGA YUV422: 640 bytes/line × 240 lines
-        let (rx_buffer, rx_descriptors, _, _) = esp_hal::dma_buffers!(153600, 0);
-        let cam_dma_buf = esp_hal::dma::DmaRxBuf::new(rx_descriptors, rx_buffer)
-            .expect("DMA buffer allocation failed");
-        let cam_dma_buf_opt = Some(cam_dma_buf);
-
-        let cam_build = DvpCamera::new(lcd_cam.cam, peripherals.DMA_CH0, cam_config);
-        let mut dvp_camera_opt: Option<DvpCamera<'_>> = None;
+        // NOTE: We do NOT create DvpCamera for Waveshare — cam_dma drives
+        // GDMA CH0 + LCD_CAM directly via raw registers for PSRAM DMA.
+        // DvpCamera would take ownership of DMA_CH0 and prevent raw access.
+        log!("   LCD_CAM + LEDC init (raw GDMA mode)...");
         let mut cam_status = hw::camera::CameraStatus::Error;
 
-        match cam_build {
-            Ok(cam) => {
-                // LEDC: XCLK 20MHz on GPIO8 + Backlight PWM on GPIO1
-                log!("   Starting XCLK via esp-hal LEDC...");
-                let mut ledc = Ledc::new(peripherals.LEDC);
-                ledc.set_global_slow_clock(esp_hal::ledc::LSGlobalClkSource::APBClk);
+        // ── LEDC: XCLK 20MHz on GPIO8 + Backlight PWM on GPIO1 ──
+        {
+            let mut ledc = Ledc::new(peripherals.LEDC);
+            ledc.set_global_slow_clock(esp_hal::ledc::LSGlobalClkSource::APBClk);
 
-                let mut lstimer0 = ledc.timer::<LowSpeed>(timer::Number::Timer0);
-                match lstimer0.configure(timer::config::Config {
-                    duty: timer::config::Duty::Duty2Bit,
-                    clock_source: timer::LSClockSource::APBClk,
-                    frequency: Rate::from_mhz(20),
-                }) {
-                    Ok(()) => log!("   LEDC timer: 20MHz, 2-bit duty OK"),
-                    Err(e) => log!("   LEDC timer FAILED: {:?}", e),
-                }
-
-                let mut channel0 = ledc.channel(channel::Number::Channel0, peripherals.GPIO8);
-                match channel0.configure(channel::config::Config {
-                    timer: &lstimer0,
-                    duty_pct: 50,
-                    drive_mode: esp_hal::gpio::DriveMode::PushPull,
-                }) {
-                    Ok(()) => log!("   LEDC channel: 50% duty on GPIO8 OK"),
-                    Err(e) => log!("   LEDC channel FAILED: {:?}", e),
-                }
-                log!("   LEDC 20MHz XCLK on GPIO8");
-
-                // Backlight PWM: Timer1 ~1kHz 8-bit, Channel1 on GPIO1
-                let mut lstimer1 = ledc.timer::<LowSpeed>(timer::Number::Timer1);
-                match lstimer1.configure(timer::config::Config {
-                    duty: timer::config::Duty::Duty8Bit,
-                    clock_source: timer::LSClockSource::APBClk,
-                    frequency: Rate::from_khz(1),
-                }) {
-                    Ok(()) => log!("   LEDC backlight timer: 1kHz, 8-bit OK"),
-                    Err(e) => log!("   LEDC backlight timer FAILED: {:?}", e),
-                }
-
-                let mut bl_channel = ledc.channel(channel::Number::Channel1, peripherals.GPIO1);
-                match bl_channel.configure(channel::config::Config {
-                    timer: &lstimer1,
-                    duty_pct: 0,
-                    drive_mode: esp_hal::gpio::DriveMode::PushPull,
-                }) {
-                    Ok(()) => log!("   LEDC backlight channel: GPIO1 OK"),
-                    Err(e) => log!("   LEDC backlight channel FAILED: {:?}", e),
-                }
-
-                hw::pmu::set_brightness(&mut i2c, 102);
-                log!("   Backlight ON via PWM (brightness=102)");
-
-                // Verify XCLK toggling
-                unsafe {
-                    let iomux8 = (0x6000_9000u32 + 0x04 + 8 * 4) as *mut u32;
-                    let v = core::ptr::read_volatile(iomux8);
-                    core::ptr::write_volatile(iomux8, v | (1u32 << 9));
-                }
-                delay.delay_millis(2);
-                let mut xclk_tog = 0u32;
-                let mut xlast = unsafe {
-                    (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 8) & 1
-                };
-                for _ in 0..200_000u32 {
-                    let x = unsafe {
-                        (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 8) & 1
-                    };
-                    if x != xlast { xclk_tog += 1; xlast = x; }
-                }
-                log!("   XCLK verify: {} toggles in 200K reads", xclk_tog);
-
-                delay.delay_millis(30);
-
-                let cam = cam
-                    .with_pixel_clock(peripherals.GPIO9)
-                    .with_vsync(peripherals.GPIO6)
-                    .with_h_enable(peripherals.GPIO4)
-                    .with_data0(peripherals.GPIO12)
-                    .with_data1(peripherals.GPIO13)
-                    .with_data2(peripherals.GPIO15)
-                    .with_data3(peripherals.GPIO11)
-                    .with_data4(peripherals.GPIO14)
-                    .with_data5(peripherals.GPIO10)
-                    .with_data6(peripherals.GPIO7)
-                    .with_data7(peripherals.GPIO2);
-
-                delay.delay_millis(30);
-
-                // I2C1 bus scan
-                log!("   I2C1 bus scan:");
-                {
-                    let mut found = false;
-                    for addr in 0x08u8..0x78 {
-                        let mut probe = [0u8; 1];
-                        if cam_i2c.read(addr, &mut probe).is_ok() {
-                            log!("     Found device at 0x{:02X}", addr);
-                            found = true;
-                        }
-                    }
-                    if !found { log!("     No devices found on I2C1"); }
-                }
-
-                log!("   OV5640 SCCB init...");
-                match hw::camera::init(&mut cam_i2c, &mut delay) {
-                    Ok(()) => {
-                        log!("   OV5640 OK — registers configured");
-                        cam_status = hw::camera::CameraStatus::SensorReady;
-                    }
-                    Err(e) => log!("   OV5640 FAILED: {}", e),
-                }
-
-                // Reset with XCLK running, then re-init + tune
-                if cam_status == hw::camera::CameraStatus::SensorReady {
-                    log!("   Camera PWDN reset (with XCLK running)...");
-                    unsafe { core::ptr::write_volatile(0x6000_4008u32 as *mut u32, 1u32 << 17); }
-                    delay.delay_millis(20);
-                    unsafe { core::ptr::write_volatile(0x6000_400Cu32 as *mut u32, 1u32 << 17); }
-                    delay.delay_millis(30);
-
-                    match hw::camera::init(&mut cam_i2c, &mut delay) {
-                        Ok(()) => log!("   Camera re-init with XCLK: OK"),
-                        Err(e) => log!("   Camera re-init with XCLK: {}", e),
-                    }
-                    delay.delay_millis(100);
-                    hw::camera::log_diagnostics(&mut cam_i2c);
-                    hw::camera::tune(&mut cam_i2c, &mut delay);
-
-                    let mut pclk_tog = 0u32;
-                    let mut plast = unsafe {
-                        (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 9) & 1
-                    };
-                    for _ in 0..200_000u32 {
-                        let p = unsafe {
-                            (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 9) & 1
-                        };
-                        if p != plast { pclk_tog += 1; plast = p; }
-                    }
-                    log!("   PCLK(GPIO9) toggles: {}", pclk_tog);
-
-                    let mut vtog = 0u32;
-                    let mut vlast = unsafe {
-                        (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 6) & 1
-                    };
-                    for _ in 0..500_000u32 {
-                        let v = unsafe {
-                            (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 6) & 1
-                        };
-                        if v != vlast { vtog += 1; vlast = v; }
-                    }
-                    log!("   VSYNC(GPIO6) toggles in 500K: {}", vtog);
-                }
-
-                hw::camera::setup_cam_gpio_routing();
-                dvp_camera_opt = Some(cam);
+            let mut lstimer0 = ledc.timer::<LowSpeed>(timer::Number::Timer0);
+            match lstimer0.configure(timer::config::Config {
+                duty: timer::config::Duty::Duty2Bit,
+                clock_source: timer::LSClockSource::APBClk,
+                frequency: Rate::from_mhz(20),
+            }) {
+                Ok(()) => log!("   LEDC timer: 20MHz, 2-bit duty OK"),
+                Err(e) => log!("   LEDC timer FAILED: {:?}", e),
             }
-            Err(e) => {
-                log!("   LCD_CAM DVP FAILED: {:?}", e);
+
+            let mut channel0 = ledc.channel(channel::Number::Channel0, peripherals.GPIO8);
+            match channel0.configure(channel::config::Config {
+                timer: &lstimer0,
+                duty_pct: 50,
+                drive_mode: esp_hal::gpio::DriveMode::PushPull,
+            }) {
+                Ok(()) => log!("   LEDC channel: 50% duty on GPIO8 OK"),
+                Err(e) => log!("   LEDC channel FAILED: {:?}", e),
+            }
+            log!("   LEDC 20MHz XCLK on GPIO8");
+
+            // Backlight PWM
+            let mut lstimer1 = ledc.timer::<LowSpeed>(timer::Number::Timer1);
+            match lstimer1.configure(timer::config::Config {
+                duty: timer::config::Duty::Duty8Bit,
+                clock_source: timer::LSClockSource::APBClk,
+                frequency: Rate::from_khz(1),
+            }) {
+                Ok(()) => log!("   LEDC backlight timer: 1kHz, 8-bit OK"),
+                Err(e) => log!("   LEDC backlight timer FAILED: {:?}", e),
+            }
+
+            let mut bl_channel = ledc.channel(channel::Number::Channel1, peripherals.GPIO1);
+            match bl_channel.configure(channel::config::Config {
+                timer: &lstimer1,
+                duty_pct: 0,
+                drive_mode: esp_hal::gpio::DriveMode::PushPull,
+            }) {
+                Ok(()) => log!("   LEDC backlight channel: GPIO1 OK"),
+                Err(e) => log!("   LEDC backlight channel FAILED: {:?}", e),
+            }
+
+            hw::pmu::set_brightness(&mut i2c, 102);
+            log!("   Backlight ON via PWM (brightness=102)");
+        }
+
+        // ── Verify XCLK toggling ──
+        unsafe {
+            let iomux8 = (0x6000_9000u32 + 0x04 + 8 * 4) as *mut u32;
+            let v = core::ptr::read_volatile(iomux8);
+            core::ptr::write_volatile(iomux8, v | (1u32 << 9));
+        }
+        delay.delay_millis(2);
+        let mut xclk_tog = 0u32;
+        let mut xlast = unsafe {
+            (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 8) & 1
+        };
+        for _ in 0..200_000u32 {
+            let x = unsafe {
+                (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 8) & 1
+            };
+            if x != xlast { xclk_tog += 1; xlast = x; }
+        }
+        log!("   XCLK verify: {} toggles in 200K reads", xclk_tog);
+        delay.delay_millis(30);
+
+        // NOTE: Do NOT call enable_lcd_cam_clocks() here — it reassigns GPIO8
+        // from LEDC (our XCLK source) to LCD_CAM cam_clk output signal 149.
+        // LEDC is already providing 20MHz XCLK on GPIO8. LCD_CAM peripheral
+        // clocks (GDMA + LCD_CAM module) are enabled by cam_dma::init().
+
+        // ── I2C1 bus scan ──
+        log!("   I2C1 bus scan:");
+        {
+            let mut found = false;
+            for addr in 0x08u8..0x78 {
+                let mut probe = [0u8; 1];
+                if cam_i2c.read(addr, &mut probe).is_ok() {
+                    log!("     Found device at 0x{:02X}", addr);
+                    found = true;
+                }
+            }
+            if !found { log!("     No devices found on I2C1"); }
+        }
+
+        // ── Camera auto-detect: OV5640 first, OV2640 fallback ──
+        log!("   Camera auto-detect...");
+        if hw::camera::detect(&mut cam_i2c) {
+            log!("   OV5640 found — init 480x480 Y8...");
+            match hw::camera::init_480(&mut cam_i2c, &mut delay) {
+                Ok(()) => {
+                    log!("   OV5640 OK — 480x480 configured");
+                    cam_status = hw::camera::CameraStatus::SensorReady;
+                }
+                Err(e) => log!("   OV5640 init FAILED: {}", e),
+            }
+        } else {
+            log!("   OV5640 not found, trying OV2640...");
+            match hw::camera_ov2640::init_480(&mut cam_i2c, &mut delay) {
+                Ok(()) => {
+                    log!("   OV2640 OK — 480x480 Y8 configured");
+                    cam_status = hw::camera::CameraStatus::SensorReady;
+                    unsafe { SENSOR_OV2640 = true; }
+                }
+                Err(e) => log!("   OV2640 init FAILED: {}", e),
             }
         }
-        log!();
+
+        // ── PWDN reset + re-init with XCLK running ──
         if cam_status == hw::camera::CameraStatus::SensorReady {
-            hw::camera::configure_cam_vsync_eof();
+            log!("   Camera PWDN reset (with XCLK running)...");
+            unsafe { core::ptr::write_volatile(0x6000_4008u32 as *mut u32, 1u32 << 17); }
+            delay.delay_millis(20);
+            unsafe { core::ptr::write_volatile(0x6000_400Cu32 as *mut u32, 1u32 << 17); }
+            delay.delay_millis(30);
+
+            let is_ov2640 = unsafe { SENSOR_OV2640 };
+            if is_ov2640 {
+                match hw::camera_ov2640::init_480(&mut cam_i2c, &mut delay) {
+                    Ok(()) => log!("   OV2640 re-init with XCLK (480x480): OK"),
+                    Err(e) => log!("   OV2640 re-init with XCLK: {}", e),
+                }
+                delay.delay_millis(100);
+                hw::camera_ov2640::log_diagnostics(&mut cam_i2c);
+            } else {
+                match hw::camera::init_480(&mut cam_i2c, &mut delay) {
+                    Ok(()) => log!("   OV5640 re-init with XCLK (480x480): OK"),
+                    Err(e) => log!("   OV5640 re-init with XCLK: {}", e),
+                }
+                delay.delay_millis(100);
+                hw::camera::log_diagnostics(&mut cam_i2c);
+            }
+
+            // Verify PCLK
+            let mut pclk_tog = 0u32;
+            let mut plast = unsafe {
+                (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 9) & 1
+            };
+            for _ in 0..200_000u32 {
+                let p = unsafe {
+                    (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 9) & 1
+                };
+                if p != plast { pclk_tog += 1; plast = p; }
+            }
+            log!("   PCLK(GPIO9) toggles: {}", pclk_tog);
+
+            // Verify VSYNC
+            let mut vtog = 0u32;
+            let mut vlast = unsafe {
+                (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 6) & 1
+            };
+            for _ in 0..500_000u32 {
+                let v = unsafe {
+                    (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 6) & 1
+                };
+                if v != vlast { vtog += 1; vlast = v; }
+            }
+            log!("   VSYNC(GPIO6) toggles in 500K: {}", vtog);
+        }
+
+        // ── GPIO matrix routing (same as before — manual, not via DvpCamera) ──
+        hw::camera::setup_cam_gpio_routing();
+
+        // ── cam_dma: raw GDMA→PSRAM pipeline (replaces DvpCamera + DmaRxBuf) ──
+        let dvp_camera_opt: Option<DvpCamera<'_>> = None;
+        let cam_dma_buf_opt: Option<esp_hal::dma::DmaRxBuf> = None;
+
+        if cam_status == hw::camera::CameraStatus::SensorReady {
+            if hw::cam_dma::init() {
+                log!("   cam_dma: PSRAM pipeline ready — 480x480 Y8");
+                hw::cam_dma::log_status();
+            } else {
+                log!("   cam_dma: INIT FAILED — falling back to no camera");
+                cam_status = hw::camera::CameraStatus::Error;
+            }
             delay.delay_millis(150);
         }
 
@@ -612,6 +667,12 @@ fn main() -> ! {
     let (grid_zones, list_zones, page_up_zone, page_down_zone) = touch_zones();
     let mut ad = AppData::new();
 
+    // Override cam_tune defaults for OV2640 — proven QR decode settings
+    #[cfg(feature = "waveshare")]
+    if unsafe { SENSOR_OV2640 } {
+        ad.cam_tune_vals = [0x20, 0x0C, 0x8B, 0x08, 0x70, 0x50];
+    }
+
     // M5Stack runs signing pipeline test at boot
     #[cfg(feature = "m5stack")]
     #[cfg(not(feature = "skip-tests"))]
@@ -723,7 +784,7 @@ fn main() -> ! {
                 ),
                 HandlerGroup::Sd => handlers::sd::handle_sd_touch(
                     &mut ad, &mut boot_display, &mut delay, &mut i2c,
-                    &_bb_card_type, &list_zones,
+                    &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
                     x, y, is_back,
                 ),
                 HandlerGroup::Seed => handlers::seed::handle_seed_touch(
@@ -731,7 +792,7 @@ fn main() -> ! {
                     x, y, is_back,
                 ),
                 HandlerGroup::Export => handlers::export::handle_export_touch(
-                    &mut ad, &mut boot_display, &mut delay,
+                    &mut ad, &mut boot_display, &mut delay, &mut i2c,
                     &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
                     x, y, is_back,
                 ),
@@ -748,6 +809,18 @@ fn main() -> ! {
                 HandlerGroup::None => None,
             };
             if let Some(r) = result { ad.needs_redraw = r; }
+
+            // Waveshare CST816D: cooldown after tap to suppress ghost double-taps
+            // from residual capacitance / ambient light EMI. The controller often
+            // reports a spurious Contact→LiftUp sequence within ~100ms of a real tap.
+            // Skip during cam-tune — user is actively adjusting, latency matters.
+            #[cfg(feature = "waveshare")]
+            if !ad.cam_tune_active {
+                delay.delay_millis(150);
+                // Drain any queued touch event so tracker starts clean
+                let (ts, gest) = hw::touch::read_touch_with_gesture(&mut i2c);
+                tracker.update(ts, gest);
+            }
         }
         // ─── Waveshare: swipe gestures + drag ────────────────────
         #[cfg(feature = "waveshare")]
@@ -773,7 +846,7 @@ fn main() -> ! {
                             fake_x, fake_y, false,
                         ),
                         HandlerGroup::Export => handlers::export::handle_export_touch(
-                            &mut ad, &mut boot_display, &mut delay,
+                            &mut ad, &mut boot_display, &mut delay, &mut i2c,
                             &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
                             fake_x, fake_y, false,
                         ),
@@ -806,7 +879,7 @@ fn main() -> ! {
                             fake_x, fake_y, false,
                         ),
                         HandlerGroup::Export => handlers::export::handle_export_touch(
-                            &mut ad, &mut boot_display, &mut delay,
+                            &mut ad, &mut boot_display, &mut delay, &mut i2c,
                             &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
                             fake_x, fake_y, false,
                         ),
@@ -832,9 +905,9 @@ fn main() -> ! {
                     }
                 }
                 // Drag on cam-tune slider
-                if ad.app.state == app::input::AppState::ScanQR && ad.cam_tune_active && y >= 196 {
+                if ad.app.state == app::input::AppState::ScanQR && ad.cam_tune_active && y >= 198 {
                     let p = ad.cam_tune_param as usize;
-                    if (56..=264).contains(&x) {
+                    if (52..=268).contains(&x) {
                         let clamped = (x as i32 - 56).max(0).min(208) as u32;
                         ad.cam_tune_vals[p] = ((clamped * 255) / 208) as u8;
                         ad.cam_tune_dirty = true;
@@ -895,7 +968,11 @@ fn main() -> ! {
                 unsafe { core::ptr::write_volatile(0x6000_400Cu32 as *mut u32, 1u32 << 17); }
                 if ad.cam_tune_dirty {
                     ad.cam_tune_dirty = false;
-                    cam_tune_apply_all(&mut cam_i2c, &ad.cam_tune_vals);
+                    if unsafe { SENSOR_OV2640 } {
+                        cam_tune_apply_ov2640(&mut cam_i2c, &ad.cam_tune_vals);
+                    } else {
+                        cam_tune_apply_all(&mut cam_i2c, &ad.cam_tune_vals);
+                    }
                 }
             }
 
@@ -933,6 +1010,7 @@ fn main() -> ! {
         }
 
         app::signing::cycle_signed_qr(&mut ad, &mut boot_display, &mut delay, &mut i2c);
+        handlers::export::cycle_kpub_qr(&mut ad, &mut boot_display);
         delay.delay_millis(1);
     }
 }
@@ -1188,19 +1266,99 @@ fn continue_without_display(delay: &mut Delay) -> ! {
 fn cam_tune_apply_all<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, vals: &[u8; 6]) {
     use hw::camera::write_reg;
 
-    write_reg(i2c, 0x3A0F, vals[0]);
-    write_reg(i2c, 0x3A1B, vals[0]);
-    write_reg(i2c, 0x3A10, vals[1]);
-    write_reg(i2c, 0x3A1E, vals[1]);
-    write_reg(i2c, 0x5586, vals[2]);
-    write_reg(i2c, 0x5587, vals[3]);
+    // AEC targets: H must be >= L for the control loop to converge.
+    // If user drags them inverted, clamp L to H.
+    let aec_h = vals[0];
+    let aec_l = if vals[1] > vals[0] { vals[0] } else { vals[1] };
+
+    // AEC stable range (enter) and (go out) — keep them paired
+    write_reg(i2c, 0x3A0F, aec_h);   // WPT — stable high (enter)
+    write_reg(i2c, 0x3A1B, aec_h);   // WPT2 — stable high (go out)
+    write_reg(i2c, 0x3A10, aec_l);    // BPT — stable low (enter)
+    write_reg(i2c, 0x3A1E, aec_l);    // BPT2 — stable low (go out)
+
+    // SDE (Special Digital Effects) — enable contrast+brightness bits
+    let sde = hw::camera::read_reg(i2c, 0x5580).unwrap_or(0x06);
+    write_reg(i2c, 0x5580, sde | 0x04); // bit2 = contrast enable
+    write_reg(i2c, 0x5586, vals[2]);     // contrast
+    write_reg(i2c, 0x5585, 0x00);        // brightness sign (0=positive)
+    write_reg(i2c, 0x5587, vals[3]);     // brightness magnitude
+
+    // AGC gain ceiling
     write_reg(i2c, 0x3A18, 0x00);
     write_reg(i2c, 0x3A19, vals[4]);
+
+    // CIP sharpness
     write_reg(i2c, 0x5308, vals[5]);
 
+    // ── QR scan overrides: disable ISP sharpening for cleaner LCD decode ──
+    write_reg(i2c, 0x5000, 0x06);  // CIP OFF (LENC off, BPC+WPC on)
+    write_reg(i2c, 0x5302, 0x00);  // sharpen MT offset1 = 0
+    write_reg(i2c, 0x530B, 0x02);  // sharpen TH offset1 = minimum
+
     #[cfg(not(feature = "silent"))]
-    log!("[CAM-TUNE] APPLIED: AEC={:02X}/{:02X} CTR={:02X} BRT={:02X} AGC={:02X} SHP={:02X}",
-        vals[0], vals[1], vals[2], vals[3], vals[4], vals[5]);
+    {
+        let avg = hw::camera::read_reg(i2c, 0x56A1).unwrap_or(0);
+        log!("[CAM-TUNE] AEC={:02X}/{:02X} CTR={:02X} BRT={:02X} AGC={:02X} SHP={:02X} AVG={:02X}",
+            aec_h, aec_l, vals[2], vals[3], vals[4], vals[5], avg);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// OV2640 cam_tune — maps the same 6 slider params to OV2640 registers
+// ═══════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "waveshare")]
+fn cam_tune_apply_ov2640<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, vals: &[u8; 6]) {
+    use hw::camera_ov2640::{write_reg, read_reg, select_bank};
+
+    // ── Sensor bank: AEC + AGC ──
+    select_bank(i2c, 0x01);
+
+    // AEC targets: AEW / AEB
+    let aec_h = vals[0];
+    let aec_l = if vals[1] > vals[0] { vals[0] } else { vals[1] };
+    write_reg(i2c, 0x24, aec_h); // AEW
+    write_reg(i2c, 0x25, aec_l); // AEB
+    // VV: fast/slow zone thresholds — link to AEC range
+    let vv = ((aec_h >> 1) & 0xF0) | ((aec_l >> 5) & 0x0F);
+    write_reg(i2c, 0x26, vv);
+
+    // AGC gain ceiling: COM9 bits[7:5]
+    let agc_idx = (vals[4] >> 5) & 0x07;
+    let com9 = read_reg(i2c, 0x14).unwrap_or(0x48);
+    write_reg(i2c, 0x14, (com9 & 0x1F) | (agc_idx << 5));
+
+    // ── DSP bank: SDE indirect (contrast + brightness) ──
+    // Key: write all SDE data FIRST, then enable bitmask LAST.
+    // Otherwise each BPADDR=0 write resets other effects.
+    select_bank(i2c, 0x00);
+
+    // Contrast: BPADDR=3 = contrast center, BPADDR=4 = contrast gain
+    write_reg(i2c, 0x7C, 0x03); // BPADDR = 3
+    write_reg(i2c, 0x7D, 0x40); // contrast center = 0x40
+    write_reg(i2c, 0x7D, vals[2]); // auto-inc → BPADDR=4: contrast gain
+
+    // Brightness: BPADDR=5 = brightness, BPADDR=6 = brightness sign
+    write_reg(i2c, 0x7C, 0x05); // BPADDR = 5
+    write_reg(i2c, 0x7D, vals[3]); // brightness value
+    write_reg(i2c, 0x7D, 0x00); // auto-inc → BPADDR=6: sign (0=positive)
+
+    // Enable bitmask LAST: bit[2] = contrast+brightness enable
+    write_reg(i2c, 0x7C, 0x00); // BPADDR = 0 (SDE control)
+    write_reg(i2c, 0x7D, 0x04); // enable contrast+brightness
+
+    // Sharpness: DSP reg 0x92/0x93
+    write_reg(i2c, 0x92, 0x01); // manual sharpness mode
+    write_reg(i2c, 0x93, vals[5]); // sharpness level
+
+    #[cfg(not(feature = "silent"))]
+    {
+        select_bank(i2c, 0x01);
+        let avg = read_reg(i2c, 0x2F).unwrap_or(0); // YAVG
+        log!("[CAM-TUNE-2640] AEC={:02X}/{:02X} CTR={:02X} BRT={:02X} AGC={:02X} SHP={:02X} AVG={:02X}",
+            aec_h, aec_l, vals[2], vals[3], vals[4], vals[5], avg);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════

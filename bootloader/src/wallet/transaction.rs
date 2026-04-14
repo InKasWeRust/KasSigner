@@ -498,6 +498,30 @@ impl MultisigConfig {
         if self.m == 0 || self.n == 0 || self.m > self.n || self.n as usize > MAX_MULTISIG_KEYS {
             return 0;
         }
+
+        // Sort pubkeys lexicographically so both devices produce the same address
+        // regardless of insertion order. Simple insertion sort (N ≤ 4).
+        let n = self.n as usize;
+        for i in 1..n {
+            let mut j = i;
+            while j > 0 {
+                // Compare pubkeys[j-1] vs pubkeys[j] byte-by-byte
+                let mut cmp = core::cmp::Ordering::Equal;
+                for b in 0..32 {
+                    cmp = self.pubkeys[j - 1][b].cmp(&self.pubkeys[j][b]);
+                    if cmp != core::cmp::Ordering::Equal { break; }
+                }
+                if cmp == core::cmp::Ordering::Greater {
+                    // Swap in place — use split to avoid double borrow
+                    let (left, right) = self.pubkeys.split_at_mut(j);
+                    left[j - 1].swap_with_slice(&mut right[0]);
+                    j -= 1;
+                } else {
+                    break;
+                }
+            }
+        }
+
         // Length: 1 (OP_m) + N*(1+32) + 1 (OP_n) + 1 (OP_CHECKMULTISIG)
         let len = 1 + (self.n as usize) * 33 + 1 + 1;
         if len > MAX_SCRIPT_SIZE { return 0; }

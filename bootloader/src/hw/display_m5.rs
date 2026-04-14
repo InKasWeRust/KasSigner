@@ -261,6 +261,9 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
         s if s.starts_with("kpub")        => draw_icon!(size24px::finance::AppleWallet),
         s if s.starts_with("xprv")        => draw_icon!(size24px::security::Lock),
         s if s.starts_with("Seed Backup") => draw_icon!(size24px::actions::Upload),
+        s if s.starts_with("Private Key") => draw_icon!(size24px::security::PasswordCursor),
+        s if s.starts_with("Multisig A")  => draw_icon!(size24px::other::QrCode),
+        s if s.starts_with("Multisig D")  => draw_icon!(size24px::docs::Page),
         s if s.starts_with("Transaction") => draw_icon!(size24px::users::Group),
         s if s.starts_with("XPrv Backup") => draw_icon!(size24px::actions::UploadSquare),
         s if s.starts_with("JPEG Stego")  => draw_icon!(size24px::actions::EyeOff),
@@ -591,8 +594,13 @@ impl<'a> BootDisplay<'a> {
         Image::new(&raw_img, Point::new(0, -20))
             .draw(&mut self.display).ok();
 
-        let vw = measure_title("v1.0.1");
-        draw_lato_title(&mut self.display, "v1.0.1", (320 - vw) / 2, 122, COLOR_TEXT);
+        let mut vbuf = [0u8; 12];
+        let vlen = crate::features::fw_update::format_version(
+            crate::features::fw_update::CURRENT_VERSION, &mut vbuf[1..]);
+        vbuf[0] = b'v';
+        let vtxt = core::str::from_utf8(&vbuf[..vlen + 1]).unwrap_or("v?");
+        let vw = measure_title(vtxt);
+        draw_lato_title(&mut self.display, vtxt, (320 - vw) / 2, 122, COLOR_TEXT);
 
         let s1 = "Secure Hardware Wallet for Kaspa";
         draw_lato_body(&mut self.display, s1, (320 - measure_body(s1)) / 2, 146, COLOR_TEXT_DIM);

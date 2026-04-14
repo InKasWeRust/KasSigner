@@ -70,31 +70,9 @@ pub fn init<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, delay: &mut Delay) -> Re
     }
     delay.delay_millis(300);
     crate::log!("   OV5640 configured: QVGA 320x240 YUV422");
-    load_af_firmware(i2c, delay);
-    crate::log!("   OV5640 OK — registers configured");
+    // No AF firmware — Waveshare module has fixed-focus lens (no VCM motor)
+    crate::log!("   OV5640 OK — registers configured (fixed focus, no AF)");
     Ok(())
-}
-
-/// Apply proven image tuning for QR code scanning.
-pub fn tune<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, delay: &mut Delay) {
-    crate::log!("   OV5640: applying proven tune...");
-    // AEC targets
-    write_reg(i2c, 0x3A0F, 0x58); write_reg(i2c, 0x3A10, 0x48);
-    write_reg(i2c, 0x3A1B, 0x58); write_reg(i2c, 0x3A1E, 0x48);
-    write_reg(i2c, 0x3A11, 0x80); write_reg(i2c, 0x3A1F, 0x20);
-    write_reg(i2c, 0x3A18, 0x00); write_reg(i2c, 0x3A19, 0xF8);
-    // SDE — contrast + brightness
-    let sde = read_reg(i2c, 0x5580).unwrap_or(0x06);
-    write_reg(i2c, 0x5580, sde | 0x04);
-    write_reg(i2c, 0x5586, 0x28); write_reg(i2c, 0x5585, 0x00);
-    write_reg(i2c, 0x5587, 0x10); write_reg(i2c, 0x5588, 0x00);
-    // PLL for 20MHz XCLK
-    write_reg(i2c, 0x3036, 0x18); write_reg(i2c, 0x3035, 0x21);
-    write_reg(i2c, 0x3037, 0x01);
-    delay.delay_millis(200);
-    let aec_h = read_reg(i2c, 0x3A0F);
-    let sde_val = read_reg(i2c, 0x5580);
-    crate::log!("   OV5640 tuned: AEC={:?} SDE={:?}", aec_h, sde_val);
 }
 
 /// Log diagnostic register values (CHIPID, PLL, timing, orientation).
@@ -230,13 +208,17 @@ static OV5640_INIT_REGS: &[(u16, u8)] = &[
     (0x3034, 0x18), (0x3035, 0x21), (0x3036, 0x18), (0x3037, 0x01), (0x3108, 0x01),
     (0x3017, 0xFF), (0x3018, 0xFF),
     (0x3000, 0x00), (0x3002, 0x00), (0x3004, 0xFF), (0x3006, 0xFF), (0x302E, 0x08),
-    (0x3820, 0x41), (0x3821, 0x01),
-    (0x3800, 0x00), (0x3801, 0x00), (0x3802, 0x00), (0x3803, 0x04),
-    (0x3804, 0x0A), (0x3805, 0x3F), (0x3806, 0x07), (0x3807, 0x9B),
+    (0x3820, 0x41), (0x3821, 0x00),
+    // Center crop: 1280×960 from 2592×1944 (~2× zoom)
+    // X start=656(0x0290), X end=1935(0x078F)
+    // Y start=492(0x01EC), Y end=1451(0x05AB)
+    (0x3800, 0x02), (0x3801, 0x90), (0x3802, 0x01), (0x3803, 0xEC),
+    (0x3804, 0x07), (0x3805, 0x8F), (0x3806, 0x05), (0x3807, 0xAB),
+    // DVP output: 320×240 (DCW 4× from 1280×960)
     (0x3808, 0x01), (0x3809, 0x40), (0x380A, 0x00), (0x380B, 0xF0),
     (0x380C, 0x07), (0x380D, 0x68), (0x380E, 0x03), (0x380F, 0xD8),
-    (0x3810, 0x00), (0x3811, 0x10), (0x3812, 0x00), (0x3813, 0x06),
-    (0x3814, 0x31), (0x3815, 0x31),
+    (0x3810, 0x00), (0x3811, 0x00), (0x3812, 0x00), (0x3813, 0x00),
+    (0x3814, 0x11), (0x3815, 0x11),
     (0x3630, 0x36), (0x3631, 0x0E), (0x3632, 0xE2), (0x3633, 0x12),
     (0x3621, 0xE0), (0x3704, 0xA0), (0x3703, 0x5A), (0x3715, 0x78),
     (0x3717, 0x01), (0x370B, 0x60), (0x3705, 0x1A), (0x3905, 0x02),
@@ -251,14 +233,18 @@ static OV5640_INIT_REGS: &[(u16, u8)] = &[
     (0x3618, 0x00), (0x3612, 0x29), (0x3708, 0x64), (0x3709, 0x52), (0x370C, 0x03),
     (0x4001, 0x02), (0x4004, 0x02),
     (0x3000, 0x00), (0x3002, 0x1C), (0x3004, 0xFF), (0x3006, 0xC3),
-    (0x4300, 0x30), (0x501F, 0x00), (0x4740, 0x21),
+    (0x4300, 0x10), (0x501F, 0x00), (0x4740, 0x21),
     (0x5001, 0xA3),
+    // DCW 4× downscale: 1280×960 → 320×240
+    (0x5600, 0x10),
+    (0x5601, 0x22),
     (0x3A02, 0x03), (0x3A03, 0xD8), (0x3A08, 0x01), (0x3A09, 0x3C),
     (0x3A0A, 0x01), (0x3A0B, 0x07), (0x3A0D, 0x04), (0x3A0E, 0x03),
     (0x3A0F, 0x58), (0x3A10, 0x48), (0x3A11, 0x80),
     (0x3A1B, 0x58), (0x3A1E, 0x48), (0x3A1F, 0x20),
     (0x5300, 0x08), (0x5301, 0x30), (0x5302, 0x10), (0x5303, 0x00),
     (0x5304, 0x08), (0x5305, 0x30), (0x5306, 0x10), (0x5307, 0x10),
+    (0x5308, 0x08), // CIP sharpness — baseline for cam_tune slider
     (0x5309, 0x08), (0x530A, 0x30), (0x530B, 0x02),
     (0x5480, 0x01),
     (0x5481, 0x08), (0x5482, 0x14), (0x5483, 0x28), (0x5484, 0x51),
@@ -292,5 +278,76 @@ fn load_af_firmware<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, delay: &mut Dela
     let af_sta2 = read_reg(i2c, 0x3029);
     crate::log!("   OV5640 AF continuous: status={:?}", af_sta2);
 }
+
+/// Initialize OV5640 for 480×480 YUV422 output (for PSRAM DMA pipeline).
+///
+/// Uses 960×960 center crop from the 2592×1944 sensor array (~2× zoom),
+/// then DCW 2× downscale → 480×480 DVP output. Same PLL and ISP settings
+/// as the 320×240 mode.
+///
+/// 960×960 center crop geometry:
+///   X start = (2592-960)/2 = 816 = 0x0330
+///   X end   = 816+960-1     = 1775 = 0x06EF
+///   Y start = (1944-960)/2 = 492 = 0x01EC
+///   Y end   = 492+960-1     = 1451 = 0x05AB
+///   Sub-sampling: 0x11 (none — required for clean image)
+///   DCW: 2× (960→480)
+pub fn init_480<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, delay: &mut Delay) -> Result<(), &'static str> {
+    // First do normal init (sets PLL, analog, ISP, AF firmware)
+    init(i2c, delay)?;
+
+    crate::log!("   OV5640: upgrading to 480x480 YUV422...");
+
+    // Override window + output + DCW for 480×480
+    for &(reg, val) in OV5640_480_OVERRIDES {
+        if !write_reg(i2c, reg, val) {
+            return Err("OV5640: 480×480 override SCCB write failed");
+        }
+    }
+    delay.delay_millis(100);
+
+    crate::log!("   OV5640: 480x480 YUV422 configured (960x960 crop, DCW 2x)");
+    Ok(())
+}
+
+/// Register overrides: 320×240 → 480×480.
+/// Applied after full init to change only the window/output/DCW registers.
+static OV5640_480_OVERRIDES: &[(u16, u8)] = &[
+    // ── Sensor window: 960×960 center crop ──
+    // X start = 816 = 0x0330
+    (0x3800, 0x03), (0x3801, 0x30),
+    // Y start = 492 = 0x01EC
+    (0x3802, 0x01), (0x3803, 0xEC),
+    // X end = 1775 = 0x06EF
+    (0x3804, 0x06), (0x3805, 0xEF),
+    // Y end = 1451 = 0x05AB
+    (0x3806, 0x05), (0x3807, 0xAB),
+
+    // ── DVP output size: 480×480 ──
+    (0x3808, 0x01), (0x3809, 0xE0), // DVPHO = 480
+    (0x380A, 0x01), (0x380B, 0xE0), // DVPVO = 480
+
+    // ── Total pixel timing (HTS/VTS) ──
+    // HTS: keep generous for stable PCLK
+    (0x380C, 0x07), (0x380D, 0x68), // HTS = 1896
+    (0x380E, 0x03), (0x380F, 0xD8), // VTS = 984
+
+    // ── Offset: 0,0 ──
+    (0x3810, 0x00), (0x3811, 0x00),
+    (0x3812, 0x00), (0x3813, 0x00),
+
+    // ── Sub-sampling: none (0x11 = skip 0, step 1) ──
+    (0x3814, 0x11), (0x3815, 0x11),
+
+    // ── ISP/DCW: 2× downscale (960→480) ──
+    // 0x5001: bit5=scale, bit1=CMX. SDE(bit7) and AWB(bit0) disabled for clean Y8.
+    (0x5001, 0x22),
+    // DCW enable + 2× ratio
+    (0x5600, 0x10), // DCW enable
+    (0x5601, 0x11), // 2× in both H and V (was 0x22 for 4×)
+
+    // ── Flip/mirror: same as 320×240 ──
+    (0x3820, 0x41), (0x3821, 0x00),
+];
 
 include!("ov5640_af_fw.rs");

@@ -18,11 +18,3 @@
 // qr/ — QR code encoding and decoding
 
 pub mod encoder;
-
-#[cfg(feature = "waveshare")]
-#[path = "decoder_ws.rs"]
-pub mod decoder;
-
-#[cfg(feature = "m5stack")]
-#[path = "decoder_m5.rs"]
-pub mod decoder;

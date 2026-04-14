@@ -71,7 +71,7 @@ impl<'a> BootDisplay<'a> {
                 } else {
                     let sw = measure_title(addr_str);
                     draw_lato_title(&mut self.display, addr_str, (320 - sw) / 2, 58, COLOR_ORANGE);
-                };
+                }
             }
 
             // Separator
@@ -311,7 +311,7 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
             let kas = total / 100_000_000;
             let sompi = total % 100_000_000;
             let mut amount_text = heapless::String::<32>::new();
-            write!(&mut amount_text, "{}.{:08} KAS", kas, sompi).ok();
+            write!(&mut amount_text, "{kas}.{sompi:08} KAS").ok();
 
             draw_lato_body(&mut self.display, "Total:", 30, 75, COLOR_TEXT);
             draw_lato_title(&mut self.display, amount_text.as_str(), 30, 100, COLOR_ORANGE);
@@ -324,7 +324,7 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
             let fee_kas = fee / 100_000_000;
             let fee_sompi = fee % 100_000_000;
             let mut fee_text = heapless::String::<32>::new();
-            write!(&mut fee_text, "Fee: {}.{:08} KAS", fee_kas, fee_sompi).ok();
+            write!(&mut fee_text, "Fee: {fee_kas}.{fee_sompi:08} KAS").ok();
             draw_lato_body(&mut self.display, fee_text.as_str(), 30, 135, COLOR_TEXT);
 
             // Inputs/outputs count
@@ -392,11 +392,11 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                 // Title with CHANGE/OWN label
                 let mut title = heapless::String::<32>::new();
                 if is_change {
-                    write!(&mut title, "OUTPUT {} (CHANGE)", out_idx).ok();
+                    write!(&mut title, "OUTPUT {out_idx} (CHANGE)").ok();
                 } else if is_own {
-                    write!(&mut title, "OUTPUT {} (OWN)", out_idx).ok();
+                    write!(&mut title, "OUTPUT {out_idx} (OWN)").ok();
                 } else {
-                    write!(&mut title, "OUTPUT {}", out_idx).ok();
+                    write!(&mut title, "OUTPUT {out_idx}").ok();
                 }
 
                 let title_color = if is_change || is_own { KASPA_TEAL } else { COLOR_TEXT };
@@ -411,7 +411,7 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                 let kas = output.value / 100_000_000;
                 let sompi = output.value % 100_000_000;
                 let mut amount_text = heapless::String::<32>::new();
-                write!(&mut amount_text, "{}.{:08} KAS", kas, sompi).ok();
+                write!(&mut amount_text, "{kas}.{sompi:08} KAS").ok();
                 let amount_color = if is_change { COLOR_TEXT_DIM } else { COLOR_ORANGE };
                 draw_lato_title(&mut self.display, amount_text.as_str(), 30, 65, amount_color);
 
@@ -816,8 +816,13 @@ pub fn draw_home_grid(&mut self) {
             .draw(&mut self.display).ok();
 
         // Version
-        let vw = measure_title("v1.0.1");
-        draw_lato_title(&mut self.display, "v1.0.1", (320 - vw) / 2, 122, COLOR_TEXT);
+        let mut vbuf = [0u8; 12];
+        let vlen = crate::features::fw_update::format_version(
+            crate::features::fw_update::CURRENT_VERSION, &mut vbuf[1..]);
+        vbuf[0] = b'v';
+        let vtxt = core::str::from_utf8(&vbuf[..vlen + 1]).unwrap_or("v?");
+        let vw = measure_title(vtxt);
+        draw_lato_title(&mut self.display, vtxt, (320 - vw) / 2, 122, COLOR_TEXT);
 
         // Tagline
         let s1 = "Secure Hardware Wallet for Kaspa";
@@ -851,7 +856,7 @@ pub fn draw_home_grid(&mut self) {
 
         use core::fmt::Write;
         let mut wc_buf: heapless::String<24> = heapless::String::new();
-        write!(&mut wc_buf, "Words: {}", word_count).ok();
+        write!(&mut wc_buf, "Words: {word_count}").ok();
         draw_lato_body(&mut self.display, &wc_buf, 30, 70, COLOR_TEXT);
 
         draw_lato_body(&mut self.display, "Status: Loaded (in RAM)", 30, 92, COLOR_TEXT);
@@ -887,7 +892,7 @@ pub fn draw_home_grid(&mut self) {
         // Title
         if let Some(idx) = addr_index {
             let mut title_buf: heapless::String<24> = heapless::String::new();
-            core::fmt::Write::write_fmt(&mut title_buf, format_args!("RECEIVE #{}", idx)).ok();
+            core::fmt::Write::write_fmt(&mut title_buf, format_args!("RECEIVE #{idx}")).ok();
             let tw = measure_header(title_buf.as_str());
             draw_oswald_header(&mut self.display, &title_buf, (320 - tw) / 2, 30, COLOR_TEXT);
         } else {
@@ -962,7 +967,7 @@ pub fn draw_home_grid(&mut self) {
                 .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
                 .draw(&mut self.display).ok();
             let mut idx_label: heapless::String<8> = heapless::String::new();
-            core::fmt::Write::write_fmt(&mut idx_label, format_args!("#{}", _idx)).ok();
+            core::fmt::Write::write_fmt(&mut idx_label, format_args!("#{_idx}")).ok();
             let iw = measure_title(idx_label.as_str());
             draw_lato_title(&mut self.display, &idx_label, 110 + (100 - iw) / 2, 230, KASPA_TEAL);
 
@@ -1091,11 +1096,11 @@ pub fn draw_home_grid(&mut self) {
 
         // Amount + Fee summary
         let mut line_buf: heapless::String<40> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut line_buf, format_args!("Send: {}", amount_str)).ok();
+        core::fmt::Write::write_fmt(&mut line_buf, format_args!("Send: {amount_str}")).ok();
         draw_lato_body(&mut self.display, &line_buf, 40, 68, COLOR_TEXT);
 
         let mut fee_buf: heapless::String<40> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut fee_buf, format_args!("Fee:  {}", fee_str)).ok();
+        core::fmt::Write::write_fmt(&mut fee_buf, format_args!("Fee:  {fee_str}")).ok();
         draw_lato_body(&mut self.display, &fee_buf, 40, 90, COLOR_TEXT);
 
         // === BIG CONFIRM BUTTON (green) — y=120..170 ===
@@ -1138,17 +1143,17 @@ pub fn draw_home_grid(&mut self) {
 
         // Amount + Fee
         let mut line_buf: heapless::String<40> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut line_buf, format_args!("Send: {}", amount_str)).ok();
+        core::fmt::Write::write_fmt(&mut line_buf, format_args!("Send: {amount_str}")).ok();
         draw_lato_body(&mut self.display, &line_buf, 40, 62, COLOR_TEXT);
 
         let mut fee_buf: heapless::String<40> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut fee_buf, format_args!("Fee:  {}", fee_str)).ok();
+        core::fmt::Write::write_fmt(&mut fee_buf, format_args!("Fee:  {fee_str}")).ok();
         draw_lato_body(&mut self.display, &fee_buf, 40, 82, COLOR_TEXT);
 
         // Signature status
         let mut sig_buf: heapless::String<32> = heapless::String::new();
         core::fmt::Write::write_fmt(&mut sig_buf,
-            format_args!("Sigs: {}/{} present", sigs_present, sigs_required)).ok();
+            format_args!("Sigs: {sigs_present}/{sigs_required} present")).ok();
         let sig_color = if sigs_present > 0 { KASPA_ACCENT } else { COLOR_TEXT_DIM };
         draw_lato_body(&mut self.display, sig_buf.as_str(), 40, 102, sig_color);
 
@@ -1258,7 +1263,7 @@ pub fn draw_home_grid(&mut self) {
         // Title
         let mut title_buf: heapless::String<30> = heapless::String::new();
         core::fmt::Write::write_fmt(&mut title_buf,
-            format_args!("DICE {}/{}", count, target)).ok();
+            format_args!("DICE {count}/{target}")).ok();
         let tw = measure_header(title_buf.as_str());
         draw_oswald_header(&mut self.display, &title_buf, (320 - tw) / 2, 25, COLOR_TEXT);
 
@@ -1429,7 +1434,7 @@ pub fn draw_home_grid(&mut self) {
                 let word = crate::wallet::bip39::index_to_word(idx);
                 let mut match_buf: heapless::String<24> = heapless::String::new();
                 core::fmt::Write::write_fmt(&mut match_buf,
-                    format_args!("= {}", word)).ok();
+                    format_args!("= {word}")).ok();
                 draw_lato_22(&mut self.display, &match_buf, cursor_x + 6, text_y, KASPA_TEAL);
             }
         }
@@ -1508,18 +1513,11 @@ pub fn draw_home_grid(&mut self) {
     }
 
     /// Draw keyboard screen with custom title (for password, passphrase, description entry)
-    pub fn draw_keyboard_screen(&mut self, pp_input: &crate::ui::seed_manager::PassphraseInput, title: &str) {
-        // Only clear the input area (y=0..68), not the keyboard below
-        // This prevents the full-screen flash on each keypress
-        Rectangle::new(Point::new(0, 0), Size::new(320, 68))
+    pub fn draw_keyboard_screen(&mut self, pp_input: &crate::ui::seed_manager::PassphraseInput, _title: &str) {
+        // Only clear the input text area (y=38..68) — header, teal line,
+        // back/home icons above y=38 do not change between keypresses
+        Rectangle::new(Point::new(0, 38), Size::new(320, 30))
             .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
-            .draw(&mut self.display).ok();
-
-        // Header — compact
-        let tw = measure_header(title);
-        draw_oswald_header(&mut self.display, title, (320 - tw) / 2, 26, COLOR_TEXT);
-        Line::new(Point::new(20, 36), Point::new(300, 36))
-            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
             .draw(&mut self.display).ok();
 
         // Input field — left-aligned, scrolls when cursor exceeds visible area
@@ -1565,14 +1563,24 @@ pub fn draw_home_grid(&mut self) {
         if vis_start > 0 {
             draw_lato_hint(&mut self.display, "\u{2039}", 2, 56, KASPA_TEAL);
         }
-
-        self.draw_back_button();
     }
 
     /// Draw the full keyboard screen including keyboard layout (call on first draw or page change)
     pub fn draw_keyboard_screen_full(&mut self, pp_input: &crate::ui::seed_manager::PassphraseInput, title: &str) {
         self.display.clear(COLOR_BG).ok();
+
+        // Header — compact (only drawn on full redraw, not per-keypress)
+        let tw = measure_header(title);
+        draw_oswald_header(&mut self.display, title, (320 - tw) / 2, 26, COLOR_TEXT);
+        Line::new(Point::new(20, 36), Point::new(300, 36))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        self.draw_back_button();
+
+        // Input text + cursor (partial redraw area)
         self.draw_keyboard_screen(pp_input, title);
+
         crate::ui::keyboard::draw_keyboard(&mut self.display, crate::ui::keyboard::KeyboardMode::Full, pp_input.page);
     }
 
@@ -1813,7 +1821,7 @@ pub fn draw_home_grid(&mut self) {
         self.display.clear(COLOR_BG).ok();
         let mut title_buf: heapless::String<24> = heapless::String::new();
         core::fmt::Write::write_fmt(&mut title_buf,
-            format_args!("SeedQR ({} words)", word_count)).ok();
+            format_args!("SeedQR ({word_count} words)")).ok();
         let tw = measure_hint(title_buf.as_str());
         draw_lato_hint(&mut self.display, &title_buf, (320 - tw) / 2, 14, KASPA_TEAL);
 
@@ -1858,7 +1866,7 @@ pub fn draw_home_grid(&mut self) {
         let size_str = if word_count == 12 { "21x21" } else { "25x25" };
         let mut title_buf: heapless::String<32> = heapless::String::new();
         core::fmt::Write::write_fmt(&mut title_buf,
-            format_args!("CompactSeedQR {} ({}w)", size_str, word_count)).ok();
+            format_args!("CompactSeedQR {size_str} ({word_count}w)")).ok();
         let tw = measure_hint(title_buf.as_str());
         draw_lato_hint(&mut self.display, &title_buf, (320 - tw) / 2, 14, KASPA_TEAL);
 
@@ -1902,7 +1910,7 @@ pub fn draw_home_grid(&mut self) {
         self.display.clear(COLOR_BG).ok();
         let mut title_buf: heapless::String<32> = heapless::String::new();
         core::fmt::Write::write_fmt(&mut title_buf,
-            format_args!("Plain Words ({} words)", word_count)).ok();
+            format_args!("Plain Words ({word_count} words)")).ok();
         let tw = measure_hint(title_buf.as_str());
         draw_lato_hint(&mut self.display, &title_buf, (320 - tw) / 2, 14, KASPA_TEAL);
 
@@ -1996,7 +2004,7 @@ pub fn draw_home_grid(&mut self) {
                 let ry = grid_y0 + r as i32 * cell_px + cell_px / 2 + 4;
                 let letter = if row < 26 { (b'A' + row) as char } else { '?' };
                 let mut lbl: heapless::String<4> = heapless::String::new();
-                core::fmt::Write::write_fmt(&mut lbl, format_args!("{}", letter)).ok();
+                core::fmt::Write::write_fmt(&mut lbl, format_args!("{letter}")).ok();
                 draw_lato_hint(&mut self.display, &lbl, grid_x0 - 16, ry, KASPA_TEAL);
             }
 
@@ -2076,43 +2084,6 @@ pub fn draw_home_grid(&mut self) {
 
     /// Draw kpub export screen — shows the kpub string as a QR code
     /// for importing into Kaspium/KasWare as a watch-only wallet.
-    pub fn draw_export_kpub_screen(&mut self, kpub_str: &[u8], kpub_len: usize) {
-        self.display.clear(COLOR_BG).ok();
-        let tw = measure_hint("Watch-Only (kpub)");
-        draw_lato_hint(&mut self.display, "Watch-Only (kpub)", (320 - tw) / 2, 14, KASPA_TEAL);
-
-        if let Ok(qr) = crate::qr::encoder::encode(&kpub_str[..kpub_len]) {
-            let qr_size = qr.size as i32;
-            let scale = (200 / qr_size).max(1);
-            let total = qr_size * scale;
-            let offset_x = (DISPLAY_W as i32 - total) / 2;
-            let offset_y = 20 + (210 - total) / 2;
-
-            Rectangle::new(
-                Point::new(offset_x - 4, offset_y - 4),
-                Size::new((total + 8) as u32, (total + 8) as u32),
-            )
-            .into_styled(PrimitiveStyle::with_fill(COLOR_TEXT))
-            .draw(&mut self.display).ok();
-
-            for y in 0..qr_size {
-                for x in 0..qr_size {
-                    if qr.get(x as u8, y as u8) {
-                        Rectangle::new(
-                            Point::new(offset_x + x * scale, offset_y + y * scale),
-                            Size::new(scale as u32, scale as u32),
-                        )
-                        .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
-                        .draw(&mut self.display).ok();
-                    }
-                }
-            }
-        } else {
-            let ew = measure_title("QR Error");
-            draw_lato_title(&mut self.display, "QR Error", (320 - ew) / 2, 120, COLOR_DANGER);
-        }
-    }
-
     /// Draw export private key screen — shows hex string + QR
     /// WARNING: This shows sensitive key material on screen!
     pub fn draw_export_privkey_screen(&mut self, hex_str: &[u8; 64]) {
@@ -2581,7 +2552,7 @@ pub fn draw_home_grid(&mut self) {
         // Percentage text
         let pct = (brightness as u16 * 100 / 255) as u8;
         let mut pct_buf: heapless::String<8> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut pct_buf, format_args!("{}%", pct)).ok();
+        core::fmt::Write::write_fmt(&mut pct_buf, format_args!("{pct}%")).ok();
         let pw = measure_title(pct_buf.as_str());
         draw_lato_title(&mut self.display, &pct_buf, (320 - pw) / 2, 135, COLOR_TEXT);
     }
@@ -2790,7 +2761,7 @@ pub fn draw_home_grid(&mut self) {
             1 => "KEY", 2 => "xprv", 12 => "12-word seed", 24 => "24-word seed", _ => "seed",
         };
         let mut info_buf: heapless::String<40> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut info_buf, format_args!("Slot: {} ({})", fp_str, type_str)).ok();
+        core::fmt::Write::write_fmt(&mut info_buf, format_args!("Slot: {fp_str} ({type_str})")).ok();
         let iw = measure_body(&info_buf);
         draw_lato_body(&mut self.display, &info_buf, (320 - iw) / 2, 65, COLOR_TEXT);
 
@@ -2839,7 +2810,7 @@ pub fn draw_home_grid(&mut self) {
 
         // Word count subtitle centered
         let mut wc_buf: heapless::String<20> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut wc_buf, format_args!("{}-word child", word_count)).ok();
+        core::fmt::Write::write_fmt(&mut wc_buf, format_args!("{word_count}-word child")).ok();
         let wcw = measure_body(wc_buf.as_str());
         draw_lato_body(&mut self.display, &wc_buf, (320 - wcw) / 2, 58, COLOR_TEXT_DIM);
 
@@ -2869,7 +2840,7 @@ pub fn draw_home_grid(&mut self) {
 
         // Index value — white, large, centered
         let mut idx_buf: heapless::String<4> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut idx_buf, format_args!("{}", index)).ok();
+        core::fmt::Write::write_fmt(&mut idx_buf, format_args!("{index}")).ok();
         let idx_x = row_x + btn_sz as i32 + 10;
         let iw = measure_header(idx_buf.as_str());
         draw_oswald_header(&mut self.display, &idx_buf, idx_x + (50 - iw) / 2, row_y + 26, COLOR_TEXT);
@@ -2975,7 +2946,7 @@ pub fn draw_home_grid(&mut self) {
 
         // M value (big centered)
         let mut m_buf: heapless::String<4> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut m_buf, format_args!("{}", m)).ok();
+        core::fmt::Write::write_fmt(&mut m_buf, format_args!("{m}")).ok();
         let mvw = measure_big(m_buf.as_str());
         draw_rubik_big(&mut self.display, &m_buf, (320 - mvw) / 2, row_m_y + 30, KASPA_ACCENT);
 
@@ -3006,7 +2977,7 @@ pub fn draw_home_grid(&mut self) {
         draw_lato_title(&mut self.display, "-", 60 + (50 - nmw) / 2, row_n_y + 27, COLOR_TEXT);
 
         let mut n_buf: heapless::String<4> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut n_buf, format_args!("{}", n)).ok();
+        core::fmt::Write::write_fmt(&mut n_buf, format_args!("{n}")).ok();
         let nvw = measure_big(n_buf.as_str());
         draw_rubik_big(&mut self.display, &n_buf, (320 - nvw) / 2, row_n_y + 30, KASPA_ACCENT);
 
@@ -3096,7 +3067,7 @@ pub fn draw_home_grid(&mut self) {
         // Show keys collected so far
         if key_idx > 0 {
             let mut prog: heapless::String<16> = heapless::String::new();
-            core::fmt::Write::write_fmt(&mut prog, format_args!("{} key(s) added", key_idx)).ok();
+            core::fmt::Write::write_fmt(&mut prog, format_args!("{key_idx} key(s) added")).ok();
             let pw = measure_hint(prog.as_str());
             draw_lato_hint(&mut self.display, &prog, (320 - pw) / 2, 210, KASPA_ACCENT);
         }
@@ -3262,7 +3233,7 @@ pub fn draw_home_grid(&mut self) {
 
         // "2-of-3 multisig" label
         let mut info: heapless::String<24> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut info, format_args!("{} multisig", label)).ok();
+        core::fmt::Write::write_fmt(&mut info, format_args!("{label} multisig")).ok();
         let iw = measure_body(info.as_str());
         draw_lato_body(&mut self.display, &info, (320 - iw) / 2, 52, KASPA_ACCENT);
 
@@ -3307,7 +3278,7 @@ pub fn draw_home_grid(&mut self) {
 
         // "2-of-3 multisig" label
         let mut info: heapless::String<24> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut info, format_args!("{} multisig", label)).ok();
+        core::fmt::Write::write_fmt(&mut info, format_args!("{label} multisig")).ok();
         let iw = measure_body(info.as_str());
         draw_lato_body(&mut self.display, &info, (320 - iw) / 2, 55, KASPA_ACCENT);
 
@@ -3637,7 +3608,7 @@ pub fn draw_home_grid(&mut self) {
 
         // Character count
         let mut len_buf: heapless::String<16> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut len_buf, format_args!("{} characters", len)).ok();
+        core::fmt::Write::write_fmt(&mut len_buf, format_args!("{len} characters")).ok();
         let lw = measure_hint(len_buf.as_str());
         draw_lato_hint(&mut self.display, len_buf.as_str(), (320 - lw) / 2, 135, COLOR_HINT);
 
@@ -3861,7 +3832,7 @@ pub fn draw_home_grid(&mut self) {
             .draw(&mut self.display).ok();
 
         let mut msg_buf: heapless::String<64> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut msg_buf, format_args!("!! {} !!", message)).ok();
+        core::fmt::Write::write_fmt(&mut msg_buf, format_args!("!! {message} !!")).ok();
         let tw = measure_title(msg_buf.as_str());
         draw_lato_title(&mut self.display, msg_buf.as_str(), (320 - tw) / 2, 170, KASPA_TEAL);
 
@@ -3883,7 +3854,7 @@ pub fn draw_home_grid(&mut self) {
 
             use core::fmt::Write;
             let mut ver_text = heapless::String::<32>::new();
-            write!(&mut ver_text, "Version: {}", version).ok();
+            write!(&mut ver_text, "Version: {version}").ok();
             draw_lato_body(&mut self.display, ver_text.as_str(), 30, 115, COLOR_TEXT);
 
             draw_lato_body(&mut self.display, "Copy firmware.bin to SD card", 30, 150, COLOR_TEXT);
@@ -3947,126 +3918,189 @@ pub fn draw_home_grid(&mut self) {
 
     /// Draw the ShowQR popup: "Save to SD" / "Back to QR" with header back = main menu
     pub fn draw_showqr_popup(&mut self) {
-        self.display.clear(COLOR_BG).ok();
+        self.draw_two_button_popup(
+            "SIGNED TX",
+            &["Transaction signed successfully.", "Save to SD card or return", "to view the QR code."],
+            "Save to SD", "Back to QR",
+        );
+    }
 
-        let tw = measure_header("SIGNED TX");
-        draw_oswald_header(&mut self.display, "SIGNED TX", (320 - tw) / 2, 30, KASPA_TEAL);
-        Line::new(Point::new(20, 40), Point::new(300, 40))
-            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
-            .draw(&mut self.display).ok();
+    /// Draw kpub export popup: Save to SD / Back to QR (after showing kpub QR)
+    pub fn draw_kpub_export_popup(&mut self) {
+        self.draw_two_button_popup(
+            "KPUB EXPORTED",
+            &["Watch-only key exported.", "Save to SD card or return", "to view the QR code."],
+            "Save to SD", "Back to QR",
+        );
+    }
 
-        let w1 = measure_body("Transaction signed successfully.");
-        draw_lato_body(&mut self.display, "Transaction signed successfully.", (320 - w1) / 2, 75, COLOR_TEXT);
-        let w2 = measure_body("Save to SD card or return");
-        draw_lato_body(&mut self.display, "Save to SD card or return", (320 - w2) / 2, 95, COLOR_TEXT);
-        let w3 = measure_body("to view the QR code.");
-        draw_lato_body(&mut self.display, "to view the QR code.", (320 - w3) / 2, 115, COLOR_TEXT);
-
-        let btn_corner = CornerRadii::new(Size::new(6, 6));
-
-        // "Save to SD" button — left (teal, primary action)
-        let save_rect = Rectangle::new(Point::new(30, 140), Size::new(125, 45));
-        RoundedRectangle::new(save_rect, btn_corner)
-            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
-            .draw(&mut self.display).ok();
-        let sw = measure_title("Save to SD");
-        draw_lato_title(&mut self.display, "Save to SD", 30 + (125 - sw) / 2, 169, COLOR_BG);
-
-        // "Back to QR" button — right (card color, secondary)
-        let back_rect = Rectangle::new(Point::new(165, 140), Size::new(125, 45));
-        RoundedRectangle::new(back_rect, btn_corner)
-            .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
-            .draw(&mut self.display).ok();
-        RoundedRectangle::new(back_rect, btn_corner)
-            .into_styled(PrimitiveStyle::with_stroke(COLOR_CARD_BORDER, 1))
-            .draw(&mut self.display).ok();
-        let bw = measure_title("Back to QR");
-        draw_lato_title(&mut self.display, "Back to QR", 165 + (125 - bw) / 2, 169, COLOR_TEXT);
-
-        self.draw_back_button();
+    /// Draw kpub scanned popup: Show QR / Save to SD
+    pub fn draw_kpub_scanned_popup(&mut self) {
+        self.draw_two_button_popup(
+            "KPUB SCANNED",
+            &["Watch-only key received.", "Display as QR or save to SD."],
+            "Show QR", "Save to SD",
+        );
     }
 
     /// Draw the KSPT encrypt ask screen: "Encrypt?" with Yes / No buttons
     pub fn draw_kspt_encrypt_ask(&mut self) {
-        self.display.clear(COLOR_BG).ok();
+        self.draw_two_button_popup(
+            "ENCRYPT FILE?",
+            &["Encrypt the file with a", "password before saving?"],
+            "Yes", "No",
+        );
+    }
 
-        let tw = measure_header("ENCRYPT FILE?");
-        draw_oswald_header(&mut self.display, "ENCRYPT FILE?", (320 - tw) / 2, 30, KASPA_TEAL);
-        Line::new(Point::new(20, 40), Point::new(300, 40))
-            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
-            .draw(&mut self.display).ok();
-
-        let w1 = measure_body("Encrypt the transaction file");
-        draw_lato_body(&mut self.display, "Encrypt the transaction file", (320 - w1) / 2, 75, COLOR_TEXT);
-        let w2 = measure_body("with a password before saving?");
-        draw_lato_body(&mut self.display, "with a password before saving?", (320 - w2) / 2, 95, COLOR_TEXT);
-        let w3 = measure_hint("KSPT data contains no private keys.");
-        draw_lato_hint(&mut self.display, "KSPT data contains no private keys.", (320 - w3) / 2, 120, COLOR_HINT);
-
-        let btn_corner = CornerRadii::new(Size::new(6, 6));
-
-        // "Yes" button — left (teal)
-        let yes_rect = Rectangle::new(Point::new(30, 140), Size::new(125, 45));
-        RoundedRectangle::new(yes_rect, btn_corner)
-            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
-            .draw(&mut self.display).ok();
-        let yw = measure_title("Yes");
-        draw_lato_title(&mut self.display, "Yes", 30 + (125 - yw) / 2, 169, COLOR_BG);
-
-        // "No" button — right (card)
-        let no_rect = Rectangle::new(Point::new(165, 140), Size::new(125, 45));
-        RoundedRectangle::new(no_rect, btn_corner)
-            .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
-            .draw(&mut self.display).ok();
-        RoundedRectangle::new(no_rect, btn_corner)
-            .into_styled(PrimitiveStyle::with_stroke(COLOR_CARD_BORDER, 1))
-            .draw(&mut self.display).ok();
-        let nw = measure_title("No");
-        draw_lato_title(&mut self.display, "No", 165 + (125 - nw) / 2, 169, COLOR_TEXT);
-
-        self.draw_back_button();
+    /// Generic Yes/No ask screen with custom header and body lines
+    pub fn draw_yes_no_ask(&mut self, header: &str, line1: &str, line2: &str) {
+        self.draw_two_button_popup(header, &[line1, line2], "Yes", "No");
     }
 
     /// Draw QR mode choice screen: "Auto Cycle" / "Manual" for multi-frame QR display
     pub fn draw_qr_mode_choice(&mut self) {
-        self.display.clear(COLOR_BG).ok();
-
-        let tw = measure_header("QR DISPLAY MODE");
-        draw_oswald_header(&mut self.display, "QR DISPLAY MODE", (320 - tw) / 2, 30, KASPA_TEAL);
-        Line::new(Point::new(20, 40), Point::new(300, 40))
-            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
-            .draw(&mut self.display).ok();
-
-        let w1 = measure_body("Multiple QR frames required.");
-        draw_lato_body(&mut self.display, "Multiple QR frames required.", (320 - w1) / 2, 75, COLOR_TEXT);
-        let w2 = measure_body("Choose display mode:");
-        draw_lato_body(&mut self.display, "Choose display mode:", (320 - w2) / 2, 95, COLOR_TEXT);
-
-        let btn_corner = CornerRadii::new(Size::new(6, 6));
-
-        // "Auto Cycle" button — left (teal, primary)
-        let auto_rect = Rectangle::new(Point::new(30, 140), Size::new(125, 45));
-        RoundedRectangle::new(auto_rect, btn_corner)
-            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
-            .draw(&mut self.display).ok();
-        let aw = measure_title("Auto Cycle");
-        draw_lato_title(&mut self.display, "Auto Cycle", 30 + (125 - aw) / 2, 169, COLOR_BG);
-
-        // "Manual" button — right (card, secondary)
-        let manual_rect = Rectangle::new(Point::new(165, 140), Size::new(125, 45));
-        RoundedRectangle::new(manual_rect, btn_corner)
-            .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
-            .draw(&mut self.display).ok();
-        RoundedRectangle::new(manual_rect, btn_corner)
-            .into_styled(PrimitiveStyle::with_stroke(COLOR_CARD_BORDER, 1))
-            .draw(&mut self.display).ok();
-        let mw = measure_title("Manual");
-        draw_lato_title(&mut self.display, "Manual", 165 + (125 - mw) / 2, 169, COLOR_TEXT);
-
+        self.draw_two_button_popup(
+            "QR DISPLAY MODE",
+            &["Multiple QR frames required.", "Choose display mode:"],
+            "Auto Cycle", "Manual",
+        );
+        // Extra hint lines below buttons
         let h1 = measure_hint("Auto: frames cycle automatically");
         draw_lato_hint(&mut self.display, "Auto: frames cycle automatically", (320 - h1) / 2, 200, COLOR_HINT);
         let h2 = measure_hint("Manual: tap to advance frames");
         draw_lato_hint(&mut self.display, "Manual: tap to advance frames", (320 - h2) / 2, 216, COLOR_HINT);
+    }
+
+    /// Shared two-button popup layout: header + body lines + left (teal) / right (card) buttons + back.
+    /// Used by all Save/Back, Yes/No, and choice popups.
+    fn draw_two_button_popup(&mut self, header: &str, body: &[&str], left_label: &str, right_label: &str) {
+        self.display.clear(COLOR_BG).ok();
+
+        let tw = measure_header(header);
+        draw_oswald_header(&mut self.display, header, (320 - tw) / 2, 30, KASPA_TEAL);
+        Line::new(Point::new(20, 40), Point::new(300, 40))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        let y_positions: [i32; 3] = [75, 95, 115];
+        for (i, &line) in body.iter().enumerate() {
+            if i >= 3 { break; }
+            let w = measure_body(line);
+            draw_lato_body(&mut self.display, line, (320 - w) / 2, y_positions[i], COLOR_TEXT);
+        }
+
+        let btn_corner = CornerRadii::new(Size::new(6, 6));
+
+        // Left button (teal, primary)
+        let left_rect = Rectangle::new(Point::new(30, 140), Size::new(125, 45));
+        RoundedRectangle::new(left_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let lw = measure_title(left_label);
+        draw_lato_title(&mut self.display, left_label, 30 + (125 - lw) / 2, 169, COLOR_BG);
+
+        // Right button (card, secondary)
+        let right_rect = Rectangle::new(Point::new(165, 140), Size::new(125, 45));
+        RoundedRectangle::new(right_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
+            .draw(&mut self.display).ok();
+        RoundedRectangle::new(right_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_stroke(COLOR_CARD_BORDER, 1))
+            .draw(&mut self.display).ok();
+        let rw = measure_title(right_label);
+        draw_lato_title(&mut self.display, right_label, 165 + (125 - rw) / 2, 169, COLOR_TEXT);
+
+        self.draw_back_button();
+    }
+
+    pub fn draw_kpub_frame_count_choice(&mut self) {
+        self.display.clear(COLOR_BG).ok();
+
+        let tw = measure_header("KPUB EXPORT QR");
+        draw_oswald_header(&mut self.display, "KPUB EXPORT QR", (320 - tw) / 2, 30, KASPA_TEAL);
+        Line::new(Point::new(20, 40), Point::new(300, 40))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        let btn_corner = CornerRadii::new(Size::new(6, 6));
+
+        let bw: i32 = 130;
+        let bh: i32 = 55;
+        let by: i32 = 100;
+        let gap: i32 = 16;
+        let x0: i32 = (320 - 2 * bw - gap) / 2;
+
+        // "Single" — left
+        let r0 = Rectangle::new(Point::new(x0, by), Size::new(bw as u32, bh as u32));
+        RoundedRectangle::new(r0, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let tw0 = measure_title("Single");
+        draw_lato_title(&mut self.display, "Single", x0 + (bw - tw0) / 2, by + 35, COLOR_BG);
+
+        // "Multi-frame" — right
+        let x1 = x0 + bw + gap;
+        let r1 = Rectangle::new(Point::new(x1, by), Size::new(bw as u32, bh as u32));
+        RoundedRectangle::new(r1, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let tw1 = measure_title("Multi");
+        draw_lato_title(&mut self.display, "Multi", x1 + (bw - tw1) / 2, by + 35, COLOR_BG);
+
+        // Hints below buttons
+        let h0 = measure_hint("1 QR code");
+        draw_lato_hint(&mut self.display, "1 QR code", x0 + (bw - h0) / 2, by + bh + 14, COLOR_HINT);
+        let h1 = measure_hint("4 large QR codes");
+        draw_lato_hint(&mut self.display, "4 large QR codes", x1 + (bw - h1) / 2, by + bh + 14, COLOR_HINT);
+
+        let h2 = measure_hint("Multi-frame for device-to-device scan");
+        draw_lato_hint(&mut self.display, "Multi-frame for device-to-device scan", (320 - h2) / 2, 216, COLOR_HINT);
+
+        self.draw_back_button();
+    }
+
+    pub fn draw_kspt_frame_choice(&mut self) {
+        self.display.clear(COLOR_BG).ok();
+
+        let tw = measure_header("SIGNED TX QR");
+        draw_oswald_header(&mut self.display, "SIGNED TX QR", (320 - tw) / 2, 30, KASPA_TEAL);
+        Line::new(Point::new(20, 40), Point::new(300, 40))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        let btn_corner = CornerRadii::new(Size::new(6, 6));
+
+        let bw: i32 = 130;
+        let bh: i32 = 55;
+        let by: i32 = 100;
+        let gap: i32 = 16;
+        let x0: i32 = (320 - 2 * bw - gap) / 2;
+
+        // "Single" — left
+        let r0 = Rectangle::new(Point::new(x0, by), Size::new(bw as u32, bh as u32));
+        RoundedRectangle::new(r0, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let tw0 = measure_title("Single");
+        draw_lato_title(&mut self.display, "Single", x0 + (bw - tw0) / 2, by + 35, COLOR_BG);
+
+        // "Multi" — right
+        let x1 = x0 + bw + gap;
+        let r1 = Rectangle::new(Point::new(x1, by), Size::new(bw as u32, bh as u32));
+        RoundedRectangle::new(r1, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let tw1 = measure_title("Multi");
+        draw_lato_title(&mut self.display, "Multi", x1 + (bw - tw1) / 2, by + 35, COLOR_BG);
+
+        // Hints
+        let h0 = measure_hint("for phone/KasSee");
+        draw_lato_hint(&mut self.display, "for phone/KasSee", x0 + (bw - h0) / 2, by + bh + 14, COLOR_HINT);
+        let h1 = measure_hint("for device scan");
+        draw_lato_hint(&mut self.display, "for device scan", x1 + (bw - h1) / 2, by + bh + 14, COLOR_HINT);
+
+        let h2 = measure_hint("Multi-frame for device-to-device scan");
+        draw_lato_hint(&mut self.display, "Multi-frame for device-to-device scan", (320 - h2) / 2, 216, COLOR_HINT);
 
         self.draw_back_button();
     }

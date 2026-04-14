@@ -1,1188 +1,156 @@
 %PDF-1.4
-%âãÏÓ
+%“Œ‹ž ReportLab Generated PDF document (opensource)
 1 0 obj
 <<
-/Producer (pypdf)
+/F1 2 0 R /F2 3 0 R /F3 5 0 R
 >>
 endobj
 2 0 obj
 <<
-/Type /Pages
-/Count 5
-/Kids [ 4 0 R 13 0 R 16 0 R 19 0 R 22 0 R ]
+/BaseFont /Helvetica /Encoding /WinAnsiEncoding /Name /F1 /Subtype /Type1 /Type /Font
 >>
 endobj
 3 0 obj
 <<
-/Type /Catalog
-/Pages 2 0 R
+/BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding /Name /F2 /Subtype /Type1 /Type /Font
 >>
 endobj
 4 0 obj
 <<
-/Contents 5 0 R
-/MediaBox [ 0 0 595.2756 841.8898 ]
-/Resources <<
-/Font 6 0 R
-/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
->>
-/Rotate 0
-/Trans <<
->>
-/Type /Page
-/Parent 2 0 R
+/Contents 13 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 12 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
 >>
 endobj
 5 0 obj
 <<
-/Filter [ /ASCII85Decode /FlateDecode ]
-/Length 1077
+/BaseFont /Courier /Encoding /WinAnsiEncoding /Name /F3 /Subtype /Type1 /Type /Font
 >>
-stream
-GatU2gN'&Y&:N^lqJiiA*mYjOMc8rtnn'P[9dP)+b?,/cCB<u77.K04#>&1-Mp#*NPlr!8e)thFDT%(bS+Y[>$K/B%0&JHm*3oX5,SICYE1KEn&N_1:9IL^G6VJ5WWFgB^FSd;5em\VA7>+MRILq>@RK*qWVilU87i7I"4>^R`Eo8'^i#m;Q^_A"C_*'5X3P>1Dq"o);>PAM9h]R7R(NTQh^0TZMB*m233GB8L6jO\U5Rr=BLr18W+!VsE9p'Le:m#c\9#b<LG9<Qjhk1$'.FCfn!aE0A%*pcX8uQ5l7/ql1j$HA"AJ.nXqk>d8:/c2fQ)dEbDiJPk6W`Dn9[+"@6>@>`Bd1N*4]RpZJCiD:*ls8'V[iC\JoF"OjKD1"Yr94bc/EG8Cs1O!W,GhBiLTqV>ZiHn#?^Yi).h($=I,dm9sCkF2H<ojJChtRK.JpGPnGS"8_/7?<7'/+c$r#NgV@mZ3@IM_>O]JD3OI)]hQ5G:W@,ic]=ae1:r60)?,7.Bd%qojM5KFWa_dt*4_Q"PMg<Y`m&L8_1enV.'g^A!>RX78;u\bMrQ^04oKK(Gk1O]ELcU21:?G,24.[gba$cKP57+6c+G?V^$HVq)hM9O3WT!^B5HaHm5$rf]Y!,-mFH8Yt-h#kYi2-tI04-LhYV@cf)\f_>gT>>iM]3>4K"%f+%@ojR4@X"cZrVTk]=!p+>7?u+ps(p-qDPGM[W,o=Ofl,sGdPdf/OV">V4/BHc/-#>A4Ics+;<WHD9q/P3.hHOlWN"%44b1tHSbrTHj8']ASZ>gn!a61c<D,aJ_mD#N<Gp<lJ)W>_918MK3SfNSNJ%'NORs_A7DU#q"Y]lJO1$0@u0\X.Mem#8T4[T4Aq.k):l[?43bV#.\/0?F7]UE[,p\<nYM<mf&F:b4p!\c!3[KNia=nUl(k(a7?YPj%itU]W&W?A>ljtE*lDXN<ZBt]l`kkN[k,!A%N(@<s":@FnGr>U(&1VcUPa3IDRp(YC9#IH)GTjj^$C&mq4jkQoY)-;i*QMR9!p&N8&53#8L[5'`$j`ppjSC;?a3tlVC'jS_)HuffgGBr,od\I~>
-endstream
 endobj
 6 0 obj
 <<
-/F1 7 0 R
-/F2 8 0 R
-/F3 9 0 R
-/F4 10 0 R
-/F5 11 0 R
-/F6 12 0 R
+/Contents 14 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 12 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
 >>
 endobj
 7 0 obj
 <<
-/BaseFont /Helvetica
-/Encoding /WinAnsiEncoding
-/Name /F1
-/Subtype /Type1
-/Type /Font
+/Contents 15 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 12 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
 >>
 endobj
 8 0 obj
 <<
-/BaseFont /Helvetica-Bold
-/Encoding /WinAnsiEncoding
-/Name /F2
-/Subtype /Type1
-/Type /Font
+/Contents 16 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 12 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
 >>
 endobj
 9 0 obj
 <<
-/BaseFont /Helvetica-Oblique
-/Encoding /WinAnsiEncoding
-/Name /F3
-/Subtype /Type1
-/Type /Font
+/Contents 17 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 12 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
 >>
 endobj
 10 0 obj
 <<
-/BaseFont /Courier
-/Encoding /WinAnsiEncoding
-/Name /F4
-/Subtype /Type1
-/Type /Font
+/PageMode /UseNone /Pages 12 0 R /Type /Catalog
 >>
 endobj
 11 0 obj
 <<
-/BaseFont /Symbol
-/Name /F5
-/Subtype /Type1
-/Type /Font
+/Author (\(anonymous\)) /CreationDate (D:20260414070336+00'00') /Creator (\(unspecified\)) /Keywords () /ModDate (D:20260414070336+00'00') /Producer (ReportLab PDF Library - \(opensource\)) 
+  /Subject (\(unspecified\)) /Title (\(anonymous\)) /Trapped /False
 >>
 endobj
 12 0 obj
 <<
-/BaseFont /ZapfDingbats
-/Name /F6
-/Subtype /Type1
-/Type /Font
+/Count 5 /Kids [ 4 0 R 6 0 R 7 0 R 8 0 R 9 0 R ] /Type /Pages
 >>
 endobj
 13 0 obj
 <<
-/Contents 14 0 R
-/MediaBox [ 0 0 595.2756 841.8898 ]
-/Resources <<
-/Font <<
-/F1 7 0 R
-/F1-0 15 0 R
-/F2 8 0 R
-/F3 9 0 R
-/F4 10 0 R
-/F5 11 0 R
-/F6 12 0 R
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 790
 >>
-/ProcSet [ /ImageB /ImageC /ImageI /PDF /Text ]
->>
-/Rotate 0
-/Trans <<
->>
-/Type /Page
-/Annots [ ]
-/Parent 2 0 R
->>
+stream
+Gatn#;,>q#&BE]*.IN<AeVt5(M;JN3+>a9),&OM1EE\FA0"/*HDneqY98dIBBs_W<k5P)QmejOC7/3Ur[;5k=$^dG_TJ7-<:du99="l3q:F!GKVD1Y2/FXerKSiae\C']U!ld0NV\,U7rh8iTmUd\;8iI_='J2)Y&Ec2D1(_fsP:VRo`et1a^.<aWB1BF-;#H"+(rj/h"MW^0'[porAGEspqcbE@_M!>G6XTD8$1$JX]'XV8#kpWr!#M3/e19:6E'G;fPE0/d)%e(;o+g#:G2nuq/5ud3Fkp`+T^SL21H8=JFK(qA%^;uA\Y7lNiW(i3%blL]ikNWn?E?,n4@ogVCu+Z'B3XTDKDjV-&hH0"c9\S'&)_ea<"PQV?C!l]o=>u)ZQ,npieK$o.GM"!A1>^KfI>/<R%_>6O$jJ%(H?Gl58;$Udh3':HmmYJLG9%R"hmAV9>N&:4Wa1mgQ',L`$s[2G)?4'*]EN<ej]]-5oQ-ipbogtr&VMD:9MC8XPd/\W!4a`\.$(IqPF6!F6T^$7&Hes)AS"b>kV%aWpJN\j[Z=JXYKp`<./k^SC]ssDg\cac>_d,VL_81N$S@T]!nFlYcpd^`X"r)Qt'TDlS,,^a]$!-;ObWe=u]_:mr:K&kS[o4l(BL-B6MXF?GUF)BSfb.bRJ]-.c:+*8nj5QbSi'?onpb87Fq)!G6=Ui3UU"f5Kr;\OXLlYT?hVHG7ULVmGu]'Fl1_TkJQAO;fHC)r`YIIq_6Ni'9R1@jJ2@bc?#UtTn5.th)YdbUanJCr;f&qQco~>endstream
 endobj
 14 0 obj
 <<
-/Length 5330
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 1676
 >>
 stream
-q
-1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
-q
-1 0 0 1 57.02362 764.5354 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (1. What You Need) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 757.8661 cm
-q
-1 w
-1 J
-.45098 .780392 .741176 RG
-n 0 0 m 481.2283 0 l S
-Q
-Q
-q
-1 0 0 1 82.20472 628.3386 cm
-q
-.101961 .419608 .352941 rg
-n 0 121.0236 430.8661 -28.50394 re f*
-.960784 .960784 .960784 rg
-n 0 92.51969 68.0315 -92.51969 re f*
-1 1 1 rg
-n 68.0315 92.51969 362.8346 -18.50394 re f*
-.960784 .960784 .960784 rg
-n 68.0315 74.01575 362.8346 -18.50394 re f*
-1 1 1 rg
-n 68.0315 55.51181 362.8346 -18.50394 re f*
-.960784 .960784 .960784 rg
-n 68.0315 37.00787 362.8346 -18.50394 re f*
-1 1 1 rg
-n 68.0315 18.50394 362.8346 -18.50394 re f*
-1 1 1 rg
-BT /F2 8 Tf 10 TL ET
-BT 1 0 0 1 5.669291 103.7717 Tm  T* ET
-BT 1 0 0 1 73.70079 108.7717 Tm (Waveshare ESP32-S3-) Tj T* ET
-BT 1 0 0 1 73.70079 98.77165 Tm (Touch-LCD-2) Tj T* ET
-BT 1 0 0 1 255.1181 108.7717 Tm (M5Stack CoreS3 /) Tj T* ET
-BT 1 0 0 1 255.1181 98.77165 Tm (CoreS3 Lite) Tj T* ET
-0 0 0 rg
-BT 1 0 0 1 5.669291 80.26772 Tm (Price) Tj T* ET
-BT /F1 8 Tf 10 TL ET
-BT 1 0 0 1 73.70079 80.26772 Tm (~$25) Tj T* ET
-BT 1 0 0 1 255.1181 80.26772 Tm (~$45) Tj T* ET
-BT /F2 8 Tf 10 TL ET
-BT 1 0 0 1 5.669291 61.76378 Tm (Display) Tj T* ET
-BT /F1 8 Tf 10 TL ET
-BT 1 0 0 1 73.70079 61.76378 Tm (ST7789T3 320\327240) Tj T* ET
-BT 1 0 0 1 255.1181 61.76378 Tm (ILI9342C 320\327240) Tj T* ET
-BT /F2 8 Tf 10 TL ET
-BT 1 0 0 1 5.669291 43.25984 Tm (Camera) Tj T* ET
-BT /F1 8 Tf 10 TL ET
-BT 1 0 0 1 73.70079 43.25984 Tm (OV5640 5MP autofocus) Tj T* ET
-BT 1 0 0 1 255.1181 43.25984 Tm (GC0308 QVGA) Tj T* ET
-BT /F2 8 Tf 10 TL ET
-BT 1 0 0 1 5.669291 24.75591 Tm (SD Card) Tj T* ET
-BT /F1 8 Tf 10 TL ET
-BT 1 0 0 1 73.70079 24.75591 Tm (SDHOST native \(fast\)) Tj T* ET
-BT 1 0 0 1 255.1181 24.75591 Tm (Bitbang SPI) Tj T* ET
-BT /F2 8 Tf 10 TL ET
-BT 1 0 0 1 5.669291 6.251969 Tm (Best for) Tj T* ET
-BT /F1 8 Tf 10 TL ET
-BT 1 0 0 1 73.70079 6.251969 Tm (QR scanning quality) Tj T* ET
-BT 1 0 0 1 255.1181 6.251969 Tm (Portability + speaker) Tj T* ET
-q
-1 J
-1 j
-.8 .8 .8 RG
-.4 w
-n 0 121.0236 m 430.8661 121.0236 l S
-n 0 0 m 430.8661 0 l S
-n 0 0 m 0 121.0236 l S
-n 430.8661 0 m 430.8661 121.0236 l S
-n 0 92.51969 m 430.8661 92.51969 l S
-n 0 74.01575 m 430.8661 74.01575 l S
-n 0 55.51181 m 430.8661 55.51181 l S
-n 0 37.00787 m 430.8661 37.00787 l S
-n 0 18.50394 m 430.8661 18.50394 l S
-n 68.0315 0 m 68.0315 121.0236 l S
-n 249.4488 0 m 249.4488 121.0236 l S
-Q
-Q
-Q
-q
-1 0 0 1 57.02362 622.6693 cm
-Q
-q
-1 0 0 1 57.02362 609.1693 cm
-q
-.101961 .101961 .101961 rg
-BT 1 0 0 1 0 4 Tm /F1 9.5 Tf 13.5 TL (You also need a computer \(macOS, Linux, or Windows\), a USB-C cable, and a terminal.) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 566.1614 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (2. Install the Build Toolchain) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 559.4921 cm
-q
-1 w
-1 J
-.45098 .780392 .741176 RG
-n 0 0 m 481.2283 0 l S
-Q
-Q
-q
-1 0 0 1 57.02362 528.4843 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 4 Tm /F2 10 Tf 14 TL (Step 1: Install Rust) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 495.1457 cm
-q
-.941176 .941176 .941176 rg
-n 2.834646 -8.503937 475.5591 39.00787 re f*
-Q
-q
-BT 1 0 0 1 11.33858 14 Tm 11 TL /F4 8 Tf .101961 .101961 .101961 rg (curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh) Tj  T* (source ~/.cargo/env) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 464.1378 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 4 Tm /F2 10 Tf 14 TL (Step 2: Install espup + espflash) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 430.7992 cm
-q
-.941176 .941176 .941176 rg
-n 2.834646 -8.503937 475.5591 39.00787 re f*
-Q
-q
-BT 1 0 0 1 11.33858 14 Tm 11 TL /F4 8 Tf .101961 .101961 .101961 rg (cargo install espup &) Tj (& espup install) Tj  T* (cargo install espflash) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 399.7913 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 4 Tm /F2 10 Tf 14 TL (Step 3: Clone and verify) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 366.4528 cm
-q
-.941176 .941176 .941176 rg
-n 2.834646 -8.503937 475.5591 39.00787 re f*
-Q
-q
-BT 1 0 0 1 11.33858 14 Tm 11 TL /F4 8 Tf .101961 .101961 .101961 rg (git clone https://github.com/InKasWeRust/KasSigner.git) Tj  T* (cd KasSigner/tools &) Tj (& cargo run --bin kassigner-setup &) Tj (& cd ..) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 323.4449 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (3. Build and Flash) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 316.7756 cm
-q
-1 w
-1 J
-.45098 .780392 .741176 RG
-n 0 0 m 481.2283 0 l S
-Q
-Q
-q
-1 0 0 1 57.02362 231.2717 cm
-q
-.941176 .941176 .941176 rg
-n 2.834646 -8.503937 475.5591 94.00787 re f*
-Q
-q
-BT 1 0 0 1 11.33858 69 Tm 11 TL /F4 8 Tf .101961 .101961 .101961 rg (# Waveshare:) Tj  T* (cd bootloader) Tj  T* (ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release) Tj  T*  T* (# M5Stack:) Tj  T* (cd bootloader) Tj  T* (cargo run --release --no-default-features --features m5stack) Tj T* ET
-Q
-Q
- 
-
-Q
-
-q
-0.0 0.0 595.2756 841.8898 re
-W
-n
-1 0 0 1 0 0 cm
-BT
-/F1-0 12 Tf
-14.4 TL
-ET
-BT
-/F1-0 7 Tf
-8.4 TL
-ET
-0.333333 0.333333 0.333333 rg
-BT
-1 0 0 1 51.02362 813.5433 Tm
-(KasSigner Quick Start Guide) Tj
-T*
-ET
-BT
-1 0 0 1 431.041 813.5433 Tm
-(github\056com\057InKasWeRust\057KasSigner) Tj
-T*
-ET
-0.866667 0.866667 0.866667 RG
-0.4 w
-n
-51.02362 809.2913 m
-544.252 809.2913 l
-S
-n
-51.02362 34.01575 m
-544.252 34.01575 l
-S
-BT
-1 0 0 1 279.7353 22.67717 Tm
-(Page 1 of 4) Tj
-T*
-ET
-Q
-
-
-endstream
+Gatm<D,8qH&H9tY)!OfID+hN]hG^Bqb#0X3ZjUCTFOEe&]6N"nCpK$@\4W[up7!=&=9l^kQ_KXR4>2c9j(E0VR.s%Lht%Suh?8Q<'W;2!"]0t60KFm^PFX?gC*Y246K0FSZ)`B$IHK.X!EIu^O*I?5U:'6L^dk:Q)#V?@'ORb#LXRH=h`rGi0&a$jYP:bXI"obD1;JV\`s`7`"(1Y?*Qr"K,P,_/4A+#_"[=Mj*4F-7G@gS6TtVV!m1>Jm^0CCo@FlJ(ZN\u#Au@Wa`m1p?7!uJ^ie<aV*%$p(^?#Fd:hBns*&e-SViq8t.`fL0$`I.(d5&lr%Ocmd-'Rgo<kp*.YI)rOd1N`u,A>DscO6>1B"4.e@tJ-7OE4O:6?hOP)@jE+Pe(UoKFXim#:+E)^r$mehb)e(*IZ2%lZHZRnRe7dGsc;lBN:!,KN4:8<K!=M#LoP\Z6(^4hi8-ufI[n4L;)P8-amSS[deUQTM9*#-BkNu09,#>^1$\6Q=mZ*5IstG=P9H#kE-4kILG7C.3?NMEsnA#@P_fre?#-+cJs2r-LtB;DnfLo5GD3#ktuK;X$Q3p@\'a,^#>2Z1r9,+:2I-dF)"pnjd?"oQ-I_H;.r&BBWDRX8r\&5<]k$.=HqD3h"%\RL+kf8bEr2!P?np7k*bIa'f%SJ\E%]kIG#-:KfC'?2K$O`o>>d#OD.fEAfjJn^Zl!LWdP^S'1eOMD`LJr$RVI`U!34>3Fh;26mkL<WN-cEOKcfP#h*_A:<u2L=dm@oo1Qo_=SAhDQ&E3lZWse=>cPYV&8TR/1gVd@mSEc\\[S&u*UXITmTMeY<P2/B,nO'S;oq^-ZDgc`5.!]ZXG-GtaH5It)87p_\']9cp$B\lI309I8d04"bc_-GRrL%3Xb>fBOe-a[^25d"'khu5iWk2*ZeK<_]%J39RMB8`<O4-D$qitm.<ZV;J;nVU88Q/l_2?LXd4V_#>5Yu?=Ul6fHBm<Cl-!@3r&`Ug7PJJ]K]?]Kg7m7M:0Bo04'"EH2fsLO^U+7dV*_I5!P.9q=2`2q9X64;03Of_a5ZmU>DiXspjiP'B@VVgDRlNZ&d2Wn$g!PK'qNoGU;f2C;EU4DH_6bgo,*&5ol6s\`F/1>Km*Oi,EdGV$0W>q;pAO1Q04_'Xdo&l?KCse@BB&oAt&)*gSL-MnY2d,'6-[%V+X7acifWqS)I0p8WJpk29CQLn=TD#QM9$"<og8628e=+ABsc3Crk)[<j>QZOr.t]@^oMV]$]j3p`a.9!%TId:AcZXIqXmL[7t;k(Ji*ISG_#cIRZnplC#[EXF9!s4C3EKa+ah7D1)>u6W4<GNo6^Q<R4eYgM.0DmU3:_XUfK=(MTe/B<a)"@7!pZ%)M%Heuf+<4G2T4fA0u&T-EN>%Y`gU]4'+sJVso916AKA'Ip+Pb#Uh0*1-,p>aA[+jQ<IK3&:5tB)pP%'Al*2jqDQEr;[YZRNh4eC8/XB:BTkU=*5@LW30%\nt=fc:WBm2i5a9%\"^S^\j+qFg)H&!SZ2dr-G76C[t,pGKJup&fQNfsR7oAZV%.I0$=9;V5J0(l*0!0'*$&@W6tbsP?@Em_^OM`tEV[=qpZ=Ts9^n'a_3lipXtta@M:[L#PH3?\DTaIHGKl`jHAGJTaYmf,_iW=;5-SE`+s0>,"+''d&jiLl@-<%'dP1t~>endstream
 endobj
 15 0 obj
 <<
-/BaseFont /Helvetica
-/Encoding /WinAnsiEncoding
-/Name /F1
-/Subtype /Type1
-/Type /Font
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 1924
 >>
+stream
+Gb!#\>>sQ?'RnqHE?<"M0t-*mD[QS<\(m-gBP2QeCaE,e-!.Cok25o(G#AR2Y'4JjC)BJmfoj)<gqI8'D#AG"s.fWS>JS@W"-*bI'f_fH_;[D`=FBo@6TYtGM:`0hEGK$4i:X!QlN`r'F[**^fT#E841(^n(G0%eKr@"9F"6.BB#ujQ.j?LRW`_rT@.>$a53`S<X*Af(3H5`SXKlG<<\LRC'IVKPQ[GU8>#csI`P9*N)hsXlL(R*AbBEg12f%652$Ff7$7;=a*YA8;\\N'5KYBWC&0kmKD)oleFFC@p*4$lo4?n^.mhH3gQm85.]&3^[7b?3BN][]p,pa:[5=I0_P"AZi,KY"1*?=+o#P%0+5ruV$[UqJ*VJWF!lJ4#3`nR%CT5kC9-`"]IW"&XlI0VmgDg%Nc9FFb86ASm_PO!sB9/eQ&1i9CY9F+)[JKBM='aP+:QMKA>Yj2f3E._[qdH/`<.BK<n+<rYt&4p:b]=ielOH9OAJI@5%5JcOI3Da$R;/Ua=Fp;[E3scYUHHHlS=EoPNI%c_*(g6!CLC]tG;WKhL8/[+@L5H^F4WSqmG7Zdj8;kC$$h9HI'4I3eq0!aoljBB?i#gh6qHaRG:/?8$LcG/`p;+Y.NM9Oq4J59k5+;HH_+2S6%/h1KZ2V<ZHF1aARWDsYi:H::[Q9:)-@ROkPRIZ+b%LgTfPi7FX^VT3DCq4_FG1'W6m^EIPhCMag6NEiY65ENpPfap:s!E/:'B`:d;G8u(M)Cf6)/??,cj2.D3LmS)VrfOdu0<?%6?aW0u6EkB@lmA(eUN%R7W!h4H3U\ap^"#8!')PVpGN$QDTnU%%XiFO^)i43@-+fe-IT;gZ*JJdgi!e[d<@cHN4@AUZ*_+hKogn"@"Jjq\JC1e'6bX8[ot$k2uPRn`+SEZ$l/M'NgNjbBeGKK"K:imC;tp-a?cR8N+<C\W1aMp_j5Vdm-dn'cX>%Aj(C+oa,e+Eed3(Fg3<gM+T?Q."t1&7)2GE2Mt-!n`:Nc69%I>&?r#3?+&*^)?&7kI5"2N\E5C"A"CkAYGG3N,20N2MNL6T]K.r^?qtuOj&;htS88qi>\P@I_O()s!XM7VB8%ds&$m=Apk*[E45ORUN!hIe"'OUhlC8k:.ns-4.W^ecl29uCnp5K."8ubl%P]if6"T9SnB/?+p@"f-?LdIodbLB!d.TPbJtr]BG%4DjniIaHHp+q5"&urb=J[#Y'*_KS/7m/bB>BG"T2q6Z$dM<6>aJ/ndM]^<!W:k='>.0E5@fC6U78P/Ia,^RMZ:*8"]+3fe9oQ>Ve4>+:GR7"4;g`EP(7/3:Rg;iO(fW."bm1:$r\<(RQEZ*PP"V/b6[t?["ksVgh<&`c7?IQ]TJX6JR@k!Y-]fOV,\4s\1,S-hSbk<on)12=OA+BBd7?:aI^.pkt!'MO_bC@RD^#$7=n-S$EA0WX_s.Ok%!!R``M=^GkG6Fp+_3uDSu*2RfOBaBsK"\Q4:Mfa+q6mV*lo0PAE^5MEO7^/]I1Km_cuu7.Q>:_PiaAhA/>oj!=DF69.H7ZVkRh'J?X4W$UiYnkZnaQGFMGgIePg8t5,\RM:C!<A#bT64mh%D\+TWj(cJ.,kp8E1<:Ai&VqH7P-I.*!U_5VB(k$(2YrJ,p7codPa4A>TVj]MRHd.j1L,QBTg(g!^:N(D21mhtYo;N:]fZ5td-_bs@]U;rD?Z=S"Xr15aBiu@KCjs=Wg%sBg&a?D`O*Op)qo*SclYfI@`U&2)ie&c@q?2GDDXn&0\rDL'Ni#hMikWQdjVA$:0$m,n:i5eT_:n^MN&[-_a3"'g9bru0I__*'cUGnB`/cJYgd!=KV4h`CL-<"X2'r8U5tAIrZI1_UZf1$SM:!pF'3"!_n7oCaYT4B-.^E7(m_6A1S*IrCH]HsO)X09@&E"'at%l7#E/mJkl~>endstream
 endobj
 16 0 obj
 <<
-/Contents 17 0 R
-/MediaBox [ 0 0 595.2756 841.8898 ]
-/Resources <<
-/Font <<
-/F1 7 0 R
-/F1-0 18 0 R
-/F2 8 0 R
-/F3 9 0 R
-/F4 10 0 R
-/F5 11 0 R
-/F6 12 0 R
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 1667
 >>
-/ProcSet [ /ImageB /ImageC /ImageI /PDF /Text ]
->>
-/Rotate 0
-/Trans <<
->>
-/Type /Page
-/Annots [ ]
-/Parent 2 0 R
->>
+stream
+Gb!#[D/\/e&H:NnEPR+@h/$8X/QiQ[$u$Wh_4!EESHT)s"LLR"X<gah.0nP0hbgg$97BGnoKs6:P)eVZ4a0$F6Pga?FfYO>%e+oSh2r)J#L`h253]uW1Rq7ur:=M`'&%m[$.a.FX+$`;<-,[e?#00:&e)GsY'(!p*2(_">(9F5iH)gLHnBWNJ;KuB^rMVYln(oG_=T[%?qX/M)%q-1%Vf20gna%j6o+4;#ZQ)mY"NWChj*Y3jUDF4*=P9uonh`*"2E9,7HY)*+;<sU/c1F`2sUN`%:nC$?\0F*%>Tf+p'.*!,X@b2!pTSjkk,llE1h6^47^/rC`#=U7^3[@Qmu7a18[u!%2\W)p&4U]cBeD\,7&!p"I&%K8bB(ri]9'Th0H"\[-fU\Psq1gKC`j:F*=YW.OYs/7Z2/YjM+BY5UhSlSAWV4I2a4U2g2?9OVG'<K<d.^7>AGTXlmGgZsU"&8-:oI6=AA>@&E]]28GMO5\=A#g;Z!oSenoN/[1UX6UerIONK*YD&A6S?P3D6FlrQg'nM_i9I,Nl@!"HsGp#QL8DlrnQnW$&TE.D6!1\L-<P8/F8X7bkA3UpFb3[mS"ee4KH"Na?.Do(8OpZCkD@4Bmi#4@B@sk$Qs!#@I%.7:*/n:nX>aW.40*so=.[*)^AX$Yd/#E\'1h&NI6]6s=SW"p#$>KuJK#!0mh"`M]1T%*ZG1'#[pOf)]`"!*DaZR%8\7Q%G$qp)8%slkSJgV)UmNCj`o8+LoCCP.X4VELe&3NqNis>t4DjBH:%rn?,pIWnSYblj7??an'p!mQ/qk`km"fo[H-H-=CKj_N#D)hAU]TK#0'`+W[IBHq?VQ+!=O,a.Kp0$jmet^Bg]$'8Gad!Q#'+J;ch)mu;W&@Ocq?7@+24$1W.Ria:e!]a;A3mW+]^BHFb2S1R'64NLqiYUbq7kOqP)S\5-FmpJdNro6W`Zkk0`K6'qG'cWJ1RZe`B7XSD\'j*L2<SFJ"H5Z3hK[5IldOUIl@9]](gN"27Yoa]Y>G93.E;#6aIjEWaZj@RPglIUSbtNTdJ=u???V)7^qL-,3h:,\DC#?iMDT'10W2Eo"T/MfniiubKT=.F9$%CC[8kmBOek>f_t-JNXK*YAa=_,@EN:@SnoX?20!!)<g'lcJC.#mP\_i$XJ#8hY*U/-3>XM6ZFbQpAaU*.iHiamEHF7LcYgsmh5DTqT&h_>\`\:!HRpuqA@-$g?*Q`<\;WC&o6O\jhj0P%G^&CgBB+/u4m!Af%V3##g`1i],9E\GMj'u=5Daj=R6qa5Vip4!]Z9*)'^*f24HLH8>Za-U[qsVX3DV#h]:b5O?L'jDlX"P^2j<LNebsSPrd=G(o]"%UXL%&<+Pk2oVYH0m$NGr]m%<3j>GS%6D7lQR%4(<93!lGmCEcfa*ToH^E19`-.4klR1d%RY6[=nB'_28Xi%dn'W*Fi3GV(m^1A,<Y96$*7cB1qbPmeGpZ#)-SphFO2k.SQl(9,1<>S6m./0*t)$%cJC#ja)8Xo]Iq?4q=pk(B#XPT`+nnq_ka=;lt!$a,a5Stk,VAZ>/+M+=>WM\S-Ai0F<LApDUe784)7q[GP[c$mjo\?-i,2@at/Z^2:T>\c20'dktrjb6Z5nI./+/S]ol.g,q(Q(Y_;=XIj!&/2&*bigCGKfB#4.Jn#@~>endstream
 endobj
 17 0 obj
 <<
-/Length 6660
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 311
 >>
 stream
-q
-1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
-q
-1 0 0 1 57.02362 764.5354 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (4. Create Your First Wallet) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 757.8661 cm
-q
-1 w
-1 J
-.45098 .780392 .741176 RG
-n 0 0 m 481.2283 0 l S
-Q
-Q
-q
-1 0 0 1 57.02362 735.8622 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Tap ) Tj /F2 9.5 Tf (Tools) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( ) Tj /F2 9.5 Tf (New Seed) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( choose ) Tj /F2 9.5 Tf (12 Words) Tj /F1 9.5 Tf ( or ) Tj /F2 9.5 Tf (24 Words) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 718.1102 cm
-q
-.101961 .101961 .101961 rg
-BT 1 0 0 1 22.67717 4 Tm /F1 9.5 Tf 13.5 TL (\177 Words generated from hardware TRNG + camera noise + ADC entropy) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 700.3583 cm
-q
-.101961 .101961 .101961 rg
-BT 1 0 0 1 22.67717 4 Tm /F1 9.5 Tf 13.5 TL (\177 Words shown one at a time \227 write each one on paper) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 682.6063 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Or tap ) Tj /F2 9.5 Tf (Dice Seed) Tj /F1 9.5 Tf ( for verifiable entropy \(roll a die 99 times\)) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 669.8504 cm
-Q
-q
-1 0 0 1 85.03937 628.8425 cm
-q
-1 .952941 .803922 rg
-n 0 41.00787 425.1969 -41.00787 re f*
-0 0 0 rg
-BT /F1 10 Tf 12 TL ET
-q
-1 0 0 1 8.503937 8.503937 cm
-q
-.101961 .101961 .101961 rg
-BT 1 0 0 1 0 15.5 Tm /F2 8.5 Tf 12 TL 2.469998 Tw (These words ARE your wallet. Anyone who sees them controls your funds. Write them down) Tj T* 0 Tw (physically. Do not photograph. Do not type into any internet-connected device.) Tj T* ET
-Q
-Q
-q
-1 J
-1 j
-1 .756863 .027451 RG
-.8 w
-n 0 41.00787 m 425.1969 41.00787 l S
-n 0 0 m 425.1969 0 l S
-n 0 0 m 0 41.00787 l S
-n 425.1969 0 m 425.1969 41.00787 l S
-Q
-Q
-Q
-q
-1 0 0 1 57.02362 620.3386 cm
-Q
-q
-1 0 0 1 57.02362 593.3386 cm
-q
-BT 1 0 0 1 0 17.5 Tm 1.252584 Tw 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (After the words, you're prompted for an optional ) Tj /F2 9.5 Tf (BIP39 passphrase) Tj /F1 9.5 Tf ( \(25th word\). This creates a hidden wallet:) Tj T* 0 Tw (words alone lead to a decoy, words + passphrase lead to the real wallet.) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 550.3307 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (5. Sign Your First Transaction) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 543.6614 cm
-q
-1 w
-1 J
-.45098 .780392 .741176 RG
-n 0 0 m 481.2283 0 l S
-Q
-Q
-q
-1 0 0 1 57.02362 510.6535 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 4 Tm /F2 12 Tf 16 TL (Export the watch-only key) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 488.6496 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Tap ) Tj /F2 9.5 Tf (Seeds) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( ) Tj /F2 9.5 Tf (Export) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( ) Tj /F2 9.5 Tf (kpub Watch-Only) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 470.8976 cm
-q
-.101961 .101961 .101961 rg
-BT 1 0 0 1 22.67717 4 Tm /F1 9.5 Tf 13.5 TL (\177 Import this kpub into KasSee \(the companion CLI\):) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 440.3937 cm
-q
-.941176 .941176 .941176 rg
-n 2.834646 -8.503937 475.5591 39.00787 re f*
-Q
-q
-BT 1 0 0 1 11.33858 14 Tm 11 TL /F4 8 Tf .101961 .101961 .101961 rg (cd kassee &) Tj (& cargo build --release) Tj  T* (./target/release/kassee import <) Tj (kpub_string) Tj (>) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 407.3858 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 4 Tm /F2 12 Tf 16 TL (Build the unsigned transaction) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 387.8819 cm
-q
-.941176 .941176 .941176 rg
-n 2.834646 -8.503937 475.5591 28.00787 re f*
-Q
-q
-.101961 .101961 .101961 rg
-BT 1 0 0 1 11.33858 3 Tm /F4 8 Tf 11 TL (kassee send kaspa:qp... 2.5) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 360.2087 cm
-q
-.101961 .101961 .101961 rg
-BT 1 0 0 1 0 4 Tm /F1 9.5 Tf 13.5 TL (KasSee builds a KSPT \(compact binary format\) and displays it as an animated QR.) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 327.2008 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 4 Tm /F2 12 Tf 16 TL (Scan ) Tj /F5 12 Tf 16 TL (\256) Tj /F2 12 Tf 16 TL ( Review ) Tj /F5 12 Tf 16 TL (\256) Tj /F2 12 Tf 16 TL ( Sign) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 305.1969 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 On the device: ) Tj /F2 9.5 Tf (Scan) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( point camera at the QR) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 287.4449 cm
-q
-.101961 .101961 .101961 rg
-BT 1 0 0 1 22.67717 4 Tm /F1 9.5 Tf 13.5 TL (\177 Review: total amount, fee, destination address) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 269.6929 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Tap ) Tj /F2 9.5 Tf (CONFIRM) Tj /F1 9.5 Tf ( to sign \(or ) Tj /F2 9.5 Tf (CANCEL) Tj /F1 9.5 Tf ( to abort\)) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 251.9409 cm
-q
-.101961 .101961 .101961 rg
-BT 1 0 0 1 22.67717 4 Tm /F1 9.5 Tf 13.5 TL (\177 Device shows signed KSPT as QR + hex over serial) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 218.9331 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 4 Tm /F2 12 Tf 16 TL (Broadcast) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 199.4291 cm
-q
-.941176 .941176 .941176 rg
-n 2.834646 -8.503937 475.5591 28.00787 re f*
-Q
-q
-BT 1 0 0 1 11.33858 3 Tm 11 TL /F4 8 Tf .101961 .101961 .101961 rg (kassee broadcast <) Tj (signed_hex) Tj (>) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 171.7559 cm
-q
-.101961 .101961 .101961 rg
-BT 1 0 0 1 0 4 Tm /F1 9.5 Tf 13.5 TL (KasSee connects to the Kaspa network and submits. On success, prints the TX ID.) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 157.5827 cm
-Q
-q
-1 0 0 1 85.03937 127.5748 cm
-q
-.831373 .929412 .854902 rg
-n 0 30.00787 425.1969 -30.00787 re f*
-0 0 0 rg
-BT /F1 10 Tf 12 TL ET
-q
-1 0 0 1 8.503937 8.503937 cm
-q
-.101961 .101961 .101961 rg
-BT 1 0 0 1 0 4 Tm /F2 9 Tf 13 TL 77.66796 0 Td /F6 9 Tf 13 TL (3) Tj /F2 9 Tf 13 TL ( Your first air-gapped hardware-signed Kaspa transaction.) Tj T* -77.66796 0 Td ET
-Q
-Q
-q
-1 J
-1 j
-.156863 .654902 .270588 RG
-.8 w
-n 0 30.00787 m 425.1969 30.00787 l S
-n 0 0 m 425.1969 0 l S
-n 0 0 m 0 30.00787 l S
-n 425.1969 0 m 425.1969 30.00787 l S
-Q
-Q
-Q
- 
-
-Q
-
-q
-0.0 0.0 595.2756 841.8898 re
-W
-n
-1 0 0 1 0 0 cm
-BT
-/F1-0 12 Tf
-14.4 TL
-ET
-BT
-/F1-0 7 Tf
-8.4 TL
-ET
-0.333333 0.333333 0.333333 rg
-BT
-1 0 0 1 51.02362 813.5433 Tm
-(KasSigner Quick Start Guide) Tj
-T*
-ET
-BT
-1 0 0 1 431.041 813.5433 Tm
-(github\056com\057InKasWeRust\057KasSigner) Tj
-T*
-ET
-0.866667 0.866667 0.866667 RG
-0.4 w
-n
-51.02362 809.2913 m
-544.252 809.2913 l
-S
-n
-51.02362 34.01575 m
-544.252 34.01575 l
-S
-BT
-1 0 0 1 279.7353 22.67717 Tm
-(Page 2 of 4) Tj
-T*
-ET
-Q
-
-
-endstream
-endobj
-18 0 obj
-<<
-/BaseFont /Helvetica
-/Encoding /WinAnsiEncoding
-/Name /F1
-/Subtype /Type1
-/Type /Font
->>
-endobj
-19 0 obj
-<<
-/Contents 20 0 R
-/MediaBox [ 0 0 595.2756 841.8898 ]
-/Resources <<
-/Font <<
-/F1 7 0 R
-/F1-0 21 0 R
-/F2 8 0 R
-/F3 9 0 R
-/F4 10 0 R
-/F5 11 0 R
-/F6 12 0 R
->>
-/ProcSet [ /ImageB /ImageC /ImageI /PDF /Text ]
->>
-/Rotate 0
-/Trans <<
->>
-/Type /Page
-/Annots [ ]
-/Parent 2 0 R
->>
-endobj
-20 0 obj
-<<
-/Length 5512
->>
-stream
-q
-1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
-q
-1 0 0 1 57.02362 764.5354 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (6. Backup Your Seed) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 757.8661 cm
-q
-1 w
-1 J
-.45098 .780392 .741176 RG
-n 0 0 m 481.2283 0 l S
-Q
-Q
-q
-1 0 0 1 57.02362 724.8583 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 4 Tm /F2 12 Tf 16 TL (Option A: Encrypted SD card) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 702.8543 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Insert FAT32 MicroSD ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Seeds ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Export ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( ) Tj /F2 9.5 Tf (Seed Backup to SD) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( enter password) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 685.1024 cm
-q
-.101961 .101961 .101961 rg
-BT 1 0 0 1 22.67717 4 Tm /F1 9.5 Tf 13.5 TL (\177 Restore: Tools ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Import from SD ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( select file ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( enter password) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 652.0945 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 4 Tm /F2 12 Tf 16 TL (Option B: Steganographic JPEG \(recommended\)) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 630.0906 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Seeds ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Export ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( ) Tj /F2 9.5 Tf (JPEG Stego Export) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( select photo ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( enter image descriptor) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 612.3386 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Three layers: steganography + AES-256-GCM + BIP39 passphrase. See ) Tj /F2 9.5 Tf (docs/STEGANOGRAPHY.md) Tj /F1 9.5 Tf (.) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 594.5866 cm
-q
-.101961 .101961 .101961 rg
-BT 1 0 0 1 22.67717 4 Tm /F1 9.5 Tf 13.5 TL (\177 Restore: Tools ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Stego Import ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( enter the exact descriptor) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 561.5787 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 4 Tm /F2 12 Tf 16 TL (Option C: SeedQR \(paper\)) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 539.5748 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 Seeds ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Export ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( ) Tj /F2 9.5 Tf (QR Export) Tj /F1 9.5 Tf ( ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( print or hand-copy the QR) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 526.8189 cm
-Q
-q
-1 0 0 1 85.03937 497.811 cm
-q
-1 .952941 .803922 rg
-n 0 29.00787 425.1969 -29.00787 re f*
-0 0 0 rg
-BT /F1 10 Tf 12 TL ET
-q
-1 0 0 1 8.503937 8.503937 cm
-q
-.101961 .101961 .101961 rg
-BT 1 0 0 1 0 3.5 Tm /F2 8.5 Tf 12 TL (SeedQR is unencrypted. Always use a BIP39 passphrase for real security.) Tj T* ET
-Q
-Q
-q
-1 J
-1 j
-1 .756863 .027451 RG
-.8 w
-n 0 29.00787 m 425.1969 29.00787 l S
-n 0 0 m 425.1969 0 l S
-n 0 0 m 0 29.00787 l S
-n 425.1969 0 m 425.1969 29.00787 l S
-Q
-Q
-Q
-q
-1 0 0 1 57.02362 454.8031 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (7. Tips and Features) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 448.1339 cm
-q
-1 w
-1 J
-.45098 .780392 .741176 RG
-n 0 0 m 481.2283 0 l S
-Q
-Q
-q
-1 0 0 1 57.02362 426.1299 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Multiple seeds:) Tj /F1 9.5 Tf ( up to 16 slots in RAM. Tap to switch.) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 408.378 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (BIP85 child seeds:) Tj /F1 9.5 Tf ( Tools ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( BIP85 Child \227 derive independent wallets.) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 390.626 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Multisig:) Tj /F1 9.5 Tf ( Tools ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Create Multisig \227 M-of-N addresses.) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 372.874 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Message signing:) Tj /F1 9.5 Tf ( Tools ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Sign Message \227 prove address ownership.) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 355.122 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Display mirror:) Tj /F1 9.5 Tf ( stream device screen to computer for demos.) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 337.3701 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Reproducible builds:) Tj /F1 9.5 Tf ( Docker-based, bit-identical on any machine.) Tj T* ET
-Q
-Q
- 
-
-Q
-
-q
-0.0 0.0 595.2756 841.8898 re
-W
-n
-1 0 0 1 0 0 cm
-BT
-/F1-0 12 Tf
-14.4 TL
-ET
-BT
-/F1-0 7 Tf
-8.4 TL
-ET
-0.333333 0.333333 0.333333 rg
-BT
-1 0 0 1 51.02362 813.5433 Tm
-(KasSigner Quick Start Guide) Tj
-T*
-ET
-BT
-1 0 0 1 431.041 813.5433 Tm
-(github\056com\057InKasWeRust\057KasSigner) Tj
-T*
-ET
-0.866667 0.866667 0.866667 RG
-0.4 w
-n
-51.02362 809.2913 m
-544.252 809.2913 l
-S
-n
-51.02362 34.01575 m
-544.252 34.01575 l
-S
-BT
-1 0 0 1 279.7353 22.67717 Tm
-(Page 3 of 4) Tj
-T*
-ET
-Q
-
-
-endstream
-endobj
-21 0 obj
-<<
-/BaseFont /Helvetica
-/Encoding /WinAnsiEncoding
-/Name /F1
-/Subtype /Type1
-/Type /Font
->>
-endobj
-22 0 obj
-<<
-/Contents 23 0 R
-/MediaBox [ 0 0 595.2756 841.8898 ]
-/Resources <<
-/Font <<
-/F1 7 0 R
-/F1-0 24 0 R
-/F2 8 0 R
-/F3 9 0 R
-/F4 10 0 R
-/F5 11 0 R
-/F6 12 0 R
->>
-/ProcSet [ /ImageB /ImageC /ImageI /PDF /Text ]
->>
-/Rotate 0
-/Trans <<
->>
-/Type /Page
-/Annots [ ]
-/Parent 2 0 R
->>
-endobj
-23 0 obj
-<<
-/Length 4151
->>
-stream
-q
-1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
-q
-1 0 0 1 57.02362 764.5354 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (8. Troubleshooting) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 757.8661 cm
-q
-1 w
-1 J
-.45098 .780392 .741176 RG
-n 0 0 m 481.2283 0 l S
-Q
-Q
-q
-1 0 0 1 57.02362 735.8622 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Stuck/frozen:) Tj /F1 9.5 Tf ( unplug USB, wait 10 seconds, reconnect.) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 718.1102 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (QR not scanning:) Tj /F1 9.5 Tf ( bright even lighting, 10\22615 cm distance, hold steady.) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 700.3583 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (SD not detected:) Tj /F1 9.5 Tf ( FAT32 only. Use Settings ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( SD Card ) Tj /F5 9.5 Tf 13.5 TL (\256) Tj /F1 9.5 Tf 13.5 TL ( Format.) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 682.6063 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Signing failed:) Tj /F1 9.5 Tf ( check correct seed is loaded and active \(fingerprint\).) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 664.8543 cm
-q
-BT 1 0 0 1 22.67717 4 Tm 13.5 TL /F1 9.5 Tf .101961 .101961 .101961 rg (\177 ) Tj /F2 9.5 Tf (Touch unresponsive:) Tj /F1 9.5 Tf ( tap-on-lift pattern. First tap wakes from sleep.) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 621.8465 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 6 Tm /F2 20 Tf 26 TL (9. Command Reference) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 615.1772 cm
-q
-1 w
-1 J
-.45098 .780392 .741176 RG
-n 0 0 m 481.2283 0 l S
-Q
-Q
-q
-1 0 0 1 57.02362 375.6732 cm
-q
-.941176 .941176 .941176 rg
-n 2.834646 -8.503937 475.5591 248.0079 re f*
-Q
-q
-BT 1 0 0 1 11.33858 223 Tm 11 TL /F4 8 Tf .101961 .101961 .101961 rg (# Clone) Tj  T* (git clone https://github.com/InKasWeRust/KasSigner.git) Tj  T* (cd KasSigner) Tj  T*  T* (# Environment check) Tj  T* (cd tools &) Tj (& cargo run --bin kassigner-setup &) Tj (& cd ..) Tj  T*  T* (# Build + flash \(Waveshare\)) Tj  T* (cd bootloader) Tj  T* (ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release) Tj  T*  T* (# Build + flash \(M5Stack\)) Tj  T* (cargo run --release --no-default-features --features m5stack) Tj  T*  T* (# Mirror \(separate terminal\)) Tj  T* (cd tools &) Tj (& cargo run --release --bin kassigner-mirror \\) Tj  T* (-- /dev/cu.usbmodem21201) Tj  T*  T* (# Docker reproducible build) Tj  T* (docker build -t kassigner-build .) Tj  T* (docker run --rm kassigner-build) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 347.3268 cm
-Q
-q
-1 0 0 1 57.02362 344.8268 cm
-q
-1.5 w
-1 J
-.45098 .780392 .741176 RG
-n 0 0 m 481.2283 0 l S
-Q
-Q
-q
-1 0 0 1 57.02362 291.4882 cm
-q
-.101961 .101961 .101961 rg
-BT 1 0 0 1 0 32.5 Tm /F1 9.5 Tf 14 TL .509432 Tw (What happens when you power off? Everything is gone. Every key, every seed, every passphrase \227 wiped from) Tj T* 0 Tw -0.064864 Tw (RAM. The device boots fresh every time. Your wallet lives in your backup. The device is just the tool that brings the) Tj T* 0 Tw (wallet to life temporarily, signs what needs signing, and then forgets.) Tj T* ET
-Q
-Q
-q
-1 0 0 1 57.02362 278.6496 cm
-q
-1.5 w
-1 J
-.45098 .780392 .741176 RG
-n 0 0 m 481.2283 0 l S
-Q
-Q
-q
-1 0 0 1 57.02362 252.4764 cm
-q
-.101961 .419608 .352941 rg
-BT 1 0 0 1 0 -1 Tm /F2 13 Tf 12 TL 122.1452 0 Td (KasSigner \227 An InKasWeRust Project) Tj T* -122.1452 0 Td ET
-Q
-Q
-q
-1 0 0 1 57.02362 234.8071 cm
-q
-.333333 .333333 .333333 rg
-BT 1 0 0 1 0 3 Tm /F4 9 Tf 12 TL 94.81417 0 Td (kassigner@proton.me | github.com/InKasWeRust/KasSigner) Tj T* -94.81417 0 Td ET
-Q
-Q
- 
-
-Q
-
-q
-0.0 0.0 595.2756 841.8898 re
-W
-n
-1 0 0 1 0 0 cm
-BT
-/F1-0 12 Tf
-14.4 TL
-ET
-BT
-/F1-0 7 Tf
-8.4 TL
-ET
-0.333333 0.333333 0.333333 rg
-BT
-1 0 0 1 51.02362 813.5433 Tm
-(KasSigner Quick Start Guide) Tj
-T*
-ET
-BT
-1 0 0 1 431.041 813.5433 Tm
-(github\056com\057InKasWeRust\057KasSigner) Tj
-T*
-ET
-0.866667 0.866667 0.866667 RG
-0.4 w
-n
-51.02362 809.2913 m
-544.252 809.2913 l
-S
-n
-51.02362 34.01575 m
-544.252 34.01575 l
-S
-BT
-1 0 0 1 279.7353 22.67717 Tm
-(Page 4 of 4) Tj
-T*
-ET
-Q
-
-
-endstream
-endobj
-24 0 obj
-<<
-/BaseFont /Helvetica
-/Encoding /WinAnsiEncoding
-/Name /F1
-/Subtype /Type1
-/Type /Font
->>
+GasJL5u5BP%#+0G(%2E!\8dt6bmfb"6?$<DBbrCslcOt9ZF7C8j"]r"aooSD*6EN8he.\0a*l6*i$ok\@B`%"K.U5ZHX$f`;g_D&6d?XsYhg%?kG:u!Ihebs'^QMga,-48SCDWfZElAF(/:K5.??[<)5.`X7b7;\i\(\@'8i@N+p]]hgb%9Y9i:!]SrH<\=lHfPg*2%%[iHNYHCJR'.DckZ9IBaP(7P%@L(jFpOjd7'\.9SZa$b(NP,mm,WWNfrB)`>4[VX\>ki0:T]=O^l`s7JrpUYjJX=g7S?Sp2,#cH,]KM\;MLMki~>endstream
 endobj
 xref
-0 25
+0 18
 0000000000 65535 f 
-0000000015 00000 n 
-0000000054 00000 n 
-0000000141 00000 n 
-0000000190 00000 n 
-0000000389 00000 n 
-0000001558 00000 n 
-0000001642 00000 n 
-0000001749 00000 n 
-0000001861 00000 n 
-0000001976 00000 n 
-0000002082 00000 n 
-0000002160 00000 n 
-0000002244 00000 n 
-0000002533 00000 n 
-0000007916 00000 n 
-0000008024 00000 n 
-0000008313 00000 n 
-0000015026 00000 n 
-0000015134 00000 n 
-0000015423 00000 n 
-0000020988 00000 n 
-0000021096 00000 n 
-0000021385 00000 n 
-0000025589 00000 n 
+0000000061 00000 n 
+0000000112 00000 n 
+0000000219 00000 n 
+0000000331 00000 n 
+0000000536 00000 n 
+0000000641 00000 n 
+0000000846 00000 n 
+0000001051 00000 n 
+0000001256 00000 n 
+0000001461 00000 n 
+0000001531 00000 n 
+0000001812 00000 n 
+0000001896 00000 n 
+0000002777 00000 n 
+0000004545 00000 n 
+0000006561 00000 n 
+0000008320 00000 n 
 trailer
 <<
-/Size 25
-/Root 3 0 R
-/Info 1 0 R
+/ID 
+[<3871997c9bd8464eacf5e714e1b57bb8><3871997c9bd8464eacf5e714e1b57bb8>]
+% ReportLab generated PDF document -- digest (opensource)
+
+/Info 11 0 R
+/Root 10 0 R
+/Size 18
 >>
 startxref
-25697
+8722
 %%EOF

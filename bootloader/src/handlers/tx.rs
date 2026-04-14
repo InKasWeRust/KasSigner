@@ -78,37 +78,37 @@ pub fn handle_tx_touch(
                         #[cfg(feature = "waveshare")]
                         if x > 40 || y > 40 {
                             if ad.cam_tune_active {
-                                // Slider track (y>=196, x=56..264)
-                                if y >= 196 && (56..=264).contains(&x) {
+                                // Slider track (y>=200, x=52..268) — padded around track at y=210
+                                if y >= 198 && (52..=268).contains(&x) {
                                     let clamped = (x as i32 - 56).max(0).min(208) as u32;
                                     ad.cam_tune_vals[ad.cam_tune_param as usize] = ((clamped * 255) / 208) as u8;
                                     ad.cam_tune_dirty = true;
                                     boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
                                 }
-                                // [-] button (left side, bottom half: x<56, y>=180)
-                                else if x < 56 && y >= 180 {
+                                // [-] button (visual: x=2..52, y=200..234)
+                                else if x <= 52 && y >= 195 {
                                     let p = ad.cam_tune_param as usize;
                                     ad.cam_tune_vals[p] = ad.cam_tune_vals[p].saturating_sub(8);
                                     ad.cam_tune_dirty = true;
                                     boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
                                 }
-                                // [+] button (right side, bottom: x>264, y>=180)
-                                else if x > 264 && y >= 180 {
+                                // [+] button (visual: x=268..318, y=200..234)
+                                else if x >= 265 && y >= 195 {
                                     let p = ad.cam_tune_param as usize;
                                     ad.cam_tune_vals[p] = ad.cam_tune_vals[p].saturating_add(8);
                                     ad.cam_tune_dirty = true;
                                     boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
                                 }
-                                // Right panel (x>=200)
-                                else if x >= 200 {
-                                    if y < 34 {
-                                        // EXIT button
+                                // Right panel (x>=198)
+                                else if x >= 198 {
+                                    if y <= 36 {
+                                        // EXIT button (visual: 202,2 → 318,34)
                                         ad.cam_tune_active = false;
                                         boot_display.draw_camera_screen("", "");
                                     } else if (36..180).contains(&y) {
-                                        // Param grid: col split at x=261, row_step=49
-                                        let col = if x < 261 { 0u8 } else { 1u8 };
-                                        let row = ((y as i32 - 36).max(0) / 49).min(2) as u8;
+                                        // Param grid: col split at x=259, row_step=47
+                                        let col = if x < 259 { 0u8 } else { 1u8 };
+                                        let row = ((y as i32 - 38).max(0) / 47).min(2) as u8;
                                         let idx = row * 2 + col;
                                         if idx < 6 && idx != ad.cam_tune_param {
                                             ad.cam_tune_param = idx;
@@ -117,8 +117,8 @@ pub fn handle_tx_touch(
                                     }
                                 }
                             } else {
-                                // Normal ScanQR — gear icon (x>=275, y<=45) → activate cam-tune
-                                if x >= 275 && y <= 45 {
+                                // Normal ScanQR — gear icon (x>=270, y<=48) → activate cam-tune
+                                if x >= 270 && y <= 48 {
                                     ad.cam_tune_active = true;
                                     boot_display.draw_camera_screen("", "");
                                     boot_display.draw_cam_tune_overlay(ad.cam_tune_param, &ad.cam_tune_vals);
@@ -367,16 +367,47 @@ pub fn handle_tx_touch(
                     }
                     crate::app::input::AppState::MultisigShowAddressQR => {
                         if is_back {
-                            ad.app.go_main_menu();
+                            ad.app.state = crate::app::input::AppState::MultisigShowAddress;
                         } else {
-                            // Tap → show descriptor
+                            // Tap → ask whether to save address to SD
+                            ad.app.state = crate::app::input::AppState::MultisigSaveAddrAsk;
+                        }
+                        needs_redraw = true;
+                    }
+                    crate::app::input::AppState::MultisigSaveAddrAsk => {
+                        if is_back {
+                            ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                        } else if (30..=155).contains(&x) && (140..=185).contains(&y) {
+                            // Yes — save address to SD: go to filename keyboard
+                            // Build the address string and store in kpub_data for later save
+                            let script_hash = wallet::sighash::blake2b_hash(
+                                &ad.ms_creating.script[..ad.ms_creating.script_len]);
+                            let mut addr_buf = [0u8; wallet::address::MAX_ADDR_LEN];
+                            let addr_len = wallet::address::encode_address(
+                                &script_hash, wallet::address::AddressType::P2SH, &mut addr_buf);
+                            ad.kpub_data[..addr_len].copy_from_slice(&addr_buf[..addr_len]);
+                            ad.kpub_len = addr_len;
+
+                            // Auto-increment: MS000001.TXT
+                            let next = crate::handlers::sd::scan_auto_increment(i2c, delay, b"MS", b"TXT");
+                            let name = crate::handlers::sd::format_auto_name(b"MS", next, b"TXT");
+                            ad.kspt_filename = name;
+                            ad.pp_input.reset();
+                            for j in 0..8usize {
+                                if name[j] != b' ' {
+                                    ad.pp_input.push_char(name[j]);
+                                }
+                            }
+                            ad.app.state = crate::app::input::AppState::SdMsAddrFilename;
+                        } else if (165..=290).contains(&x) && (140..=185).contains(&y) {
+                            // No — skip to descriptor
                             ad.app.state = crate::app::input::AppState::MultisigDescriptor;
                         }
                         needs_redraw = true;
                     }
                     crate::app::input::AppState::MultisigDescriptor => {
                         if is_back {
-                            ad.app.go_main_menu();
+                            ad.app.state = crate::app::input::AppState::MultisigShowAddress;
                         } else if (190..=230).contains(&y) && (170..=310).contains(&x) {
                                 // SD CARD button — write descriptor text to SD
                                 boot_display.draw_loading_screen("Saving to SD...");

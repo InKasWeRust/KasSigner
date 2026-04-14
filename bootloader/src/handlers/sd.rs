@@ -37,6 +37,120 @@ fn hex_nibble(ch: u8) -> u8 {
     }
 }
 
+/// Check if a file with the given 8.3 name exists on the SD card.
+/// Returns true if the file exists, false if not found or on SD error.
+fn sd_file_exists(
+    i2c: &mut esp_hal::i2c::master::I2c<'_, esp_hal::Blocking>,
+    delay: &mut esp_hal::delay::Delay,
+    name_83: &[u8; 11],
+) -> bool {
+    sdcard::with_sd_card(i2c, delay, |ct| {
+        let fat32 = sdcard::mount_fat32(ct)?;
+        sdcard::find_file_in_root(ct, &fat32, name_83)?;
+        Ok(())
+    }).is_ok()
+}
+
+/// Build an 8.3 filename from pp_input buffer with given 3-byte extension.
+/// Uppercases the name portion for FAT32 compatibility.
+pub(crate) fn build_filename_83(pp_buf: &[u8], pp_len: usize, ext: &[u8; 3]) -> [u8; 11] {
+    let mut name = [b' '; 11];
+    let len = pp_len.min(8);
+    for j in 0..len {
+        let c = pp_buf[j];
+        name[j] = if c >= b'a' && c <= b'z' { c - 32 } else { c };
+    }
+    name[8] = ext[0];
+    name[9] = ext[1];
+    name[10] = ext[2];
+    name
+}
+
+/// Write data to SD card, replacing any existing file with the same name.
+pub(crate) fn write_file_to_sd(
+    i2c: &mut esp_hal::i2c::master::I2c<'_, esp_hal::Blocking>,
+    delay: &mut esp_hal::delay::Delay,
+    fname: &[u8; 11],
+    data: &[u8],
+) -> Result<(), &'static str> {
+    sdcard::with_sd_card(i2c, delay, |ct| {
+        let fat32 = sdcard::mount_fat32(ct)?;
+        let _ = sdcard::delete_file(ct, &fat32, fname);
+        sdcard::create_file(ct, &fat32, fname, data)?;
+        Ok(())
+    })
+}
+
+/// Generate a 12-byte nonce from the ESP32-S3 hardware TRNG.
+pub(crate) fn generate_trng_nonce() -> [u8; 12] {
+    let mut nonce = [0u8; 12];
+    for i in 0..12 {
+        nonce[i] = unsafe {
+            core::ptr::read_volatile(0x6003_5000 as *const u32)
+        } as u8;
+    }
+    nonce
+}
+
+/// Scan SD card for the highest auto-increment number matching a prefix+extension pattern.
+/// Returns the next number (max_found + 1). Prefix is 2 bytes (e.g. "SD", "TX", "XP", "KP", "MS").
+pub(crate) fn scan_auto_increment(
+    i2c: &mut esp_hal::i2c::master::I2c<'_, esp_hal::Blocking>,
+    delay: &mut esp_hal::delay::Delay,
+    prefix: &[u8; 2],
+    ext: &[u8; 3],
+) -> u32 {
+    let mut max_num: u32 = 0;
+    let p0 = prefix[0];
+    let p1 = prefix[1];
+    let e0 = ext[0];
+    let e1 = ext[1];
+    let e2 = ext[2];
+    let scan_ok = sdcard::with_sd_card(i2c, delay, |ct| {
+        let fat32 = sdcard::mount_fat32(ct)?;
+        sdcard::list_root_dir(ct, &fat32, |entry| {
+            if entry.name[0] == p0 && entry.name[1] == p1
+                && entry.name[8] == e0 && entry.name[9] == e1 && entry.name[10] == e2
+            {
+                let mut n: u32 = 0;
+                let mut valid = true;
+                for k in 2..8usize {
+                    let c = entry.name[k];
+                    if c >= b'0' && c <= b'9' {
+                        n = n * 10 + (c - b'0') as u32;
+                    } else if c == b' ' {
+                        break;
+                    } else {
+                        valid = false;
+                        break;
+                    }
+                }
+                if valid && n > max_num { max_num = n; }
+            }
+            true
+        })?;
+        Ok(())
+    });
+    if scan_ok.is_err() { max_num = 0; }
+    max_num + 1
+}
+
+/// Format an auto-increment number into an 8.3 name: prefix(2) + zero-padded digits(6) + ext(3).
+pub(crate) fn format_auto_name(prefix: &[u8; 2], num: u32, ext: &[u8; 3]) -> [u8; 11] {
+    let mut name = [b'0'; 11];
+    name[0] = prefix[0];
+    name[1] = prefix[1];
+    let mut val = num;
+    for k in (2..8usize).rev() {
+        name[k] = b'0' + (val % 10) as u8;
+        val /= 10;
+    }
+    name[8] = ext[0];
+    name[9] = ext[1];
+    name[10] = ext[2];
+    name
+}
+
 /// Handle touch for SD backup/restore states. Returns Some(true) for redraw.
 /// Handle touch events for SD card backup/restore screens.
 #[inline(never)]
@@ -48,6 +162,8 @@ pub fn handle_sd_touch(
     i2c: &mut esp_hal::i2c::master::I2c<'_, esp_hal::Blocking>,
     _bb_card_type: &Option<sdcard::SdCardType>,
     list_zones: &[touch::TouchZone; 4],
+    page_up_zone: &touch::TouchZone,
+    page_down_zone: &touch::TouchZone,
     x: u16, y: u16, is_back: bool,
 ) -> Option<bool> {
     let mut needs_redraw = false;
@@ -57,9 +173,46 @@ pub fn handle_sd_touch(
                         if is_back {
                             ad.app.state = crate::app::input::AppState::ExportChoice;
                         } else if (85..=235).contains(&x) && y >= 205 {
-                            // "I understand" button → proceed to password entry
+                            // "I understand" button → filename keyboard first
+                            let next = scan_auto_increment(i2c, delay, b"SD", b"KAS");
+                            let name = format_auto_name(b"SD", next, b"KAS");
+                            ad.kspt_filename = name;
                             ad.pp_input.reset();
-                            ad.app.state = crate::app::input::AppState::SdBackupPassphrase;
+                            for j in 0..8usize {
+                                if name[j] != b' ' {
+                                    ad.pp_input.push_char(name[j]);
+                                }
+                            }
+                            ad.app.state = crate::app::input::AppState::SdSeedFilename;
+                        }
+                        needs_redraw = true;
+                    }
+                    crate::app::input::AppState::SdSeedFilename => {
+                        if is_back {
+                            ad.pp_input.reset();
+                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                        } else {
+                            match pp_keyboard_hit(x, y, &mut ad.pp_input) {
+                                2 => { ad.pp_input.next_page(); }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "SEED FILENAME"); needs_redraw = false; }
+                                5 => { /* no space in filenames */ }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "SEED FILENAME"); needs_redraw = false; }
+                                6 => {
+                                    // OK — build 8.3 filename, extension KAS
+                                    let name_83 = build_filename_83(&ad.pp_input.buf, ad.pp_input.len, b"KAS");
+                                    ad.kspt_filename = name_83;
+                                    // Check if file already exists on SD
+                                    if sd_file_exists(i2c, delay, &name_83) {
+                                        ad.sd_overwrite_next = crate::app::input::AppState::SdBackupPassphrase;
+                                        ad.sd_overwrite_back = crate::app::input::AppState::SdSeedFilename;
+                                        ad.app.state = crate::app::input::AppState::SdOverwriteWarning;
+                                    } else {
+                                        ad.pp_input.reset();
+                                        ad.app.state = crate::app::input::AppState::SdBackupPassphrase;
+                                    }
+                                }
+                                _ => {}
+                            }
                         }
                         needs_redraw = true;
                     }
@@ -77,13 +230,7 @@ pub fn handle_sd_touch(
                                     // Show encrypting screen with progress bar
                                     boot_display.draw_saving_screen("Encrypting seed...");
                                     let pp_bytes = &ad.pp_input.buf[..ad.pp_input.len];
-                                    // Generate nonce from TRNG
-                                    let mut nonce = [0u8; 12];
-                                    for i in 0..12 {
-                                        nonce[i] = unsafe {
-                                            core::ptr::read_volatile(0x6003_5000 as *const u32)
-                                        } as u8;
-                                    }
+                                    let nonce = generate_trng_nonce();
                                     let mut backup_buf = [0u8; sd_backup::MAX_BACKUP_SIZE];
                                     match sd_backup::encrypt_backup_progress(
                                         &ad.mnemonic_indices, ad.word_count,
@@ -98,17 +245,9 @@ pub fn handle_sd_touch(
                                             boot_display.draw_saving_screen("Writing to SD...");
                                             boot_display.update_progress_bar(50);
                                             delay.delay_millis(50); // flush display before SD takes SPI
-                                            // Generate filename from seed fingerprint
-                                            let fp = ad.seed_mgr.active_slot()
-                                                .map(|s| s.fingerprint)
-                                                .unwrap_or([0; 4]);
-                                            let fname = sd_backup::backup_filename(&fp);
-                                            let write_result = sdcard::with_sd_card(i2c, delay, |ct| {
-                                                let fat32 = sdcard::mount_fat32(ct)?;
-                                                let _ = sdcard::delete_file(ct, &fat32, &fname);
-                                                sdcard::create_file(ct, &fat32, &fname, &backup_buf[..backup_len])?;
-                                                Ok(())
-                                            });
+                                            // Use user-chosen filename from SdSeedFilename keyboard
+                                            let fname = ad.kspt_filename;
+                                            let write_result = write_file_to_sd(i2c, delay, &fname, &backup_buf[..backup_len]);
                                             sound::stop_ticking();
                                             match write_result {
                                                 Ok(()) => {
@@ -532,6 +671,35 @@ pub fn handle_sd_touch(
                         }
                         needs_redraw = true;
                     }
+                    crate::app::input::AppState::SdXprvFilename => {
+                        if is_back {
+                            ad.pp_input.reset();
+                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                        } else {
+                            match pp_keyboard_hit(x, y, &mut ad.pp_input) {
+                                2 => { ad.pp_input.next_page(); }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "XPRV FILENAME"); needs_redraw = false; }
+                                5 => { /* no space in filenames */ }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "XPRV FILENAME"); needs_redraw = false; }
+                                6 => {
+                                    // OK — build 8.3 filename, extension KAS
+                                    let name_83 = build_filename_83(&ad.pp_input.buf, ad.pp_input.len, b"KAS");
+                                    ad.kspt_filename = name_83;
+                                    // Check if file already exists on SD
+                                    if sd_file_exists(i2c, delay, &name_83) {
+                                        ad.sd_overwrite_next = crate::app::input::AppState::SdXprvExportPassphrase;
+                                        ad.sd_overwrite_back = crate::app::input::AppState::SdXprvFilename;
+                                        ad.app.state = crate::app::input::AppState::SdOverwriteWarning;
+                                    } else {
+                                        ad.pp_input.reset();
+                                        ad.app.state = crate::app::input::AppState::SdXprvExportPassphrase;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        needs_redraw = true;
+                    }
                     crate::app::input::AppState::SdXprvExportPassphrase => {
                         if is_back {
                             ad.pp_input.reset();
@@ -564,24 +732,16 @@ pub fn handle_sd_touch(
                                             boot_display.update_progress_bar(50);
                                             boot_display.draw_saving_screen("Encrypting...");
                                             boot_display.update_progress_bar(50);
-                                            let mut nonce = [0u8; 12];
-                                            for i in 0..12 {
-                                                nonce[i] = unsafe { core::ptr::read_volatile(0x6003_5000 as *const u32) } as u8;
-                                            }
+                                            let nonce = generate_trng_nonce();
                                             let mut enc_buf = [0u8; sd_backup::MAX_XPRV_BACKUP_SIZE];
                                             match sd_backup::encrypt_xprv_backup(&xprv_buf, xlen, pp_bytes, &nonce, &mut enc_buf) {
                                                 Ok(enc_len) => {
                                                     boot_display.update_progress_bar(70);
                                                     boot_display.draw_saving_screen("Writing to SD...");
                                                     boot_display.update_progress_bar(70);
-                                                    let fp = ad.seed_mgr.active_slot().map(|s| s.fingerprint).unwrap_or([0;4]);
-                                                    let fname = sd_backup::xprv_backup_filename(&fp);
-                                                    let write_result = sdcard::with_sd_card(i2c, delay, |ct| {
-                                                        let fat32 = sdcard::mount_fat32(ct)?;
-                                                        let _ = sdcard::delete_file(ct, &fat32, &fname);
-                                                        sdcard::create_file(ct, &fat32, &fname, &enc_buf[..enc_len])?;
-                                                        Ok(())
-                                                    });
+                                                    // Use user-chosen filename from SdXprvFilename keyboard
+                                                    let fname = ad.kspt_filename;
+                                                    let write_result = write_file_to_sd(i2c, delay, &fname, &enc_buf[..enc_len]);
                                                     match write_result {
                                                         Ok(()) => {
                                                             log!("[SD-XPRV] Wrote {} bytes", enc_len);
@@ -765,6 +925,10 @@ pub fn handle_sd_touch(
                         if is_back {
                             ad.sd_import_menu.reset();
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
+                        } else if page_up_zone.contains(x, y) && ad.sd_import_menu.can_page_up() {
+                            ad.sd_import_menu.page_up();
+                        } else if page_down_zone.contains(x, y) && ad.sd_import_menu.can_page_down() {
+                            ad.sd_import_menu.page_down();
                         } else {
                             // Chip-row list navigation
                             let mut tapped_item: Option<u8> = None;
@@ -894,6 +1058,136 @@ pub fn handle_sd_touch(
                                             delay.delay_millis(2000);
                                         }
                                     }
+                                    2 => {
+                                        // kpub — scan SD for .TXT files
+                                        ad.txt_import_type = 0;
+                                        if _bb_card_type.is_some() {
+                                            boot_display.draw_loading_screen("Scanning SD...");
+                                            ad.sd_file_count = 0;
+                                            ad.sd_file_scroll = 0;
+                                            let scan_result = sdcard::with_sd_card(i2c, delay, |ct| {
+                                                let fat32 = sdcard::mount_fat32(ct)?;
+                                                sdcard::list_root_dir(ct, &fat32, |entry| {
+                                                    if !entry.is_dir()
+                                                        && entry.file_size > 0
+                                                        && entry.file_size <= 256
+                                                        && (ad.sd_file_count as usize) < 8
+                                                        && entry.name[8] == b'T'
+                                                        && entry.name[9] == b'X'
+                                                        && entry.name[10] == b'T'
+                                                    {
+                                                        ad.sd_file_list[ad.sd_file_count as usize] = entry.name;
+                                                        ad.sd_file_count += 1;
+                                                    }
+                                                    true
+                                                })?;
+                                                Ok(())
+                                            });
+                                            match scan_result {
+                                                Ok(()) if ad.sd_file_count > 0 => {
+                                                    ad.app.state = crate::app::input::AppState::SdKpubFileList;
+                                                }
+                                                Ok(()) => {
+                                                    boot_display.draw_rejected_screen("No .TXT files found");
+                                                    delay.delay_millis(2000);
+                                                }
+                                                Err(e) => {
+                                                    log!("[SD-KPUB] Scan failed: {}", e);
+                                                    boot_display.draw_rejected_screen("SD read error");
+                                                    delay.delay_millis(2000);
+                                                }
+                                            }
+                                        } else {
+                                            boot_display.draw_rejected_screen("No SD card detected");
+                                            delay.delay_millis(2000);
+                                        }
+                                    }
+                                    3 => {
+                                        // Multisig Address — scan SD for .TXT files
+                                        ad.txt_import_type = 1;
+                                        if _bb_card_type.is_some() {
+                                            boot_display.draw_loading_screen("Scanning SD...");
+                                            ad.sd_file_count = 0;
+                                            ad.sd_file_scroll = 0;
+                                            let scan_result = sdcard::with_sd_card(i2c, delay, |ct| {
+                                                let fat32 = sdcard::mount_fat32(ct)?;
+                                                sdcard::list_root_dir(ct, &fat32, |entry| {
+                                                    if !entry.is_dir()
+                                                        && entry.file_size > 0
+                                                        && entry.file_size <= 256
+                                                        && (ad.sd_file_count as usize) < 8
+                                                        && entry.name[8] == b'T'
+                                                        && entry.name[9] == b'X'
+                                                        && entry.name[10] == b'T'
+                                                    {
+                                                        ad.sd_file_list[ad.sd_file_count as usize] = entry.name;
+                                                        ad.sd_file_count += 1;
+                                                    }
+                                                    true
+                                                })?;
+                                                Ok(())
+                                            });
+                                            match scan_result {
+                                                Ok(()) if ad.sd_file_count > 0 => {
+                                                    ad.app.state = crate::app::input::AppState::SdKpubFileList;
+                                                }
+                                                Ok(()) => {
+                                                    boot_display.draw_rejected_screen("No .TXT files found");
+                                                    delay.delay_millis(2000);
+                                                }
+                                                Err(_) => {
+                                                    boot_display.draw_rejected_screen("SD read error");
+                                                    delay.delay_millis(2000);
+                                                }
+                                            }
+                                        } else {
+                                            boot_display.draw_rejected_screen("No SD card detected");
+                                            delay.delay_millis(2000);
+                                        }
+                                    }
+                                    4 => {
+                                        // Multisig Descriptor — scan SD for .TXT files
+                                        ad.txt_import_type = 2;
+                                        if _bb_card_type.is_some() {
+                                            boot_display.draw_loading_screen("Scanning SD...");
+                                            ad.sd_file_count = 0;
+                                            ad.sd_file_scroll = 0;
+                                            let scan_result = sdcard::with_sd_card(i2c, delay, |ct| {
+                                                let fat32 = sdcard::mount_fat32(ct)?;
+                                                sdcard::list_root_dir(ct, &fat32, |entry| {
+                                                    if !entry.is_dir()
+                                                        && entry.file_size > 0
+                                                        && entry.file_size <= 512
+                                                        && (ad.sd_file_count as usize) < 8
+                                                        && entry.name[8] == b'T'
+                                                        && entry.name[9] == b'X'
+                                                        && entry.name[10] == b'T'
+                                                    {
+                                                        ad.sd_file_list[ad.sd_file_count as usize] = entry.name;
+                                                        ad.sd_file_count += 1;
+                                                    }
+                                                    true
+                                                })?;
+                                                Ok(())
+                                            });
+                                            match scan_result {
+                                                Ok(()) if ad.sd_file_count > 0 => {
+                                                    ad.app.state = crate::app::input::AppState::SdKpubFileList;
+                                                }
+                                                Ok(()) => {
+                                                    boot_display.draw_rejected_screen("No .TXT files found");
+                                                    delay.delay_millis(2000);
+                                                }
+                                                Err(_) => {
+                                                    boot_display.draw_rejected_screen("SD read error");
+                                                    delay.delay_millis(2000);
+                                                }
+                                            }
+                                        } else {
+                                            boot_display.draw_rejected_screen("No SD card detected");
+                                            delay.delay_millis(2000);
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
@@ -964,13 +1258,14 @@ pub fn handle_sd_touch(
                                                 ad.signed_qr_len = n;
                                                 ad.signed_qr_frame = 0;
                                                 ad.signed_qr_nframes = 0;
+                                                ad.signed_qr_large = false;
                                                 ad.tx_sigs_present = 0;
                                                 ad.tx_sigs_required = 0;
                                                 log!("[SD-KSPT] Loaded {} bytes from SD", n);
                                                 boot_display.draw_success_screen("TX loaded!");
                                                 sound::success(delay);
                                                 delay.delay_millis(1000);
-                                                ad.app.state = crate::app::input::AppState::ShowQR;
+                                                ad.app.state = crate::app::input::AppState::ShowQrFrameChoice;
                                             }
                                         }
                                         Err(e) => {
@@ -994,47 +1289,9 @@ pub fn handle_sd_touch(
                             // Save to SD button zone: center-left area
                             if (30..=155).contains(&x) && (140..=185).contains(&y) {
                                 // Save to SD → filename keyboard
-                                // Auto-increment: scan SD for highest TXnnnnnn.KSP number
-                                let mut max_num: u32 = 0;
-                                let scan_ok = sdcard::with_sd_card(i2c, delay, |ct| {
-                                    let fat32 = sdcard::mount_fat32(ct)?;
-                                    sdcard::list_root_dir(ct, &fat32, |entry| {
-                                        if entry.name[8] == b'K' && entry.name[9] == b'S' && entry.name[10] == b'P'
-                                            && entry.name[0] == b'T' && entry.name[1] == b'X'
-                                        {
-                                            // Parse digits from name[2..8]
-                                            let mut n: u32 = 0;
-                                            let mut valid = true;
-                                            for k in 2..8usize {
-                                                let c = entry.name[k];
-                                                if c >= b'0' && c <= b'9' {
-                                                    n = n * 10 + (c - b'0') as u32;
-                                                } else if c == b' ' {
-                                                    break;
-                                                } else {
-                                                    valid = false;
-                                                    break;
-                                                }
-                                            }
-                                            if valid && n > max_num { max_num = n; }
-                                        }
-                                        true
-                                    })?;
-                                    Ok(())
-                                });
-                                if scan_ok.is_err() { max_num = 0; }
-                                let next = max_num + 1;
-                                // Format as TX000001 (6 digits zero-padded)
-                                let mut name = *b"TX000001KSP";
-                                {
-                                    let mut val = next;
-                                    for k in (2..8usize).rev() {
-                                        name[k] = b'0' + (val % 10) as u8;
-                                        val /= 10;
-                                    }
-                                }
+                                let next = scan_auto_increment(i2c, delay, b"TX", b"KSP");
+                                let name = format_auto_name(b"TX", next, b"KSP");
                                 ad.kspt_filename = name;
-                                // Pre-fill pp_input with the readable part of the filename
                                 ad.pp_input.reset();
                                 for j in 0..8usize {
                                     if name[j] != b' ' {
@@ -1062,21 +1319,17 @@ pub fn handle_sd_touch(
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "FILENAME"); needs_redraw = false; }
                                 6 => {
                                     // OK — build 8.3 filename from input
-                                    let mut name_83 = [b' '; 11];
-                                    let len = ad.pp_input.len.min(8);
-                                    for j in 0..len {
-                                        let c = ad.pp_input.buf[j];
-                                        // Uppercase for FAT32 compatibility
-                                        name_83[j] = if c >= b'a' && c <= b'z' { c - 32 } else { c };
-                                    }
-                                    // Extension = KSP
-                                    name_83[8] = b'K';
-                                    name_83[9] = b'S';
-                                    name_83[10] = b'P';
+                                    let name_83 = build_filename_83(&ad.pp_input.buf, ad.pp_input.len, b"KSP");
                                     ad.kspt_filename = name_83;
-                                    ad.pp_input.reset();
-                                    // Ask whether to encrypt
-                                    ad.app.state = crate::app::input::AppState::SdKsptEncryptAsk;
+                                    // Check if file already exists on SD
+                                    if sd_file_exists(i2c, delay, &name_83) {
+                                        ad.sd_overwrite_next = crate::app::input::AppState::SdKsptEncryptAsk;
+                                        ad.sd_overwrite_back = crate::app::input::AppState::SdKsptFilename;
+                                        ad.app.state = crate::app::input::AppState::SdOverwriteWarning;
+                                    } else {
+                                        ad.pp_input.reset();
+                                        ad.app.state = crate::app::input::AppState::SdKsptEncryptAsk;
+                                    }
                                 }
                                 _ => {}
                             }
@@ -1099,12 +1352,7 @@ pub fn handle_sd_touch(
                                 boot_display.draw_saving_screen("Saving to SD...");
                                 let data = &ad.signed_qr_buf[..ad.signed_qr_len];
                                 let fname = ad.kspt_filename;
-                                let write_result = sdcard::with_sd_card(i2c, delay, |ct| {
-                                    let fat32 = sdcard::mount_fat32(ct)?;
-                                    let _ = sdcard::delete_file(ct, &fat32, &fname);
-                                    sdcard::create_file(ct, &fat32, &fname, data)?;
-                                    Ok(())
-                                });
+                                let write_result = write_file_to_sd(i2c, delay, &fname, data);
                                 sound::stop_ticking();
                                 match write_result {
                                     Ok(()) => {
@@ -1112,7 +1360,7 @@ pub fn handle_sd_touch(
                                         let dlen = sd_backup::format_83_display(&fname, &mut disp);
                                         let name_str = core::str::from_utf8(&disp[..dlen]).unwrap_or("?");
                                         log!("[SD-KSPT] Saved {} bytes as {}", ad.signed_qr_len, name_str);
-                                        boot_display.draw_success_screen("TX saved!");
+                                        boot_display.draw_success_screen("Saved!");
                                         sound::success(delay);
                                         delay.delay_millis(1500);
                                     }
@@ -1128,6 +1376,214 @@ pub fn handle_sd_touch(
                         }
                         needs_redraw = true;
                     }
+                    crate::app::input::AppState::SdKpubFileList => {
+                        if is_back {
+                            ad.sd_file_scroll = 0;
+                            ad.app.state = crate::app::input::AppState::SdImportMenu;
+                        } else {
+                            let max_vis: usize = 4;
+                            let scroll_off = ad.sd_file_scroll as usize;
+                            let can_page_up = scroll_off > 0;
+                            let can_page_down = (scroll_off + max_vis) < ad.sd_file_count as usize;
+
+                            if x < 40 && y >= 42 && can_page_up {
+                                if ad.sd_file_scroll >= max_vis as u8 {
+                                    ad.sd_file_scroll -= max_vis as u8;
+                                } else {
+                                    ad.sd_file_scroll = 0;
+                                }
+                            } else if x >= 280 && y >= 42 && can_page_down {
+                                ad.sd_file_scroll += max_vis as u8;
+                            } else {
+                                let mut tapped: Option<usize> = None;
+                                for slot in 0..4u8 {
+                                    if list_zones[slot as usize].contains(x, y) {
+                                        let idx = slot as usize + scroll_off;
+                                        if idx < ad.sd_file_count as usize {
+                                            tapped = Some(idx);
+                                        }
+                                        break;
+                                    }
+                                }
+                                if let Some(i) = tapped {
+                                    ad.sd_selected_file = ad.sd_file_list[i];
+                                    boot_display.draw_loading_screen("Reading kpub...");
+                                    let read_result = sdcard::with_sd_card(i2c, delay, |ct| {
+                                        let fat32 = sdcard::mount_fat32(ct)?;
+                                        let (entry, _, _) = sdcard::find_file_in_root(ct, &fat32, &ad.sd_selected_file)?;
+                                        let mut buf = [0u8; 512];
+                                        let n = sdcard::read_file(ct, &fat32, &entry, &mut buf)?;
+                                        Ok((buf, n))
+                                    });
+                                    match read_result {
+                                        Ok((buf, n)) => {
+                                            match ad.txt_import_type {
+                                                0 => {
+                                                    // kpub — display as multi-frame QR
+                                                    if n > 0 && n <= wallet::xpub::KPUB_MAX_LEN {
+                                                        ad.kpub_data[..n].copy_from_slice(&buf[..n]);
+                                                        ad.kpub_len = n;
+                                                        ad.kpub_frame = 0;
+                                                        ad.kpub_nframes = 0;
+                                                        ad.app.state = crate::app::input::AppState::ExportKpub;
+                                                    } else {
+                                                        boot_display.draw_rejected_screen("Invalid kpub file");
+                                                        delay.delay_millis(2000);
+                                                    }
+                                                }
+                                                1 => {
+                                                    // Multisig address — display as fullscreen QR
+                                                    if n > 0 && n <= 256 {
+                                                        ad.kpub_data[..n].copy_from_slice(&buf[..n]);
+                                                        ad.kpub_len = n;
+                                                        // Use draw_qr_fullscreen via ShowAddressQR-like state
+                                                        // Store in signed_qr_buf for QR display
+                                                        ad.signed_qr_buf[..n].copy_from_slice(&buf[..n]);
+                                                        ad.signed_qr_len = n;
+                                                        ad.signed_qr_frame = 0;
+                                                        ad.signed_qr_nframes = 0;
+                                                        ad.signed_qr_large = false;
+                                                        boot_display.draw_success_screen("Address loaded!");
+                                                        sound::success(delay);
+                                                        delay.delay_millis(1000);
+                                                        ad.app.state = crate::app::input::AppState::ShowQR;
+                                                    } else {
+                                                        boot_display.draw_rejected_screen("Invalid address file");
+                                                        delay.delay_millis(2000);
+                                                    }
+                                                }
+                                                2 => {
+                                                    // Multisig descriptor — display as text on screen
+                                                    if n > 0 && n <= 400 {
+                                                        ad.kpub_data[..n].copy_from_slice(&buf[..n]);
+                                                        ad.kpub_len = n;
+                                                        let text = core::str::from_utf8(&buf[..n]).unwrap_or("?");
+                                                        log!("[SD-DESC] Loaded: {}", text);
+                                                        boot_display.draw_success_screen("Descriptor loaded!");
+                                                        sound::success(delay);
+                                                        delay.delay_millis(1000);
+                                                        // Display descriptor as multi-frame QR
+                                                        ad.signed_qr_buf[..n].copy_from_slice(&buf[..n]);
+                                                        ad.signed_qr_len = n;
+                                                        ad.signed_qr_frame = 0;
+                                                        ad.signed_qr_nframes = 0;
+                                                        ad.signed_qr_large = false;
+                                                        ad.app.state = crate::app::input::AppState::ShowQrFrameChoice;
+                                                    } else {
+                                                        boot_display.draw_rejected_screen("Invalid descriptor");
+                                                        delay.delay_millis(2000);
+                                                    }
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                        Err(e) => {
+                                            log!("[SD-TXT] Read failed: {}", e);
+                                            boot_display.draw_rejected_screen("SD read error");
+                                            delay.delay_millis(2000);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        needs_redraw = true;
+                    }
+                    crate::app::input::AppState::SdKpubFilename => {
+                        if is_back {
+                            ad.pp_input.reset();
+                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                        } else {
+                            match pp_keyboard_hit(x, y, &mut ad.pp_input) {
+                                2 => { ad.pp_input.next_page(); }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "KPUB FILENAME"); needs_redraw = false; }
+                                5 => { /* no space in filenames */ }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "KPUB FILENAME"); needs_redraw = false; }
+                                6 => {
+                                    // OK — build 8.3 filename, extension TXT
+                                    let name_83 = build_filename_83(&ad.pp_input.buf, ad.pp_input.len, b"TXT");
+                                    ad.kspt_filename = name_83;
+                                    // Check if file already exists on SD
+                                    if sd_file_exists(i2c, delay, &name_83) {
+                                        ad.sd_overwrite_next = crate::app::input::AppState::SdKpubEncryptAsk;
+                                        ad.sd_overwrite_back = crate::app::input::AppState::SdKpubFilename;
+                                        ad.app.state = crate::app::input::AppState::SdOverwriteWarning;
+                                    } else {
+                                        ad.pp_input.reset();
+                                        ad.app.state = crate::app::input::AppState::SdKpubEncryptAsk;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        needs_redraw = true;
+                    }
+                    crate::app::input::AppState::SdMsAddrFilename => {
+                        if is_back {
+                            ad.pp_input.reset();
+                            ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                        } else {
+                            match pp_keyboard_hit(x, y, &mut ad.pp_input) {
+                                2 => { ad.pp_input.next_page(); }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "ADDRESS FILENAME"); needs_redraw = false; }
+                                5 => { /* no space in filenames */ }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "ADDRESS FILENAME"); needs_redraw = false; }
+                                6 => {
+                                    // OK — build 8.3 filename, extension TXT
+                                    let name_83 = build_filename_83(&ad.pp_input.buf, ad.pp_input.len, b"TXT");
+                                    ad.kspt_filename = name_83;
+                                    // Check if file already exists on SD
+                                    if sd_file_exists(i2c, delay, &name_83) {
+                                        ad.sd_overwrite_next = crate::app::input::AppState::SdMsAddrEncryptAsk;
+                                        ad.sd_overwrite_back = crate::app::input::AppState::SdMsAddrFilename;
+                                        ad.app.state = crate::app::input::AppState::SdOverwriteWarning;
+                                    } else {
+                                        ad.pp_input.reset();
+                                        ad.app.state = crate::app::input::AppState::SdMsAddrEncryptAsk;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        needs_redraw = true;
+                    }
+                    crate::app::input::AppState::SdMsAddrEncryptAsk => {
+                        if is_back {
+                            ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                        } else {
+                            if (30..=155).contains(&x) && (140..=185).contains(&y) {
+                                // Yes — encrypt: copy address into signed_qr_buf, reuse KSPT encrypt path
+                                let addr_len = ad.kpub_len;
+                                ad.signed_qr_buf[..addr_len].copy_from_slice(&ad.kpub_data[..addr_len]);
+                                ad.signed_qr_len = addr_len;
+                                ad.sd_txt_origin = 0; // multisig address
+                                // kspt_filename already has TXT extension — SdKsptEncryptPass
+                                // will detect TXT and return to MultisigDescriptor after save
+                                ad.pp_input.reset();
+                                ad.app.state = crate::app::input::AppState::SdKsptEncryptPass;
+                            } else if (165..=290).contains(&x) && (140..=185).contains(&y) {
+                                // No — write plain address to SD
+                                boot_display.draw_saving_screen("Saving address...");
+                                let data = &ad.kpub_data[..ad.kpub_len];
+                                let fname = ad.kspt_filename;
+                                let write_result = write_file_to_sd(i2c, delay, &fname, data);
+                                match write_result {
+                                    Ok(()) => {
+                                        boot_display.draw_success_screen("Address saved!");
+                                        sound::success(delay);
+                                        delay.delay_millis(1500);
+                                    }
+                                    Err(e) => {
+                                        log!("SD ms-addr write error: {}", e);
+                                        boot_display.draw_rejected_screen("SD write failed");
+                                        sound::beep_error(delay);
+                                        delay.delay_millis(2000);
+                                    }
+                                }
+                                ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                            }
+                        }
+                        needs_redraw = true;
+                    }
                     crate::app::input::AppState::SdKsptEncryptPass => {
                         if is_back {
                             ad.pp_input.reset();
@@ -1137,10 +1593,17 @@ pub fn handle_sd_touch(
                             // When loading, kspt_filename is still [' '; 11] or irrelevant
                             // Simplest: always go back to import menu when loading, popup when saving
                             if ad.kspt_filename[8] == b'K' && ad.kspt_filename[9] == b'S' && ad.kspt_filename[10] == b'P' {
-                                // We have a filename set → we're saving
+                                // KSPT save → back to encrypt ask
                                 ad.app.state = crate::app::input::AppState::SdKsptEncryptAsk;
+                            } else if ad.kspt_filename[8] == b'T' && ad.kspt_filename[9] == b'X' && ad.kspt_filename[10] == b'T' {
+                                // TXT encrypt → back to the relevant encrypt-ask
+                                if ad.sd_txt_origin == 1 {
+                                    ad.app.state = crate::app::input::AppState::SdKpubEncryptAsk;
+                                } else {
+                                    ad.app.state = crate::app::input::AppState::SdMsAddrEncryptAsk;
+                                }
                             } else {
-                                // We're loading an encrypted file
+                                // Loading an encrypted file
                                 ad.app.state = crate::app::input::AppState::SdKsptFileList;
                             }
                         } else {
@@ -1151,16 +1614,13 @@ pub fn handle_sd_touch(
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); needs_redraw = false; }
                                 6 => {
                                     // OK — check if we're encrypting (save) or decrypting (load)
-                                    if ad.kspt_filename[8] == b'K' && ad.kspt_filename[9] == b'S' && ad.kspt_filename[10] == b'P' {
+                                    let is_ksp = ad.kspt_filename[8] == b'K' && ad.kspt_filename[9] == b'S' && ad.kspt_filename[10] == b'P';
+                                    let is_txt = ad.kspt_filename[8] == b'T' && ad.kspt_filename[9] == b'X' && ad.kspt_filename[10] == b'T';
+                                    if is_ksp || is_txt {
                                         // SAVING: encrypt signed_qr_buf and write to SD
-                                        boot_display.draw_saving_screen("Encrypting TX...");
+                                        boot_display.draw_saving_screen("Encrypting...");
                                         let pp_bytes = &ad.pp_input.buf[..ad.pp_input.len];
-                                        let mut nonce = [0u8; 12];
-                                        for k in 0..12 {
-                                            nonce[k] = unsafe {
-                                                core::ptr::read_volatile(0x6003_5000 as *const u32)
-                                            } as u8;
-                                        }
+                                        let nonce = generate_trng_nonce();
                                         let data_len = ad.signed_qr_len;
                                         // Encrypt in a temp buffer: KAS\x03 + len(2B LE) + nonce(12) + ciphertext + tag(16)
                                         let enc_size = 4 + 2 + 12 + data_len + 16;
@@ -1191,12 +1651,7 @@ pub fn handle_sd_touch(
                                                     boot_display.update_progress_bar(70);
                                                     boot_display.draw_saving_screen("Writing to SD...");
                                                     let fname = ad.kspt_filename;
-                                                    let write_result = sdcard::with_sd_card(i2c, delay, |ct| {
-                                                        let fat32 = sdcard::mount_fat32(ct)?;
-                                                        let _ = sdcard::delete_file(ct, &fat32, &fname);
-                                                        sdcard::create_file(ct, &fat32, &fname, &enc_buf[..enc_size])?;
-                                                        Ok(())
-                                                    });
+                                                    let write_result = write_file_to_sd(i2c, delay, &fname, &enc_buf[..enc_size]);
                                                     sound::stop_ticking();
                                                     match write_result {
                                                         Ok(()) => {
@@ -1205,7 +1660,7 @@ pub fn handle_sd_touch(
                                                             let dlen = sd_backup::format_83_display(&fname, &mut disp_buf);
                                                             let name_str = core::str::from_utf8(&disp_buf[..dlen]).unwrap_or("?");
                                                             log!("[SD-KSPT] Encrypted {} bytes as {}", data_len, name_str);
-                                                            boot_display.draw_success_screen("TX saved!");
+                                                            boot_display.draw_success_screen("Saved!");
                                                             sound::success(delay);
                                                             delay.delay_millis(1500);
                                                         }
@@ -1230,7 +1685,15 @@ pub fn handle_sd_touch(
                                             delay.delay_millis(2000);
                                         }
                                         ad.pp_input.reset();
-                                        ad.app.go_main_menu();
+                                        if is_txt {
+                                            if ad.sd_txt_origin == 1 {
+                                                ad.app.state = crate::app::input::AppState::ExportChoice;
+                                            } else {
+                                                ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                                            }
+                                        } else {
+                                            ad.app.go_main_menu();
+                                        }
                                     } else {
                                         // LOADING: decrypt encrypted KSPT from signed_qr_buf
                                         boot_display.draw_loading_screen("Decrypting TX...");
@@ -1279,13 +1742,14 @@ pub fn handle_sd_touch(
                                                         ad.signed_qr_len = data_len;
                                                         ad.signed_qr_frame = 0;
                                                         ad.signed_qr_nframes = 0;
+                                                        ad.signed_qr_large = false;
                                                         ad.tx_sigs_present = 0;
                                                         ad.tx_sigs_required = 0;
                                                         log!("[SD-KSPT] Decrypted {} bytes", data_len);
                                                         boot_display.draw_success_screen("TX loaded!");
                                                         sound::success(delay);
                                                         delay.delay_millis(1000);
-                                                        ad.app.state = crate::app::input::AppState::ShowQR;
+                                                        ad.app.state = crate::app::input::AppState::ShowQrFrameChoice;
                                                     }
                                                     Err(_) => {
                                                         boot_display.draw_rejected_screen("Wrong password");
@@ -1334,6 +1798,59 @@ pub fn handle_sd_touch(
                                 ad.qr_manual_frames = true;
                                 ad.signed_qr_frame = 0;
                                 ad.app.state = crate::app::input::AppState::ShowQR;
+                            }
+                        }
+                        needs_redraw = true;
+                    }
+                    crate::app::input::AppState::SdOverwriteWarning => {
+                        if is_back {
+                            // Return to the filename keyboard that brought us here
+                            ad.app.state = ad.sd_overwrite_back;
+                        } else {
+                            // "Yes" button — left: proceed with overwrite
+                            if (30..=155).contains(&x) && (140..=185).contains(&y) {
+                                ad.pp_input.reset();
+                                ad.app.state = ad.sd_overwrite_next;
+                            }
+                            // "No" button — right: return to filename keyboard
+                            else if (165..=290).contains(&x) && (140..=185).contains(&y) {
+                                ad.app.state = ad.sd_overwrite_back;
+                            }
+                        }
+                        needs_redraw = true;
+                    }
+                    crate::app::input::AppState::SdKpubEncryptAsk => {
+                        if is_back {
+                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                        } else {
+                            if (30..=155).contains(&x) && (140..=185).contains(&y) {
+                                // Yes — encrypt: copy kpub into signed_qr_buf, reuse KSPT encrypt path
+                                let kpub_len = ad.kpub_len;
+                                ad.signed_qr_buf[..kpub_len].copy_from_slice(&ad.kpub_data[..kpub_len]);
+                                ad.signed_qr_len = kpub_len;
+                                ad.sd_txt_origin = 1; // kpub
+                                ad.pp_input.reset();
+                                ad.app.state = crate::app::input::AppState::SdKsptEncryptPass;
+                            } else if (165..=290).contains(&x) && (140..=185).contains(&y) {
+                                // No — write plain kpub to SD
+                                boot_display.draw_saving_screen("Saving kpub...");
+                                let data = &ad.kpub_data[..ad.kpub_len];
+                                let fname = ad.kspt_filename;
+                                let write_result = write_file_to_sd(i2c, delay, &fname, data);
+                                match write_result {
+                                    Ok(()) => {
+                                        boot_display.draw_success_screen("kpub saved!");
+                                        sound::success(delay);
+                                        delay.delay_millis(1500);
+                                    }
+                                    Err(e) => {
+                                        log!("SD kpub write error: {}", e);
+                                        boot_display.draw_rejected_screen("SD write failed");
+                                        sound::beep_error(delay);
+                                        delay.delay_millis(2000);
+                                    }
+                                }
+                                ad.app.state = crate::app::input::AppState::ExportChoice;
                             }
                         }
                         needs_redraw = true;

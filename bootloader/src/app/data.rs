@@ -73,6 +73,10 @@ pub struct AppData {
     // ─── Export ───
     pub kpub_data: [u8; wallet::xpub::KPUB_MAX_LEN],
     pub kpub_len: usize,
+    pub kpub_frame: u8,
+    pub kpub_nframes: u8,
+    pub kpub_manual_frames: bool,
+    pub kpub_user_nframes: u8, // user-chosen frame count (2/3/4), 0 = ask
     pub xprv_data: [u8; wallet::xpub::XPRV_MAX_LEN],
     pub xprv_len: usize,
 
@@ -81,10 +85,18 @@ pub struct AppData {
     pub sd_file_count: u8,
     pub sd_file_scroll: u8,
     pub sd_selected_file: [u8; 11],
+    /// TXT import type: 0=kpub, 1=multisig address, 2=multisig descriptor
+    pub txt_import_type: u8,
     /// KSPT save: 8.3 filename entered by user (8 name + 3 ext)
     pub kspt_filename: [u8; 11],
     /// KSPT save: whether user chose to encrypt
     pub kspt_encrypt: bool,
+    /// SD overwrite: state to go to after user confirms overwrite
+    pub sd_overwrite_next: crate::app::input::AppState,
+    /// SD overwrite: state to return to if user declines (filename keyboard)
+    pub sd_overwrite_back: crate::app::input::AppState,
+    /// SD TXT save origin: 0=multisig address, 1=kpub (used by SdKsptEncryptPass back-nav)
+    pub sd_txt_origin: u8,
     /// QR multi-frame display: true = manual tap-to-advance, false = auto-cycle
     pub qr_manual_frames: bool,
 
@@ -101,6 +113,7 @@ pub struct AppData {
     pub signed_qr_len: usize,
     pub signed_qr_frame: u8,
     pub signed_qr_nframes: u8,
+    pub signed_qr_large: bool, // true = multi-frame large QR for device-to-device
     /// Multisig signature status after signing (for ShowQR display)
     pub tx_sigs_present: u8,
     pub tx_sigs_required: u8,
@@ -187,8 +200,10 @@ pub fn new() -> Self {
             ),
             export_menu: crate::app::input::Menu::from_items(
                 &["Show Seed Words", "QR Export", "JPEG Stego Export",
-                  "kpub Watch-Only", "xprv Account",
-                  "Seed Backup to SD"]
+                  "kpub Watch-Only", "kpub to SD",
+                  "xprv Account",
+                  "Seed Backup to SD",
+                  "Private Key"]
             ),
             xprv_export_menu: crate::app::input::Menu::from_items(
                 &["Show as QR", "Encrypt to SD"]
@@ -205,7 +220,8 @@ pub fn new() -> Self {
                 &["Display", "Audio", "SD Card", "About"]
             ),
             sd_import_menu: crate::app::input::Menu::from_items(
-                &["Seed Backup", "Transaction"]
+                &["Seed Backup", "Transaction", "kpub (Watch-Only)",
+                  "Multisig Address", "Multisig Descriptor"]
             ),
 
             seed_mgr: seed_manager::SeedManager::new(),
@@ -238,6 +254,10 @@ pub fn new() -> Self {
 
             kpub_data: [0u8; wallet::xpub::KPUB_MAX_LEN],
             kpub_len: 0,
+            kpub_frame: 0,
+            kpub_nframes: 0,
+            kpub_manual_frames: false,
+            kpub_user_nframes: 0,
             xprv_data: [0u8; wallet::xpub::XPRV_MAX_LEN],
             xprv_len: 0,
 
@@ -245,8 +265,12 @@ pub fn new() -> Self {
             sd_file_count: 0,
             sd_file_scroll: 0,
             sd_selected_file: [b' '; 11],
+            txt_import_type: 0,
             kspt_filename: [b' '; 11],
             kspt_encrypt: false,
+            sd_overwrite_next: crate::app::input::AppState::MainMenu,
+            sd_overwrite_back: crate::app::input::AppState::MainMenu,
+            sd_txt_origin: 0,
             qr_manual_frames: false,
 
             demo_tx: wallet::transaction::Transaction::new(),
@@ -260,6 +284,7 @@ pub fn new() -> Self {
             signed_qr_len: 0,
             signed_qr_frame: 0,
             signed_qr_nframes: 0,
+            signed_qr_large: false,
             tx_sigs_present: 0,
             tx_sigs_required: 0,
             scanned_addr: [0u8; 80],
@@ -309,7 +334,9 @@ pub fn new() -> Self {
             #[cfg(feature = "waveshare")]
             cam_tune_param: 0,
             #[cfg(feature = "waveshare")]
-            cam_tune_vals: [0x2E, 0xD5, 0x6B, 0x24, 0x47, 0x9E],
+            // Proven QR scanning defaults (iPad screen decode): AEC=58/48 CTR=8B BRT=08 AGC=70 SHP=50
+            // [0]=AEC_H(0x3A0F) [1]=AEC_L(0x3A10) [2]=contrast(0x5586) [3]=brightness(0x5587) [4]=AGC_ceil(0x3A19) [5]=sharpness(0x5308)
+            cam_tune_vals: [0x58, 0x48, 0x8B, 0x08, 0x70, 0x50],
 
             #[cfg(feature = "waveshare")]
             cam_tap_x: 0,

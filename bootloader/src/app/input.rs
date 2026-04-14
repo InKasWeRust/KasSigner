@@ -356,6 +356,8 @@ pub enum AppState {
     Signing { input_idx: u8 },
     /// Showing signed QR code
     ShowQR,
+    /// Signed KSPT QR frame size choice: Single / Multi
+    ShowQrFrameChoice,
     /// Transaction was rejected
     Rejected,
     /// Show address screen
@@ -381,8 +383,16 @@ pub enum AppState {
     XprvExportMenu,
     /// Export plain BIP39 words as text QR code
     ExportPlainWordsQR,
-    /// Export account-level kpub as QR for watch-only wallet import
+    /// Export account-level kpub as multi-frame QR for watch-only wallet import
     ExportKpub,
+    /// kpub QR frame count choice: 2 / 3 / 4 frames
+    ExportKpubFrameCount,
+    /// kpub QR mode choice: Auto Cycle / Manual frame navigation
+    ExportKpubModeChoice,
+    /// kpub export popup: Save to SD / Back to QR (after showing kpub QR)
+    ExportKpubPopup,
+    /// kpub scanned popup: Show QR / Save to SD
+    KpubScannedPopup,
     /// Seed list — show all slots, tap to activate or manage
     SeedList,
     /// Confirm seed deletion — warning screen before erasing a slot
@@ -399,6 +409,8 @@ pub enum AppState {
     ImportPrivKey,
     /// Export private key as hex (show on screen / QR)
     ExportPrivKey,
+    /// Export private key: derivation index picker (numeric keypad)
+    ExportPrivKeyIndex,
     /// Choose export format: kpub QR or xprv QR
     ExportChoice,
     /// Show xprv as QR code
@@ -485,12 +497,30 @@ pub enum AppState {
     SdImportMenu,
     /// SD KSPT: list .KSP files on SD to load
     SdKsptFileList,
+    /// SD kpub file list — pick a .TXT file to import and display as QR
+    SdKpubFileList,
     /// ShowQR popup: Save to SD / Back to QR / header back = menu
     ShowQrPopup,
     /// SD KSPT: keyboard for naming the .KSP file before save
     SdKsptFilename,
+    /// SD kpub: keyboard for naming the .TXT file before save
+    SdKpubFilename,
+    /// SD seed backup: keyboard for naming the .KAS file before encrypt+save
+    SdSeedFilename,
+    /// SD xprv export: keyboard for naming the .KAS file before encrypt+save
+    SdXprvFilename,
+    /// SD multisig address: keyboard for naming the .TXT file before save
+    SdMsAddrFilename,
+    /// SD multisig address: ask user whether to encrypt
+    SdMsAddrEncryptAsk,
+    /// Multisig address: ask user whether to save address to SD
+    MultisigSaveAddrAsk,
     /// SD KSPT: ask user whether to encrypt the file
     SdKsptEncryptAsk,
+    /// SD overwrite warning: file already exists, confirm replace
+    SdOverwriteWarning,
+    /// SD kpub: ask user whether to encrypt the kpub file
+    SdKpubEncryptAsk,
     /// SD KSPT: password keyboard for encrypting .KSP file
     SdKsptEncryptPass,
     /// QR display mode choice: Auto Cycle / Manual (tap to advance)
@@ -611,12 +641,13 @@ pub fn new() -> Self {
             }
 
             // All sub-screens: any tap goes back to main
-            AppState::ShowQR | AppState::Rejected | AppState::About
+            AppState::ShowQR | AppState::ShowQrFrameChoice | AppState::Rejected | AppState::About
             | AppState::ShowAddress | AppState::ShowAddressQR | AppState::ScanQR
             | AppState::ViewSeed | AppState::SeedBackup { .. }
             | AppState::DiceRoll | AppState::ImportWord { .. }
             | AppState::CalcLastWord { .. } | AppState::ChooseWordCount { .. }
             | AppState::PassphraseEntry | AppState::ExportSeedQR | AppState::ExportKpub
+            | AppState::ExportKpubModeChoice | AppState::ExportKpubFrameCount | AppState::ExportKpubPopup | AppState::KpubScannedPopup
             | AppState::SeedList | AppState::DisplaySettings
             | AppState::AudioSettings | AppState::SdCardSettings
             | AppState::SignTxGuide
@@ -635,6 +666,7 @@ pub fn new() -> Self {
             | AppState::Bip85Index { .. } | AppState::Bip85Deriving
             | AppState::Bip85ShowWord { .. } | AppState::AddrIndexPicker
             | AppState::ImportPrivKey | AppState::ExportPrivKey
+            | AppState::ExportPrivKeyIndex
             | AppState::ExportChoice | AppState::ExportXprv
             | AppState::ExportCompactSeedQR
             | AppState::SeedQrGrid { .. }
@@ -642,14 +674,18 @@ pub fn new() -> Self {
             | AppState::SdFileList | AppState::SdRestorePassphrase | AppState::SdRestoreReading
             | AppState::SdDeleteConfirm
             | AppState::SdXprvExportPassphrase | AppState::SdXprvFileList | AppState::SdXprvImportPassphrase
-            | AppState::SdImportMenu | AppState::SdKsptFileList
-            | AppState::ShowQrPopup | AppState::SdKsptFilename
+            | AppState::SdImportMenu | AppState::SdKsptFileList | AppState::SdKpubFileList
+            | AppState::ShowQrPopup | AppState::SdKsptFilename | AppState::SdKpubFilename
+            | AppState::SdSeedFilename | AppState::SdXprvFilename | AppState::SdMsAddrFilename
+            | AppState::SdMsAddrEncryptAsk
             | AppState::SdKsptEncryptAsk | AppState::SdKsptEncryptPass
+            | AppState::SdOverwriteWarning | AppState::SdKpubEncryptAsk
             | AppState::ShowQrModeChoice
             | AppState::MultisigChooseMN | AppState::MultisigPickSeed { .. }
             | AppState::MultisigPickAddr { .. }
             | AppState::MultisigAddKey { .. } | AppState::MultisigShowAddress
             | AppState::MultisigShowAddressQR
+            | AppState::MultisigSaveAddrAsk
             | AppState::MultisigDescriptor
             | AppState::StegoModeSelect | AppState::StegoEmbed | AppState::StegoResult
             | AppState::StegoJpegPick | AppState::StegoJpegDescChoice | AppState::StegoJpegDescFile
@@ -681,7 +717,7 @@ pub fn new() -> Self {
         if let AppState::Signing { input_idx } = self.state {
             let next = input_idx + 1;
             if next >= self.total_inputs {
-                self.state = AppState::ShowQR;
+                self.state = AppState::ShowQrFrameChoice;
                 true
             } else {
                 self.state = AppState::Signing { input_idx: next };
@@ -787,7 +823,7 @@ pub fn run_tests() -> (u32, u32) {
 
         // Sign → QR → back to menu
         app.advance_signing();
-        let ok5 = app.state == AppState::ShowQR;
+        let ok5 = app.state == AppState::ShowQrFrameChoice;
 
         app.handle_boot(ButtonEvent::ShortPress);
         let ok6 = app.state == AppState::MainMenu;
@@ -824,7 +860,7 @@ pub fn handler_group(&self) -> HandlerGroup {
         match self {
             // Menu screens
             MainMenu | SeedsMenu | ToolsMenu | DiceRoll
-            | ChooseWordCount { .. } | ShowQR | Rejected | ViewSeed
+            | ChooseWordCount { .. } | ShowQR | ShowQrFrameChoice | Rejected | ViewSeed
                 => HandlerGroup::Menu,
 
             // Steganography flow
@@ -841,9 +877,12 @@ pub fn handler_group(&self) -> HandlerGroup {
             SdBackupWarning | SdBackupPassphrase | SdFileList
             | SdRestorePassphrase | SdDeleteConfirm | SdXprvExportPassphrase
             | SdXprvFileList | SdXprvImportPassphrase
-            | SdImportMenu | SdKsptFileList
-            | ShowQrPopup | SdKsptFilename
+            | SdImportMenu | SdKsptFileList | SdKpubFileList
+            | ShowQrPopup | SdKsptFilename | SdKpubFilename
+            | SdSeedFilename | SdXprvFilename | SdMsAddrFilename
+            | SdMsAddrEncryptAsk
             | SdKsptEncryptAsk | SdKsptEncryptPass
+            | SdOverwriteWarning | SdKpubEncryptAsk
             | ShowQrModeChoice
                 => HandlerGroup::Sd,
 
@@ -857,7 +896,8 @@ pub fn handler_group(&self) -> HandlerGroup {
             SeedBackup { .. } | ShowAddress | ShowAddressQR | AddrIndexPicker
             | ExportSeedQR | ExportCompactSeedQR | SeedQrGrid { .. }
             | QrExportMenu | XprvExportMenu | ExportPlainWordsQR
-            | ExportKpub | ExportXprv | ExportChoice | ExportPrivKey
+            | ExportKpub | ExportKpubFrameCount | ExportKpubModeChoice | ExportKpubPopup | KpubScannedPopup | ExportXprv | ExportChoice | ExportPrivKey
+            | ExportPrivKeyIndex
                 => HandlerGroup::Export,
 
             // Settings
@@ -868,7 +908,7 @@ pub fn handler_group(&self) -> HandlerGroup {
             ScanQR | ReviewTx { .. } | ConfirmTx | SignTxGuide
             | MultisigChooseMN | MultisigPickSeed { .. } | MultisigPickAddr { .. }
             | MultisigAddKey { .. } | MultisigShowAddress | MultisigShowAddressQR
-            | MultisigDescriptor
+            | MultisigSaveAddrAsk | MultisigDescriptor
             | SignMsgChoice | SignMsgType | SignMsgFile | SignMsgPreview | SignMsgResult
                 => HandlerGroup::Tx,
 

@@ -373,6 +373,7 @@ pub fn handle_signing_step(
                     // Reset frame state from any previous signing
                     ad.signed_qr_nframes = 0;
                     ad.signed_qr_frame = 0;
+                    ad.signed_qr_large = false;
                     ad.qr_manual_frames = false;
 
                     boot_display.draw_saving_screen("Signing TX...");
@@ -464,10 +465,11 @@ pub fn cycle_signed_qr(
                     return;
                 }
                 ad.signed_qr_frame = (ad.signed_qr_frame + 1) % ad.signed_qr_nframes;
-                let max_payload = 106usize;
-                let offset = ad.signed_qr_frame as usize * max_payload;
+                let n_frames = ad.signed_qr_nframes as usize;
+                let balanced = (ad.signed_qr_len + n_frames - 1) / n_frames;
+                let offset = ad.signed_qr_frame as usize * balanced;
                 let remaining = ad.signed_qr_len.saturating_sub(offset);
-                let frag_len = remaining.min(max_payload);
+                let frag_len = remaining.min(balanced);
                 if frag_len > 0 {
                     let mut frame_buf = [0u8; 134];
                     frame_buf[0] = ad.signed_qr_frame;

@@ -25,27 +25,27 @@ This produces binaries with converged self-verifying hashes. No signing keys nee
 cd /path/to/KasSigner
 
 # Build (includes hash convergence — 3 passes per target)
-docker build -t kassigner-build:v1.0.1 . 2>&1 | tee docker_build.log
+docker build -t kassigner-build:latest . 2>&1 | tee docker_build.log
 
 # Verify reproducibility (optional — run a second time with --no-cache)
-docker build --no-cache -t kassigner-build:v1.0.1-verify . 2>&1 | tee docker_verify.log
+docker build --no-cache -t kassigner-build:verify . 2>&1 | tee docker_verify.log
 
 # Compare hashes — should be identical
-docker run --rm kassigner-build:v1.0.1
-docker run --rm kassigner-build:v1.0.1-verify
+docker run --rm kassigner-build:latest
+docker run --rm kassigner-build:verify
 ```
 
 ### Extract binaries from Docker
 
 ```bash
 # Waveshare
-docker create --name ks-extract kassigner-build:v1.0.1
+docker create --name ks-extract kassigner-build:latest
 docker cp ks-extract:/build/kassigner-waveshare.bin kassigner-waveshare.bin
 docker rm ks-extract
 shasum -a 256 kassigner-waveshare.bin
 
 # M5Stack
-docker create --name ks-extract kassigner-build:v1.0.1
+docker create --name ks-extract kassigner-build:latest
 docker cp ks-extract:/build/kassigner-m5stack.bin kassigner-m5stack.bin
 docker rm ks-extract
 shasum -a 256 kassigner-m5stack.bin
@@ -92,7 +92,7 @@ and `espflash monitor --no-stub` for serial monitoring.
 
 ```bash
 # 1. Extract Docker binary (already hash-converged)
-docker create --name ks-extract kassigner-build:v1.0.1
+docker create --name ks-extract kassigner-build:latest
 docker cp ks-extract:/build/kassigner-waveshare.bin kassigner-waveshare.bin
 docker rm ks-extract
 
@@ -197,7 +197,7 @@ cargo run --release --no-default-features --features m5stack
 Or from Docker binary:
 
 ```bash
-docker create --name ks-extract kassigner-build:v1.0.1
+docker create --name ks-extract kassigner-build:latest
 docker cp ks-extract:/build/kassigner-m5stack.bin kassigner-m5stack.bin
 docker rm ks-extract
 
@@ -261,7 +261,7 @@ cargo build --release
 ### Docker `cat` produces oversized binary
 Use `docker cp` instead of `docker run cat`:
 ```bash
-docker create --name ks-extract kassigner-build:v1.0.1
+docker create --name ks-extract kassigner-build:latest
 docker cp ks-extract:/build/kassigner-waveshare.bin .
 docker rm ks-extract
 ```

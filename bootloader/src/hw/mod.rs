@@ -38,6 +38,9 @@ pub mod display;
 #[path = "camera_ov5640.rs"]
 pub mod camera;
 
+#[cfg(feature = "waveshare")]
+pub mod camera_ov2640;
+
 #[cfg(feature = "m5stack")]
 #[path = "camera_gc0308.rs"]
 pub mod camera;
@@ -98,6 +101,8 @@ pub mod board;
 pub mod lockdown;
 #[cfg(feature = "waveshare")]
 pub mod ov5640_af_fw;
+#[cfg(feature = "waveshare")]
+pub mod cam_dma;
 
 // ─── Screenshot (optional feature) ──────────────────────────
 #[cfg(feature = "screenshot")]

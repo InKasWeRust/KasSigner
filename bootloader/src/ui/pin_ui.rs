@@ -211,11 +211,6 @@ pub const KEY_LABELS: [[&str; 3]; 4] = [
     ["<", "0", "OK"],
 ];
 
-/// Get key rectangle position for rendering
-pub fn key_rect(row: usize, col: usize) -> (i32, i32, u32, u32) {
-    (KEY_X[col], KEY_Y[row], KEY_W as u32, KEY_H as u32)
-}
-
 /// Number of key rows
 pub const KEY_ROWS: usize = 4;
 /// Number of key columns

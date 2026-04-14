@@ -46,7 +46,7 @@ pub fn encode_address(pubkey: &[u8], addr_type: AddressType, out: &mut [u8; MAX_
     let pk_len = pubkey.len();
     let mut payload = [0u8; 34];
     payload[0] = addr_type as u8;
-    payload[1..1 + pk_len].copy_from_slice(pubkey);
+    payload[1..=pk_len].copy_from_slice(pubkey);
     let payload_len = 1 + pk_len;
 
     let mut data5 = [0u8; 56];

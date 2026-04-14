@@ -1,0 +1,12 @@
+[package]
+name = "rqrr"
+edition = "2021"
+version = "0.10.1-nostd"
+description = "QR code detection and decoding - no_std fork for KasSigner"
+license = "(MIT OR Apache-2.0) AND ISC"
+
+[dependencies]
+# No external dependencies — GF arithmetic is inline
+
+[features]
+default = []

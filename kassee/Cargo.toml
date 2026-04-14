@@ -7,7 +7,7 @@
 
 [package]
 name = "kassee-web"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 description = "KasSee Web — browser-based watch-only wallet for air-gapped KasSigner"
 license = "GPL-3.0"

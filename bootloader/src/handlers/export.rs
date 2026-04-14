@@ -20,6 +20,7 @@
 //         ExportSeedQR, ExportCompactSeedQR, SeedQrGrid,
 //         ExportKpub, ExportXprv, ExportChoice, ExportPrivKey
 
+use crate::log;
 use crate::{app::data::AppData, hw::display, hw::sdcard, ui::seed_manager, hw::touch, wallet};
 use crate::app::signing::derive_pubkey_from_acct;
 /// Handle touch events for export/display screens (address, QR, kpub, xprv).
@@ -29,6 +30,7 @@ pub fn handle_export_touch(
     ad: &mut AppData,
     boot_display: &mut display::BootDisplay<'_>,
     delay: &mut esp_hal::delay::Delay,
+    i2c: &mut esp_hal::i2c::master::I2c<'_, esp_hal::Blocking>,
     bb_card_type: &Option<sdcard::SdCardType>,
     list_zones: &[touch::TouchZone; 4],
     page_up_zone: &touch::TouchZone,
@@ -233,8 +235,107 @@ pub fn handle_export_touch(
                         needs_redraw = true;
                     }
                     crate::app::input::AppState::ExportKpub => {
-                        // Tap anywhere to go back
-                        ad.app.state = crate::app::input::AppState::SeedList;
+                        if is_back {
+                            ad.kpub_nframes = 0;
+                            ad.kpub_user_nframes = 0;
+                            ad.kpub_frame = 0;
+                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                        } else if ad.kpub_user_nframes == 1 {
+                            // Single frame: tap anywhere → popup (save/back)
+                            ad.app.state = crate::app::input::AppState::ExportKpubPopup;
+                        } else if ad.kpub_manual_frames {
+                            // Manual: tap anywhere advances, past last → popup
+                            if ad.kpub_frame + 1 >= ad.kpub_nframes {
+                                ad.kpub_frame = 0;
+                                ad.app.state = crate::app::input::AppState::ExportKpubPopup;
+                            } else {
+                                ad.kpub_frame += 1;
+                            }
+                        } else {
+                            // Auto: tap anywhere → popup
+                            ad.kpub_frame = 0;
+                            ad.app.state = crate::app::input::AppState::ExportKpubPopup;
+                        }
+                        needs_redraw = true;
+                    }
+                    crate::app::input::AppState::ExportKpubFrameCount => {
+                        if is_back {
+                            ad.kpub_nframes = 0;
+                            ad.kpub_user_nframes = 0;
+                            ad.kpub_frame = 0;
+                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                        } else if x < 160 {
+                            // Left: Single (1 frame — full kpub in one QR)
+                            ad.kpub_user_nframes = 1;
+                            ad.app.state = crate::app::input::AppState::ExportKpub;
+                        } else {
+                            // Right: Multi-frame (4 frames — large modules)
+                            ad.kpub_user_nframes = 4;
+                            ad.app.state = crate::app::input::AppState::ExportKpub;
+                        }
+                        needs_redraw = true;
+                    }
+                    crate::app::input::AppState::ExportKpubModeChoice => {
+                        if is_back {
+                            ad.kpub_nframes = 0;
+                            ad.kpub_user_nframes = 0;
+                            ad.kpub_frame = 0;
+                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                        } else if x < 160 {
+                            // Left button: Auto Cycle
+                            ad.kpub_manual_frames = false;
+                            ad.kpub_frame = 0;
+                            ad.app.state = crate::app::input::AppState::ExportKpub;
+                        } else {
+                            // Right button: Manual
+                            ad.kpub_manual_frames = true;
+                            ad.kpub_frame = 0;
+                            ad.app.state = crate::app::input::AppState::ExportKpub;
+                        }
+                        needs_redraw = true;
+                    }
+                    crate::app::input::AppState::KpubScannedPopup => {
+                        if is_back {
+                            ad.app.go_main_menu();
+                        } else if x < 160 {
+                            // Left button: Show QR
+                            ad.kpub_frame = 0;
+                            ad.kpub_nframes = 0;
+                            ad.kpub_user_nframes = 0;
+                            ad.app.state = crate::app::input::AppState::ExportKpub;
+                        } else {
+                            // Right button: Save to SD
+                            ad.pp_input.reset();
+                            ad.app.state = crate::app::input::AppState::SdKpubFilename;
+                        }
+                        needs_redraw = true;
+                    }
+                    crate::app::input::AppState::ExportKpubPopup => {
+                        if is_back {
+                            ad.kpub_nframes = 0;
+                            ad.kpub_user_nframes = 0;
+                            ad.kpub_frame = 0;
+                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                        } else {
+                            // "Save to SD" button — left
+                            if (30..=155).contains(&x) && (140..=185).contains(&y) {
+                                let next = crate::handlers::sd::scan_auto_increment(i2c, delay, b"KP", b"TXT");
+                                let name = crate::handlers::sd::format_auto_name(b"KP", next, b"TXT");
+                                ad.kspt_filename = name;
+                                ad.pp_input.reset();
+                                for j in 0..8usize {
+                                    if name[j] != b' ' {
+                                        ad.pp_input.push_char(name[j]);
+                                    }
+                                }
+                                ad.app.state = crate::app::input::AppState::SdKpubFilename;
+                            }
+                            // "Back to QR" button — right
+                            else if (165..=290).contains(&x) && (140..=185).contains(&y) {
+                                ad.kpub_frame = 0;
+                                ad.app.state = crate::app::input::AppState::ExportKpub;
+                            }
+                        }
                         needs_redraw = true;
                     }
                     crate::app::input::AppState::ExportXprv => {
@@ -291,7 +392,10 @@ pub fn handle_export_touch(
                                         }
                                     }
                                     3 => {
-                                        // kpub QR
+                                        // kpub QR (multi-frame)
+                                        ad.kpub_nframes = 0;
+                            ad.kpub_user_nframes = 0;
+                                        ad.kpub_frame = 0;
                                         boot_display.draw_saving_screen("Deriving kpub...");
                                         let pp = ad.seed_mgr.active_slot().map(|s: &seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
                                         let seed_bytes = if ad.word_count == 12 {
@@ -319,17 +423,56 @@ pub fn handle_export_touch(
                                         }
                                     }
                                     4 => {
+                                        // kpub to SD card — derive first, then ask for filename
+                                        if bb_card_type.is_none() {
+                                            boot_display.draw_rejected_screen("No SD card");
+                                            delay.delay_millis(1500);
+                                        } else {
+                                            boot_display.draw_saving_screen("Deriving kpub...");
+                                            let pp = ad.seed_mgr.active_slot().map(|s: &seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
+                                            let seed_bytes = if ad.word_count == 12 {
+                                                let m12 = wallet::bip39::Mnemonic12 {
+                                                    indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&ad.mnemonic_indices[..12]); arr }
+                                                };
+                                                wallet::bip39::seed_from_mnemonic_12(&m12, pp)
+                                            } else {
+                                                let m24 = wallet::bip39::Mnemonic24 {
+                                                    indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&ad.mnemonic_indices[..24]); arr }
+                                                };
+                                                wallet::bip39::seed_from_mnemonic_24(&m24, pp)
+                                            };
+                                            let mut kpub_buf = [0u8; wallet::xpub::KPUB_MAX_LEN];
+                                            match wallet::xpub::derive_and_serialize_kpub(&seed_bytes.bytes, &mut kpub_buf) {
+                                                Ok(len) => {
+                                                    ad.kpub_len = len;
+                                                    ad.kpub_data[..len].copy_from_slice(&kpub_buf[..len]);
+                                                    ad.pp_input.reset();
+                                                    ad.app.state = crate::app::input::AppState::SdKpubFilename;
+                                                }
+                                                Err(_) => {
+                                                    boot_display.draw_rejected_screen("kpub derivation failed");
+                                                    delay.delay_millis(2000);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    5 => {
                                         // xprv Account submenu
                                         ad.xprv_export_menu.reset();
                                         ad.app.state = crate::app::input::AppState::XprvExportMenu;
                                     }
-                                    5 => {
+                                    6 => {
                                         if bb_card_type.is_some() {
                                             ad.app.state = crate::app::input::AppState::SdBackupWarning;
                                         } else {
                                             boot_display.draw_rejected_screen("No SD card");
                                             delay.delay_millis(1500);
                                         }
+                                    }
+                                    7 => {
+                                        // Private Key — derivation index picker
+                                        ad.addr_input_len = 0;
+                                        ad.app.state = crate::app::input::AppState::ExportPrivKeyIndex;
                                     }
                                     _ => {}
                                 }
@@ -422,10 +565,18 @@ pub fn handle_export_touch(
                                         }
                                     }
                                     1 => {
-                                        // Encrypt to SD
+                                        // Encrypt to SD — filename keyboard first
                                         if bb_card_type.is_some() {
+                                            let next = crate::handlers::sd::scan_auto_increment(i2c, delay, b"XP", b"KAS");
+                                            let name = crate::handlers::sd::format_auto_name(b"XP", next, b"KAS");
+                                            ad.kspt_filename = name;
                                             ad.pp_input.reset();
-                                            ad.app.state = crate::app::input::AppState::SdXprvExportPassphrase;
+                                            for j in 0..8usize {
+                                                if name[j] != b' ' {
+                                                    ad.pp_input.push_char(name[j]);
+                                                }
+                                            }
+                                            ad.app.state = crate::app::input::AppState::SdXprvFilename;
                                         } else {
                                             boot_display.draw_rejected_screen("No SD card");
                                             delay.delay_millis(1500);
@@ -446,15 +597,138 @@ pub fn handle_export_touch(
                         }
                         needs_redraw = true;
                     }
+                    crate::app::input::AppState::ExportPrivKeyIndex => {
+                        if is_back {
+                            ad.addr_input_len = 0;
+                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                        } else {
+                            // Same keypad grid as AddrIndexPicker
+                            let col = if (55..120).contains(&x) { Some(0u8) }
+                                else if (130..195).contains(&x) { Some(1) }
+                                else if (205..270).contains(&x) { Some(2) }
+                                else { None };
+                            let row = if (76..106).contains(&y) { Some(0u8) }
+                                else if (110..140).contains(&y) { Some(1) }
+                                else if (144..174).contains(&y) { Some(2) }
+                                else if (178..208).contains(&y) { Some(3) }
+                                else { None };
+                            if let (Some(c), Some(r)) = (col, row) {
+                                let idx = r * 3 + c;
+                                match idx {
+                                    0..=8 => {
+                                        if ad.addr_input_len < 5 {
+                                            ad.addr_input_buf[ad.addr_input_len as usize] = b'1' + idx;
+                                            ad.addr_input_len += 1;
+                                        }
+                                    }
+                                    10 => {
+                                        if ad.addr_input_len < 5 {
+                                            ad.addr_input_buf[ad.addr_input_len as usize] = b'0';
+                                            ad.addr_input_len += 1;
+                                        }
+                                    }
+                                    9 => { ad.addr_input_len = 0; } // CLR
+                                    11 => {
+                                        // GO — derive private key for this address index
+                                        if ad.addr_input_len > 0 {
+                                            let mut val: u16 = 0;
+                                            for i in 0..ad.addr_input_len as usize {
+                                                val = val * 10 + (ad.addr_input_buf[i] - b'0') as u16;
+                                            }
+                                            ad.addr_input_len = 0;
+                                            boot_display.draw_saving_screen("Deriving key...");
+
+                                            let pp = ad.seed_mgr.active_slot().map(|s| s.passphrase_str()).unwrap_or("");
+                                            let seed_bytes = if ad.word_count == 12 {
+                                                let m12 = wallet::bip39::Mnemonic12 {
+                                                    indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&ad.mnemonic_indices[..12]); arr }
+                                                };
+                                                wallet::bip39::seed_from_mnemonic_12(&m12, pp)
+                                            } else {
+                                                let m24 = wallet::bip39::Mnemonic24 {
+                                                    indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&ad.mnemonic_indices[..24]); arr }
+                                                };
+                                                wallet::bip39::seed_from_mnemonic_24(&m24, pp)
+                                            };
+
+                                            match wallet::bip32::derive_account_key(&seed_bytes.bytes) {
+                                                Ok(acct) => {
+                                                    match wallet::bip32::derive_address_key(&acct, val) {
+                                                        Ok(addr_key) => {
+                                                            let privkey = addr_key.private_key_bytes();
+                                                            const HX: &[u8; 16] = b"0123456789abcdef";
+                                                            for i in 0..32 {
+                                                                ad.export_key_hex[i * 2] = HX[(privkey[i] >> 4) as usize];
+                                                                ad.export_key_hex[i * 2 + 1] = HX[(privkey[i] & 0x0f) as usize];
+                                                            }
+                                                            ad.app.state = crate::app::input::AppState::ExportPrivKey;
+                                                        }
+                                                        Err(_) => {
+                                                            boot_display.draw_rejected_screen("Key derivation failed");
+                                                            delay.delay_millis(2000);
+                                                        }
+                                                    }
+                                                }
+                                                Err(_) => {
+                                                    boot_display.draw_rejected_screen("Account key failed");
+                                                    delay.delay_millis(2000);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        needs_redraw = true;
+                    }
                     crate::app::input::AppState::ExportPrivKey => {
-                        // Tap anywhere to dismiss — zeroize the hex buffer
+                        // Tap or back → zeroize and exit
                         for b in ad.export_key_hex.iter_mut() {
                             unsafe { core::ptr::write_volatile(b as *mut u8, 0); }
                         }
-                        ad.app.state = crate::app::input::AppState::SeedList;
+                        ad.app.state = crate::app::input::AppState::ExportChoice;
                         needs_redraw = true;
                     }
                     _ => { return None; }
                 }
     Some(needs_redraw)
+}
+
+// ─── Multi-frame kpub QR auto-cycling ───
+
+/// Auto-cycle the kpub QR display frames (same protocol as signed QR).
+pub fn cycle_kpub_qr(
+    ad: &mut crate::app::data::AppData,
+    boot_display: &mut crate::hw::display::BootDisplay<'_>,
+) {
+    if let crate::app::input::AppState::ExportKpub = ad.app.state {
+        if ad.kpub_nframes > 1 && !ad.kpub_manual_frames {
+            // Only advance frame every ~2000 idle ticks
+            if ad.idle_ticks % 2000 != 0 {
+                return;
+            }
+            ad.kpub_frame = (ad.kpub_frame + 1) % ad.kpub_nframes;
+            // Balanced split: equal-sized frames
+            let n = ad.kpub_nframes as usize;
+            let balanced = (ad.kpub_len + n - 1) / n;
+            let offset = ad.kpub_frame as usize * balanced;
+            let remaining = ad.kpub_len.saturating_sub(offset);
+            let frag_len = remaining.min(balanced);
+            if frag_len > 0 {
+                let mut frame_buf = [0u8; 134];
+                frame_buf[0] = ad.kpub_frame;
+                frame_buf[1] = ad.kpub_nframes;
+                frame_buf[2] = frag_len as u8;
+                frame_buf[3..3 + frag_len]
+                    .copy_from_slice(&ad.kpub_data[offset..offset + frag_len]);
+                let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
+                boot_display.draw_qr_screen(&frame_buf[..qr_len]);
+                let mut fc_buf: heapless::String<16> = heapless::String::new();
+                core::fmt::Write::write_fmt(&mut fc_buf,
+                    format_args!("kpub {}/{}", ad.kpub_frame + 1, ad.kpub_nframes)).ok();
+                boot_display.draw_frame_counter(&fc_buf);
+            }
+        }
+    }
 }

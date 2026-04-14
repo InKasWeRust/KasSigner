@@ -54,9 +54,12 @@ const MAGIC: [u8; 4] = [b'K', b'A', b'S', 0x01];
 const SD_SALT: &[u8] = b"KasSigner-SD-v1";
 
 /// PBKDF2 iterations for SD backup key derivation.
-/// 10k is sufficient for an air-gapped backup file requiring physical SD access.
-/// Strong passphrase (8+ chars) is enforced at the UI level.
-const PBKDF2_ITERATIONS: u32 = 10_000;
+/// 100k iterations: ~3-4s on ESP32-S3 at 240MHz (software SHA-256).
+/// Progress callback keeps the UI responsive during derivation.
+const PBKDF2_ITERATIONS: u32 = 100_000;
+
+/// Legacy iteration count (v1.0.1). Used as fallback when 100K decrypt fails.
+const PBKDF2_ITERATIONS_LEGACY: u32 = 10_000;
 
 /// AES-GCM nonce size (96 bits)
 const NONCE_SIZE: usize = 12;
@@ -74,21 +77,6 @@ pub const MAX_BACKUP_SIZE: usize = HEADER_SIZE + NONCE_SIZE + 48 + TAG_SIZE;
 /// No file extension — files appear as "SDXXXX" on the SD card for OpSec.
 pub const FILE_MAGIC: [u8; 4] = [b'K', b'A', b'S', 0x01];
 
-/// Generate backup filename from seed fingerprint.
-/// Format: "SDXXXX" where XXXX = first 4 hex chars of fingerprint.
-/// Returns 8.3 name (11 bytes, extension all spaces = no extension).
-pub fn backup_filename(fingerprint: &[u8; 4]) -> [u8; 11] {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    let mut name = [b' '; 11];
-    name[0] = b'S';
-    name[1] = b'D';
-    name[2] = HEX[(fingerprint[0] >> 4) as usize];
-    name[3] = HEX[(fingerprint[0] & 0x0F) as usize];
-    name[4] = HEX[(fingerprint[1] >> 4) as usize];
-    name[5] = HEX[(fingerprint[1] & 0x0F) as usize];
-    // Extension stays all spaces = no extension
-    name
-}
 /// Format an 8.3 name for display — trim trailing spaces, no dot if no extension
 pub fn format_83_display(name: &[u8; 11], out: &mut [u8; 13]) -> usize {
     let mut pos = 0;
@@ -209,16 +197,6 @@ pub fn encrypt_backup_progress(
 
 // ─── Import (file bytes → decrypt seed) ──────────────────────────────
 
-/// Decrypt a backup file and recover the seed.
-/// Returns word_count on success.
-pub fn decrypt_backup(
-    file_data: &[u8],
-    passphrase: &[u8],
-    out_indices: &mut [u16; 24],
-) -> Result<u8, BackupError> {
-    decrypt_backup_progress(file_data, passphrase, out_indices, &mut |_, _| {})
-}
-
 /// Decrypt seed backup with progress callback for PBKDF2.
 pub fn decrypt_backup_progress(
     file_data: &[u8],
@@ -253,7 +231,7 @@ pub fn decrypt_backup_progress(
     let ciphertext = &file_data[ct_start..ct_start + plaintext_len];
     let tag_bytes = &file_data[ct_start + plaintext_len..ct_start + plaintext_len + TAG_SIZE];
 
-    // Derive key
+    // Derive key (100K iterations — v1.0.2+)
     let mut aes_key = pbkdf2_derive_key_progress(passphrase, SD_SALT, PBKDF2_ITERATIONS, progress);
     let cipher = Aes256Gcm::new(GenericArray::from_slice(&aes_key));
     let nonce = GenericArray::from_slice(nonce_bytes);
@@ -277,8 +255,28 @@ pub fn decrypt_backup_progress(
             Ok(word_count)
         }
         Err(_) => {
+            // GCM auth failed — try legacy 10K iterations (v1.0.1 backup)
             zeroize_buf(&mut plaintext);
-            Err(BackupError::DecryptionFailed)
+            let mut aes_key2 = pbkdf2_derive_key_progress(passphrase, SD_SALT, PBKDF2_ITERATIONS_LEGACY, progress);
+            let cipher2 = Aes256Gcm::new(GenericArray::from_slice(&aes_key2));
+            let mut pt2 = [0u8; 48];
+            pt2[..plaintext_len].copy_from_slice(ciphertext);
+            let result2 = cipher2.decrypt_in_place_detached(
+                nonce, &aad, &mut pt2[..plaintext_len], tag,
+            );
+            zeroize_buf(&mut aes_key2);
+            match result2 {
+                Ok(()) => {
+                    crate::log!("   SD backup: decrypted with legacy 10K iterations");
+                    deserialize_indices(&pt2[..plaintext_len], word_count, out_indices);
+                    zeroize_buf(&mut pt2);
+                    Ok(word_count)
+                }
+                Err(_) => {
+                    zeroize_buf(&mut pt2);
+                    Err(BackupError::DecryptionFailed)
+                }
+            }
         }
     }
 }
@@ -303,19 +301,6 @@ const MAX_XPRV_DATA: usize = 120;
 /// Max encrypted xprv file size: 4 + 1 + 12 + 120 + 16 = 153
 pub const MAX_XPRV_BACKUP_SIZE: usize = 4 + 1 + NONCE_SIZE + MAX_XPRV_DATA + TAG_SIZE;
 
-/// Generate xprv backup filename from seed fingerprint.
-/// Format: "XPxxxx" (no extension).
-pub fn xprv_backup_filename(fingerprint: &[u8; 4]) -> [u8; 11] {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    let mut name = [b' '; 11];
-    name[0] = b'X';
-    name[1] = b'P';
-    name[2] = HEX[(fingerprint[0] >> 4) as usize];
-    name[3] = HEX[(fingerprint[0] & 0x0F) as usize];
-    name[4] = HEX[(fingerprint[1] >> 4) as usize];
-    name[5] = HEX[(fingerprint[1] & 0x0F) as usize];
-    name
-}
 /// Encrypt an xprv string for SD card storage.
 pub fn encrypt_xprv_backup(
     xprv_str: &[u8],
@@ -357,15 +342,6 @@ pub fn encrypt_xprv_backup(
     out[tag_start..tag_start + TAG_SIZE].copy_from_slice(&tag);
 
     Ok(total_size)
-}
-
-/// Decrypt an xprv backup file. Returns number of xprv bytes.
-pub fn decrypt_xprv_backup(
-    file_data: &[u8],
-    passphrase: &[u8],
-    out_xprv: &mut [u8; MAX_XPRV_DATA],
-) -> Result<usize, BackupError> {
-    decrypt_xprv_backup_progress(file_data, passphrase, out_xprv, &mut |_, _| {})
 }
 
 /// Decrypt xprv backup with progress callback for PBKDF2.
@@ -415,8 +391,25 @@ pub fn decrypt_xprv_backup_progress(
     match result {
         Ok(()) => Ok(data_len),
         Err(_) => {
+            // Try legacy 10K iterations (v1.0.1 backup)
             zeroize_buf(&mut out_xprv[..data_len]);
-            Err(BackupError::DecryptionFailed)
+            let mut aes_key2 = pbkdf2_derive_key_progress(passphrase, SD_SALT, PBKDF2_ITERATIONS_LEGACY, progress);
+            let cipher2 = Aes256Gcm::new(GenericArray::from_slice(&aes_key2));
+            out_xprv[..data_len].copy_from_slice(ciphertext);
+            let result2 = cipher2.decrypt_in_place_detached(
+                nonce, &aad, &mut out_xprv[..data_len], tag,
+            );
+            zeroize_buf(&mut aes_key2);
+            match result2 {
+                Ok(()) => {
+                    crate::log!("   xprv backup: decrypted with legacy 10K iterations");
+                    Ok(data_len)
+                }
+                Err(_) => {
+                    zeroize_buf(&mut out_xprv[..data_len]);
+                    Err(BackupError::DecryptionFailed)
+                }
+            }
         }
     }
 }
@@ -511,8 +504,25 @@ pub fn decrypt_raw_progress(
     match result {
         Ok(()) => Ok(data_len),
         Err(_) => {
+            // Try legacy 10K iterations (v1.0.1 stego)
             zeroize_buf(&mut out[..data_len]);
-            Err(BackupError::DecryptionFailed)
+            let mut aes_key2 = pbkdf2_derive_key_progress(password, SD_SALT, PBKDF2_ITERATIONS_LEGACY, progress);
+            let cipher2 = Aes256Gcm::new(GenericArray::from_slice(&aes_key2));
+            out[..data_len].copy_from_slice(ciphertext);
+            let result2 = cipher2.decrypt_in_place_detached(
+                nonce, &aad, &mut out[..data_len], tag,
+            );
+            zeroize_buf(&mut aes_key2);
+            match result2 {
+                Ok(()) => {
+                    crate::log!("   raw decrypt: legacy 10K iterations");
+                    Ok(data_len)
+                }
+                Err(_) => {
+                    zeroize_buf(&mut out[..data_len]);
+                    Err(BackupError::DecryptionFailed)
+                }
+            }
         }
     }
 }

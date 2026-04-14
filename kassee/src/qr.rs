@@ -8,6 +8,7 @@
 
 use serde::Serialize;
 use std::cell::RefCell;
+use std::fmt::Write;
 
 const MAX_FRAME_DATA: usize = 106;
 
@@ -86,16 +87,14 @@ fn qr_to_svg(data: &[u8]) -> Result<String, String> {
     let border = 2;
     let total = size + border * 2;
 
-    let mut svg = format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {t} {t}\" shape-rendering=\"crispEdges\"><rect width=\"{t}\" height=\"{t}\" fill=\"white\"/>",
-        t = total
-    );
+    let mut svg = String::with_capacity(total * total * 60);
+    let _ = write!(svg, "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {total} {total}\" shape-rendering=\"crispEdges\"><rect width=\"{total}\" height=\"{total}\" fill=\"white\"/>");
 
     for (i, color) in modules.iter().enumerate() {
         if *color == qrcode::types::Color::Dark {
             let x = (i % size) + border;
             let y = (i / size) + border;
-            svg.push_str(&format!("<rect x=\"{}\" y=\"{}\" width=\"1\" height=\"1\" fill=\"black\"/>", x, y));
+            let _ = write!(svg, "<rect x=\"{}\" y=\"{}\" width=\"1\" height=\"1\" fill=\"black\"/>", x, y);
         }
     }
 

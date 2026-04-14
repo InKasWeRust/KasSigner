@@ -58,7 +58,7 @@ const HARDENED_BIT: u32 = 0x8000_0000;
 /// Kaspa mainnet path: m/44'/111111'/0'/0/0
 pub const KASPA_MAINNET_PATH: &[u32] = &[
     44 | HARDENED_BIT,       // purpose (BIP44)
-    111111 | HARDENED_BIT,   // coin_type (Kaspa, SLIP-44)
+    111_111 | HARDENED_BIT,   // coin_type (Kaspa, SLIP-44)
     0 | HARDENED_BIT,        // account 0
     0,                       // change (external)
     0,                       // address_index 0
@@ -338,7 +338,7 @@ pub const CACHED_ADDR_COUNT: usize = 20;
 /// From here we derive /0/index for each receive address.
 const KASPA_ACCOUNT_PATH: [u32; 3] = [
     44 | HARDENED_BIT,       // purpose (BIP44)
-    111111 | HARDENED_BIT,   // coin_type (Kaspa)
+    111_111 | HARDENED_BIT,   // coin_type (Kaspa)
     0 | HARDENED_BIT,        // account 0
 ];
 
@@ -385,7 +385,7 @@ pub fn derive_path_for_index(
 ) -> Result<ExtendedPrivKey, Bip32Error> {
     let path: [u32; 5] = [
         44 | HARDENED_BIT,
-        111111 | HARDENED_BIT,
+        111_111 | HARDENED_BIT,
         0 | HARDENED_BIT,
         0,
         index as u32,

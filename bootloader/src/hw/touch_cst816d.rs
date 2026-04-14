@@ -198,13 +198,15 @@ pub fn read_touch_full(
 
     if !*configured {
         *configured = true;
-        // Reduce touch sensitivity to avoid phantom wake from light/EMI.
+        // Reduce touch sensitivity to reject ghost touches from ambient light/EMI.
         // Register 0x05: sensitivity threshold — higher = less sensitive (default ~1-2)
-        // Register 0x06: low-power scan range — lower = less sensitive (default varies)
-        let _ = i2c.write(CST816D_ADDR, &[0x05, 0x28]); // sensitivity threshold = 40
-        let _ = i2c.write(CST816D_ADDR, &[0x06, 0x10]); // low-power scan range = 16
+        // Register 0x06: low-power scan range — higher = more aggressive noise filter
+        // Register 0xFE: DisAutoSleep — 1 = keep controller awake (prevents spurious wake events)
+        let _ = i2c.write(CST816D_ADDR, &[0x05, 0x50]); // sensitivity threshold = 80
+        let _ = i2c.write(CST816D_ADDR, &[0x06, 0x20]); // low-power scan range = 32
+        let _ = i2c.write(CST816D_ADDR, &[0xFE, 0x01]); // disable auto-sleep
         #[cfg(not(feature = "silent"))]
-        crate::log!("[CST816D] Factory defaults OK, sensitivity reduced");
+        crate::log!("[CST816D] Configured: sens=0x50 lp=0x20 nosleep");
     }
 
     let gesture = match buf[0] {

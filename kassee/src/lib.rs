@@ -5,6 +5,8 @@
 // lib.rs — WASM entry point. Exports wallet operations to JavaScript.
 // All Kaspa logic runs in the browser. No server, no backend.
 
+#![allow(clippy::manual_is_multiple_of)]
+#![allow(clippy::type_complexity)]
 mod bip32;
 mod address;
 mod kspt;
@@ -212,7 +214,7 @@ pub fn decoder_progress() -> String {
 /// Version string
 #[wasm_bindgen]
 pub fn version() -> String {
-    "KasSee Web v1.0.1".into()
+    "KasSee Web".into()
 }
 
 // ─── Address utilities ───

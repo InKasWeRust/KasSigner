@@ -9,6 +9,60 @@ All notable changes to KasSigner will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] — 2026-04-13
+
+### Added — Device Firmware
+- **cam_dma camera pipeline** — new DMA-based 480×480 YUV422 capture for Waveshare, replacing DvpCamera. Direct SYSTIMER register reads for QR decode performance timing.
+- **OV2640 runtime auto-detect** — Waveshare now probes sensor ID at boot; OV2640 wide-angle supported alongside OV5640 (`camera_ov2640.rs`, `cam_dma.rs`)
+- **kpub multi-frame QR export** — choose 2/3/4 frames, auto-cycle or manual navigation, save to SD, import from SD. New states: `ExportKpubFrameCount`, `ExportKpubModeChoice`, `ExportKpubPopup`, `KpubScannedPopup`, `SdKpubFileList`, `SdKpubFilename`
+- **Signed QR frame size choice** — `ShowQrFrameChoice` lets user pick single vs multi-frame signed KSPT export
+- **Multisig address SD save** — `MultisigSaveAddrAsk` state with optional encryption
+- **SD overwrite confirmation** — generic `sd_overwrite_next`/`sd_overwrite_back` state machine prompts before overwriting existing files
+- **SD file helpers** — extracted `sd_file_exists()`, `build_filename_83()`, `write_file_to_sd()`, `generate_trng_nonce()` as reusable functions
+- **Multi-frame QR buffers expanded** — `MF_BUF` 2KB→5KB, `MF_RECEIVED`/`MF_FRAG_SIZE` 8→20 slots for larger KSPT payloads
+- **Account-level PSKT signing fallback** — when address-level key doesn't match, tries account xonly pubkey (`acct.public_key_x_only()`)
+
+### Fixed — Device Firmware
+- **CST816D touch sensitivity** — threshold 0x28→0x50, low-power scan 0x10→0x20, auto-sleep disabled. Fixes ghost touches on Waveshare.
+
+### Code Quality
+- **Clippy cleanup** — zero warnings on `clippy::all` for both bootloader and KasSee WASM
+- Inlined 38 format args, removed 9 unnecessary casts, added digit separators
+- Eliminated 3× `Vec::clone()` in UTXO selection (sort in place, consume by value)
+- QR SVG generation: `write!()` instead of `&format!()` — zero allocation per module
+- `ws_rpc_call`: `.take()` instead of `.clone()` on WebSocket result
+- `funded_addresses`: counts unique script_public_keys by reference
+- Removed 7 redundant `#[allow(dead_code)]` directives
+- 36 well-documented pedantic-tier `#[allow]` directives in `main.rs` for embedded patterns
+- Removed dead code: `key_rect()` in pin_ui, `_word_idx` in sdcard_ws
+- Removed orphaned zero-width text steganography code from `features/stego.rs` (unused constants, templates, `decode_stego_text()`, `contains_stego()`) — JPEG EXIF stego uses base64, not ZW characters
+
+### KasSee Web
+- **Donate card** — rebuilt with fully inline styles, no CSS conflicts with app screens
+- **Broadcast → Donate flow** — after successful TX, user sees donate card before dashboard
+- **UTXO selection fix** — sort in place + consume by value; sweep now takes top 5 UTXOs by size
+- Fixed `manifest.json`, `lib.rs`, `Cargo.toml` version strings to 1.0.2
+- Orphan file cleanup: removed stale WASM copies and leftover CSS
+- GPL-3.0 header added to `constellation/index.html`
+- Three-way sync verified (GitHub, gh-pages, source repo)
+
+### QR Decoder
+- **rqrr no_std fork** — replaced custom per-platform decoders (`decoder_ws.rs`, `decoder_m5.rs`) with `rqrr_nostd`, a no_std zero-dependency fork of rqrr 0.10.1
+- Supports V1–V40, all ECC levels, full Reed-Solomon error correction
+- Single-pass accept — rqrr's RS verification replaces the old 5-pass voting (Waveshare) and 3-consecutive match (M5Stack) heuristics
+- Unified `rqrr_decode()` in `camera_loop.rs` for both platforms
+- Deleted `bootloader/src/qr/decoder_ws.rs` and `bootloader/src/qr/decoder_m5.rs`
+
+### Infrastructure
+- Bootloader `Cargo.toml` version bumped to 1.0.2
+- Docker build tags updated to v1.0.2
+- **Version cleanup** — removed hardcoded version strings from filenames, titles, and docs; splash screen now reads version dynamically from `CURRENT_VERSION`
+
+### Hardware
+- **OV2640 wide-angle camera** — full driver + DMA pipeline for Waveshare 24-pin connector
+- Evaluated camera modules (OV2640, OV5640, OV3660, GC2145) for Waveshare ESP32-S3 24-pin connector
+
+
 ## [1.0.1] — 2026-03-31
 
 ### Milestone: First Air-Gapped Multisig on Kaspa Mainnet
@@ -120,7 +174,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Waveshare ESP32-S3-Touch-LCD-2**
   - ST7789T3 320x240 display (SPI)
   - CST816D capacitive touch with hardware gestures (I2C)
-  - OV5640 5MP camera with autofocus (DVP)
+  - OV5640 5MP camera (DVP)
   - SDHOST SD card controller (native 1-bit mode, PLL clock)
   - Battery ADC monitoring (GPIO5)
   - Secure Boot V2 ready (eFuse)

@@ -32,21 +32,17 @@ pub async fn create_send_kspt(
     let dest_script = crate::address::address_to_script_pubkey(dest_address)?;
     let amount_sompi = (amount_kas * 100_000_000.0) as u64;
 
-    let all_utxos = crate::rpc::fetch_all_utxos(ws_url, wallet).await?;
+    let mut all_utxos = crate::rpc::fetch_all_utxos(ws_url, wallet).await?;
+    all_utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
 
     let total_needed = amount_sompi + fee;
     let mut selected = Vec::new();
     let mut selected_total: u64 = 0;
 
-    let mut sorted = all_utxos.clone();
-    sorted.sort_by(|a, b| b.amount.cmp(&a.amount));
-
-    for utxo in &sorted {
-        selected.push(utxo.clone());
+    for utxo in all_utxos {
         selected_total += utxo.amount;
-        if selected_total >= total_needed {
-            break;
-        }
+        selected.push(utxo);
+        if selected_total >= total_needed { break; }
     }
 
     if selected_total < total_needed {
@@ -110,7 +106,7 @@ pub async fn create_consolidate_kspt(
     fee: u64,
     ws_url: &str,
 ) -> Result<String, String> {
-    let all_utxos = crate::rpc::fetch_all_utxos(ws_url, wallet).await?;
+    let mut all_utxos = crate::rpc::fetch_all_utxos(ws_url, wallet).await?;
 
     if all_utxos.is_empty() {
         return Err("No UTXOs to consolidate".into());
@@ -119,7 +115,11 @@ pub async fn create_consolidate_kspt(
         return Err("Only 1 UTXO — nothing to consolidate".into());
     }
 
-    let total: u64 = all_utxos.iter().map(|u| u.amount).sum();
+    // Sort largest first, cap at 5 inputs to stay within 1024-byte signed TX limit
+    all_utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
+    let selected: Vec<_> = all_utxos.into_iter().take(5).collect();
+
+    let total: u64 = selected.iter().map(|u| u.amount).sum();
     if total <= fee {
         return Err("Balance too low to cover fee".into());
     }
@@ -129,12 +129,12 @@ pub async fn create_consolidate_kspt(
     let send_amount = total - fee;
 
     let outputs = vec![(send_amount, dest_script)];
-    let kspt_hex = serialize_kspt_multi(&all_utxos, &outputs)?;
+    let kspt_hex = serialize_kspt_multi(&selected, &outputs)?;
 
     web_sys::console::log_1(
         &format!(
             "[KasSee] Consolidate: {} inputs → {} sompi, fee {}, {} bytes",
-            all_utxos.len(), send_amount, fee, kspt_hex.len() / 2
+            selected.len(), send_amount, fee, kspt_hex.len() / 2
         ).into(),
     );
 
@@ -236,21 +236,33 @@ pub async fn create_compound_kspt(
     }
 
     // Fetch and select UTXOs
-    let all_utxos = crate::rpc::fetch_all_utxos(ws_url, wallet).await?;
+    let mut all_utxos = crate::rpc::fetch_all_utxos(ws_url, wallet).await?;
+    all_utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
+
     let total_needed = total_send + fee;
     let mut selected = Vec::new();
     let mut selected_total: u64 = 0;
 
-    let mut sorted = all_utxos.clone();
-    sorted.sort_by(|a, b| b.amount.cmp(&a.amount));
-
-    for utxo in &sorted {
-        selected.push(utxo.clone());
+    for utxo in all_utxos {
         selected_total += utxo.amount;
-        if selected_total >= total_needed {
-            break;
-        }
+        selected.push(utxo);
+        if selected_total >= total_needed { break; }
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     if selected_total < total_needed {
         return Err(format!(
@@ -370,6 +382,9 @@ fn parse_descriptor(desc: &str) -> Result<(u8, Vec<[u8; 32]>), String> {
         return Err(format!("Invalid M={} for N={}", m, pubkeys.len()));
     }
 
+    // Sort pubkeys lexicographically so both devices produce the same address
+    pubkeys.sort();
+
     Ok((m, pubkeys))
 }
 
@@ -406,25 +421,33 @@ pub async fn create_multisig_kspt(
     let amount_sompi = (amount_kas * 100_000_000.0) as u64;
 
     // Fetch UTXOs for the P2SH address
-    let utxos = crate::rpc::fetch_utxos_for_address(ws_url, source_address).await?;
+    let mut utxos = crate::rpc::fetch_utxos_for_address(ws_url, source_address).await?;
     if utxos.is_empty() {
         return Err("No UTXOs found for multisig address".into());
     }
+
+    utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
 
     let total_needed = amount_sompi + fee;
     let mut selected = Vec::new();
     let mut selected_total: u64 = 0;
 
-    let mut sorted = utxos.clone();
-    sorted.sort_by(|a, b| b.amount.cmp(&a.amount));
-
-    for utxo in &sorted {
-        selected.push(utxo.clone());
+    for utxo in utxos {
         selected_total += utxo.amount;
-        if selected_total >= total_needed {
-            break;
-        }
+        selected.push(utxo);
+        if selected_total >= total_needed { break; }
     }
+
+
+
+
+
+
+
+
+
+
+
 
     if selected_total < total_needed {
         return Err(format!(

@@ -410,6 +410,33 @@ pub fn import_xprv(xprv_str: &[u8]) -> Result<ExtendedPrivKey, Bip32Error> {
     Ok(ExtendedPrivKey::from_parts(key, chain_code, depth))
 }
 
+/// Import a Kaspa kpub string → 32-byte x-only public key.
+/// Accepts base58check-encoded kpub at account level.
+/// Returns the 32-byte x-coordinate of the compressed public key.
+pub fn import_kpub(kpub_str: &[u8]) -> Result<[u8; 32], Bip32Error> {
+    let mut payload = [0u8; 128];
+    let plen = base58check_decode(kpub_str, &mut payload);
+
+    if plen != XPUB_PAYLOAD_LEN {
+        return Err(Bip32Error::InvalidKey);
+    }
+
+    // Check kpub version bytes
+    if payload[0..4] != KASPA_XPUB_VERSION {
+        return Err(Bip32Error::InvalidKey);
+    }
+
+    // Compressed pubkey is at payload[45..78] (33 bytes: 02/03 prefix + 32-byte X)
+    // Returns the account-level x-only key (m/44'/111111'/0')
+    // The signing code matches both account-level and address-level keys.
+    let mut pubkey = [0u8; 32];
+    pubkey.copy_from_slice(&payload[46..78]);
+
+    zeroize_buf(&mut payload);
+
+    Ok(pubkey)
+}
+
 // ─── Self-Tests ───────────────────────────────────────────────────────
 
 /// Test base58 encoding with known vectors

@@ -299,12 +299,8 @@ async fn ws_rpc_call(ws_url: &str, op: u8, payload: &[u8]) -> Result<Vec<u8>, St
     JsFuture::from(promise).await.map_err(|_| "Promise failed".to_string())?;
     ws.close().ok();
 
-    let guard = result.borrow();
-    match guard.as_ref() {
-        Some(Ok(data)) => Ok(data.clone()),
-        Some(Err(e)) => Err(e.clone()),
-        None => Err("No response".into()),
-    }
+    let response = result.borrow_mut().take();
+    response.unwrap_or_else(|| Err("No response".into()))
 }
 
 // ─── Public API: UTXO fetch ───
@@ -332,16 +328,17 @@ pub async fn fetch_balance(ws_url: &str, wallet: &WalletData) -> Result<BalanceI
     let utxos = fetch_all_utxos(ws_url, wallet).await?;
     let total_sompi: u64 = utxos.iter().map(|u| u.amount).sum();
 
-    let mut funded_set = std::collections::HashSet::new();
-    for u in &utxos {
-        funded_set.insert(u.tx_id.clone());
-    }
+    let funded_addresses = {
+        let mut seen = std::collections::HashSet::new();
+        for u in &utxos { seen.insert(&u.script_public_key); }
+        seen.len()
+    };
 
     Ok(BalanceInfo {
         total_sompi,
         total_kas: total_sompi as f64 / 100_000_000.0,
         utxo_count: utxos.len(),
-        funded_addresses: funded_set.len().min(utxos.len()),
+        funded_addresses,
     })
 }
 
@@ -548,9 +545,9 @@ pub async fn broadcast_signed(ws_url: &str, signed_hex: &str) -> Result<String, 
 
                 // Only push M signatures (sorted by pubkey position)
                 let sigs_to_push = sigs.len().min(m);
-                for i in 0..sigs_to_push {
-                    sig_script.push(sigs[i].1.len() as u8);
-                    sig_script.extend_from_slice(&sigs[i].1);
+                for sig in &sigs[..sigs_to_push] {
+                    sig_script.push(sig.1.len() as u8);
+                    sig_script.extend_from_slice(&sig.1);
                 }
 
                 // Push redeem script for P2SH

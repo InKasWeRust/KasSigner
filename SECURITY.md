@@ -8,10 +8,10 @@ KasSigner is an air-gapped offline signing device that handles cryptographic key
 
 ## Supported Versions
 
-| Version | Supported |
-|---------|-----------|
-| 1.0.1 (Waveshare) | Yes |
-| 1.0.1 (M5Stack) | Yes |
+| Platform | Supported |
+|----------|-----------|
+| Waveshare ESP32-S3-Touch-LCD-2 | Yes |
+| M5Stack CoreS3 / CoreS3 Lite | Yes |
 
 ## Reporting a Vulnerability
 
@@ -84,7 +84,7 @@ By default KasSee connects to a public Kaspa node. The node operator can see whi
 
 ## Known Limitations
 
-Internal security review has identified areas for improvement. All findings are documented with severity ratings and resolution status in [docs/KasSigner_Security_Architecture_v101.pdf](docs/KasSigner_Security_Architecture_v101.pdf). Fixes are tracked and applied in subsequent releases.
+Internal security review has identified areas for improvement. All findings are documented with severity ratings and resolution status in [docs/KasSigner_Security_Architecture.pdf](docs/KasSigner_Security_Architecture.pdf). Fixes are tracked and applied in subsequent releases.
 
 ## Cryptographic Primitives
 
@@ -111,7 +111,7 @@ Internal security review has identified areas for improvement. All findings are 
 
 ## Code Audit Status
 
-This project has undergone internal security review. The findings are documented in [docs/KasSigner_Security_Architecture_v101.pdf](docs/KasSigner_Security_Architecture_v101.pdf) with severity ratings and resolution status.
+This project has undergone internal security review. The findings are documented in [docs/KasSigner_Security_Architecture.pdf](docs/KasSigner_Security_Architecture.pdf) with severity ratings and resolution status.
 
 The project has **not** been reviewed by an independent professional security firm. A formal third-party audit is a goal for a future release. Community review is welcome and encouraged.
 

@@ -48,7 +48,7 @@ pub const DEV_PUBKEY: [u8; 32] = [
 ];
 
 /// Current firmware version (incremented each release)
-pub const CURRENT_VERSION: u32 = 10001; // v1.0.1 = 10001
+pub const CURRENT_VERSION: u32 = 10002; // v1.0.2 = 10002
 
 /// Parsed firmware update QR data
 #[derive(Debug)]
