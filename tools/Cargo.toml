@@ -23,6 +23,10 @@ path = "mirror.rs"
 name = "kassigner-setup"
 path = "setup_check.rs"
 
+[[bin]]
+name = "kassigner-verify"
+path = "verify.rs"
+
 [dependencies]
 sha2 = "0.10"
 k256 = { version = "0.13", features = ["arithmetic", "ecdsa"] }
