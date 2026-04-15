@@ -10,6 +10,16 @@
 #
 #   With signing key (developer only — signed reproducible build):
 #     docker build --platform linux/amd64 --secret id=signkey,src=dev_signing_key.bin -t kassigner-build .
+#
+# Output files:
+#   kassigner-waveshare.bin       — app-only image (for developers, hash verification)
+#   kassigner-m5stack.bin         — app-only image (for developers, hash verification)
+#   kassigner-waveshare-full.bin  — merged full-flash image (bootloader + partition table + app)
+#   kassigner-m5stack-full.bin    — merged full-flash image (bootloader + partition table + app)
+#
+# Flashing:
+#   Full image (new users):  python3 -m esptool --port <PORT> --baud 460800 write_flash 0x0 kassigner-waveshare-full.bin
+#   App-only (developers):   python3 -m esptool --port <PORT> --baud 460800 write_flash 0x10000 kassigner-waveshare.bin
 
 FROM --platform=linux/amd64 kassigner-toolchain:v2
 
@@ -74,7 +84,7 @@ RUN source /root/esp-env.sh && \
     cd bootloader && \
     ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features skip-tests
 
-# Final image
+# Final app-only image (unchanged — preserves existing hash)
 RUN source /root/esp-env.sh && \
     espflash save-image --chip esp32s3 \
         bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
@@ -85,6 +95,19 @@ RUN source /root/esp-env.sh && \
     echo "============================================" && \
     sha256sum /build/kassigner-waveshare.bin && \
     ls -la /build/kassigner-waveshare.bin && \
+    echo "============================================"
+
+# Merged full-flash image (bootloader + partition table + app)
+RUN source /root/esp-env.sh && \
+    espflash save-image --chip esp32s3 --merge --flash-size 16mb \
+        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
+        /build/kassigner-waveshare-full.bin 2>&1 | grep -v INFO && \
+    echo "" && \
+    echo "============================================" && \
+    echo "  KasSigner Waveshare Full Image" && \
+    echo "============================================" && \
+    sha256sum /build/kassigner-waveshare-full.bin && \
+    ls -la /build/kassigner-waveshare-full.bin && \
     echo "============================================"
 
 # ════════════════════════════════════════════════════
@@ -134,7 +157,7 @@ RUN source /root/esp-env.sh && \
     cd bootloader && \
     cargo build --release --no-default-features --features m5stack
 
-# Final image
+# Final app-only image (unchanged — preserves existing hash)
 RUN source /root/esp-env.sh && \
     espflash save-image --chip esp32s3 \
         bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
@@ -147,4 +170,21 @@ RUN source /root/esp-env.sh && \
     ls -la /build/kassigner-m5stack.bin && \
     echo "============================================"
 
-CMD ["bash", "-c", "echo '=== Waveshare ===' && sha256sum /build/kassigner-waveshare.bin && echo '=== M5Stack ===' && sha256sum /build/kassigner-m5stack.bin"]
+# Merged full-flash image (bootloader + partition table + app)
+RUN source /root/esp-env.sh && \
+    espflash save-image --chip esp32s3 --merge --flash-size 16mb \
+        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
+        /build/kassigner-m5stack-full.bin 2>&1 | grep -v INFO && \
+    echo "" && \
+    echo "============================================" && \
+    echo "  KasSigner M5Stack Full Image" && \
+    echo "============================================" && \
+    sha256sum /build/kassigner-m5stack-full.bin && \
+    ls -la /build/kassigner-m5stack-full.bin && \
+    echo "============================================"
+
+CMD ["bash", "-c", "\
+    echo '=== Waveshare (app-only) ===' && sha256sum /build/kassigner-waveshare.bin && \
+    echo '=== Waveshare (full flash) ===' && sha256sum /build/kassigner-waveshare-full.bin && \
+    echo '=== M5Stack (app-only) ===' && sha256sum /build/kassigner-m5stack.bin && \
+    echo '=== M5Stack (full flash) ===' && sha256sum /build/kassigner-m5stack-full.bin"]
