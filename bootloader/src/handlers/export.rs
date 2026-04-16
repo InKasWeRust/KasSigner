@@ -93,7 +93,11 @@ pub fn handle_export_touch(
                     }
                     crate::app::input::AppState::AddrIndexPicker => {
                         if is_back {
-                            if ad.ms_picking_key > 0 {
+                            if ad.ms_picking_key == 255 {
+                                // Sentinel: back to multisig wallet address view
+                                ad.ms_picking_key = 0;
+                                ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                            } else if ad.ms_picking_key > 0 {
                                 let ki = ad.ms_picking_key - 1;
                                 ad.ms_picking_key = 0;
                                 ad.app.state = crate::app::input::AppState::MultisigPickAddr { key_idx: ki };
@@ -141,19 +145,43 @@ pub fn handle_export_touch(
                                             for i in 0..ad.addr_input_len as usize {
                                                 val = val * 10 + (ad.addr_input_buf[i] - b'0') as u16;
                                             }
-                                            ad.current_addr_index = val;
-                                            if ad.current_addr_index >= 20 && ad.extra_pubkey_index != ad.current_addr_index {
-                                                derive_pubkey_from_acct(&ad.acct_key_raw,
-                                                    ad.current_addr_index, &mut ad.extra_pubkey);
-                                                ad.extra_pubkey_index = ad.current_addr_index;
-                                            }
                                             ad.addr_input_len = 0;
-                                            if ad.ms_picking_key > 0 {
-                                                let ki = ad.ms_picking_key - 1;
+                                            // Sentinel: 255 → picker came from
+                                            // MultisigShowAddress wanting to
+                                            // set ms_creating.addr_index (HD
+                                            // multisig per-address derivation).
+                                            if ad.ms_picking_key == 255 {
                                                 ad.ms_picking_key = 0;
-                                                ad.app.state = crate::app::input::AppState::MultisigPickAddr { key_idx: ki };
+                                                ad.ms_creating.addr_index = val as u32;
+                                                ad.ms_creating.build_script();
+                                                // Mirror into stored config so
+                                                // re-entry shows the same index.
+                                                for i in 0..crate::wallet::transaction::MAX_MULTISIG_WALLETS {
+                                                    if ad.ms_store.configs[i].active
+                                                        && ad.ms_store.configs[i].m == ad.ms_creating.m
+                                                        && ad.ms_store.configs[i].n == ad.ms_creating.n
+                                                        && ad.ms_store.configs[i].cosigner_pubkeys
+                                                            == ad.ms_creating.cosigner_pubkeys
+                                                    {
+                                                        ad.ms_store.configs[i] = ad.ms_creating.clone();
+                                                        break;
+                                                    }
+                                                }
+                                                ad.app.state = crate::app::input::AppState::MultisigShowAddress;
                                             } else {
-                                                ad.app.state = crate::app::input::AppState::ShowAddress;
+                                                ad.current_addr_index = val;
+                                                if ad.current_addr_index >= 20 && ad.extra_pubkey_index != ad.current_addr_index {
+                                                    derive_pubkey_from_acct(&ad.acct_key_raw,
+                                                        ad.current_addr_index, &mut ad.extra_pubkey);
+                                                    ad.extra_pubkey_index = ad.current_addr_index;
+                                                }
+                                                if ad.ms_picking_key > 0 {
+                                                    let ki = ad.ms_picking_key - 1;
+                                                    ad.ms_picking_key = 0;
+                                                    ad.app.state = crate::app::input::AppState::MultisigPickAddr { key_idx: ki };
+                                                } else {
+                                                    ad.app.state = crate::app::input::AppState::ShowAddress;
+                                                }
                                             }
                                         }
                                     }

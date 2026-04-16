@@ -373,11 +373,58 @@ pub fn handle_tx_touch(
                     crate::app::input::AppState::MultisigShowAddress => {
                         if is_back {
                             ad.app.go_main_menu();
+                            needs_redraw = true;
+                        } else if y >= 195 {
+                            // Bottom nav band — split by x into [<] / [#N] / [>].
+                            if x <= 90 {
+                                // [<] — previous address (saturating at 0)
+                                if ad.ms_creating.addr_index > 0 {
+                                    ad.ms_creating.addr_index -= 1;
+                                    ad.ms_creating.build_script();
+                                    for i in 0..crate::wallet::transaction::MAX_MULTISIG_WALLETS {
+                                        if ad.ms_store.configs[i].active
+                                            && ad.ms_store.configs[i].m == ad.ms_creating.m
+                                            && ad.ms_store.configs[i].n == ad.ms_creating.n
+                                            && ad.ms_store.configs[i].cosigner_pubkeys
+                                                == ad.ms_creating.cosigner_pubkeys
+                                        {
+                                            ad.ms_store.configs[i] = ad.ms_creating.clone();
+                                            break;
+                                        }
+                                    }
+                                }
+                                needs_redraw = true;
+                            } else if x >= 230 {
+                                // [>] — next address
+                                if ad.ms_creating.addr_index < u16::MAX as u32 {
+                                    ad.ms_creating.addr_index += 1;
+                                    ad.ms_creating.build_script();
+                                    for i in 0..crate::wallet::transaction::MAX_MULTISIG_WALLETS {
+                                        if ad.ms_store.configs[i].active
+                                            && ad.ms_store.configs[i].m == ad.ms_creating.m
+                                            && ad.ms_store.configs[i].n == ad.ms_creating.n
+                                            && ad.ms_store.configs[i].cosigner_pubkeys
+                                                == ad.ms_creating.cosigner_pubkeys
+                                        {
+                                            ad.ms_store.configs[i] = ad.ms_creating.clone();
+                                            break;
+                                        }
+                                    }
+                                }
+                                needs_redraw = true;
+                            } else {
+                                // Center [#N] — numeric picker. Sentinel 255 routes
+                                // AddrIndexPicker GO back to MultisigShowAddress.
+                                ad.addr_input_len = 0;
+                                ad.ms_picking_key = 255;
+                                ad.app.state = crate::app::input::AppState::AddrIndexPicker;
+                                needs_redraw = true;
+                            }
                         } else {
-                            // Tap → show QR
+                            // Tap on the address text area → show QR
                             ad.app.state = crate::app::input::AppState::MultisigShowAddressQR;
+                            needs_redraw = true;
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::MultisigShowAddressQR => {
                         if is_back {

@@ -451,6 +451,7 @@ pub fn redraw_screen(
                     let addr = wallet::address::encode_address_str(
                         &script_hash, wallet::address::AddressType::P2SH, &mut addr_buf);
                     boot_display.draw_multisig_result(label, addr,
+                        ad.ms_creating.addr_index,
                         &ad.ms_creating.script[..ad.ms_creating.script_len]);
                 }
                 crate::app::input::AppState::MultisigShowAddressQR => {

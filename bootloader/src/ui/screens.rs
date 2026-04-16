@@ -3285,7 +3285,7 @@ pub fn draw_home_grid(&mut self) {
     }
 
     /// Draw multisig result screen — shows M-of-N label + P2SH address. Tap for QR.
-    pub fn draw_multisig_result(&mut self, label: &str, address: &str, _script: &[u8]) {
+    pub fn draw_multisig_result(&mut self, label: &str, address: &str, addr_index: u32, _script: &[u8]) {
         self.display.clear(COLOR_BG).ok();
 
         let tw = measure_header("MULTISIG WALLET");
@@ -3294,25 +3294,28 @@ pub fn draw_home_grid(&mut self) {
             .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
             .draw(&mut self.display).ok();
 
-        // "2-of-3 multisig" label
-        let mut info: heapless::String<24> = heapless::String::new();
-        core::fmt::Write::write_fmt(&mut info, format_args!("{label} multisig")).ok();
+        // "2-of-3 multisig · #N" combined label — shows M-of-N context AND
+        // the current address index in a single line.
+        let mut info: heapless::String<32> = heapless::String::new();
+        core::fmt::Write::write_fmt(&mut info,
+            format_args!("{label} multisig · #{addr_index}")).ok();
         let iw = measure_body(info.as_str());
         draw_lato_body(&mut self.display, &info, (320 - iw) / 2, 52, KASPA_ACCENT);
 
-        // Address text — title font, centered, 25 chars/line, vertically centered
+        // Address text — title font, centered, 25 chars/line.
+        // Shrunk vertical band to make room for the bottom nav row.
         let bytes = address.as_bytes();
         let total_len = bytes.len();
         let chars_per_line: usize = 25;
         let line_h: i32 = 26;
         let num_lines = ((total_len + chars_per_line - 1) / chars_per_line) as i32;
         let text_block_h = num_lines * line_h;
-        let avail_top: i32 = 58;
-        let avail_bottom: i32 = 225;
+        let avail_top: i32 = 60;
+        let avail_bottom: i32 = 195; // was 225; shrunk to reserve y=210..238 for nav
         let start_y = avail_top + (avail_bottom - avail_top - text_block_h) / 2;
         let mut y_pos = start_y;
         let mut offset: usize = 0;
-        while offset < total_len && y_pos < 220 {
+        while offset < total_len && y_pos < avail_bottom {
             let end = core::cmp::min(offset + chars_per_line, total_len);
             if let Ok(line) = core::str::from_utf8(&bytes[offset..end]) {
                 let lw = measure_title(line);
@@ -3322,8 +3325,45 @@ pub fn draw_home_grid(&mut self) {
             offset = end;
         }
 
-        let hw = measure_hint("Tap for QR");
-        draw_lato_hint(&mut self.display, "Tap for QR", (320 - hw) / 2, 232, COLOR_HINT);
+        // Bottom nav: [<] [#N] [>] — mirrors singlesig draw_address_screen.
+        // Hit zones for touch handler: y=210..238
+        //   [<]  x=10..60
+        //   [#N] x=110..210  (opens numeric index picker)
+        //   [>]  x=260..310
+        let btn_corner = CornerRadii::new(Size::new(6, 6));
+
+        let btn_l = Rectangle::new(Point::new(10, 210), Size::new(50, 28));
+        RoundedRectangle::new(btn_l, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
+            .draw(&mut self.display).ok();
+        RoundedRectangle::new(btn_l, btn_corner)
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+        let lw = measure_title("<");
+        draw_lato_title(&mut self.display, "<", 10 + (50 - lw) / 2, 230, KASPA_TEAL);
+
+        let btn_c = Rectangle::new(Point::new(110, 210), Size::new(100, 28));
+        RoundedRectangle::new(btn_c, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
+            .draw(&mut self.display).ok();
+        RoundedRectangle::new(btn_c, btn_corner)
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+        let mut idx_label: heapless::String<12> = heapless::String::new();
+        core::fmt::Write::write_fmt(&mut idx_label, format_args!("#{addr_index}")).ok();
+        let il = measure_title(idx_label.as_str());
+        draw_lato_title(&mut self.display, &idx_label, 110 + (100 - il) / 2, 230, KASPA_TEAL);
+
+        let btn_r = Rectangle::new(Point::new(260, 210), Size::new(50, 28));
+        RoundedRectangle::new(btn_r, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
+            .draw(&mut self.display).ok();
+        RoundedRectangle::new(btn_r, btn_corner)
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+        let rw = measure_title(">");
+        draw_lato_title(&mut self.display, ">", 260 + (50 - rw) / 2, 230, KASPA_TEAL);
+
         self.draw_back_button();
     }
 
