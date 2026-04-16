@@ -2736,7 +2736,7 @@ pub fn draw_home_grid(&mut self) {
             (40i32, 45i32, 240usize, 180usize)
         };
         #[cfg(feature = "m5stack")]
-        let (vf_x, vf_y, vf_w, vf_h) = (40i32, 44i32, 240usize, 192usize);
+        let (vf_x, vf_y, vf_w, vf_h) = (40i32, 44i32, 240usize, 180usize);
 
         if width == 0 || height == 0 { return; }
 

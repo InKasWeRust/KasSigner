@@ -95,6 +95,10 @@ pub struct AppData {
     pub sd_overwrite_next: crate::app::input::AppState,
     /// SD overwrite: state to return to if user declines (filename keyboard)
     pub sd_overwrite_back: crate::app::input::AppState,
+    /// SD delete: state to return to after delete completes or is cancelled.
+    /// Set by any file-list handler before routing to SdDeleteConfirm, so
+    /// the confirm screen can bounce back to the correct list.
+    pub sd_delete_return: crate::app::input::AppState,
     /// SD TXT save origin: 0=multisig address, 1=kpub (used by SdKsptEncryptPass back-nav)
     pub sd_txt_origin: u8,
     /// QR multi-frame display: true = manual tap-to-advance, false = auto-cycle
@@ -270,6 +274,7 @@ pub fn new() -> Self {
             kspt_encrypt: false,
             sd_overwrite_next: crate::app::input::AppState::MainMenu,
             sd_overwrite_back: crate::app::input::AppState::MainMenu,
+            sd_delete_return: crate::app::input::AppState::MainMenu,
             sd_txt_origin: 0,
             qr_manual_frames: false,
 

@@ -528,15 +528,24 @@ pub fn handle_sd_touch(
                         needs_redraw = true;
                     }
                     crate::app::input::AppState::SdDeleteConfirm => {
-                        // Determine return state based on file extension
-                        let is_ksp = ad.sd_selected_file[8] == b'K'
-                            && ad.sd_selected_file[9] == b'S'
-                            && ad.sd_selected_file[10] == b'P';
-                        let return_state = if is_ksp {
-                            crate::app::input::AppState::SdKsptFileList
+                        // Caller sets ad.sd_delete_return before routing here.
+                        // Legacy fallback: if the caller didn't set it (still default
+                        // MainMenu), derive from filename like before so the seed-backup
+                        // and KSPT file-list paths keep working without modification.
+                        let return_state = if ad.sd_delete_return != crate::app::input::AppState::MainMenu {
+                            ad.sd_delete_return
                         } else {
-                            crate::app::input::AppState::SdFileList
+                            let is_ksp = ad.sd_selected_file[8] == b'K'
+                                && ad.sd_selected_file[9] == b'S'
+                                && ad.sd_selected_file[10] == b'P';
+                            if is_ksp {
+                                crate::app::input::AppState::SdKsptFileList
+                            } else {
+                                crate::app::input::AppState::SdFileList
+                            }
                         };
+                        // Consume: reset so a stale value doesn't leak to a future delete
+                        ad.sd_delete_return = crate::app::input::AppState::MainMenu;
                         if is_back {
                             ad.app.state = return_state;
                         } else if (180..=230).contains(&y) {
@@ -1471,17 +1480,26 @@ pub fn handle_sd_touch(
                                 ad.sd_file_scroll += max_vis as u8;
                             } else {
                                 let mut tapped: Option<usize> = None;
+                                let mut tapped_delete = false;
                                 for slot in 0..4u8 {
                                     if list_zones[slot as usize].contains(x, y) {
                                         let idx = slot as usize + scroll_off;
                                         if idx < ad.sd_file_count as usize {
                                             tapped = Some(idx);
+                                            // Right ~40px of card = delete zone
+                                            // (trash icon draws at start_x + card_w - 44 .. -6, same as SdFileList)
+                                            tapped_delete = x > 236;
                                         }
                                         break;
                                     }
                                 }
                                 if let Some(i) = tapped {
                                     ad.sd_selected_file = ad.sd_file_list[i];
+                                    if tapped_delete {
+                                        // Return to this same list after delete/cancel
+                                        ad.sd_delete_return = crate::app::input::AppState::SdKpubFileList;
+                                        ad.app.state = crate::app::input::AppState::SdDeleteConfirm;
+                                    } else {
                                     let load_label = match ad.txt_import_type {
                                         0 => "Reading kpub...",
                                         1 => "Reading address...",
@@ -1585,6 +1603,7 @@ pub fn handle_sd_touch(
                                             delay.delay_millis(2000);
                                         }
                                     }
+                                    } // close else of `if tapped_delete`
                                 }
                             }
                         }
