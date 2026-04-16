@@ -367,10 +367,22 @@ pub fn handle_tx_touch(
                     }
                     crate::app::input::AppState::MultisigShowAddressQR => {
                         if is_back {
-                            ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                            if ad.ms_creating.active {
+                                ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                            } else {
+                                // SD-loaded: back to main menu
+                                ad.signed_qr_len = 0;
+                                ad.app.go_main_menu();
+                            }
                         } else {
-                            // Tap → ask whether to save address to SD
-                            ad.app.state = crate::app::input::AppState::MultisigSaveAddrAsk;
+                            if ad.ms_creating.active {
+                                // Live flow: tap → ask whether to save address to SD
+                                ad.app.state = crate::app::input::AppState::MultisigSaveAddrAsk;
+                            } else {
+                                // SD-loaded: tap → back to main menu (already on disk)
+                                ad.signed_qr_len = 0;
+                                ad.app.go_main_menu();
+                            }
                         }
                         needs_redraw = true;
                     }

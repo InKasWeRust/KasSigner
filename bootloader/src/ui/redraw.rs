@@ -454,12 +454,21 @@ pub fn redraw_screen(
                         &ad.ms_creating.script[..ad.ms_creating.script_len]);
                 }
                 crate::app::input::AppState::MultisigShowAddressQR => {
-                    let script_hash = wallet::sighash::blake2b_hash(
-                        &ad.ms_creating.script[..ad.ms_creating.script_len]);
-                    let mut addr_buf = [0u8; wallet::address::MAX_ADDR_LEN];
-                    let addr_len = wallet::address::encode_address(
-                        &script_hash, wallet::address::AddressType::P2SH, &mut addr_buf);
-                    boot_display.draw_qr_fullscreen(&addr_buf[..addr_len], "MULTISIG QR");
+                    if ad.ms_creating.active && ad.ms_creating.script_len > 0 {
+                        // Live flow: derive address from ms_creating script
+                        let script_hash = wallet::sighash::blake2b_hash(
+                            &ad.ms_creating.script[..ad.ms_creating.script_len]);
+                        let mut addr_buf = [0u8; wallet::address::MAX_ADDR_LEN];
+                        let addr_len = wallet::address::encode_address(
+                            &script_hash, wallet::address::AddressType::P2SH, &mut addr_buf);
+                        boot_display.draw_qr_fullscreen(&addr_buf[..addr_len], "MULTISIG QR");
+                    } else if ad.signed_qr_len > 0 {
+                        // SD-loaded flow: address already in signed_qr_buf
+                        boot_display.draw_qr_fullscreen(
+                            &ad.signed_qr_buf[..ad.signed_qr_len], "MULTISIG QR");
+                    } else {
+                        boot_display.draw_rejected_screen("No address to display");
+                    }
                 }
                 crate::app::input::AppState::MultisigDescriptor => {
                     let mut label_buf = [0u8; 8];

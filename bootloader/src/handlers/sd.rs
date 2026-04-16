@@ -1436,8 +1436,10 @@ pub fn handle_sd_touch(
                                                     if n > 0 && n <= 256 {
                                                         ad.kpub_data[..n].copy_from_slice(&buf[..n]);
                                                         ad.kpub_len = n;
-                                                        // Use draw_qr_fullscreen via ShowAddressQR-like state
-                                                        // Store in signed_qr_buf for QR display
+                                                        // Store address in signed_qr_buf for the
+                                                        // MultisigShowAddressQR redraw to render.
+                                                        // ms_creating.active remains false — signals
+                                                        // SD-loaded flow (no save popup, tap=back).
                                                         ad.signed_qr_buf[..n].copy_from_slice(&buf[..n]);
                                                         ad.signed_qr_len = n;
                                                         ad.signed_qr_frame = 0;
@@ -1446,7 +1448,7 @@ pub fn handle_sd_touch(
                                                         boot_display.draw_success_screen("Address loaded!");
                                                         sound::success(delay);
                                                         delay.delay_millis(1000);
-                                                        ad.app.state = crate::app::input::AppState::ShowQR;
+                                                        ad.app.state = crate::app::input::AppState::MultisigShowAddressQR;
                                                     } else {
                                                         boot_display.draw_rejected_screen("Invalid address file");
                                                         delay.delay_millis(2000);
