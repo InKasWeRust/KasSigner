@@ -419,7 +419,12 @@ pub fn handle_tx_touch(
                     }
                     crate::app::input::AppState::MultisigDescriptor => {
                         if is_back {
-                            ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                            if ad.ms_creating.active {
+                                ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                            } else {
+                                // SD-loaded view-only flow: back to main menu
+                                ad.app.go_main_menu();
+                            }
                         } else if (190..=230).contains(&y) && (170..=310).contains(&x) {
                                 // SD CARD button — write descriptor text to SD
                                 boot_display.draw_loading_screen("Saving to SD...");

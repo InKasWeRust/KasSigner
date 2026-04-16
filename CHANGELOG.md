@@ -9,6 +9,18 @@ All notable changes to KasSigner will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] — 2026-04-16
+
+### Fixed — Multisig SD workflow
+- **Multisig address loaded from SD** no longer routes through the signed-TX pipeline. Dedicated `MultisigShowAddressQR` dual-path renders the loaded address with the correct "MULTISIG QR" title; tap returns to main menu (no bogus "SIGNED TX" popup, no wrong TX/KSP filename, no multi-frame mode choice for single-frame data).
+- **Multisig descriptor loaded from SD** now parses the `multi(M,hex1,hex2,...)` text and populates `ms_creating` (view-only, `.active=false`), then routes to the existing `MultisigDescriptor` screen — same participant-summary view as the live flow. Back button in that state branches on `ms_creating.active` so the SD-loaded flow returns to main menu.
+- New helper: `parse_descriptor()` in `handlers/sd.rs` — validates prefix/suffix, single-digit M, exactly 64 hex chars per pubkey, comma separators, max keys per `MAX_MULTISIG_KEYS`.
+
+### Changed
+- Bootloader `Cargo.toml` version bumped to 1.0.3
+- `fw_update::CURRENT_VERSION` bumped to 10003
+- `kassee/Cargo.toml` version bumped to 1.0.3
+
 ## [1.0.2] — 2026-04-13
 
 ### Added — Device Firmware

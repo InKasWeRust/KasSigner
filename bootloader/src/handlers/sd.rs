@@ -37,6 +37,75 @@ fn hex_nibble(ch: u8) -> u8 {
     }
 }
 
+/// Parse a multisig descriptor text of the form "multi(M,hex1,hex2,...,hexN)".
+/// Returns (m, n, pubkeys) on success. Each hex is exactly 64 chars (32 bytes x-only).
+/// Trailing whitespace/newlines are tolerated.
+fn parse_descriptor(
+    data: &[u8],
+) -> Option<(u8, u8, [[u8; 32]; crate::wallet::transaction::MAX_MULTISIG_KEYS])> {
+    // Trim trailing whitespace/newlines
+    let mut end = data.len();
+    while end > 0 && matches!(data[end - 1], b'\n' | b'\r' | b' ' | b'\t') {
+        end -= 1;
+    }
+    let data = &data[..end];
+
+    // Must start with "multi(" and end with ")"
+    let prefix = b"multi(";
+    if data.len() < prefix.len() + 2 || &data[..prefix.len()] != prefix {
+        return None;
+    }
+    if data[data.len() - 1] != b')' {
+        return None;
+    }
+    let inner = &data[prefix.len()..data.len() - 1]; // between "multi(" and ")"
+
+    // First field: M (single digit 1..=9)
+    if inner.is_empty() || inner[0] < b'1' || inner[0] > b'9' {
+        return None;
+    }
+    let m = inner[0] - b'0';
+    if inner.len() < 2 || inner[1] != b',' {
+        return None;
+    }
+
+    // Remaining: comma-separated 64-char hex strings
+    let mut pubkeys = [[0u8; 32]; crate::wallet::transaction::MAX_MULTISIG_KEYS];
+    let mut n: u8 = 0;
+    let mut pos = 2usize;
+    while pos < inner.len() {
+        if (n as usize) >= crate::wallet::transaction::MAX_MULTISIG_KEYS {
+            return None;
+        }
+        // Expect 64 hex chars
+        if pos + 64 > inner.len() {
+            return None;
+        }
+        let hex_slice = &inner[pos..pos + 64];
+        for j in 0..32 {
+            let hi = hex_nibble(hex_slice[j * 2]);
+            let lo = hex_nibble(hex_slice[j * 2 + 1]);
+            if hi == 0xFF || lo == 0xFF {
+                return None;
+            }
+            pubkeys[n as usize][j] = (hi << 4) | lo;
+        }
+        n += 1;
+        pos += 64;
+        if pos < inner.len() {
+            if inner[pos] != b',' {
+                return None;
+            }
+            pos += 1;
+        }
+    }
+
+    if n == 0 || m > n {
+        return None;
+    }
+    Some((m, n, pubkeys))
+}
+
 /// Check if a file with the given 8.3 name exists on the SD card.
 /// Returns true if the file exists, false if not found or on SD error.
 fn sd_file_exists(
@@ -1455,22 +1524,30 @@ pub fn handle_sd_touch(
                                                     }
                                                 }
                                                 2 => {
-                                                    // Multisig descriptor — display as text on screen
+                                                    // Multisig descriptor — parse and show participant summary
                                                     if n > 0 && n <= 400 {
                                                         ad.kpub_data[..n].copy_from_slice(&buf[..n]);
                                                         ad.kpub_len = n;
                                                         let text = core::str::from_utf8(&buf[..n]).unwrap_or("?");
                                                         log!("[SD-DESC] Loaded: {}", text);
-                                                        boot_display.draw_success_screen("Descriptor loaded!");
-                                                        sound::success(delay);
-                                                        delay.delay_millis(1000);
-                                                        // Display descriptor as multi-frame QR
-                                                        ad.signed_qr_buf[..n].copy_from_slice(&buf[..n]);
-                                                        ad.signed_qr_len = n;
-                                                        ad.signed_qr_frame = 0;
-                                                        ad.signed_qr_nframes = 0;
-                                                        ad.signed_qr_large = false;
-                                                        ad.app.state = crate::app::input::AppState::ShowQrFrameChoice;
+                                                        if let Some((m, nn, pubkeys)) = parse_descriptor(&buf[..n]) {
+                                                            // Populate ms_creating (view-only: .active stays false)
+                                                            ad.ms_creating = wallet::transaction::MultisigConfig::new();
+                                                            ad.ms_creating.m = m;
+                                                            ad.ms_creating.n = nn;
+                                                            ad.ms_creating.pubkeys = pubkeys;
+                                                            // Build script so "SHOW QR" and the derived
+                                                            // address (if ever computed from this view)
+                                                            // match the live flow.
+                                                            ad.ms_creating.build_script();
+                                                            boot_display.draw_success_screen("Descriptor loaded!");
+                                                            sound::success(delay);
+                                                            delay.delay_millis(1000);
+                                                            ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                                                        } else {
+                                                            boot_display.draw_rejected_screen("Bad descriptor format");
+                                                            delay.delay_millis(2000);
+                                                        }
                                                     } else {
                                                         boot_display.draw_rejected_screen("Invalid descriptor");
                                                         delay.delay_millis(2000);
