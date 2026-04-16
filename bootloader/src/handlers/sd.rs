@@ -1476,7 +1476,13 @@ pub fn handle_sd_touch(
                                 }
                                 if let Some(i) = tapped {
                                     ad.sd_selected_file = ad.sd_file_list[i];
-                                    boot_display.draw_loading_screen("Reading kpub...");
+                                    let load_label = match ad.txt_import_type {
+                                        0 => "Reading kpub...",
+                                        1 => "Reading address...",
+                                        2 => "Reading descriptor...",
+                                        _ => "Reading file...",
+                                    };
+                                    boot_display.draw_loading_screen(load_label);
                                     let read_result = sdcard::with_sd_card(i2c, delay, |ct| {
                                         let fat32 = sdcard::mount_fat32(ct)?;
                                         let (entry, _, _) = sdcard::find_file_in_root(ct, &fat32, &ad.sd_selected_file)?;
@@ -1501,8 +1507,14 @@ pub fn handle_sd_touch(
                                                     }
                                                 }
                                                 1 => {
-                                                    // Multisig address — display as fullscreen QR
-                                                    if n > 0 && n <= 256 {
+                                                    // Multisig address — display as fullscreen QR.
+                                                    // kpub_data is only 120 bytes; clamp size to the smallest
+                                                    // of all destination buffers to prevent overflow if the
+                                                    // file on SD is corrupted or unexpectedly large.
+                                                    let max_addr_len = wallet::xpub::KPUB_MAX_LEN
+                                                        .min(buf.len())
+                                                        .min(ad.signed_qr_buf.len());
+                                                    if n > 0 && n <= max_addr_len {
                                                         ad.kpub_data[..n].copy_from_slice(&buf[..n]);
                                                         ad.kpub_len = n;
                                                         // Store address in signed_qr_buf for the
@@ -1524,10 +1536,11 @@ pub fn handle_sd_touch(
                                                     }
                                                 }
                                                 2 => {
-                                                    // Multisig descriptor — parse and show participant summary
-                                                    if n > 0 && n <= 400 {
-                                                        ad.kpub_data[..n].copy_from_slice(&buf[..n]);
-                                                        ad.kpub_len = n;
+                                                    // Multisig descriptor — parse and show participant summary.
+                                                    // Note: buf is 512 bytes. Parse directly from buf — descriptor
+                                                    // data does not need to be stashed in kpub_data (which is only
+                                                    // 120 bytes and would overflow for N≥2 descriptors).
+                                                    if n > 0 && n <= 400 && n <= buf.len() {
                                                         let text = core::str::from_utf8(&buf[..n]).unwrap_or("?");
                                                         log!("[SD-DESC] Loaded: {}", text);
                                                         if let Some((m, nn, pubkeys)) = parse_descriptor(&buf[..n]) {
@@ -1547,10 +1560,14 @@ pub fn handle_sd_touch(
                                                         } else {
                                                             boot_display.draw_rejected_screen("Bad descriptor format");
                                                             delay.delay_millis(2000);
+                                                            // Bailout to main menu on parse failure —
+                                                            // prevents re-tapping the same bad file.
+                                                            ad.app.go_main_menu();
                                                         }
                                                     } else {
                                                         boot_display.draw_rejected_screen("Invalid descriptor");
                                                         delay.delay_millis(2000);
+                                                        ad.app.go_main_menu();
                                                     }
                                                 }
                                                 _ => {}
@@ -1663,6 +1680,69 @@ pub fn handle_sd_touch(
                         }
                         needs_redraw = true;
                     }
+                    crate::app::input::AppState::SdMsDescFilename => {
+                        if is_back {
+                            ad.pp_input.reset();
+                            ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                        } else {
+                            match pp_keyboard_hit(x, y, &mut ad.pp_input) {
+                                2 => { ad.pp_input.next_page(); }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "DESCRIPTOR FILENAME"); needs_redraw = false; }
+                                5 => { /* no space in filenames */ }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "DESCRIPTOR FILENAME"); needs_redraw = false; }
+                                6 => {
+                                    // OK — build 8.3 filename, extension TXT
+                                    let name_83 = build_filename_83(&ad.pp_input.buf, ad.pp_input.len, b"TXT");
+                                    ad.kspt_filename = name_83;
+                                    // Check if file already exists on SD
+                                    if sd_file_exists(i2c, delay, &name_83) {
+                                        ad.sd_overwrite_next = crate::app::input::AppState::SdMsDescEncryptAsk;
+                                        ad.sd_overwrite_back = crate::app::input::AppState::SdMsDescFilename;
+                                        ad.app.state = crate::app::input::AppState::SdOverwriteWarning;
+                                    } else {
+                                        ad.pp_input.reset();
+                                        ad.app.state = crate::app::input::AppState::SdMsDescEncryptAsk;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        needs_redraw = true;
+                    }
+                    crate::app::input::AppState::SdMsDescEncryptAsk => {
+                        if is_back {
+                            ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                        } else {
+                            if (30..=155).contains(&x) && (140..=185).contains(&y) {
+                                // Yes — encrypt: descriptor is already staged in signed_qr_buf
+                                // by the SD CARD button in tx.rs. Just set origin and go.
+                                ad.sd_txt_origin = 2; // multisig descriptor
+                                ad.pp_input.reset();
+                                ad.app.state = crate::app::input::AppState::SdKsptEncryptPass;
+                            } else if (165..=290).contains(&x) && (140..=185).contains(&y) {
+                                // No — write plain descriptor to SD (from signed_qr_buf)
+                                boot_display.draw_saving_screen("Saving descriptor...");
+                                let data = &ad.signed_qr_buf[..ad.signed_qr_len];
+                                let fname = ad.kspt_filename;
+                                let write_result = write_file_to_sd(i2c, delay, &fname, data);
+                                match write_result {
+                                    Ok(()) => {
+                                        boot_display.draw_success_screen("Descriptor saved!");
+                                        sound::success(delay);
+                                        delay.delay_millis(1500);
+                                    }
+                                    Err(e) => {
+                                        log!("SD ms-desc write error: {}", e);
+                                        boot_display.draw_rejected_screen("SD write failed");
+                                        sound::beep_error(delay);
+                                        delay.delay_millis(2000);
+                                    }
+                                }
+                                ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                            }
+                        }
+                        needs_redraw = true;
+                    }
                     crate::app::input::AppState::SdKsptEncryptPass => {
                         if is_back {
                             ad.pp_input.reset();
@@ -1678,6 +1758,8 @@ pub fn handle_sd_touch(
                                 // TXT encrypt → back to the relevant encrypt-ask
                                 if ad.sd_txt_origin == 1 {
                                     ad.app.state = crate::app::input::AppState::SdKpubEncryptAsk;
+                                } else if ad.sd_txt_origin == 2 {
+                                    ad.app.state = crate::app::input::AppState::SdMsDescEncryptAsk;
                                 } else {
                                     ad.app.state = crate::app::input::AppState::SdMsAddrEncryptAsk;
                                 }

@@ -426,46 +426,35 @@ pub fn handle_tx_touch(
                                 ad.app.go_main_menu();
                             }
                         } else if (190..=230).contains(&y) && (170..=310).contains(&x) {
-                                // SD CARD button — write descriptor text to SD
-                                boot_display.draw_loading_screen("Saving to SD...");
-                                boot_display.update_progress_bar(30);
-                                delay.delay_millis(50);
-
-                                // Build descriptor text: multi(M,pk1_hex,...,pkN_hex)
+                                // SD CARD button — build descriptor text and go to filename keyboard.
+                                // Stage into signed_qr_buf (1024 bytes) — kpub_data is only 120 bytes
+                                // and would overflow for N≥2 descriptors (~70 bytes per key).
                                 let hex = b"0123456789abcdef";
-                                let mut desc = [0u8; 400];
                                 let mut pos: usize = 0;
-                                for &b in b"multi(" { desc[pos] = b; pos += 1; }
-                                desc[pos] = b'0' + ad.ms_creating.m; pos += 1;
+                                for &b in b"multi(" { ad.signed_qr_buf[pos] = b; pos += 1; }
+                                ad.signed_qr_buf[pos] = b'0' + ad.ms_creating.m; pos += 1;
                                 for i in 0..ad.ms_creating.n as usize {
-                                    desc[pos] = b','; pos += 1;
+                                    ad.signed_qr_buf[pos] = b','; pos += 1;
                                     let pk = &ad.ms_creating.pubkeys[i];
                                     for j in 0..32 {
-                                        desc[pos] = hex[(pk[j] >> 4) as usize]; pos += 1;
-                                        desc[pos] = hex[(pk[j] & 0x0f) as usize]; pos += 1;
+                                        ad.signed_qr_buf[pos] = hex[(pk[j] >> 4) as usize]; pos += 1;
+                                        ad.signed_qr_buf[pos] = hex[(pk[j] & 0x0f) as usize]; pos += 1;
                                     }
                                 }
-                                desc[pos] = b')'; pos += 1;
-                                desc[pos] = b'\n'; pos += 1;
+                                ad.signed_qr_buf[pos] = b')'; pos += 1;
+                                ad.signed_qr_len = pos;
 
-                                // Filename: MSDESC  TXT (8.3)
-                                let fname: [u8; 11] = *b"MSDESC  TXT";
-                                let save_ok = sdcard::with_sd_card(i2c, delay, |ct| {
-                                    let fat32 = sdcard::mount_fat32(ct)?;
-                                    sdcard::create_file(ct, &fat32, &fname, &desc[..pos])?;
-                                    Ok(())
-                                });
-                                boot_display.update_progress_bar(100);
-
-                                if save_ok.is_ok() {
-                                    boot_display.draw_success_screen("Saved: MSDESC.TXT");
-                                    sound::success(delay);
-                                } else {
-                                    boot_display.draw_rejected_screen("SD write failed");
-                                    sound::beep_error(delay);
+                                // Auto-increment filename: MD000001.TXT
+                                let next = crate::handlers::sd::scan_auto_increment(i2c, delay, b"MD", b"TXT");
+                                let name = crate::handlers::sd::format_auto_name(b"MD", next, b"TXT");
+                                ad.kspt_filename = name;
+                                ad.pp_input.reset();
+                                for j in 0..8usize {
+                                    if name[j] != b' ' {
+                                        ad.pp_input.push_char(name[j]);
+                                    }
                                 }
-                                delay.delay_millis(2000);
-                                ad.app.go_main_menu();
+                                ad.app.state = crate::app::input::AppState::SdMsDescFilename;
                         } else if (190..=230).contains(&y) && (10..=150).contains(&x) {
                                 // QR button — show descriptor as QR for KasSee to scan
                                 let hex = b"0123456789abcdef";

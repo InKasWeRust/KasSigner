@@ -513,6 +513,10 @@ pub enum AppState {
     SdMsAddrFilename,
     /// SD multisig address: ask user whether to encrypt
     SdMsAddrEncryptAsk,
+    /// SD multisig descriptor: keyboard for naming the .TXT file before save
+    SdMsDescFilename,
+    /// SD multisig descriptor: ask user whether to encrypt
+    SdMsDescEncryptAsk,
     /// Multisig address: ask user whether to save address to SD
     MultisigSaveAddrAsk,
     /// SD KSPT: ask user whether to encrypt the file
@@ -678,6 +682,7 @@ pub fn new() -> Self {
             | AppState::ShowQrPopup | AppState::SdKsptFilename | AppState::SdKpubFilename
             | AppState::SdSeedFilename | AppState::SdXprvFilename | AppState::SdMsAddrFilename
             | AppState::SdMsAddrEncryptAsk
+            | AppState::SdMsDescFilename | AppState::SdMsDescEncryptAsk
             | AppState::SdKsptEncryptAsk | AppState::SdKsptEncryptPass
             | AppState::SdOverwriteWarning | AppState::SdKpubEncryptAsk
             | AppState::ShowQrModeChoice
@@ -881,6 +886,7 @@ pub fn handler_group(&self) -> HandlerGroup {
             | ShowQrPopup | SdKsptFilename | SdKpubFilename
             | SdSeedFilename | SdXprvFilename | SdMsAddrFilename
             | SdMsAddrEncryptAsk
+            | SdMsDescFilename | SdMsDescEncryptAsk
             | SdKsptEncryptAsk | SdKsptEncryptPass
             | SdOverwriteWarning | SdKpubEncryptAsk
             | ShowQrModeChoice

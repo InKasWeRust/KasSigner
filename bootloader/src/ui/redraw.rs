@@ -597,6 +597,12 @@ pub fn redraw_screen(
                 crate::app::input::AppState::SdMsAddrEncryptAsk => {
                     boot_display.draw_kspt_encrypt_ask();
                 }
+                crate::app::input::AppState::SdMsDescFilename => {
+                    boot_display.draw_keyboard_screen_full(&ad.pp_input, "DESCRIPTOR FILENAME");
+                }
+                crate::app::input::AppState::SdMsDescEncryptAsk => {
+                    boot_display.draw_kspt_encrypt_ask();
+                }
                 crate::app::input::AppState::SdKsptEncryptAsk => {
                     boot_display.draw_kspt_encrypt_ask();
                 }
