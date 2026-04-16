@@ -32,7 +32,16 @@
 
 use k256::{
     SecretKey,
-    elliptic_curve::sec1::ToEncodedPoint,
+    Scalar,
+    Secp256k1,
+    ProjectivePoint,
+    AffinePoint,
+    EncodedPoint,
+    elliptic_curve::{
+        sec1::{ToEncodedPoint, FromEncodedPoint},
+        ScalarPrimitive,
+        Group,
+    },
 };
 use super::hmac::{hmac_sha512, zeroize_buf};
 
@@ -301,6 +310,156 @@ pub fn derive_child(
 
     Ok(ExtendedPrivKey {
         key: child_key,
+        chain_code: child_chain_code,
+        depth: parent.depth.saturating_add(1),
+    })
+}
+
+// ─── Public-key BIP32 child derivation (no private key required) ────
+//
+// This is the cryptographic primitive for HD multisig: given just a
+// cosigner's account-level xpub (public key + chain code), derive the
+// child pubkey at m/.../0/index without access to the private key.
+// Used by the multisig script builder so each address index yields a
+// fresh per-cosigner pubkey, matching the BIP32 / BIP48 behavior of
+// hardware wallets like Coldcard, Ledger, Trezor.
+//
+// Formula (from BIP32, normal non-hardened child):
+//   data         = ser_P(parent_pubkey) || ser32(index)   (37 bytes)
+//   I            = HMAC-SHA512(key = parent_chain_code, data = data)
+//   IL, IR       = I[0..32], I[32..64]
+//   if IL >= n (secp256k1 order): fail
+//   child_point  = IL * G + parent_point   (secp256k1 point addition)
+//   if child_point is identity (point at infinity): fail
+//   child_pubkey = compressed encoding of child_point
+//   child_cc     = IR
+//
+// Hardened indices (index >= 0x80000000) are NOT supported here —
+// public-only derivation cannot produce them (by design, per BIP32).
+
+/// Extended public key: compressed pubkey (33B) + chain code (32B).
+///
+/// Used as input to `derive_child_pub` for HD multisig address derivation.
+/// Constructed either from a decoded kpub payload (see `import_kpub_xpub`
+/// in `wallet::xpub`) or from an `ExtendedPrivKey` via
+/// `ExtendedPrivKey::to_xpub()`.
+#[derive(Clone)]
+pub struct ExtendedPubKey {
+    /// Compressed pubkey: 0x02 or 0x03 prefix + 32-byte X coordinate.
+    pub pubkey: [u8; 33],
+    /// BIP32 chain code — entropy used in child derivation HMAC.
+    pub chain_code: [u8; 32],
+    /// Depth in the derivation tree (0 = master).
+    pub depth: u8,
+}
+
+impl ExtendedPubKey {
+    /// Return the x-only 32-byte pubkey (Kaspa / BIP340 form).
+    pub fn x_only(&self) -> [u8; 32] {
+        let mut x = [0u8; 32];
+        x.copy_from_slice(&self.pubkey[1..33]);
+        x
+    }
+}
+
+impl ExtendedPrivKey {
+    /// Derive the extended public key (pubkey + chain_code + depth).
+    pub fn to_xpub(&self) -> Result<ExtendedPubKey, Bip32Error> {
+        let pubkey = self.public_key_compressed()?;
+        Ok(ExtendedPubKey {
+            pubkey,
+            chain_code: self.chain_code,
+            depth: self.depth,
+        })
+    }
+}
+
+/// Derive a child extended public key at a normal (non-hardened) index.
+///
+/// Returns `Bip32Error::InvalidKey` for hardened indices, for IL >= n,
+/// or if the resulting point is the identity. The result is a public
+/// key that corresponds to the private child that the holder of the
+/// parent xprv would derive via `derive_child(parent_xprv, index)`.
+pub fn derive_child_pub(
+    parent: &ExtendedPubKey,
+    index: u32,
+) -> Result<ExtendedPubKey, Bip32Error> {
+    // Hardened derivation requires the private key — not possible publicly
+    if index & HARDENED_BIT != 0 {
+        return Err(Bip32Error::InvalidKey);
+    }
+
+    // data = ser_P(parent_pubkey) || ser32(index) = 37 bytes
+    let mut data = [0u8; 37];
+    data[..33].copy_from_slice(&parent.pubkey);
+    data[33..37].copy_from_slice(&index.to_be_bytes());
+
+    // I = HMAC-SHA512(parent.chain_code, data)
+    let i = hmac_sha512(&parent.chain_code, &data);
+    zeroize_buf(&mut data);
+
+    let mut il = [0u8; 32];
+    let mut child_chain_code = [0u8; 32];
+    il.copy_from_slice(&i[..32]);
+    child_chain_code.copy_from_slice(&i[32..]);
+
+    // Reject IL >= n
+    if !is_less_than_order(&il) {
+        zeroize_buf(&mut il);
+        zeroize_buf(&mut child_chain_code);
+        return Err(Bip32Error::InvalidKey);
+    }
+
+    // IL scalar — we already know IL < n so from_slice succeeds
+    let il_primitive = match ScalarPrimitive::<Secp256k1>::from_slice(&il) {
+        Ok(p) => p,
+        Err(_) => {
+            zeroize_buf(&mut il);
+            zeroize_buf(&mut child_chain_code);
+            return Err(Bip32Error::InvalidKey);
+        }
+    };
+    let il_scalar: Scalar = Scalar::from(&il_primitive);
+    zeroize_buf(&mut il);
+
+    // Parse parent pubkey as AffinePoint
+    let parent_encoded = match EncodedPoint::from_bytes(parent.pubkey) {
+        Ok(e) => e,
+        Err(_) => {
+            zeroize_buf(&mut child_chain_code);
+            return Err(Bip32Error::CurveError);
+        }
+    };
+    let parent_affine_opt = AffinePoint::from_encoded_point(&parent_encoded);
+    if bool::from(parent_affine_opt.is_none()) {
+        zeroize_buf(&mut child_chain_code);
+        return Err(Bip32Error::CurveError);
+    }
+    let parent_affine = parent_affine_opt.expect("checked is_some above");
+    let parent_point = ProjectivePoint::from(parent_affine);
+
+    // child_point = IL*G + parent_point
+    let child_point = ProjectivePoint::GENERATOR * il_scalar + parent_point;
+
+    // Reject identity (point at infinity)
+    if bool::from(child_point.is_identity()) {
+        zeroize_buf(&mut child_chain_code);
+        return Err(Bip32Error::InvalidKey);
+    }
+
+    // Serialize as compressed
+    let child_affine = child_point.to_affine();
+    let child_encoded = child_affine.to_encoded_point(true); // compressed
+    let child_bytes = child_encoded.as_bytes();
+    if child_bytes.len() != 33 {
+        zeroize_buf(&mut child_chain_code);
+        return Err(Bip32Error::CurveError);
+    }
+    let mut child_pubkey = [0u8; 33];
+    child_pubkey.copy_from_slice(child_bytes);
+
+    Ok(ExtendedPubKey {
+        pubkey: child_pubkey,
         chain_code: child_chain_code,
         depth: parent.depth.saturating_add(1),
     })
@@ -857,12 +1016,85 @@ pub fn test_multi_address_derivation() -> bool {
     true
 }
 
+/// Self-consistency: public-key child derivation must produce the same
+/// pubkey as private-key child derivation at the same index.
+///
+/// Strategy — don't hard-code external BIP32 test vectors (typo risk).
+/// Instead, derive an account-level private key (proven infrastructure),
+/// export it to xpub, derive a child at index 5 via BOTH paths, and
+/// verify pubkey + chain code + depth all match. Also verify that
+/// hardened indices are correctly rejected on the public path (BIP32
+/// public derivation is only defined for non-hardened indices).
+#[cfg(any(test, feature = "verbose-boot"))]
+pub fn test_derive_child_pub_consistency() -> bool {
+    // Known seed (BIP39 "abandon × 11 + about" → BIP32 master seed bytes)
+    let seed: [u8; 64] = [
+        0x5e, 0xb0, 0x0b, 0xbd, 0xdc, 0xf0, 0x69, 0x08,
+        0x48, 0x89, 0xa8, 0xab, 0x91, 0x55, 0x56, 0x81,
+        0x65, 0xf5, 0xc4, 0x53, 0xcc, 0xb8, 0x5e, 0x70,
+        0x81, 0x1a, 0xae, 0xd6, 0xf6, 0xda, 0x5f, 0xc1,
+        0x9a, 0x5a, 0xc4, 0x0b, 0x38, 0x9c, 0xd3, 0x70,
+        0xd0, 0x86, 0x20, 0x6d, 0xec, 0x8a, 0xa6, 0xc4,
+        0x3d, 0xae, 0xa6, 0x69, 0x0f, 0x20, 0xad, 0x3d,
+        0x8d, 0x48, 0xb2, 0xd2, 0xce, 0x9e, 0x38, 0xe4,
+    ];
+    // Account key at m/44'/111111'/0' (hardened, private-only)
+    let acct = match derive_account_key(&seed) {
+        Ok(k) => k,
+        Err(_) => return false,
+    };
+    // Export as xpub for public-derivation path
+    let acct_xpub = match acct.to_xpub() {
+        Ok(x) => x,
+        Err(_) => return false,
+    };
+    // Derive child at index 5 via BOTH paths — must agree
+    let priv_child = match derive_child(&acct, 5) {
+        Ok(k) => k,
+        Err(_) => return false,
+    };
+    let pub_child = match derive_child_pub(&acct_xpub, 5) {
+        Ok(x) => x,
+        Err(_) => return false,
+    };
+    // Compressed pubkey of private-derived must match the public-derived
+    let priv_pk_compressed = match priv_child.public_key_compressed() {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    if priv_pk_compressed != pub_child.pubkey { return false; }
+    if priv_child.chain_code != pub_child.chain_code { return false; }
+    if priv_child.depth != pub_child.depth { return false; }
+
+    // Also verify index 0 agrees (edge case — first address)
+    let priv0 = match derive_child(&acct, 0) {
+        Ok(k) => k,
+        Err(_) => return false,
+    };
+    let pub0 = match derive_child_pub(&acct_xpub, 0) {
+        Ok(x) => x,
+        Err(_) => return false,
+    };
+    let priv0_pk = match priv0.public_key_compressed() {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    if priv0_pk != pub0.pubkey { return false; }
+    if priv0.chain_code != pub0.chain_code { return false; }
+
+    // Hardened indices MUST be rejected on the public path
+    if derive_child_pub(&acct_xpub, 0x8000_0000).is_ok() { return false; }
+    if derive_child_pub(&acct_xpub, HARDENED_BIT | 5).is_ok() { return false; }
+
+    true
+}
+
 /// Run all BIP32 tests.
 /// Returns (passed, total).
 #[cfg(any(test, feature = "verbose-boot"))]
 pub fn run_bip32_tests() -> (u32, u32) {
     let mut passed = 0u32;
-    let total = 6u32;
+    let total = 7u32;
 
     if test_vector1_master() { passed += 1; }
     if test_vector1_official() { passed += 1; }
@@ -870,6 +1102,7 @@ pub fn run_bip32_tests() -> (u32, u32) {
     if test_kaspa_path_derivation() { passed += 1; }
     if test_scalar_arithmetic() { passed += 1; }
     if test_multi_address_derivation() { passed += 1; }
+    if test_derive_child_pub_consistency() { passed += 1; }
 
     (passed, total)
 }
