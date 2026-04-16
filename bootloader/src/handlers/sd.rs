@@ -1617,12 +1617,13 @@ pub fn handle_sd_touch(
                         if is_back {
                             ad.pp_input.reset();
                             ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                            needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); }
-                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "ADDRESS FILENAME"); needs_redraw = false; }
+                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "ADDRESS FILENAME"); }
                                 5 => { /* no space in filenames */ }
-                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "ADDRESS FILENAME"); needs_redraw = false; }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "ADDRESS FILENAME"); }
                                 6 => {
                                     // OK — build 8.3 filename, extension TXT
                                     let name_83 = build_filename_83(&ad.pp_input.buf, ad.pp_input.len, b"TXT");
@@ -1636,11 +1637,11 @@ pub fn handle_sd_touch(
                                         ad.pp_input.reset();
                                         ad.app.state = crate::app::input::AppState::SdMsAddrEncryptAsk;
                                     }
+                                    needs_redraw = true;
                                 }
                                 _ => {}
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdMsAddrEncryptAsk => {
                         if is_back {
@@ -1684,12 +1685,13 @@ pub fn handle_sd_touch(
                         if is_back {
                             ad.pp_input.reset();
                             ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                            needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); }
-                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "DESCRIPTOR FILENAME"); needs_redraw = false; }
+                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "DESCRIPTOR FILENAME"); }
                                 5 => { /* no space in filenames */ }
-                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "DESCRIPTOR FILENAME"); needs_redraw = false; }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "DESCRIPTOR FILENAME"); }
                                 6 => {
                                     // OK — build 8.3 filename, extension TXT
                                     let name_83 = build_filename_83(&ad.pp_input.buf, ad.pp_input.len, b"TXT");
@@ -1703,11 +1705,11 @@ pub fn handle_sd_touch(
                                         ad.pp_input.reset();
                                         ad.app.state = crate::app::input::AppState::SdMsDescEncryptAsk;
                                     }
+                                    needs_redraw = true;
                                 }
                                 _ => {}
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdMsDescEncryptAsk => {
                         if is_back {
