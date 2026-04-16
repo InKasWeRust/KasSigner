@@ -147,7 +147,7 @@ fn check_immediate_tap(
                         if ad.ms_creating.n > 0 && !ad.ms_creating.active {
                             let mut key_idx: u8 = 0;
                             for i in 0..ad.ms_creating.n {
-                                if ad.ms_creating.pubkeys[i as usize] == [0u8; 32] {
+                                if ad.ms_creating.slot_empty(i as usize) {
                                     key_idx = i;
                                     break;
                                 }
@@ -325,16 +325,19 @@ fn process_confirmed_qr(
         if ad.ms_creating.n > 0 && !ad.ms_creating.active {
             // Multisig creation mode: import as cosigner key
             match wallet::xpub::import_kpub(&data[..len]) {
-                Ok(pubkey) => {
+                Ok(xpub) => {
                     // Find the next empty slot
                     let mut ki: u8 = 0;
                     for i in 0..ad.ms_creating.n {
-                        if ad.ms_creating.pubkeys[i as usize] == [0u8; 32] {
+                        if ad.ms_creating.slot_empty(i as usize) {
                             ki = i;
                             break;
                         }
                     }
-                    ad.ms_creating.pubkeys[ki as usize] = pubkey;
+                    // Store cosigner account-level xpub (parent pubkey + chain code)
+                    // — required for per-address HD derivation in build_script.
+                    ad.ms_creating.cosigner_pubkeys[ki as usize] = xpub.pubkey;
+                    ad.ms_creating.cosigner_chain_codes[ki as usize] = xpub.chain_code;
                     log!("   → kpub imported for multisig key {}/{}", ki + 1, ad.ms_creating.n);
                     sound::qr_decoded(delay);
                     let next = ki + 1;
@@ -837,7 +840,7 @@ pub fn run_camera_cycle(
                                     if ad.ms_creating.n > 0 && !ad.ms_creating.active {
                                         let mut ki: u8 = 0;
                                         for i in 0..ad.ms_creating.n {
-                                            if ad.ms_creating.pubkeys[i as usize] == [0u8; 32] { ki = i; break; }
+                                            if ad.ms_creating.slot_empty(i as usize) { ki = i; break; }
                                         }
                                         ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: ki };
                                     } else {
@@ -888,7 +891,7 @@ pub fn run_camera_cycle(
                                             if ad.ms_creating.n > 0 && !ad.ms_creating.active {
                                                 let mut ki: u8 = 0;
                                                 for i in 0..ad.ms_creating.n {
-                                                    if ad.ms_creating.pubkeys[i as usize] == [0u8; 32] { ki = i; break; }
+                                                    if ad.ms_creating.slot_empty(i as usize) { ki = i; break; }
                                                 }
                                                 ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: ki };
                                             } else {
@@ -1025,7 +1028,7 @@ pub fn run_camera_cycle(
                                             if ad.ms_creating.n > 0 && !ad.ms_creating.active {
                                                 let mut ki: u8 = 0;
                                                 for i in 0..ad.ms_creating.n {
-                                                    if ad.ms_creating.pubkeys[i as usize] == [0u8; 32] { ki = i; break; }
+                                                    if ad.ms_creating.slot_empty(i as usize) { ki = i; break; }
                                                 }
                                                 ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: ki };
                                             } else {

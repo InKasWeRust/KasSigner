@@ -395,7 +395,7 @@ pub fn handle_seed_touch(
                                         if ad.ms_creating.n > 0 && !ad.ms_creating.active {
                                             let mut ki: u8 = 0;
                                             for idx in 0..ad.ms_creating.n {
-                                                if ad.ms_creating.pubkeys[idx as usize] == [0u8; 32] {
+                                                if ad.ms_creating.slot_empty(idx as usize) {
                                                     ki = idx;
                                                     break;
                                                 }

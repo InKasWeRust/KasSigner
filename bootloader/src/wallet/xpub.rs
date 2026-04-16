@@ -413,7 +413,14 @@ pub fn import_xprv(xprv_str: &[u8]) -> Result<ExtendedPrivKey, Bip32Error> {
 /// Import a Kaspa kpub string → 32-byte x-only public key.
 /// Accepts base58check-encoded kpub at account level.
 /// Returns the 32-byte x-coordinate of the compressed public key.
-pub fn import_kpub(kpub_str: &[u8]) -> Result<[u8; 32], Bip32Error> {
+/// Decode a Kaspa account-level xpub (kpub) and return the full
+/// extended public key (compressed 33-byte pubkey + 32-byte chain code).
+///
+/// HD-multisig callers need BOTH the parent pubkey and chain code to
+/// derive per-address child pubkeys via `derive_child_pub()`. Callers
+/// that only need the x-only account pubkey can use `.x_only()` on
+/// the returned `ExtendedPubKey`.
+pub fn import_kpub(kpub_str: &[u8]) -> Result<super::bip32::ExtendedPubKey, Bip32Error> {
     let mut payload = [0u8; 128];
     let plen = base58check_decode(kpub_str, &mut payload);
 
@@ -426,15 +433,26 @@ pub fn import_kpub(kpub_str: &[u8]) -> Result<[u8; 32], Bip32Error> {
         return Err(Bip32Error::InvalidKey);
     }
 
-    // Compressed pubkey is at payload[45..78] (33 bytes: 02/03 prefix + 32-byte X)
-    // Returns the account-level x-only key (m/44'/111111'/0')
-    // The signing code matches both account-level and address-level keys.
-    let mut pubkey = [0u8; 32];
-    pubkey.copy_from_slice(&payload[46..78]);
+    // Payload layout:
+    //   [0..4]    version
+    //   [4]       depth
+    //   [5..9]    parent fingerprint
+    //   [9..13]   child number
+    //   [13..45]  chain code (32 bytes)
+    //   [45..78]  compressed pubkey (33 bytes, 02/03 prefix + X)
+    let depth = payload[4];
+    let mut chain_code = [0u8; 32];
+    chain_code.copy_from_slice(&payload[13..45]);
+    let mut pubkey = [0u8; 33];
+    pubkey.copy_from_slice(&payload[45..78]);
 
     zeroize_buf(&mut payload);
 
-    Ok(pubkey)
+    Ok(super::bip32::ExtendedPubKey {
+        pubkey,
+        chain_code,
+        depth,
+    })
 }
 
 // ─── Self-Tests ───────────────────────────────────────────────────────

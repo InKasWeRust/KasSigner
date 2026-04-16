@@ -57,7 +57,7 @@ pub fn handle_tx_touch(
                             if ad.ms_creating.n > 0 && !ad.ms_creating.active {
                                 let mut key_idx: u8 = 0;
                                 for i in 0..ad.ms_creating.n {
-                                    if ad.ms_creating.pubkeys[i as usize] == [0u8; 32] {
+                                    if ad.ms_creating.slot_empty(i as usize) {
                                         key_idx = i;
                                         break;
                                     }
@@ -331,26 +331,40 @@ pub fn handle_tx_touch(
                             ad.ms_picking_key = key_idx + 1; // +1 so 0 means "not picking"
                             ad.app.state = crate::app::input::AppState::AddrIndexPicker;
                         } else if (90..=230).contains(&x) && (145..=185).contains(&y) {
-                            // SELECT button — store current address pubkey
+                            // SELECT button — store device's own account-level x-only pubkey.
+                            //
+                            // BUG FIX (TODO 7): we were previously storing an ADDRESS-level
+                            // key (pubkey_cache[current_addr_index] = m/44'/111111'/0'/0/N).
+                            // Meanwhile, the OTHER cosigner's kpub comes in through
+                            // import_kpub() which returns the ACCOUNT-level x-only key
+                            // (m/44'/111111'/0'). Two different 32-byte keys sort
+                            // differently, produce different multisig scripts, and
+                            // therefore different P2SH addresses on each device — even
+                            // with the same pubkeys "in the same order".
+                            //
+                            // Fix: both devices now supply their account-level x-only
+                            // pubkey. After lexicographic sort in build_script(), both
+                            // devices produce byte-identical scripts → identical P2SH
+                            // address. The account key is already cached in acct_key_raw
+                            // when the seed was loaded.
                             if key_idx < ad.ms_creating.n {
-                                let pk = if (ad.current_addr_index as usize) < 20 {
-                                    ad.pubkey_cache[ad.current_addr_index as usize]
-                                } else if ad.extra_pubkey_index == ad.current_addr_index {
-                                    ad.extra_pubkey
-                                } else {
-                                    [0u8; 32]
-                                };
-                                ad.ms_creating.pubkeys[key_idx as usize] = pk;
-                                let next = key_idx + 1;
-                                if next >= ad.ms_creating.n {
-                                    ad.ms_creating.build_script();
-                                    ad.ms_creating.active = true;
-                                    if let Some(ms_slot) = ad.ms_store.find_free() {
-                                        ad.ms_store.configs[ms_slot] = ad.ms_creating.clone();
+                                let acct = wallet::bip32::ExtendedPrivKey::from_raw(&ad.acct_key_raw);
+                                // Export own account xpub (pubkey + chain code) —
+                                // both needed for HD derivation of per-address children.
+                                if let Ok(own_xpub) = acct.to_xpub() {
+                                    ad.ms_creating.cosigner_pubkeys[key_idx as usize] = own_xpub.pubkey;
+                                    ad.ms_creating.cosigner_chain_codes[key_idx as usize] = own_xpub.chain_code;
+                                    let next = key_idx + 1;
+                                    if next >= ad.ms_creating.n {
+                                        ad.ms_creating.build_script();
+                                        ad.ms_creating.active = true;
+                                        if let Some(ms_slot) = ad.ms_store.find_free() {
+                                            ad.ms_store.configs[ms_slot] = ad.ms_creating.clone();
+                                        }
+                                        ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                                    } else {
+                                        ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: next };
                                     }
-                                    ad.app.state = crate::app::input::AppState::MultisigShowAddress;
-                                } else {
-                                    ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: next };
                                 }
                             }
                         }
@@ -426,19 +440,34 @@ pub fn handle_tx_touch(
                                 ad.app.go_main_menu();
                             }
                         } else if (190..=230).contains(&y) && (170..=310).contains(&x) {
-                                // SD CARD button — build descriptor text and go to filename keyboard.
-                                // Stage into signed_qr_buf (1024 bytes) — kpub_data is only 120 bytes
-                                // and would overflow for N≥2 descriptors (~70 bytes per key).
+                                // SD CARD button — build HD descriptor text and go to filename keyboard.
+                                // Format: multi_hd(M,<65-byte hex>,<65-byte hex>,...) where each
+                                // participant hex = compressed pubkey(33) + chain code(32). This
+                                // carries the information both devices need to rederive
+                                // per-address cosigner children. Old 32-byte-hex single-point
+                                // multi(...) descriptors from v1.0.x are incompatible — the
+                                // "multi_hd" function name signals the new format.
+                                //
+                                // Size: 130 hex chars per cosigner vs 64 in v1.0.x — descriptor
+                                // QR roughly 2× larger. Still fits in single QR for N≤3; N=4..5
+                                // may require multi-frame.
                                 let hex = b"0123456789abcdef";
                                 let mut pos: usize = 0;
-                                for &b in b"multi(" { ad.signed_qr_buf[pos] = b; pos += 1; }
+                                for &b in b"multi_hd(" { ad.signed_qr_buf[pos] = b; pos += 1; }
                                 ad.signed_qr_buf[pos] = b'0' + ad.ms_creating.m; pos += 1;
                                 for i in 0..ad.ms_creating.n as usize {
                                     ad.signed_qr_buf[pos] = b','; pos += 1;
-                                    let pk = &ad.ms_creating.pubkeys[i];
-                                    for j in 0..32 {
+                                    // Compressed pubkey (33 bytes = 66 hex chars)
+                                    let pk = &ad.ms_creating.cosigner_pubkeys[i];
+                                    for j in 0..33 {
                                         ad.signed_qr_buf[pos] = hex[(pk[j] >> 4) as usize]; pos += 1;
                                         ad.signed_qr_buf[pos] = hex[(pk[j] & 0x0f) as usize]; pos += 1;
+                                    }
+                                    // Chain code (32 bytes = 64 hex chars)
+                                    let cc = &ad.ms_creating.cosigner_chain_codes[i];
+                                    for j in 0..32 {
+                                        ad.signed_qr_buf[pos] = hex[(cc[j] >> 4) as usize]; pos += 1;
+                                        ad.signed_qr_buf[pos] = hex[(cc[j] & 0x0f) as usize]; pos += 1;
                                     }
                                 }
                                 ad.signed_qr_buf[pos] = b')'; pos += 1;
@@ -456,17 +485,22 @@ pub fn handle_tx_touch(
                                 }
                                 ad.app.state = crate::app::input::AppState::SdMsDescFilename;
                         } else if (190..=230).contains(&y) && (10..=150).contains(&x) {
-                                // QR button — show descriptor as QR for KasSee to scan
+                                // QR button — show HD descriptor as QR for KasSee / another KasSigner.
                                 let hex = b"0123456789abcdef";
                                 let mut pos: usize = 0;
-                                for &b in b"multi(" { ad.signed_qr_buf[pos] = b; pos += 1; }
+                                for &b in b"multi_hd(" { ad.signed_qr_buf[pos] = b; pos += 1; }
                                 ad.signed_qr_buf[pos] = b'0' + ad.ms_creating.m; pos += 1;
                                 for i in 0..ad.ms_creating.n as usize {
                                     ad.signed_qr_buf[pos] = b','; pos += 1;
-                                    let pk = &ad.ms_creating.pubkeys[i];
-                                    for j in 0..32 {
+                                    let pk = &ad.ms_creating.cosigner_pubkeys[i];
+                                    for j in 0..33 {
                                         ad.signed_qr_buf[pos] = hex[(pk[j] >> 4) as usize]; pos += 1;
                                         ad.signed_qr_buf[pos] = hex[(pk[j] & 0x0f) as usize]; pos += 1;
+                                    }
+                                    let cc = &ad.ms_creating.cosigner_chain_codes[i];
+                                    for j in 0..32 {
+                                        ad.signed_qr_buf[pos] = hex[(cc[j] >> 4) as usize]; pos += 1;
+                                        ad.signed_qr_buf[pos] = hex[(cc[j] & 0x0f) as usize]; pos += 1;
                                     }
                                 }
                                 ad.signed_qr_buf[pos] = b')'; pos += 1;

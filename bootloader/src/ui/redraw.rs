@@ -474,9 +474,17 @@ pub fn redraw_screen(
                     let mut label_buf = [0u8; 8];
                     let label_len = ad.ms_creating.label(&mut label_buf);
                     let label = core::str::from_utf8(&label_buf[..label_len]).unwrap_or("?-of-?");
+                    // Build x-only views of each cosigner parent pubkey for the
+                    // descriptor screen (which renders them truncated for
+                    // fingerprint recognition). Strip the 0x02/0x03 parity
+                    // prefix — callers only display visible bytes, not do crypto.
+                    let mut xonly = [[0u8; 32]; crate::wallet::transaction::MAX_MULTISIG_KEYS];
+                    for i in 0..ad.ms_creating.n as usize {
+                        xonly[i].copy_from_slice(&ad.ms_creating.cosigner_pubkeys[i][1..33]);
+                    }
                     boot_display.draw_multisig_descriptor(
                         ad.ms_creating.m, ad.ms_creating.n,
-                        &ad.ms_creating.pubkeys[..ad.ms_creating.n as usize], label);
+                        &xonly[..ad.ms_creating.n as usize], label);
                 }
                 crate::app::input::AppState::MultisigSaveAddrAsk => {
                     boot_display.draw_yes_no_ask(

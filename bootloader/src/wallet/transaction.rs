@@ -467,12 +467,36 @@ pub const MAX_MULTISIG_WALLETS: usize = 2;
 
 /// A multisig wallet configuration: M-of-N with pubkeys and derived script
 #[derive(Clone)]
-/// Runtime multisig configuration: M-of-N with collected pubkeys.
+/// Runtime multisig configuration — HD-aware.
+///
+/// Each cosigner contributes an ACCOUNT-LEVEL xpub (parent compressed
+/// pubkey + chain code). For each address index `addr_index`, the
+/// script is built from the CHILDREN at the canonical Kaspa receive
+/// path `/0/addr_index` from each parent, lex-sorted and assembled.
+///
+/// Incrementing `addr_index` yields a fresh, uncorrelated P2SH address
+/// that the same cosigners can jointly spend — matching the standard
+/// HD multisig behaviour of Coldcard, Ledger, Trezor, etc.
+///
+/// Signing works unchanged: the pubkeys in the built script are at
+/// m/44'/111111'/0'/0/addr_index (exact singlesig receive path), so
+/// `find_address_index_for_pubkey()` in the signing path matches them
+/// directly without a special multisig signing code path.
 pub struct MultisigConfig {
     pub m: u8,
     pub n: u8,
-    pub pubkeys: [[u8; 32]; MAX_MULTISIG_KEYS],
-    /// The built scriptPublicKey (OP_m <pks> OP_n OP_CHECKMULTISIG)
+    /// Cosigner account-level xpub parents — compressed (33 bytes, with
+    /// 0x02/0x03 parity prefix). Y-parity matters: x-only loses it and
+    /// would break deterministic child derivation.
+    pub cosigner_pubkeys: [[u8; 33]; MAX_MULTISIG_KEYS],
+    /// Cosigner account-level chain codes. Pair by index with `cosigner_pubkeys`.
+    pub cosigner_chain_codes: [[u8; 32]; MAX_MULTISIG_KEYS],
+    /// Current derivation index. Each value 0..2^31-1 yields a distinct
+    /// multisig address. `build_script()` reads this to know which
+    /// per-cosigner child to derive.
+    pub addr_index: u32,
+    /// The built scriptPublicKey (OP_m <child_pks> OP_n OP_CHECKMULTISIG)
+    /// where each child_pk = (cosigner_parent / 0 / addr_index).x_only().
     pub script: [u8; MAX_SCRIPT_SIZE],
     pub script_len: usize,
     /// Whether this config has been fully set up
@@ -484,37 +508,72 @@ impl MultisigConfig {
         Self {
             m: 0,
             n: 0,
-            pubkeys: [[0u8; 32]; MAX_MULTISIG_KEYS],
+            cosigner_pubkeys: [[0u8; 33]; MAX_MULTISIG_KEYS],
+            cosigner_chain_codes: [[0u8; 32]; MAX_MULTISIG_KEYS],
+            addr_index: 0,
             script: [0u8; MAX_SCRIPT_SIZE],
             script_len: 0,
             active: false,
         }
     }
 
-    /// Build the multisig scriptPublicKey from the current M, N, pubkeys.
-    /// Script format: OP_m OP_DATA_32 <pk0> OP_DATA_32 <pk1> ... OP_n OP_CHECKMULTISIG
-    /// Returns script length, or 0 on error.
+    /// Is the cosigner slot `i` empty (no pubkey collected yet)?
+    /// Used during creation to find the next empty slot.
+    pub fn slot_empty(&self, i: usize) -> bool {
+        i < MAX_MULTISIG_KEYS && self.cosigner_pubkeys[i] == [0u8; 33]
+    }
+
+    /// Build the multisig scriptPublicKey for the current `addr_index`.
+    ///
+    /// Derives each cosigner's child at `/0/addr_index` from their
+    /// account-level xpub (non-hardened, public-only derivation via
+    /// `derive_child_pub`), extracts x-only, lex-sorts for deterministic
+    /// cross-device ordering, and emits:
+    ///
+    ///   OP_m OP_DATA_32 <pk0> OP_DATA_32 <pk1> ... OP_n OP_CHECKMULTISIG
+    ///
+    /// Returns script length, or 0 on error (invalid M/N, derivation failure).
     pub fn build_script(&mut self) -> usize {
         if self.m == 0 || self.n == 0 || self.m > self.n || self.n as usize > MAX_MULTISIG_KEYS {
             return 0;
         }
 
-        // Sort pubkeys lexicographically so both devices produce the same address
-        // regardless of insertion order. Simple insertion sort (N ≤ 4).
+        // ── Step 1: derive each cosigner's x-only child at /0/addr_index ──
+        // Two derivations per cosigner: parent → /0 (receive chain) → /addr_index.
+        // Matches the Kaspa singlesig receive path so signing's existing
+        // address-level matcher (m/44'/111111'/0'/0/N) works unchanged.
+        let mut child_xonly = [[0u8; 32]; MAX_MULTISIG_KEYS];
+        for i in 0..self.n as usize {
+            let parent = super::bip32::ExtendedPubKey {
+                pubkey: self.cosigner_pubkeys[i],
+                chain_code: self.cosigner_chain_codes[i],
+                depth: 3, // account is at depth 3 (m/44'/111111'/0')
+            };
+            let receive_chain = match super::bip32::derive_child_pub(&parent, 0) {
+                Ok(x) => x,
+                Err(_) => return 0,
+            };
+            let addr_xpub = match super::bip32::derive_child_pub(&receive_chain, self.addr_index) {
+                Ok(x) => x,
+                Err(_) => return 0,
+            };
+            child_xonly[i] = addr_xpub.x_only();
+        }
+
+        // ── Step 2: lex-sort the x-only children so both devices produce
+        //           the byte-identical script regardless of cosigner
+        //           insertion order.
         let n = self.n as usize;
         for i in 1..n {
             let mut j = i;
             while j > 0 {
-                // Compare pubkeys[j-1] vs pubkeys[j] byte-by-byte
                 let mut cmp = core::cmp::Ordering::Equal;
                 for b in 0..32 {
-                    cmp = self.pubkeys[j - 1][b].cmp(&self.pubkeys[j][b]);
+                    cmp = child_xonly[j - 1][b].cmp(&child_xonly[j][b]);
                     if cmp != core::cmp::Ordering::Equal { break; }
                 }
                 if cmp == core::cmp::Ordering::Greater {
-                    // Swap in place — use split to avoid double borrow
-                    let (left, right) = self.pubkeys.split_at_mut(j);
-                    left[j - 1].swap_with_slice(&mut right[0]);
+                    child_xonly.swap(j - 1, j);
                     j -= 1;
                 } else {
                     break;
@@ -522,25 +581,21 @@ impl MultisigConfig {
             }
         }
 
-        // Length: 1 (OP_m) + N*(1+32) + 1 (OP_n) + 1 (OP_CHECKMULTISIG)
+        // ── Step 3: assemble the script ──
         let len = 1 + (self.n as usize) * 33 + 1 + 1;
         if len > MAX_SCRIPT_SIZE { return 0; }
 
         let mut pos = 0;
-        // OP_m (OP_1=0x51 for m=1, OP_2=0x52 for m=2, etc.)
         self.script[pos] = OP_1 + self.m - 1;
         pos += 1;
-        // N pubkeys, each preceded by OP_DATA_32
         for i in 0..self.n as usize {
             self.script[pos] = OP_DATA_32;
             pos += 1;
-            self.script[pos..pos + 32].copy_from_slice(&self.pubkeys[i]);
+            self.script[pos..pos + 32].copy_from_slice(&child_xonly[i]);
             pos += 32;
         }
-        // OP_n
         self.script[pos] = OP_1 + self.n - 1;
         pos += 1;
-        // OP_CHECKMULTISIG
         self.script[pos] = OP_CHECKMULTISIG;
         pos += 1;
 

@@ -37,12 +37,30 @@ fn hex_nibble(ch: u8) -> u8 {
     }
 }
 
-/// Parse a multisig descriptor text of the form "multi(M,hex1,hex2,...,hexN)".
-/// Returns (m, n, pubkeys) on success. Each hex is exactly 64 chars (32 bytes x-only).
-/// Trailing whitespace/newlines are tolerated.
+/// Parse an HD multisig descriptor of the form:
+///
+///   `multi_hd(M,<130-hex>,<130-hex>,...,<130-hex>)`
+///
+/// where each participant hex = compressed pubkey (33 bytes = 66 hex)
+/// immediately followed by chain code (32 bytes = 64 hex), for a total
+/// of 130 hex chars. Trailing whitespace is tolerated.
+///
+/// Returns `(m, n, cosigner_pubkeys, cosigner_chain_codes)` on success.
+///
+/// The `multi_hd` function name distinguishes this format from the v1.0.x
+/// `multi(...)` single-point format which was incompatible with per-address
+/// HD derivation. Old `multi(...)` descriptors will fail to parse here —
+/// that's intentional: v1.0.x multisigs cannot be rebuilt as HD wallets
+/// because the account-level xpub (needed for child derivation) was never
+/// recorded.
 fn parse_descriptor(
     data: &[u8],
-) -> Option<(u8, u8, [[u8; 32]; crate::wallet::transaction::MAX_MULTISIG_KEYS])> {
+) -> Option<(
+    u8,
+    u8,
+    [[u8; 33]; crate::wallet::transaction::MAX_MULTISIG_KEYS],
+    [[u8; 32]; crate::wallet::transaction::MAX_MULTISIG_KEYS],
+)> {
     // Trim trailing whitespace/newlines
     let mut end = data.len();
     while end > 0 && matches!(data[end - 1], b'\n' | b'\r' | b' ' | b'\t') {
@@ -50,15 +68,15 @@ fn parse_descriptor(
     }
     let data = &data[..end];
 
-    // Must start with "multi(" and end with ")"
-    let prefix = b"multi(";
+    // Must start with "multi_hd(" and end with ")"
+    let prefix = b"multi_hd(";
     if data.len() < prefix.len() + 2 || &data[..prefix.len()] != prefix {
         return None;
     }
     if data[data.len() - 1] != b')' {
         return None;
     }
-    let inner = &data[prefix.len()..data.len() - 1]; // between "multi(" and ")"
+    let inner = &data[prefix.len()..data.len() - 1]; // between "multi_hd(" and ")"
 
     // First field: M (single digit 1..=9)
     if inner.is_empty() || inner[0] < b'1' || inner[0] > b'9' {
@@ -69,29 +87,44 @@ fn parse_descriptor(
         return None;
     }
 
-    // Remaining: comma-separated 64-char hex strings
-    let mut pubkeys = [[0u8; 32]; crate::wallet::transaction::MAX_MULTISIG_KEYS];
+    // Remaining: comma-separated 130-char hex strings (33B pubkey + 32B chain code)
+    let mut cosigner_pubkeys = [[0u8; 33]; crate::wallet::transaction::MAX_MULTISIG_KEYS];
+    let mut cosigner_chain_codes = [[0u8; 32]; crate::wallet::transaction::MAX_MULTISIG_KEYS];
     let mut n: u8 = 0;
     let mut pos = 2usize;
+    const HEX_LEN: usize = 130; // 33 pubkey bytes + 32 chain code bytes = 65 bytes = 130 hex chars
     while pos < inner.len() {
         if (n as usize) >= crate::wallet::transaction::MAX_MULTISIG_KEYS {
             return None;
         }
-        // Expect 64 hex chars
-        if pos + 64 > inner.len() {
+        if pos + HEX_LEN > inner.len() {
             return None;
         }
-        let hex_slice = &inner[pos..pos + 64];
-        for j in 0..32 {
+        let hex_slice = &inner[pos..pos + HEX_LEN];
+        // First 66 chars = compressed pubkey (33 bytes)
+        for j in 0..33 {
             let hi = hex_nibble(hex_slice[j * 2]);
             let lo = hex_nibble(hex_slice[j * 2 + 1]);
             if hi == 0xFF || lo == 0xFF {
                 return None;
             }
-            pubkeys[n as usize][j] = (hi << 4) | lo;
+            cosigner_pubkeys[n as usize][j] = (hi << 4) | lo;
+        }
+        // Validate compressed pubkey prefix (must be 0x02 or 0x03)
+        if cosigner_pubkeys[n as usize][0] != 0x02 && cosigner_pubkeys[n as usize][0] != 0x03 {
+            return None;
+        }
+        // Next 64 chars = chain code (32 bytes)
+        for j in 0..32 {
+            let hi = hex_nibble(hex_slice[66 + j * 2]);
+            let lo = hex_nibble(hex_slice[66 + j * 2 + 1]);
+            if hi == 0xFF || lo == 0xFF {
+                return None;
+            }
+            cosigner_chain_codes[n as usize][j] = (hi << 4) | lo;
         }
         n += 1;
-        pos += 64;
+        pos += HEX_LEN;
         if pos < inner.len() {
             if inner[pos] != b',' {
                 return None;
@@ -103,7 +136,7 @@ fn parse_descriptor(
     if n == 0 || m > n {
         return None;
     }
-    Some((m, n, pubkeys))
+    Some((m, n, cosigner_pubkeys, cosigner_chain_codes))
 }
 
 /// Check if a file with the given 8.3 name exists on the SD card.
@@ -1567,12 +1600,13 @@ pub fn handle_sd_touch(
                                                     if n > 0 && n <= 400 && n <= buf.len() {
                                                         let text = core::str::from_utf8(&buf[..n]).unwrap_or("?");
                                                         log!("[SD-DESC] Loaded: {}", text);
-                                                        if let Some((m, nn, pubkeys)) = parse_descriptor(&buf[..n]) {
+                                                        if let Some((m, nn, cosigner_pubkeys, cosigner_chain_codes)) = parse_descriptor(&buf[..n]) {
                                                             // Populate ms_creating (view-only: .active stays false)
                                                             ad.ms_creating = wallet::transaction::MultisigConfig::new();
                                                             ad.ms_creating.m = m;
                                                             ad.ms_creating.n = nn;
-                                                            ad.ms_creating.pubkeys = pubkeys;
+                                                            ad.ms_creating.cosigner_pubkeys = cosigner_pubkeys;
+                                                            ad.ms_creating.cosigner_chain_codes = cosigner_chain_codes;
                                                             // Build script so "SHOW QR" and the derived
                                                             // address (if ever computed from this view)
                                                             // match the live flow.
