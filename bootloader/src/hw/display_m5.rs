@@ -126,6 +126,17 @@ pub(crate) fn draw_lato_22<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &str,
         prop_fonts::LATO_22_ASCENT, prop_fonts::LATO_22_FIRST, prop_fonts::LATO_22_LAST)
 }
 
+/// Lato-22 with opaque background — flicker-free for keyboard input redraw.
+/// See `draw_prop_text_opaque` doc for rationale.
+pub(crate) fn draw_lato_22_opaque<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D, text: &str, x: i32, y: i32, fg: Rgb565, bg: Rgb565,
+) -> i32 {
+    prop_fonts::draw_prop_text_opaque(d, text, x, y, fg, bg,
+        &prop_fonts::LATO_22_WIDTHS, &prop_fonts::LATO_22_OFFSETS,
+        &prop_fonts::LATO_22_DATA, prop_fonts::LATO_22_HEIGHT,
+        prop_fonts::LATO_22_ASCENT, prop_fonts::LATO_22_FIRST, prop_fonts::LATO_22_LAST)
+}
+
 /// Draw text using Lato Regular 12px (hints)
 pub(crate) fn draw_lato_hint<D: DrawTarget<Color = Rgb565>>(d: &mut D, text: &str, x: i32, y: i32, color: Rgb565) -> i32 {
     prop_fonts::draw_prop_text(d, text, x, y, color,

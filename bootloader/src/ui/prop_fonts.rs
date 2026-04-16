@@ -1616,6 +1616,96 @@ pub fn draw_prop_text<D: DrawTarget<Color = Rgb565>>(
     cx - x
 }
 
+/// Draw proportional text with an OPAQUE background — each glyph cell is filled
+/// with `bg` color and the glyph pixels are overlaid with `fg` in a single
+/// `fill_contiguous` SPI burst per character.
+///
+/// This is the flicker-free variant of `draw_prop_text`. Because every pixel in
+/// each glyph's bounding rect transitions directly from the previous frame's
+/// color to the new frame's color (never going through a "cleared" state),
+/// the caller does NOT need to pre-clear the text area. Overdrawing produces
+/// no visible flash.
+///
+/// Each glyph is written as one row-major pixel stream of width × height
+/// pixels: `fg` where the font bitmap has a 1 bit, `bg` elsewhere.
+pub fn draw_prop_text_opaque<D: DrawTarget<Color = Rgb565>>(
+    display: &mut D,
+    text: &str,
+    x: i32,
+    y: i32, // baseline y position
+    fg: Rgb565,
+    bg: Rgb565,
+    widths: &[u8],
+    offsets: &[u16],
+    data: &[u8],
+    height: u8,
+    ascent: u8,
+    first_char: u8,
+    last_char: u8,
+) -> i32 {
+    use embedded_graphics::primitives::Rectangle;
+    let mut cx = x;
+    let top_y = y - ascent as i32;
+
+    for &ch in text.as_bytes() {
+        if ch < first_char || ch > last_char {
+            // Unknown char — fill the space with BG so nothing stale shows through
+            let gap = (height / 3) as i32;
+            if gap > 0 {
+                let area = Rectangle::new(
+                    Point::new(cx, top_y),
+                    Size::new(gap as u32, height as u32),
+                );
+                let _ = display.fill_contiguous(
+                    &area,
+                    core::iter::repeat(bg).take((gap as usize) * (height as usize)),
+                );
+            }
+            cx += gap;
+            continue;
+        }
+        let idx = (ch - first_char) as usize;
+        let cw = widths[idx] as usize;
+        let offset = offsets[idx] as usize;
+        let row_bytes = (cw + 7) / 8;
+
+        // Full glyph cell area: width × height pixels
+        let area = Rectangle::new(
+            Point::new(cx, top_y),
+            Size::new(cw as u32, height as u32),
+        );
+        let data_ref = data;
+        let pixel_iter = (0..(height as usize)).flat_map(move |row| {
+            (0..cw).map(move |col| {
+                let bi = col / 8;
+                let bit = (col % 8) as u8;
+                let byte_off = offset + row * row_bytes + bi;
+                if byte_off < data_ref.len() {
+                    let byte_val = data_ref[byte_off];
+                    if byte_val & (0x80 >> bit) != 0 { fg } else { bg }
+                } else {
+                    bg
+                }
+            })
+        });
+        let _ = display.fill_contiguous(&area, pixel_iter);
+
+        // Inter-glyph 1-pixel spacing — fill with BG too so stale pixels don't linger
+        if cw > 0 {
+            let gap_area = Rectangle::new(
+                Point::new(cx + cw as i32, top_y),
+                Size::new(1, height as u32),
+            );
+            let _ = display.fill_contiguous(
+                &gap_area,
+                core::iter::repeat(bg).take(height as usize),
+            );
+        }
+        cx += cw as i32 + 1;
+    }
+    cx - x
+}
+
 /// Measure text width without drawing
 pub fn measure_prop_text(
     text: &str,

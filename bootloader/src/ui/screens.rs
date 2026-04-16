@@ -1399,47 +1399,71 @@ pub fn draw_home_grid(&mut self) {
 
     /// Draw just the input area (prefix, cursor, suggestions) — no keyboard redraw
     pub fn draw_import_keyboard(&mut self, word_input: &crate::ui::setup_wizard::WordInput) {
-        // Only clear the input + chips area (y=38..98), not the keyboard below
-        Rectangle::new(Point::new(0, 38), Size::new(320, 60))
-            .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
-            .draw(&mut self.display).ok();
+        // Flicker-free partial redraw of the input + chips area (y=38..98).
+        // No full pre-clear — glyphs are painted opaque, and we clear only the
+        // narrow tail/chip regions that may hold stale pixels from a longer
+        // previous frame.
 
-        // Teal separator — below header, clear of back/home buttons
+        // Teal separator (static across keypresses)
         Line::new(Point::new(20, 38), Point::new(300, 38))
             .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
             .draw(&mut self.display).ok();
 
-        // Input prefix — regular 22px font, centered between line and chips
+        // Input prefix area
         let prefix = word_input.prefix_str();
         let text_x: i32 = 80;
         let text_y: i32 = 62;
 
-        // Draw prefix and get actual width
+        // Paint prefix with opaque background — no pre-clear needed
         let drawn_w = if !prefix.is_empty() {
-            draw_lato_22(&mut self.display, prefix, text_x, text_y, COLOR_TEXT)
+            draw_lato_22_opaque(&mut self.display, prefix, text_x, text_y, COLOR_TEXT, COLOR_BG)
         } else {
             0
         };
-        // Cursor — use draw return value for exact position
+
+        // Cursor position
         let cursor_x = text_x + drawn_w;
+        // Clear everything right of the cursor up to the right edge of the input band
+        // (y=40..68). This erases stale pixels from a longer previous prefix AND
+        // any previous inline match text drawn after the cursor.
+        if cursor_x < 320 {
+            Rectangle::new(
+                Point::new(cursor_x, 40),
+                Size::new((320 - cursor_x) as u32, 28),
+            )
+            .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
+            .draw(&mut self.display).ok();
+        }
+        // Clear the left margin area before text_x (may hold stale left-aligned content)
+        Rectangle::new(Point::new(0, 40), Size::new(text_x as u32, 28))
+            .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
+            .draw(&mut self.display).ok();
+
         embedded_graphics::primitives::Line::new(
             Point::new(cursor_x, text_y - 19),
             Point::new(cursor_x, text_y + 2),
         ).into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
             .draw(&mut self.display).ok();
 
-        // Match result inline after cursor
+        // Match result inline after cursor — opaque paint so no prior text shows through
         if word_input.match_count == 1 {
             if let Some(idx) = word_input.matched_index {
                 let word = crate::wallet::bip39::index_to_word(idx);
                 let mut match_buf: heapless::String<24> = heapless::String::new();
                 core::fmt::Write::write_fmt(&mut match_buf,
                     format_args!("= {word}")).ok();
-                draw_lato_22(&mut self.display, &match_buf, cursor_x + 6, text_y, KASPA_TEAL);
+                draw_lato_22_opaque(&mut self.display, &match_buf, cursor_x + 6, text_y, KASPA_TEAL, COLOR_BG);
             }
         }
 
-        // Suggestion chips — 3 max, y=72..96
+        // Suggestion chips area (y=72..96): clear it first, then redraw chips.
+        // This one benefits less from opaque paint because the chips have filled
+        // rounded-rectangle backgrounds that already overdraw cleanly. But we
+        // need to clear when chip count changes (3 → 0, etc).
+        Rectangle::new(Point::new(0, 72), Size::new(320, 26))
+            .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
+            .draw(&mut self.display).ok();
+
         let chip_y: i32 = 72;
         if word_input.num_suggestions > 1 {
             let chip_corner = CornerRadii::new(Size::new(5, 5));
@@ -1513,37 +1537,74 @@ pub fn draw_home_grid(&mut self) {
     }
 
     /// Draw keyboard screen with custom title (for password, passphrase, description entry)
+    /// Draw the input-text strip (header already drawn; keyboard below untouched).
+    ///
+    /// Flicker-free: no pre-clear of the text area. Text is painted with
+    /// `draw_lato_22_opaque` which writes each glyph cell as one
+    /// `fill_contiguous` burst (BG + FG pixels in a single SPI transaction).
+    /// Unchanged glyphs transition same-to-same (invisible to the eye), so
+    /// only the character(s) that actually changed visibly update.
+    ///
+    /// The only explicit clear is the TAIL region past the new text's right
+    /// edge — needed when text shrinks (backspace). That's a narrow fill
+    /// for short text, zero-width when text fills the strip.
+    ///
+    /// Strip bounds: y=38..68, x=0..320. Input text starts at `text_x`;
+    /// the leading column before `text_x` holds the scroll indicator when
+    /// `vis_start > 0`.
     pub fn draw_keyboard_screen(&mut self, pp_input: &crate::ui::seed_manager::PassphraseInput, _title: &str) {
-        // Only clear the input text area (y=38..68) — header, teal line,
-        // back/home icons above y=38 do not change between keypresses
-        Rectangle::new(Point::new(0, 38), Size::new(320, 30))
-            .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
-            .draw(&mut self.display).ok();
-
-        // Input field — left-aligned, scrolls when cursor exceeds visible area
         let pp = pp_input.as_str();
         let max_vis: usize = 22;
         let cursor = pp_input.cursor.min(pp_input.len);
         let text_x: i32 = 10;
         let text_y: i32 = 64;
+        const STRIP_Y: i32 = 38;
+        const STRIP_H: u32 = 30;
+        const STRIP_W: u32 = 320;
 
-        // Calculate visible window: always left-aligned, scroll only when needed
+        // Visible window: always left-aligned, scroll only when cursor exceeds it
         let vis_start = if cursor <= max_vis {
-            // Cursor fits in first window — show from start
             0
         } else {
-            // Cursor past the window — slide window so cursor is at right edge
             cursor - max_vis
         };
         let vis_end = (vis_start + max_vis).min(pp.len());
-
-        // Draw the full visible text in one pass
         let vis_text = &pp[vis_start..vis_end];
-        if !vis_text.is_empty() {
-            draw_lato_22(&mut self.display, vis_text, text_x, text_y, COLOR_TEXT);
+
+        // Leading scroll-indicator column: clear when unused (to erase a prior '‹'),
+        // leave alone when still in use (we'll draw '‹' back at the end).
+        if vis_start == 0 {
+            Rectangle::new(Point::new(0, STRIP_Y), Size::new(text_x as u32, STRIP_H))
+                .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
+                .draw(&mut self.display).ok();
         }
 
-        // Calculate cursor pixel position by measuring text before cursor
+        // Opaque text paint — each glyph cell is a single fill_contiguous SPI burst.
+        // No pre-clear of the text column; glyphs overdraw previous content cleanly.
+        let drawn_w = if !vis_text.is_empty() {
+            draw_lato_22_opaque(&mut self.display, vis_text, text_x, text_y, COLOR_TEXT, COLOR_BG)
+        } else {
+            0
+        };
+
+        // Tail clear — from the right edge of the new text to the strip right edge.
+        // Needed when text shrinks (backspace removed chars that are still visible past
+        // the new end). For a growing text this is just unused background space.
+        let tail_x = text_x + drawn_w;
+        if tail_x < STRIP_W as i32 {
+            Rectangle::new(
+                Point::new(tail_x, STRIP_Y),
+                Size::new((STRIP_W as i32 - tail_x) as u32, STRIP_H),
+            )
+            .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
+            .draw(&mut self.display).ok();
+        }
+
+        // Cursor: vertical teal line at the post-cursor position. When cursor is
+        // at text end, cursor_x == text_x + drawn_w — the tail clear just wiped
+        // that area, so drawing the cursor here is on fresh BG. When cursor is
+        // interior (cursor-left/right used), the opaque glyph paint already
+        // covered any stale cursor pixels.
         let cursor_in_window = cursor - vis_start;
         let cursor_x = if cursor_in_window > 0 {
             let before = &pp[vis_start..vis_start + cursor_in_window];
@@ -1551,16 +1612,18 @@ pub fn draw_home_grid(&mut self) {
         } else {
             text_x
         };
-
-        // Draw cursor line
         embedded_graphics::primitives::Line::new(
             Point::new(cursor_x, text_y - 19),
             Point::new(cursor_x, text_y + 2),
         ).into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 2))
             .draw(&mut self.display).ok();
 
-        // Scroll indicator: ‹ if text before window
+        // Scroll indicator: '‹' when text before window
         if vis_start > 0 {
+            // Clear the 10px leading column first (it may hold a stale '‹' or be empty)
+            Rectangle::new(Point::new(0, STRIP_Y), Size::new(text_x as u32, STRIP_H))
+                .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
+                .draw(&mut self.display).ok();
             draw_lato_hint(&mut self.display, "\u{2039}", 2, 56, KASPA_TEAL);
         }
     }

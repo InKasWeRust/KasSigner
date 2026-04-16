@@ -659,11 +659,13 @@ pub fn handle_sd_touch(
                         if is_back {
                             ad.pp_input.reset();
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); }
-                                4 => { ad.pp_input.backspace(); }
-                                5 => { ad.pp_input.push_char(b' '); }
+                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
+                                5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
                                 6 => { // OK — read from SD and decrypt
                                     boot_display.draw_loading_screen("Reading from SD...");
                                     let pp_bytes_len = ad.pp_input.len;
@@ -734,11 +736,11 @@ pub fn handle_sd_touch(
                                     }
                                     ad.pp_input.reset();
                                     ad.app.go_main_menu();
+                                    needs_redraw = true;
                                 }
                                 _ => {}
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdXprvFilename => {
                         if is_back {
@@ -773,11 +775,13 @@ pub fn handle_sd_touch(
                         if is_back {
                             ad.pp_input.reset();
                             ad.app.state = crate::app::input::AppState::ExportChoice;
+                            needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); }
-                                4 => { ad.pp_input.backspace(); }
-                                5 => { ad.pp_input.push_char(b' '); }
+                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
+                                5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
                                 6 => { // OK — derive xprv, encrypt, write to SD
                                     boot_display.draw_saving_screen("Deriving xprv...");
                                     boot_display.update_progress_bar(15);
@@ -839,11 +843,11 @@ pub fn handle_sd_touch(
                                     zeroize_buf(&mut xprv_buf);
                                     ad.pp_input.reset();
                                     ad.app.state = crate::app::input::AppState::SeedList;
+                                    needs_redraw = true;
                                 }
                                 _ => {}
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdXprvFileList => {
                         if is_back {
@@ -883,11 +887,13 @@ pub fn handle_sd_touch(
                         if is_back {
                             ad.pp_input.reset();
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); }
-                                4 => { ad.pp_input.backspace(); }
-                                5 => { ad.pp_input.push_char(b' '); }
+                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
+                                5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
                                 6 => { // OK — read from SD, decrypt, import xprv
                                     boot_display.draw_loading_screen("Reading from SD...");
                                     let pp_bytes_len = ad.pp_input.len;
@@ -984,11 +990,11 @@ pub fn handle_sd_touch(
                                     }
                                     ad.pp_input.reset();
                                     ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                    needs_redraw = true;
                                 }
                                 _ => {}
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdImportMenu => {
                         if is_back {
@@ -1769,12 +1775,13 @@ pub fn handle_sd_touch(
                                 // Loading an encrypted file
                                 ad.app.state = crate::app::input::AppState::SdKsptFileList;
                             }
+                            needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); }
-                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); needs_redraw = false; }
-                                5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); needs_redraw = false; }
-                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); needs_redraw = false; }
+                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); }
+                                5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); }
                                 6 => {
                                     // OK — check if we're encrypting (save) or decrypting (load)
                                     let is_ksp = ad.kspt_filename[8] == b'K' && ad.kspt_filename[9] == b'S' && ad.kspt_filename[10] == b'P';
@@ -1940,11 +1947,11 @@ pub fn handle_sd_touch(
                                         }
                                         ad.pp_input.reset();
                                     }
+                                    needs_redraw = true;
                                 }
                                 _ => {}
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::ShowQrModeChoice => {
                         if is_back {
