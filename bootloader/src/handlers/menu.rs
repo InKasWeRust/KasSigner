@@ -532,7 +532,12 @@ pub fn handle_menu_touch(
                             // Reset nframes so re-entry shows mode choice again
                             ad.signed_qr_nframes = 0;
                             ad.signed_qr_large = false;
-                            ad.app.go_main_menu();
+                            // If we came from a live multisig descriptor, go back there
+                            if ad.ms_creating.active {
+                                ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                            } else {
+                                ad.app.go_main_menu();
+                            }
                         } else if ad.signed_qr_len > 0 {
                             if ad.qr_manual_frames && ad.signed_qr_nframes > 1 {
                                 // Manual mode: tap advances to next frame, no cycling

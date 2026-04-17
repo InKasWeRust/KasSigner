@@ -297,8 +297,9 @@ pub fn handle_export_touch(
                             ad.kpub_user_nframes = 1;
                             ad.app.state = crate::app::input::AppState::ExportKpub;
                         } else {
-                            // Right: Multi-frame (4 frames — large modules)
-                            ad.kpub_user_nframes = 4;
+                            // Right: Multi-frame (2 frames — V4 33×33, large modules
+                            // for reliable device-to-device LCD scanning)
+                            ad.kpub_user_nframes = 2;
                             ad.app.state = crate::app::input::AppState::ExportKpub;
                         }
                         needs_redraw = true;
@@ -752,10 +753,6 @@ pub fn cycle_kpub_qr(
                     .copy_from_slice(&ad.kpub_data[offset..offset + frag_len]);
                 let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
                 boot_display.draw_qr_screen(&frame_buf[..qr_len]);
-                let mut fc_buf: heapless::String<16> = heapless::String::new();
-                core::fmt::Write::write_fmt(&mut fc_buf,
-                    format_args!("kpub {}/{}", ad.kpub_frame + 1, ad.kpub_nframes)).ok();
-                boot_display.draw_frame_counter(&fc_buf);
             }
         }
     }

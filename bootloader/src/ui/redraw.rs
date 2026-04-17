@@ -237,11 +237,6 @@ pub fn redraw_screen(
                         frame_buf[3..3 + frag_len].copy_from_slice(&ad.kpub_data[offset..offset + frag_len]);
                         let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
                         boot_display.draw_qr_screen(&frame_buf[..qr_len]);
-                        // Frame counter + label
-                        let mut fc_buf: heapless::String<16> = heapless::String::new();
-                        core::fmt::Write::write_fmt(&mut fc_buf,
-                            format_args!("kpub {}/{}", frame + 1, n_frames)).ok();
-                        boot_display.draw_frame_counter(&fc_buf);
                     }
                 }
                 crate::app::input::AppState::ExportKpubFrameCount => {
@@ -373,7 +368,7 @@ pub fn redraw_screen(
                 }
                 crate::app::input::AppState::ShowQR => {
                     if ad.signed_qr_len > 0 {
-                        let max_payload = if ad.signed_qr_large { 30usize } else { 106usize };
+                        let max_payload = if ad.signed_qr_large { 55usize } else { 106usize };
                         if !ad.signed_qr_large && ad.signed_qr_len <= 134 {
                             // Fits in single QR — display directly
                             boot_display.draw_qr_screen(&ad.signed_qr_buf[..ad.signed_qr_len]);

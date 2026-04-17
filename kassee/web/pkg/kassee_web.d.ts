@@ -19,11 +19,12 @@ export function create_consolidate_kspt(wallet_json: string, fee_sompi: bigint, 
 
 /**
  * Create unsigned multisig spend KSPT
- * descriptor: "multi(2,pk1hex,pk2hex,pk3hex)"
+ * descriptor: "multi(2,pk1hex,...)" or "multi_hd(2,xpub130hex,...)"
+ * addr_index: HD derivation index (0 for legacy multi(...) descriptors)
  * source_address: the P2SH multisig address holding the funds
  * change_address: where change goes (typically same P2SH address)
  */
-export function create_multisig_kspt(descriptor: string, source_address: string, dest_address: string, amount_kas: number, fee_sompi: bigint, change_address: string, ws_url: string): Promise<string>;
+export function create_multisig_kspt(descriptor: string, source_address: string, dest_address: string, amount_kas: number, fee_sompi: bigint, change_address: string, ws_url: string, addr_index: number): Promise<string>;
 
 /**
  * Build unsigned KSPT from wallet, destination, amount, fee → return hex
@@ -110,7 +111,7 @@ export interface InitOutput {
     readonly broadcast_signed: (a: number, b: number, c: number, d: number) => any;
     readonly create_compound_kspt: (a: number, b: number, c: number, d: number, e: bigint, f: number, g: number) => any;
     readonly create_consolidate_kspt: (a: number, b: number, c: bigint, d: number, e: number) => any;
-    readonly create_multisig_kspt: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: bigint, i: number, j: number, k: number, l: number) => any;
+    readonly create_multisig_kspt: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: bigint, i: number, j: number, k: number, l: number, m: number) => any;
     readonly create_send_kspt: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number) => any;
     readonly create_send_kspt_selected: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number, i: number, j: number) => any;
     readonly decode_address: (a: number, b: number) => [number, number, number, number];
@@ -129,8 +130,8 @@ export interface InitOutput {
     readonly version: () => [number, number];
     readonly wasm_bindgen__convert__closures_____invoke__h200a37f11e89f6da: (a: number, b: number, c: any) => [number, number];
     readonly wasm_bindgen__convert__closures_____invoke__h1256d05cffb1a37b: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h018fad21341449ee: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h018fad21341449ee_2: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h2e36b7a07a0aa581: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h2e36b7a07a0aa581_2: (a: number, b: number, c: any) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

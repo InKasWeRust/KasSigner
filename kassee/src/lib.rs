@@ -145,7 +145,8 @@ pub async fn create_compound_kspt(
 }
 
 /// Create unsigned multisig spend KSPT
-/// descriptor: "multi(2,pk1hex,pk2hex,pk3hex)"
+/// descriptor: "multi(2,pk1hex,...)" or "multi_hd(2,xpub130hex,...)"
+/// addr_index: HD derivation index (0 for legacy multi(...) descriptors)
 /// source_address: the P2SH multisig address holding the funds
 /// change_address: where change goes (typically same P2SH address)
 #[wasm_bindgen]
@@ -157,8 +158,9 @@ pub async fn create_multisig_kspt(
     fee_sompi: u64,
     change_address: &str,
     ws_url: &str,
+    addr_index: u32,
 ) -> Result<String, JsValue> {
-    kspt::create_multisig_kspt(descriptor, source_address, dest_address, amount_kas, fee_sompi, change_address, ws_url).await
+    kspt::create_multisig_kspt(descriptor, source_address, dest_address, amount_kas, fee_sompi, change_address, ws_url, addr_index).await
         .map_err(|e| JsValue::from_str(&e))
 }
 

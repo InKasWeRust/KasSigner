@@ -8,6 +8,17 @@
 
 use crate::bip32::WalletData;
 use crate::rpc::UtxoEntry;
+use k256::elliptic_curve::sec1::ToEncodedPoint;
+
+/// Blake2b-256 hash — unkeyed (matches firmware sighash::blake2b_hash for P2SH)
+fn blake2b_hash(data: &[u8]) -> [u8; 32] {
+    let h = blake2b_simd::Params::new()
+        .hash_length(32)
+        .hash(data);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(h.as_bytes());
+    out
+}
 
 const STORAGE_MASS_C: u64 = 1_000_000_000_000;
 const MAX_STANDARD_MASS: u64 = 100_000;
@@ -350,42 +361,95 @@ fn serialize_kspt_multi(
 // Multisig P2SH spend — create unsigned KSPT with redeem scripts
 // ═══════════════════════════════════════════════════════════════════
 
-/// Parse descriptor "multi(M,pk1hex,pk2hex,...)" → (M, Vec<[u8;32]>)
-fn parse_descriptor(desc: &str) -> Result<(u8, Vec<[u8; 32]>), String> {
+/// Parse descriptor — supports both legacy and HD formats:
+///
+/// Legacy: "multi(M,pk1hex64,pk2hex64,...)" → x-only pubkeys directly
+/// HD:     "multi_hd(M,pk1hex130,pk2hex130,...)" → compressed pubkey(33B) + chain_code(32B)
+///         per cosigner, requiring derive_child at /0/addr_index to get x-only children.
+///
+/// Returns (M, Vec<[u8;32]>) — the lex-sorted x-only pubkeys for the redeem script.
+fn parse_descriptor(desc: &str, addr_index: u32) -> Result<(u8, Vec<[u8; 32]>), String> {
     let desc = desc.trim();
-    if !desc.starts_with("multi(") || !desc.ends_with(')') {
-        return Err("Descriptor must be multi(M,pk1,pk2,...)".into());
-    }
-    let inner = &desc[6..desc.len() - 1]; // strip "multi(" and ")"
-    let parts: Vec<&str> = inner.split(',').collect();
-    if parts.len() < 3 {
-        return Err("Need at least M and 2 pubkeys".into());
-    }
 
-    let m: u8 = parts[0].trim().parse()
-        .map_err(|_| "Invalid M value in descriptor".to_string())?;
-
-    let mut pubkeys = Vec::new();
-    for pk_hex in &parts[1..] {
-        let pk_hex = pk_hex.trim();
-        if pk_hex.len() != 64 {
-            return Err(format!("Pubkey must be 64 hex chars, got {}", pk_hex.len()));
+    if desc.starts_with("multi_hd(") && desc.ends_with(')') {
+        // ── HD format: multi_hd(M,<130hex>,<130hex>,...) ──
+        let inner = &desc[9..desc.len() - 1]; // strip "multi_hd(" and ")"
+        let parts: Vec<&str> = inner.split(',').collect();
+        if parts.len() < 3 {
+            return Err("Need at least M and 2 cosigner xpubs".into());
         }
-        let pk_bytes = hex::decode(pk_hex)
-            .map_err(|e| format!("Invalid pubkey hex: {}", e))?;
-        let mut pk = [0u8; 32];
-        pk.copy_from_slice(&pk_bytes);
-        pubkeys.push(pk);
+        let m: u8 = parts[0].trim().parse()
+            .map_err(|_| "Invalid M value in descriptor".to_string())?;
+
+        let mut pubkeys = Vec::new();
+        for xpub_hex in &parts[1..] {
+            let xpub_hex = xpub_hex.trim();
+            if xpub_hex.len() != 130 {
+                return Err(format!("Cosigner xpub must be 130 hex chars (33B pubkey + 32B chain code), got {}", xpub_hex.len()));
+            }
+            let xpub_bytes = hex::decode(xpub_hex)
+                .map_err(|e| format!("Invalid xpub hex: {}", e))?;
+            // First 33 bytes = compressed pubkey, next 32 = chain code
+            let pubkey = k256::PublicKey::from_sec1_bytes(&xpub_bytes[..33])
+                .map_err(|e| format!("Invalid compressed pubkey: {}", e))?;
+            let mut chain_code = [0u8; 32];
+            chain_code.copy_from_slice(&xpub_bytes[33..65]);
+
+            // Derive child at /0/addr_index (matches KasSigner firmware path)
+            let parent = crate::bip32::ExtPubKey {
+                key: pubkey,
+                chain_code,
+                depth: 3, // account level
+            };
+            let receive_chain = parent.derive_child(0)?;
+            let addr_child = receive_chain.derive_child(addr_index)?;
+
+            // Extract x-only (32 bytes, strip 0x02/0x03 prefix)
+            let compressed = addr_child.key.to_encoded_point(true);
+            let compressed_bytes = compressed.as_bytes(); // 33 bytes
+            let mut xonly = [0u8; 32];
+            xonly.copy_from_slice(&compressed_bytes[1..33]);
+            pubkeys.push(xonly);
+        }
+
+        if m == 0 || m as usize > pubkeys.len() {
+            return Err(format!("Invalid M={} for N={}", m, pubkeys.len()));
+        }
+        pubkeys.sort();
+        Ok((m, pubkeys))
+
+    } else if desc.starts_with("multi(") && desc.ends_with(')') {
+        // ── Legacy format: multi(M,pk1hex64,pk2hex64,...) ──
+        let inner = &desc[6..desc.len() - 1];
+        let parts: Vec<&str> = inner.split(',').collect();
+        if parts.len() < 3 {
+            return Err("Need at least M and 2 pubkeys".into());
+        }
+        let m: u8 = parts[0].trim().parse()
+            .map_err(|_| "Invalid M value in descriptor".to_string())?;
+
+        let mut pubkeys = Vec::new();
+        for pk_hex in &parts[1..] {
+            let pk_hex = pk_hex.trim();
+            if pk_hex.len() != 64 {
+                return Err(format!("Pubkey must be 64 hex chars, got {}", pk_hex.len()));
+            }
+            let pk_bytes = hex::decode(pk_hex)
+                .map_err(|e| format!("Invalid pubkey hex: {}", e))?;
+            let mut pk = [0u8; 32];
+            pk.copy_from_slice(&pk_bytes);
+            pubkeys.push(pk);
+        }
+
+        if m == 0 || m as usize > pubkeys.len() {
+            return Err(format!("Invalid M={} for N={}", m, pubkeys.len()));
+        }
+        pubkeys.sort();
+        Ok((m, pubkeys))
+
+    } else {
+        Err("Descriptor must be multi(M,...) or multi_hd(M,...)".into())
     }
-
-    if m == 0 || m as usize > pubkeys.len() {
-        return Err(format!("Invalid M={} for N={}", m, pubkeys.len()));
-    }
-
-    // Sort pubkeys lexicographically so both devices produce the same address
-    pubkeys.sort();
-
-    Ok((m, pubkeys))
 }
 
 /// Build redeem script: OP_M OP_DATA_32 <pk1> ... OP_N OP_CHECKMULTISIG
@@ -413,8 +477,36 @@ pub async fn create_multisig_kspt(
     fee: u64,
     change_address: &str,
     ws_url: &str,
+    addr_index: u32,
 ) -> Result<String, String> {
-    let (m, pubkeys) = parse_descriptor(descriptor)?;
+    // For HD descriptors, auto-discover the addr_index by trying indices
+    // 0..99 and matching the derived P2SH address against source_address.
+    // This saves the user from manually entering an index number.
+    // For legacy multi(...) descriptors, addr_index is ignored (always 0).
+    let final_index = if descriptor.trim().starts_with("multi_hd(") {
+        let mut found: Option<u32> = None;
+        for try_idx in 0..100u32 {
+            let (m, pks) = parse_descriptor(descriptor, try_idx)?;
+            let script = build_redeem_script(m, &pks);
+            let script_hash = blake2b_hash(&script);
+            let derived_addr = crate::address::encode_p2sh_address(&script_hash, "kaspa");
+            if derived_addr == source_address {
+                found = Some(try_idx);
+                break;
+            }
+        }
+        match found {
+            Some(idx) => idx,
+            None => return Err(format!(
+                "Could not find address index (tried 0..99) that matches source address {}",
+                source_address
+            )),
+        }
+    } else {
+        addr_index // legacy: use as-is (typically 0)
+    };
+
+    let (m, pubkeys) = parse_descriptor(descriptor, final_index)?;
     let redeem_script = build_redeem_script(m, &pubkeys);
 
     let dest_script = crate::address::address_to_script_pubkey(dest_address)?;
@@ -468,7 +560,9 @@ pub async fn create_multisig_kspt(
     }
 
     // Serialize KSPT with redeem scripts (flag 0x02)
-    let kspt_hex = serialize_kspt_multisig(&selected, &outputs, &redeem_script, m)?;
+    // sig_op_count = N (total pubkeys), not M (threshold) — Kaspa's
+    // OP_CHECKMULTISIG checks all N pubkeys against the M signatures.
+    let kspt_hex = serialize_kspt_multisig(&selected, &outputs, &redeem_script, pubkeys.len() as u8)?;
 
     web_sys::console::log_1(
         &format!(

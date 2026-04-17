@@ -987,7 +987,7 @@ function handleDescriptorScan(data) {
                 bytes.push(parseInt(result.substr(i, 2), 16));
             }
             const text = new TextDecoder().decode(new Uint8Array(bytes)).trim();
-            if (text.startsWith('multi(')) {
+            if (text.startsWith('multi(') || text.startsWith('multi_hd(')) {
                 el('input-ms-descriptor').value = text;
                 showScreen('multisig');
                 toast('Descriptor scanned', 'ok', 1500);
@@ -1039,7 +1039,11 @@ async function handleMultisigCreate() {
     try {
         const fee = lastFeeEstimate ? lastFeeEstimate.suggested_fee : 20000;
         const wsUrl = await resolveNodeUrl();
-        const ksptHex = await create_multisig_kspt(descriptor, sourceAddr, resolvedDest, parseFloat(amountStr), BigInt(fee), changeAddr, wsUrl);
+        // HD multisig address index — for multi_hd descriptors, selects which
+        // derived address to spend from. Legacy multi() ignores this (always 0).
+        const addrIndexEl = el('input-ms-addr-index');
+        const addrIndex = addrIndexEl ? parseInt(addrIndexEl.value) || 0 : 0;
+        const ksptHex = await create_multisig_kspt(descriptor, sourceAddr, resolvedDest, parseFloat(amountStr), BigInt(fee), changeAddr, wsUrl, addrIndex);
         hideLoading();
         console.log('[KasSee] Multisig KSPT created: ' + ksptHex.length / 2 + ' bytes');
         displayKsptQr(ksptHex, 'Scan with KasSigner');

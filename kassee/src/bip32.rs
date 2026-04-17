@@ -29,15 +29,15 @@ pub struct WalletData {
 
 // ─── Extended public key ───
 
-struct ExtPubKey {
-    key: PublicKey,
-    chain_code: [u8; 32],
-    depth: u8,
+pub(crate) struct ExtPubKey {
+    pub(crate) key: PublicKey,
+    pub(crate) chain_code: [u8; 32],
+    pub(crate) depth: u8,
 }
 
 impl ExtPubKey {
     /// Parse a kpub (Kaspa extended public key, base58check encoded)
-    fn from_kpub(kpub_str: &str) -> Result<Self, String> {
+    pub(crate) fn from_kpub(kpub_str: &str) -> Result<Self, String> {
         if !kpub_str.starts_with("kpub") {
             return Err("Must start with 'kpub'".into());
         }
@@ -69,7 +69,7 @@ impl ExtPubKey {
     }
 
     /// Derive a non-hardened child key: parent_key + HMAC-SHA512(chain_code, 0x00||key||index)
-    fn derive_child(&self, index: u32) -> Result<Self, String> {
+    pub(crate) fn derive_child(&self, index: u32) -> Result<Self, String> {
         if index >= 0x80000000 {
             return Err("Cannot derive hardened child from public key".into());
         }

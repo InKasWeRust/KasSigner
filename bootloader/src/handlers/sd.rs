@@ -1400,7 +1400,11 @@ pub fn handle_sd_touch(
                     crate::app::input::AppState::ShowQrPopup => {
                         if is_back {
                             ad.signed_qr_nframes = 0;
-                            ad.app.go_main_menu();
+                            if ad.ms_creating.active {
+                                ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                            } else {
+                                ad.app.go_main_menu();
+                            }
                         } else {
                             // Two buttons: "Save to SD" and "Back to QR"
                             // Save to SD button zone: center-left area
@@ -2009,7 +2013,11 @@ pub fn handle_sd_touch(
                     crate::app::input::AppState::ShowQrModeChoice => {
                         if is_back {
                             ad.signed_qr_nframes = 0;
-                            ad.app.go_main_menu();
+                            if ad.ms_creating.active {
+                                ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                            } else {
+                                ad.app.go_main_menu();
+                            }
                         } else {
                             // "Auto Cycle" button: left
                             if (30..=155).contains(&x) && (140..=185).contains(&y) {

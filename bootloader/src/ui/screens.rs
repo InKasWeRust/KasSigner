@@ -497,13 +497,17 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
 
         if let Ok(qr) = crate::qr::encoder::encode(data) {
             let qr_size = qr.size as i32;
-            let scale = core::cmp::min(200 / qr_size, 200 / qr_size) as i32;
-            let offset_x = (DISPLAY_W as i32 - qr_size * scale) / 2;
-            let offset_y = (DISPLAY_H as i32 - qr_size * scale) / 2;
+            // Maximize QR: fill the screen minus 4px quiet zone on each side.
+            // Height (240) is the limiting dimension on 320×240 displays.
+            let max_px = (DISPLAY_H as i32) - 8; // 232px usable
+            let scale = (max_px / qr_size).max(1);
+            let total = qr_size * scale;
+            let offset_x = (DISPLAY_W as i32 - total) / 2;
+            let offset_y = (DISPLAY_H as i32 - total) / 2;
 
             Rectangle::new(
                 Point::new(offset_x - 4, offset_y - 4),
-                Size::new((qr_size * scale + 8) as u32, (qr_size * scale + 8) as u32),
+                Size::new((total + 8) as u32, (total + 8) as u32),
             )
             .into_styled(PrimitiveStyle::with_fill(COLOR_TEXT))
             .draw(&mut self.display).ok();
@@ -1832,16 +1836,10 @@ pub fn draw_home_grid(&mut self) {
 
     /// Draw SeedQR export screen (QR with title)
     /// Draw a full-screen QR code with title. Reusable for any data.
-    pub fn draw_qr_fullscreen(&mut self, data: &[u8], title: &str) {
+    pub fn draw_qr_fullscreen(&mut self, data: &[u8], _title: &str) {
         self.display.clear(COLOR_BG).ok();
-        let tw = measure_hint(title);
-        draw_lato_hint(&mut self.display, title, (320 - tw) / 2, 14, KASPA_TEAL);
-
-        let hw = measure_hint("Tap to continue");
-        draw_lato_hint(&mut self.display, "Tap to continue", (320 - hw) / 2, 238, COLOR_HINT);
 
         // Guard: QR encoder supports V1-V6 (max 134 bytes).
-        // Reject oversized data before encode to prevent stack overflow.
         if data.len() > 134 {
             let ew = measure_title("QR Error — too large");
             draw_lato_title(&mut self.display, "QR Error — too large", (320 - ew) / 2, 120, COLOR_DANGER);
@@ -1850,10 +1848,11 @@ pub fn draw_home_grid(&mut self) {
 
         if let Ok(qr) = crate::qr::encoder::encode(data) {
             let qr_size = qr.size as i32;
-            let scale = (200 / qr_size).max(1);
+            let max_px = (DISPLAY_H as i32) - 8; // 232px usable
+            let scale = (max_px / qr_size).max(1);
             let total = qr_size * scale;
             let offset_x = (DISPLAY_W as i32 - total) / 2;
-            let offset_y = 20 + (210 - total) / 2;
+            let offset_y = (DISPLAY_H as i32 - total) / 2;
 
             Rectangle::new(
                 Point::new(offset_x - 4, offset_y - 4),
