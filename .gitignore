@@ -1,0 +1,8 @@
+# macOS cruft
+.DS_Store
+Icon?
+Icon\r
+
+# Editor backups
+*.swp
+*~

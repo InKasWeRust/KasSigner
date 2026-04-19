@@ -1,0 +1,22 @@
+{
+    "name": "KasSee — KasSigner Companion",
+    "short_name": "KasSee",
+    "description": "Watch-only wallet companion for KasSigner air-gapped signing device. Pure Rust/WASM. Zero install.",
+    "start_url": "./",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#080c12",
+    "theme_color": "#080c12",
+    "icons": [
+        {
+            "src": "favicon.ico",
+            "sizes": "32x32 16x16",
+            "type": "image/x-icon"
+        },
+        {
+            "src": "img/logo-sm.png",
+            "sizes": "75x28",
+            "type": "image/png"
+        }
+    ]
+}
