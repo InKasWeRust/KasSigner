@@ -232,6 +232,7 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
         s if s.starts_with("XPrv Backup") => draw_icon!(size24px::actions::UploadSquare),
         s if s.starts_with("JPEG Stego")  => draw_icon!(size24px::actions::EyeOff),
         s if s.starts_with("Display")     => draw_icon!(size24px::devices::Laptop),
+        s if s.starts_with("Camera")      => draw_icon!(size24px::photos_and_videos::Camera),
         s if s.starts_with("SD Card")     => draw_icon!(size24px::devices::SaveFloppyDisk),
         s if s.starts_with("About")       => draw_icon!(size24px::actions::HelpCircle),
         _ => {
@@ -568,6 +569,11 @@ impl<'a> BootDisplay<'a> {
     }
 
     /// Draw settings icon at top-right (34x34 zone) using icon_settings.raw scaled 2:1.
+    ///
+    /// Unused as of v1.0.3 — camera settings moved to Settings > Camera tab,
+    /// no more gear shortcut on ScanQR. Kept around in case the UX brings
+    /// back a top-right action button in a future release.
+    #[allow(dead_code)]
     pub fn draw_gear_icon(&mut self) {
         use embedded_graphics::prelude::*;
         use embedded_graphics::primitives::{Rectangle, PrimitiveStyle};

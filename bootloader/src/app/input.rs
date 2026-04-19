@@ -327,6 +327,13 @@ pub enum AppState {
     SettingsMenu,
     /// Display settings (brightness)
     DisplaySettings,
+    /// Camera settings (cam-tune: AEC, contrast, brightness, AGC, sharpness).
+    /// Runs the camera live with the cam-tune overlay for on-the-fly tuning.
+    /// Waveshare-only: OV5640 fixed-focus close-range LCD QR decode needs
+    /// tuning. M5Stack GC0308 works well at defaults and doesn't expose
+    /// this screen.
+    #[cfg(feature = "waveshare")]
+    CameraSettings,
     /// Audio settings (volume) — M5Stack only (Waveshare has no speaker)
     AudioSettings,
     /// SD Card settings (format, info)
@@ -644,6 +651,18 @@ pub fn new() -> Self {
                 Action::None
             }
 
+            // CameraSettings: physical button returns to Settings menu
+            // (touch EXIT on overlay also returns to Settings via settings handler)
+            // Waveshare-only.
+            #[cfg(feature = "waveshare")]
+            AppState::CameraSettings => {
+                if event == ButtonEvent::ShortPress || event == ButtonEvent::LongPress {
+                    self.state = AppState::SettingsMenu;
+                    return Action::Redraw;
+                }
+                Action::None
+            }
+
             // All sub-screens: any tap goes back to main
             AppState::ShowQR | AppState::ShowQrFrameChoice | AppState::Rejected | AppState::About
             | AppState::ShowAddress | AppState::ShowAddressQR | AppState::ScanQR
@@ -910,6 +929,10 @@ pub fn handler_group(&self) -> HandlerGroup {
             SettingsMenu | DisplaySettings
             | AudioSettings | SdCardSettings | About
                 => HandlerGroup::Settings,
+
+            // CameraSettings (Waveshare-only)
+            #[cfg(feature = "waveshare")]
+            CameraSettings => HandlerGroup::Settings,
             // Transaction / multisig / camera / message signing
             ScanQR | ReviewTx { .. } | ConfirmTx | SignTxGuide
             | MultisigChooseMN | MultisigPickSeed { .. } | MultisigPickAddr { .. }

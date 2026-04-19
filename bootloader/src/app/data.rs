@@ -118,6 +118,15 @@ pub struct AppData {
     pub signed_qr_frame: u8,
     pub signed_qr_nframes: u8,
     pub signed_qr_large: bool, // true = multi-frame large QR for device-to-device
+    /// Signed-KSPT QR frame-size mode (v1.0.3+).
+    ///   0 = use signed_qr_large legacy picker (phone=106B or device=55B)
+    ///   1 = 85 B/frame (V5, ~5 frames/398B — risky on close LCD)
+    ///   2 = 55 B/frame (V4, ~8 frames — borderline on close LCD)
+    ///   3 = 40 B/frame (V3, ~10 frames — reliable close-LCD decode)
+    ///   4 = 27 B/frame (V3 smaller fill, ~15 frames — rock solid)
+    /// Higher = smaller QRs = more scans but more reliable. Paired
+    /// with the ShowQrFrameChoice selector for user-chosen tradeoff.
+    pub signed_qr_mode: u8,
     /// Multisig signature status after signing (for ShowQR display)
     pub tx_sigs_present: u8,
     pub tx_sigs_required: u8,
@@ -217,7 +226,7 @@ pub fn new() -> Self {
             ),
             #[cfg(feature = "waveshare")]
             settings_menu: crate::app::input::Menu::from_items(
-                &["Display", "SD Card", "About"]
+                &["Display", "Camera", "SD Card", "About"]
             ),
             #[cfg(feature = "m5stack")]
             settings_menu: crate::app::input::Menu::from_items(
@@ -290,6 +299,7 @@ pub fn new() -> Self {
             signed_qr_frame: 0,
             signed_qr_nframes: 0,
             signed_qr_large: false,
+            signed_qr_mode: 0,
             tx_sigs_present: 0,
             tx_sigs_required: 0,
             scanned_addr: [0u8; 80],

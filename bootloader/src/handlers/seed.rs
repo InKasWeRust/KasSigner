@@ -450,12 +450,13 @@ pub fn handle_seed_touch(
                             else if x >= 280 && y >= 42 && can_page_down {
                                 ad.seed_list_scroll += max_vis as u8;
                             }
-                            // Top buttons (y=42..74) — always 3 buttons
+                            // Top buttons (y=42..74) — always 2 buttons: Address, Export
+                            // Sign TX was removed in v1.0.3 (still lives in Tools menu).
                             else if (42..74).contains(&y) {
-                                // 3 buttons centered, 95px each, 6px gap
-                                let btn_w: u16 = 95;
+                                // 2 buttons centered, 146px each, 6px gap
+                                let btn_w: u16 = 146;
                                 let btn_gap: u16 = 6;
-                                let active_count: u16 = if ad.seed_loaded && slot_wc == 1 { 2 } else { 3 };
+                                let active_count: u16 = 2;
                                 let total_btn_w = active_count * btn_w + (active_count - 1) * btn_gap;
                                 let btn_start_x = (320 - total_btn_w) / 2;
                                 let mut col: Option<u8> = None;
@@ -466,84 +467,14 @@ pub fn handle_seed_touch(
                                         break;
                                     }
                                 }
-                                if let Some(vis_col) = col {
-                                    // For raw keys, button layout is ["", "Address", "Export"]
-                                    // Visible col 0 = Address (logical col 1), visible col 1 = Export (logical col 2)
-                                    let col = if ad.seed_loaded && slot_wc == 1 {
-                                        vis_col + 1 // shift: vis 0→1(Address), vis 1→2(Export)
-                                    } else {
-                                        vis_col
-                                    };
+                                if let Some(tapped_col) = col {
                                     if !ad.seed_loaded {
                                         // No seed — show friendly message, then go to Tools
                                         boot_display.draw_rejected_screen("Load a seed first");
                                         delay.delay_millis(1500);
                                         ad.tools_menu.reset();
                                         ad.app.state = crate::app::input::AppState::ToolsMenu;
-                                    } else if col == 0 {
-                                        // ── Sign TX ──
-                                        // Raw keys can't sign Kaspa transactions (no HD derivation)
-                                        if slot_wc == 1 {
-                                            boot_display.draw_rejected_screen("Raw key: use Address");
-                                            delay.delay_millis(1500);
-                                        } else {
-                                            // Ensure pubkeys are derived before showing guide
-                                            if !ad.pubkeys_cached {
-                                                {
-                                                    boot_display.display.clear(crate::hw::display::COLOR_BG).ok();
-                                                    let tw = crate::hw::display::measure_header("DERIVING");
-                                                    crate::hw::display::draw_oswald_header(&mut boot_display.display, "DERIVING", (320 - tw) / 2, 90, crate::hw::display::KASPA_TEAL);
-                                                    let mw = crate::hw::display::measure_body("Deriving addresses...");
-                                                    crate::hw::display::draw_lato_body(&mut boot_display.display, "Deriving addresses...", (320 - mw) / 2, 120, crate::hw::display::COLOR_TEXT_DIM);
-                                                    use embedded_graphics::primitives::{Rectangle, PrimitiveStyle};
-                                                    use embedded_graphics::prelude::*;
-                                                    Rectangle::new(Point::new(40, 145), Size::new(240, 10))
-                                                        .into_styled(PrimitiveStyle::with_fill(crate::hw::display::COLOR_CARD))
-                                                        .draw(&mut boot_display.display).ok();
-                                                    Rectangle::new(Point::new(40, 145), Size::new(120, 10))
-                                                        .into_styled(PrimitiveStyle::with_fill(crate::hw::display::KASPA_ACCENT))
-                                                        .draw(&mut boot_display.display).ok();
-                                                    let ww = crate::hw::display::measure_body("Deriving...");
-                                                    crate::hw::display::draw_lato_body(&mut boot_display.display, "Deriving...", (320 - ww) / 2, 172, crate::hw::display::COLOR_TEXT_DIM);
-                                                }
-                                                if slot_wc == 2 {
-                                                    let acct = wallet::bip32::ExtendedPrivKey::from_raw(&ad.acct_key_raw);
-                                                    for idx in 0..20u16 {
-                                                        if let Ok(ak) = wallet::bip32::derive_address_key(&acct, idx) {
-                                                            if let Ok(pk) = ak.public_key_x_only() {
-                                                                ad.pubkey_cache[idx as usize].copy_from_slice(&pk);
-                                                            }
-                                                        }
-                                                    }
-                                                } else {
-                                                    let pp = ad.seed_mgr.active_slot().map(|s: &seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
-                                                    let seed_bytes = if ad.word_count == 12 {
-                                                        let m12 = wallet::bip39::Mnemonic12 {
-                                                            indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&ad.mnemonic_indices[..12]); arr }
-                                                        };
-                                                        wallet::bip39::seed_from_mnemonic_12(&m12, pp)
-                                                    } else {
-                                                        let m24 = wallet::bip39::Mnemonic24 {
-                                                            indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&ad.mnemonic_indices[..24]); arr }
-                                                        };
-                                                        wallet::bip39::seed_from_mnemonic_24(&m24, pp)
-                                                    };
-                                                    if let Ok(acct) = wallet::bip32::derive_account_key(&seed_bytes.bytes) {
-                                                        ad.acct_key_raw.copy_from_slice(&acct.to_raw());
-                                                        for idx in 0..20u16 {
-                                                            if let Ok(ak) = wallet::bip32::derive_address_key(&acct, idx) {
-                                                                if let Ok(pk) = ak.public_key_x_only() {
-                                                                    ad.pubkey_cache[idx as usize].copy_from_slice(&pk);
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                ad.pubkeys_cached = true;
-                                            }
-                                            ad.app.state = crate::app::input::AppState::SignTxGuide;
-                                        }
-                                    } else if col == 1 {
+                                    } else if tapped_col == 0 {
                                         // ── Address ──
                                         if slot_wc == 1 {
                                             // Raw key — derive pubkey directly
@@ -603,7 +534,7 @@ pub fn handle_seed_touch(
                                         }
                                         ad.scanned_addr_len = 0;
                                         ad.app.state = crate::app::input::AppState::ShowAddress;
-                                    } else if col == 2 {
+                                    } else if tapped_col == 1 {
                                         // ── Export ──
                                         if slot_wc == 1 {
                                             // Raw key → export hex directly

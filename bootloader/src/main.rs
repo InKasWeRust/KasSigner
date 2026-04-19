@@ -114,6 +114,7 @@ mod app;
 mod ui;
 mod features;
 mod handlers;
+mod version;
 
 use esp_hal::{
     delay::Delay,
@@ -691,6 +692,14 @@ fn main() -> ! {
     #[cfg(feature = "m5stack")]
     let mut wake_debounce: u32 = 0;
     let mut dim_active: bool = false;
+    // Wake-from-sleep needs N consecutive frames of "finger present" to fire.
+    // Single-frame noise from ambient light / EMI on the CST816D would
+    // otherwise wake the device. 2 frames ≈ 200ms at the sleep-poll rate
+    // (100ms per iteration inside the asleep branch).
+    #[cfg(feature = "waveshare")]
+    let mut wake_confirm_count: u8 = 0;
+    #[cfg(feature = "waveshare")]
+    const WAKE_CONFIRM_REQUIRED: u8 = 2;
 
     loop {
         // ─── Mirror: send a few rows per iteration (non-blocking) ──
@@ -716,13 +725,39 @@ fn main() -> ! {
 
         // Sleep/wake
         if ad.display_asleep {
-            if handle_wake(&mut ad, &mut i2c, &mut delay, &mut tracker,
-                           &mut wake_debounce, touch_state, is_touch) {
+            // On Waveshare, require multiple consecutive touch samples
+            // before waking — rejects single-frame ghost events from
+            // ambient light / EMI. Reset counter on any clean sample.
+            #[cfg(feature = "waveshare")]
+            {
+                let raw_touch = !matches!(touch_state, hw::touch::TouchState::NoTouch);
+                if raw_touch || is_touch {
+                    wake_confirm_count = wake_confirm_count.saturating_add(1);
+                } else {
+                    wake_confirm_count = 0;
+                }
+                if wake_confirm_count >= WAKE_CONFIRM_REQUIRED {
+                    wake_confirm_count = 0;
+                    if handle_wake(&mut ad, &mut i2c, &mut delay, &mut tracker,
+                                   &mut wake_debounce, touch_state, is_touch) {
+                        continue;
+                    }
+                }
+                delay.delay_millis(100);
                 continue;
             }
-            delay.delay_millis(100);
-            continue;
+            #[cfg(feature = "m5stack")]
+            {
+                if handle_wake(&mut ad, &mut i2c, &mut delay, &mut tracker,
+                               &mut wake_debounce, touch_state, is_touch) {
+                    continue;
+                }
+                delay.delay_millis(100);
+                continue;
+            }
         }
+        #[cfg(feature = "waveshare")]
+        { wake_confirm_count = 0; }
 
         // Dim-first-touch suppression
         if is_touch {
@@ -748,15 +783,17 @@ fn main() -> ! {
             wake_debounce -= 1;
         } else if let hw::touch::TouchAction::Tap { x, y } = action {
             hw::sound::click(&mut delay);
-            let is_back = x <= 36 && y <= 36;
+            let is_back = x <= 48 && y <= 48;
             let is_home = x >= 268 && y <= 52;
 
             // Home button — go to main menu
-            // Waveshare: skip on ScanQR (gear icon in that zone)
+            // Top-right home shortcut excluded on ScanQR for both platforms
+            // (Waveshare had gear icon there historically; M5Stack UX parity
+            // in v1.0.3 — ScanQR exits via back button only).
             #[cfg(feature = "waveshare")]
             let home_allowed = is_home && ad.app.state != app::input::AppState::ScanQR;
             #[cfg(feature = "m5stack")]
-            let home_allowed = is_home;
+            let home_allowed = is_home && ad.app.state != app::input::AppState::ScanQR;
 
             if home_allowed {
                 use crate::app::input::AppState;
@@ -956,7 +993,18 @@ fn main() -> ! {
         }
 
         // ─── Camera loop ─────────────────────────────────────────
-        let camera_active = ad.app.state == app::input::AppState::ScanQR;
+        // Active on ScanQR (normal decode).
+        // On Waveshare, also on CameraSettings (cam-tune only, no decode).
+        #[cfg(feature = "waveshare")]
+        let camera_active = matches!(
+            ad.app.state,
+            app::input::AppState::ScanQR | app::input::AppState::CameraSettings
+        );
+        #[cfg(feature = "m5stack")]
+        let camera_active = matches!(
+            ad.app.state,
+            app::input::AppState::ScanQR
+        );
 
         if camera_active
             && (cam_status == hw::camera::CameraStatus::SensorReady
@@ -990,12 +1038,27 @@ fn main() -> ! {
                     let x = ad.cam_tap_x;
                     let y = ad.cam_tap_y;
                     hw::sound::click(&mut delay);
-                    let is_back = x <= 36 && y <= 36;
-                    let result = handlers::tx::handle_tx_touch(
-                        &mut ad, &mut boot_display, &mut delay, &mut i2c,
-                        &_bb_card_type, &list_zones,
-                        x, y, is_back,
-                    );
+                    let is_back = x <= 48 && y <= 48;
+                    // In CameraSettings the camera loop is up but the screen is
+                    // a settings screen — route to the settings handler so slider
+                    // drags, +/- buttons, and 6 param buttons actually work.
+                    // In ScanQR we keep routing to tx.
+                    let result = if ad.app.state
+                        == app::input::AppState::CameraSettings
+                    {
+                        handlers::settings::handle_settings_touch(
+                            &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                            &_bb_card_type, &list_zones,
+                            &page_up_zone, &page_down_zone,
+                            x, y, is_back,
+                        )
+                    } else {
+                        handlers::tx::handle_tx_touch(
+                            &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                            &_bb_card_type, &list_zones,
+                            x, y, is_back,
+                        )
+                    };
                     if let Some(r) = result { ad.needs_redraw = r; }
                     tracker = hw::touch::TouchTracker::new();
                 }
@@ -1262,6 +1325,14 @@ fn continue_without_display(delay: &mut Delay) -> ! {
 }
 
 /// Waveshare: Apply all 6 cam-tune parameters to OV5640 via I2C1.
+///
+/// The sliders override a subset of what init_480 sets in OV5640_LCD_QR_TUNING.
+/// Everything not written here (ISP master ctrl 0x5000, sharpen thresholds,
+/// denoise) stays at the LCD-QR-tuned values from init_480 — previously this
+/// function flipped CIP OFF on every slider change, which was correct for
+/// sharp paper input but actively hurt blurred close-range LCD input. As of
+/// v1.0.3 the slider is additive only: AEC range, contrast, brightness, AGC
+/// ceiling, and the final CIP sharpness level.
 #[cfg(feature = "waveshare")]
 fn cam_tune_apply_all<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, vals: &[u8; 6]) {
     use hw::camera::write_reg;
@@ -1274,12 +1345,12 @@ fn cam_tune_apply_all<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, vals: &[u8; 6]
     // AEC stable range (enter) and (go out) — keep them paired
     write_reg(i2c, 0x3A0F, aec_h);   // WPT — stable high (enter)
     write_reg(i2c, 0x3A1B, aec_h);   // WPT2 — stable high (go out)
-    write_reg(i2c, 0x3A10, aec_l);    // BPT — stable low (enter)
-    write_reg(i2c, 0x3A1E, aec_l);    // BPT2 — stable low (go out)
+    write_reg(i2c, 0x3A10, aec_l);   // BPT — stable low (enter)
+    write_reg(i2c, 0x3A1E, aec_l);   // BPT2 — stable low (go out)
 
     // SDE (Special Digital Effects) — enable contrast+brightness bits
     let sde = hw::camera::read_reg(i2c, 0x5580).unwrap_or(0x06);
-    write_reg(i2c, 0x5580, sde | 0x04); // bit2 = contrast enable
+    write_reg(i2c, 0x5580, sde | 0x06);  // bit2 = contrast, bit1 = brightness
     write_reg(i2c, 0x5586, vals[2]);     // contrast
     write_reg(i2c, 0x5585, 0x00);        // brightness sign (0=positive)
     write_reg(i2c, 0x5587, vals[3]);     // brightness magnitude
@@ -1288,13 +1359,11 @@ fn cam_tune_apply_all<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, vals: &[u8; 6]
     write_reg(i2c, 0x3A18, 0x00);
     write_reg(i2c, 0x3A19, vals[4]);
 
-    // CIP sharpness
+    // CIP sharpness auto-threshold (slider 5 → 0x5308).
+    // ISP master (0x5000), sharpen MT offset (0x5302) and sharpen TH offset
+    // (0x530B) are deliberately NOT touched here — they stay at the
+    // LCD-QR-tuned values written by OV5640_LCD_QR_TUNING in init_480.
     write_reg(i2c, 0x5308, vals[5]);
-
-    // ── QR scan overrides: disable ISP sharpening for cleaner LCD decode ──
-    write_reg(i2c, 0x5000, 0x06);  // CIP OFF (LENC off, BPC+WPC on)
-    write_reg(i2c, 0x5302, 0x00);  // sharpen MT offset1 = 0
-    write_reg(i2c, 0x530B, 0x02);  // sharpen TH offset1 = minimum
 
     #[cfg(not(feature = "silent"))]
     {
@@ -1359,6 +1428,49 @@ fn cam_tune_apply_ov2640<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, vals: &[u8;
         log!("[CAM-TUNE-2640] AEC={:02X}/{:02X} CTR={:02X} BRT={:02X} AGC={:02X} SHP={:02X} AVG={:02X}",
             aec_h, aec_l, vals[2], vals[3], vals[4], vals[5], avg);
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// M5Stack GC0308 cam-tune — maps the 6 slider params to GC0308 registers
+// ═══════════════════════════════════════════════════════════════════
+//
+// Slider → Register mapping (all on Page 0):
+//   vals[0] AEC-H    → 0xd3  AEC target Y (0-255, higher = brighter image)
+//   vals[1] AEC-L    → 0xd1  AEC gain threshold (auxiliary — GC0308 uses single target)
+//   vals[2] Contrast → 0xb3  Contrast gain (0x40 = 1.0x)
+//   vals[3] Brite    → 0xb5  Y-offset brightness (two's-complement)
+//   vals[4] AGC max  → 0xd2  Max AGC gain ceiling
+//   vals[5] Sharp    → 0x72  INTPEE edge enhancement
+//
+// GC0308 doesn't expose an H/L AEC stable range like OV5640 — a single
+// target Y drives the loop. We use vals[1] as a secondary gain threshold
+// so both sliders still do something meaningful.
+
+#[cfg(feature = "m5stack")]
+#[allow(dead_code)]
+fn cam_tune_apply_gc0308<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, vals: &[u8; 6]) {
+    use hw::camera::sccb_write;
+
+    // Ensure we're on Page 0 (all relevant regs live here)
+    sccb_write(i2c, 0xfe, 0x00);
+
+    // AEC target Y + gain threshold
+    sccb_write(i2c, 0xd3, vals[0]);   // AEC target Y
+    sccb_write(i2c, 0xd1, vals[1]);   // AEC gain threshold
+
+    // Contrast + brightness
+    sccb_write(i2c, 0xb3, vals[2]);   // Contrast gain (0x40 = 1.0x baseline)
+    sccb_write(i2c, 0xb5, vals[3]);   // Y-offset brightness (signed)
+
+    // AGC ceiling
+    sccb_write(i2c, 0xd2, vals[4]);   // Max AGC gain cap
+
+    // Sharpness / edge enhancement
+    sccb_write(i2c, 0x72, vals[5]);   // INTPEE level
+
+    #[cfg(not(feature = "silent"))]
+    log!("[CAM-TUNE-GC0308] AEC={:02X} GAIN_THR={:02X} CTR={:02X} BRT={:02X} AGC={:02X} SHP={:02X}",
+        vals[0], vals[1], vals[2], vals[3], vals[4], vals[5]);
 }
 
 // ═══════════════════════════════════════════════════════════════════

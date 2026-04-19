@@ -51,7 +51,7 @@ pub fn handle_tx_touch(
                     }
                     crate::app::input::AppState::ScanQR => {
                         // Back button (top-left) — both platforms
-                        if x <= 40 && y <= 40 {
+                        if x <= 48 && y <= 48 {
                             #[cfg(feature = "waveshare")]
                             { ad.cam_tune_active = false; }
                             if ad.ms_creating.n > 0 && !ad.ms_creating.active {
@@ -68,63 +68,11 @@ pub fn handle_tx_touch(
                             }
                             needs_redraw = true;
                         }
-                        // M5Stack: top-right = home
-                        #[cfg(feature = "m5stack")]
-                        if x >= 268 && y <= 40 {
-                            ad.app.go_main_menu();
-                            needs_redraw = true;
-                        }
-                        // Waveshare: cam-tune overlay interaction
-                        #[cfg(feature = "waveshare")]
-                        if x > 40 || y > 40 {
-                            if ad.cam_tune_active {
-                                // Slider track (y>=200, x=52..268) — padded around track at y=210
-                                if y >= 198 && (52..=268).contains(&x) {
-                                    let clamped = (x as i32 - 56).max(0).min(208) as u32;
-                                    ad.cam_tune_vals[ad.cam_tune_param as usize] = ((clamped * 255) / 208) as u8;
-                                    ad.cam_tune_dirty = true;
-                                    boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
-                                }
-                                // [-] button (visual: x=2..52, y=200..234)
-                                else if x <= 52 && y >= 195 {
-                                    let p = ad.cam_tune_param as usize;
-                                    ad.cam_tune_vals[p] = ad.cam_tune_vals[p].saturating_sub(8);
-                                    ad.cam_tune_dirty = true;
-                                    boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
-                                }
-                                // [+] button (visual: x=268..318, y=200..234)
-                                else if x >= 265 && y >= 195 {
-                                    let p = ad.cam_tune_param as usize;
-                                    ad.cam_tune_vals[p] = ad.cam_tune_vals[p].saturating_add(8);
-                                    ad.cam_tune_dirty = true;
-                                    boot_display.update_cam_tune_slider(ad.cam_tune_param, &ad.cam_tune_vals);
-                                }
-                                // Right panel (x>=198)
-                                else if x >= 198 {
-                                    if y <= 36 {
-                                        // EXIT button (visual: 202,2 → 318,34)
-                                        ad.cam_tune_active = false;
-                                        boot_display.draw_camera_screen("", "");
-                                    } else if (36..180).contains(&y) {
-                                        // Param grid: col split at x=259, row_step=47
-                                        let col = if x < 259 { 0u8 } else { 1u8 };
-                                        let row = ((y as i32 - 38).max(0) / 47).min(2) as u8;
-                                        let idx = row * 2 + col;
-                                        if idx < 6 && idx != ad.cam_tune_param {
-                                            ad.cam_tune_param = idx;
-                                            boot_display.draw_cam_tune_overlay(ad.cam_tune_param, &ad.cam_tune_vals);
-                                        }
-                                    }
-                                }
-                            } else {
-                                // Normal ScanQR — gear icon (x>=270, y<=48) → activate cam-tune
-                                if x >= 270 && y <= 48 {
-                                    ad.cam_tune_active = true;
-                                    boot_display.draw_camera_screen("", "");
-                                    boot_display.draw_cam_tune_overlay(ad.cam_tune_param, &ad.cam_tune_vals);
-                                }
-                            }
-                        }
+                        // Note: in v1.0.3 the top-right home shortcut was
+                        // removed on M5Stack for UX consistency with Waveshare.
+                        // Back button (top-left) is the only way out of ScanQR.
+                        // The old gear-icon cam-tune trigger was also removed
+                        // (cam-tune now lives in Settings → Camera).
                     }
                     crate::app::input::AppState::ReviewTx { .. } => {
                         if is_back {

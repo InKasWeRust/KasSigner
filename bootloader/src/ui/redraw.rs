@@ -45,6 +45,22 @@ pub fn redraw_screen(
                     // Signal camera loop to reset QR decode state
                     unsafe { crate::QR_RESET_FLAG = true; }
                 }
+                #[cfg(feature = "waveshare")]
+                crate::app::input::AppState::CameraSettings => {
+                    // Clear background, then draw the cam-tune overlay chrome.
+                    // The camera blit loop paints the 198×178 viewfinder each frame.
+                    use embedded_graphics::prelude::*;
+                    use embedded_graphics::primitives::{Rectangle, PrimitiveStyle};
+                    Rectangle::new(Point::new(0, 0),
+                        embedded_graphics::geometry::Size::new(320, 240))
+                        .into_styled(PrimitiveStyle::with_fill(
+                            crate::hw::display::COLOR_BG))
+                        .draw(&mut boot_display.display).ok();
+                    boot_display.draw_cam_tune_overlay(
+                        ad.cam_tune_param, &ad.cam_tune_vals);
+                    // Signal camera loop to reset QR decode state (harmless)
+                    unsafe { crate::QR_RESET_FLAG = true; }
+                }
                 crate::app::input::AppState::SeedsMenu => {
                     // SeedsMenu now just shows SeedList
                     ad.app.state = crate::app::input::AppState::SeedList;
@@ -368,8 +384,23 @@ pub fn redraw_screen(
                 }
                 crate::app::input::AppState::ShowQR => {
                     if ad.signed_qr_len > 0 {
-                        let max_payload = if ad.signed_qr_large { 55usize } else { 106usize };
-                        if !ad.signed_qr_large && ad.signed_qr_len <= 134 {
+                        // max_payload = raw bytes/frame (not counting the 3-byte
+                        // [frame, total, frag_len] wire-header). Selected by
+                        // signed_qr_mode (v1.0.3+), falling back to legacy
+                        // signed_qr_large flag when mode == 0.
+                        //   mode 0 → legacy: phone 106 / device 55
+                        //   mode 1 → 85 (V5, few scans but tight on LCD)
+                        //   mode 2 → 55 (V4, balanced)
+                        //   mode 3 → 40 (V3, reliable LCD)
+                        //   mode 4 → 27 (V3 smaller, rock-solid)
+                        let max_payload = match ad.signed_qr_mode {
+                            1 => 85usize,
+                            2 => 55usize,
+                            3 => 40usize,
+                            4 => 27usize,
+                            _ => if ad.signed_qr_large { 55usize } else { 106usize },
+                        };
+                        if !ad.signed_qr_large && ad.signed_qr_mode == 0 && ad.signed_qr_len <= 134 {
                             // Fits in single QR — display directly
                             boot_display.draw_qr_screen(&ad.signed_qr_buf[..ad.signed_qr_len]);
                         } else {

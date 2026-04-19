@@ -38,7 +38,7 @@ use super::hmac::zeroize_buf;
 const KASPA_XPUB_VERSION: [u8; 4] = [0x03, 0x8f, 0x33, 0x2e];
 
 /// BIP32 serialized extended key is always 78 bytes.
-const XPUB_PAYLOAD_LEN: usize = 78;
+pub const XPUB_PAYLOAD_LEN: usize = 78;
 
 /// Maximum base58check output length for 78-byte payload.
 /// 78 bytes + 4 checksum = 82 bytes → max ~112 base58 chars.
@@ -236,6 +236,93 @@ pub fn derive_and_serialize_kpub(
     )?;
 
     Ok(len)
+}
+
+/// Derive the account-level extended key at m/44'/111111'/0' and
+/// produce the **raw 78-byte serialized payload** (same layout as the
+/// base58-decoded body of a legacy kpub string, without the base58
+/// check encoding).
+///
+/// Used by the V1-raw QR export path: the 78-byte payload gets a
+/// 1-byte version header prepended (`qr::payload::PAYLOAD_V1_RAW`),
+/// giving a 79-byte compact QR blob that fits a V4 byte-mode QR —
+/// much smaller than the ~111-char base58 ASCII form (V6-V7).
+///
+/// Writes to the first 78 bytes of `out` and returns the length
+/// written (always 78), or an error if key derivation fails.
+pub fn derive_account_raw_kpub_payload(
+    seed: &[u8; 64],
+    out: &mut [u8; XPUB_PAYLOAD_LEN],
+) -> Result<usize, Bip32Error> {
+    // Derive parent key at m/44'/111111' (depth 2) for fingerprint
+    let parent_path: [u32; 2] = [
+        0x8000_002C, // 44'
+        0x8001_B207, // 111111'
+    ];
+    let parent_key = derive_path(seed, &parent_path)?;
+    let parent_pubkey = parent_key.public_key_compressed()?;
+
+    // Derive account key at m/44'/111111'/0' (depth 3)
+    let account_key = derive_path(seed, &KASPA_ACCOUNT_PATH)?;
+
+    // Version bytes
+    out[0..4].copy_from_slice(&KASPA_XPUB_VERSION);
+
+    // Depth = 3
+    out[4] = 3;
+
+    // Parent fingerprint: SHA256 of compressed parent pubkey, first 4 bytes
+    // (matches kaspad convention — see serialize_kpub for rationale).
+    let parent_sha = {
+        let mut h = Sha256::new();
+        h.update(&parent_pubkey);
+        let result: [u8; 32] = h.finalize().into();
+        result
+    };
+    out[5..9].copy_from_slice(&parent_sha[..4]);
+
+    // Child index (0x80000000 = 0' hardened), big-endian
+    let child_index = KASPA_ACCOUNT_PATH[2];
+    out[9] = (child_index >> 24) as u8;
+    out[10] = (child_index >> 16) as u8;
+    out[11] = (child_index >> 8) as u8;
+    out[12] = child_index as u8;
+
+    // Chain code (32 bytes) — sensitive
+    out[13..45].copy_from_slice(account_key.chain_code_bytes());
+
+    // Compressed public key (33 bytes)
+    let pubkey = account_key.public_key_compressed()?;
+    out[45..78].copy_from_slice(&pubkey);
+
+    Ok(XPUB_PAYLOAD_LEN)
+}
+
+/// Convert a legacy ASCII base58check-encoded kpub string into its
+/// 78-byte raw payload form. Used by the multi-frame V1-raw export
+/// path so the export handler does not need to re-derive from the
+/// seed (no extra PBKDF2 cost, no additional key-material exposure).
+///
+/// Returns the number of bytes written (always `XPUB_PAYLOAD_LEN`
+/// on success), or an error if the input isn't a valid kpub.
+pub fn kpub_ascii_to_raw(
+    ascii: &[u8],
+    out: &mut [u8; XPUB_PAYLOAD_LEN],
+) -> Result<usize, Bip32Error> {
+    let mut buf = [0u8; 128];
+    let plen = base58check_decode(ascii, &mut buf);
+    if plen != XPUB_PAYLOAD_LEN {
+        zeroize_buf(&mut buf);
+        return Err(Bip32Error::InvalidKey);
+    }
+    // Sanity-check the version bytes match Kaspa kpub.
+    if buf[0..4] != KASPA_XPUB_VERSION {
+        zeroize_buf(&mut buf);
+        return Err(Bip32Error::InvalidKey);
+    }
+    out[..XPUB_PAYLOAD_LEN].copy_from_slice(&buf[..XPUB_PAYLOAD_LEN]);
+    zeroize_buf(&mut buf);
+    Ok(XPUB_PAYLOAD_LEN)
 }
 
 // ─── XPrv (Extended Private Key) ─────────────────────────────────────
@@ -453,6 +540,47 @@ pub fn import_kpub(kpub_str: &[u8]) -> Result<super::bip32::ExtendedPubKey, Bip3
         chain_code,
         depth,
     })
+}
+
+/// Import a Kaspa kpub from its raw 78-byte payload (no base58 wrapping).
+///
+/// This is the V1 binary format: the bytes match the base58-decoded
+/// payload of a legacy kpub string. Used by QR decoders that received
+/// a V1_RAW-wrapped payload (after stripping the 1-byte version
+/// header). Pure byte parsing — no encoding conversion.
+pub fn import_kpub_raw(payload: &[u8]) -> Result<super::bip32::ExtendedPubKey, Bip32Error> {
+    if payload.len() != XPUB_PAYLOAD_LEN {
+        return Err(Bip32Error::InvalidKey);
+    }
+    if payload[0..4] != KASPA_XPUB_VERSION {
+        return Err(Bip32Error::InvalidKey);
+    }
+
+    let depth = payload[4];
+    let mut chain_code = [0u8; 32];
+    chain_code.copy_from_slice(&payload[13..45]);
+    let mut pubkey = [0u8; 33];
+    pubkey.copy_from_slice(&payload[45..78]);
+
+    Ok(super::bip32::ExtendedPubKey {
+        pubkey,
+        chain_code,
+        depth,
+    })
+}
+
+/// Version-aware kpub import that accepts either a legacy base58
+/// string or a V1_RAW-wrapped payload. Dispatches based on the
+/// 1-byte format header defined in `qr::payload`.
+///
+/// This is the entry point QR-scan handlers should use when they
+/// don't already know which format they received.
+pub fn import_kpub_any(blob: &[u8]) -> Result<super::bip32::ExtendedPubKey, Bip32Error> {
+    use crate::qr::payload::{classify, PayloadKind};
+    match classify(blob) {
+        PayloadKind::V1Raw(raw) => import_kpub_raw(raw),
+        PayloadKind::Legacy(ascii) => import_kpub(ascii),
+    }
 }
 
 // ─── Self-Tests ───────────────────────────────────────────────────────

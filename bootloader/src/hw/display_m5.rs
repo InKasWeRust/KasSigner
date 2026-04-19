@@ -281,6 +281,7 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
         // Settings menu
         s if s.starts_with("Display")     => draw_icon!(size24px::devices::Laptop),
         s if s.starts_with("Audio")       => draw_icon!(size24px::audio::SoundHigh),
+        s if s.starts_with("Camera")      => draw_icon!(size24px::photos_and_videos::Camera),
         s if s.starts_with("SD Card")     => draw_icon!(size24px::devices::SaveFloppyDisk),
         s if s.starts_with("About")       => draw_icon!(size24px::actions::HelpCircle),
         // Fallback — small teal circle

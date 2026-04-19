@@ -47,8 +47,10 @@ pub const DEV_PUBKEY: [u8; 32] = [
     0xf5, 0x7f, 0x09, 0xaf, 0xf8, 0xd0, 0x6b, 0x3f, 0x24, 0xc8, 0xb3, 0xf9, 0xc0, 0xc9, 0x91, 0xca, 0x6b, 0x43, 0xe9, 0xa6, 0x8e, 0xf8, 0xbe, 0x3a, 0x91, 0x7b, 0x62, 0x88, 0x30, 0x80, 0xf7, 0xf3
 ];
 
-/// Current firmware version (incremented each release)
-pub const CURRENT_VERSION: u32 = 10003; // v1.0.3 = 10003
+/// Current firmware version, derived from `crate::version` (which itself
+/// reads from `CARGO_PKG_VERSION_*` — see `bootloader/src/version.rs`).
+/// To bump the version, edit `bootloader/Cargo.toml` only.
+pub const CURRENT_VERSION: u32 = crate::version::NUMERIC;
 
 /// Parsed firmware update QR data
 #[derive(Debug)]

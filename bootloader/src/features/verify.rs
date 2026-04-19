@@ -146,9 +146,9 @@ pub struct FirmwareInfo {
 impl FirmwareInfo {
     pub const fn new() -> Self {
         Self {
-            version_major: 1,
-            version_minor: 0,
-            version_patch: 2,
+            version_major: crate::version::MAJOR,
+            version_minor: crate::version::MINOR,
+            version_patch: crate::version::PATCH,
             expected_hash: EXPECTED_FIRMWARE_HASH,
             min_version: 100,
         }

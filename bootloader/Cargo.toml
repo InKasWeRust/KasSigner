@@ -16,6 +16,9 @@ default = ["waveshare"]
 waveshare = []
 ov2640-wide = ["waveshare"]
 m5stack = []
+# OV5640 autofocus firmware loader — enable when the AF-capable module is installed.
+# Pulls in ov5640_af_fw.rs (3726-byte MCU blob) and activates load_af_firmware().
+af = []
 production = ["silent"]
 silent = []
 verbose-boot = []

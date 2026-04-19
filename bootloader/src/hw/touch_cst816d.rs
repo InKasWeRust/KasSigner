@@ -112,7 +112,17 @@ impl TouchTracker {
                         HwGesture::SwipeRight => { self.is_down = false; return TouchAction::SwipeDown; }
                         HwGesture::LongPress  => return TouchAction::Hold { x, y },
                         HwGesture::SingleTap | HwGesture::DoubleTap => {
-                            // CST816D confirmed it's a tap — fire immediately
+                            // CST816D confirmed it's a tap — but only fire if
+                            // the tracker has previously observed a finger-down
+                            // state in this touch session. Without this guard,
+                            // spurious hardware-SingleTap events from EMI /
+                            // ambient light produce ghost clicks. A real tap
+                            // has always passed through PressDown or Contact
+                            // first in our polling rate, so is_down or
+                            // got_contact will be true.
+                            if !self.is_down && !self.got_contact {
+                                return TouchAction::None;
+                            }
                             self.is_down = false;
                             self.got_contact = false;
                             return TouchAction::Tap { x, y };
@@ -199,14 +209,17 @@ pub fn read_touch_full(
     if !*configured {
         *configured = true;
         // Reduce touch sensitivity to reject ghost touches from ambient light/EMI.
-        // Register 0x05: sensitivity threshold — higher = less sensitive (default ~1-2)
-        // Register 0x06: low-power scan range — higher = more aggressive noise filter
+        // Register 0x05: sensitivity threshold — higher = less sensitive.
+        //   0x60 = 96 (v1.0.3: tightened from 0x50 to cut ghost clicks under
+        //   fluorescent / sunlight flicker).
+        // Register 0x06: low-power scan range — higher = more aggressive noise filter.
+        //   0x30 (v1.0.3: from 0x20) — more aggressive pre-touch filtering.
         // Register 0xFE: DisAutoSleep — 1 = keep controller awake (prevents spurious wake events)
-        let _ = i2c.write(CST816D_ADDR, &[0x05, 0x50]); // sensitivity threshold = 80
-        let _ = i2c.write(CST816D_ADDR, &[0x06, 0x20]); // low-power scan range = 32
+        let _ = i2c.write(CST816D_ADDR, &[0x05, 0x60]); // sensitivity threshold = 96
+        let _ = i2c.write(CST816D_ADDR, &[0x06, 0x30]); // low-power scan range = 48
         let _ = i2c.write(CST816D_ADDR, &[0xFE, 0x01]); // disable auto-sleep
         #[cfg(not(feature = "silent"))]
-        crate::log!("[CST816D] Configured: sens=0x50 lp=0x20 nosleep");
+        crate::log!("[CST816D] Configured: sens=0x60 lp=0x30 nosleep");
     }
 
     let gesture = match buf[0] {

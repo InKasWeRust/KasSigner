@@ -14,11 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-// hw/camera.rs — OV5640 camera driver for Waveshare ESP32-S3-Touch-LCD-2
+// hw/camera_ov5640.rs — OV5640 camera driver for Waveshare ESP32-S3-Touch-LCD-2
 // 100% Rust, no-std, no-alloc
 //
-// OV5640 5MP autofocus sensor, SCCB (I2C-like) control, DVP 8-bit interface.
-// QVGA 320x240 YUV422 output at 20MHz PCLK.
+// OV5640 5MP sensor, SCCB (I2C-like) control, DVP 8-bit interface.
+// Default output: 480×480 Y8 at 20MHz PCLK (see init_480).
+// Autofocus firmware is gated behind the `af` feature flag — the v1.0.3
+// Waveshare module ships with a fixed-focus lens (no VCM motor), so AF is
+// dead weight and is compiled out by default.
 
 
 use esp_hal::delay::Delay;
@@ -58,7 +61,8 @@ pub fn detect<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C) -> bool {
     }
 }
 
-/// Initialize OV5640 for QVGA 320x240 YUV422.
+/// Initialize OV5640 baseline registers (320×240 YUV422 DVP).
+/// The 480×480 mode is layered on top via init_480().
 pub fn init<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, delay: &mut Delay) -> Result<(), &'static str> {
     if !detect(i2c) {
         return Err("OV5640 not detected at 0x3C");
@@ -69,9 +73,16 @@ pub fn init<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, delay: &mut Delay) -> Re
         }
     }
     delay.delay_millis(300);
-    crate::log!("   OV5640 configured: QVGA 320x240 YUV422");
-    // No AF firmware — Waveshare module has fixed-focus lens (no VCM motor)
-    crate::log!("   OV5640 OK — registers configured (fixed focus, no AF)");
+    crate::log!("   OV5640 configured: baseline registers loaded");
+
+    #[cfg(feature = "af")]
+    {
+        crate::log!("   OV5640: loading AF firmware (af feature enabled)...");
+        load_af_firmware(i2c, delay);
+    }
+    #[cfg(not(feature = "af"))]
+    crate::log!("   OV5640 OK (fixed-focus, no AF)");
+
     Ok(())
 }
 
@@ -258,7 +269,12 @@ static OV5640_INIT_REGS: &[(u16, u8)] = &[
 ];
 
 // ═══ Autofocus firmware loader ═══
+// Gated behind the `af` feature. The Waveshare module currently fitted is
+// fixed-focus (no VCM motor), so the 3726-byte MCU blob and its writes are
+// compiled out by default. Flip the feature on when an AF-capable module
+// is installed.
 
+#[cfg(feature = "af")]
 fn load_af_firmware<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, delay: &mut Delay) {
     write_reg(i2c, 0x3000, 0x20);
     delay.delay_millis(10);
@@ -306,7 +322,19 @@ pub fn init_480<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, delay: &mut Delay) -
     }
     delay.delay_millis(100);
 
-    crate::log!("   OV5640: 480x480 YUV422 configured (960x960 crop, DCW 2x)");
+    // ── Close-range LCD QR tuning ──
+    // Applied on top of the 480×480 window. These are sensor-level defaults
+    // biased toward the hard case: fixed-focus OV5640 pointed at a close
+    // LCD screen (M5Stack CoreS3 at ~5cm). Paper decode still works because
+    // the rqrr adaptive binarizer handles the sharper input either way.
+    for &(reg, val) in OV5640_LCD_QR_TUNING {
+        if !write_reg(i2c, reg, val) {
+            return Err("OV5640: LCD QR tuning SCCB write failed");
+        }
+    }
+    delay.delay_millis(50);
+
+    crate::log!("   OV5640: 480x480 YUV422 configured (960x960 crop, DCW 2x, LCD QR tuned)");
     Ok(())
 }
 
@@ -350,4 +378,70 @@ static OV5640_480_OVERRIDES: &[(u16, u8)] = &[
     (0x3820, 0x41), (0x3821, 0x00),
 ];
 
+/// Close-range LCD QR tuning — applied on top of OV5640_480_OVERRIDES.
+///
+/// The hard case: fixed-focus Waveshare OV5640 at ~5cm to an M5Stack LCD,
+/// reading V9+ QR codes. Three problems compound:
+///   1. Out-of-focus blur → aggressive CIP sharpening helps rebuild edges.
+///   2. LCD backlight flicker + banding → AEC banding auto + wider stable
+///      window keeps exposure locked instead of hunting.
+///   3. LCD sub-pixel moiré → keep denoise moderate, let CIP dominate.
+///
+/// Everything here is a safe incremental override of OV5640_INIT_REGS /
+/// OV5640_480_OVERRIDES — writes only, no reads.
+///
+/// Paper decode is unaffected in practice because rqrr's adaptive threshold
+/// absorbs the slightly sharper/contrastier image either way.
+static OV5640_LCD_QR_TUNING: &[(u16, u8)] = &[
+    // ── AEC/AGC mode: 0x3A00 ──
+    // bit7=debug 0, bit6=night mode OFF (we want stable framerate, not longer
+    // integration), bit5=banding auto ON, bit4=band counter ON, bit3=band
+    // function ON, bit2=debug 0, bit1=less 1 band, bit0=start sel. 0x78 =
+    // 0b0111_1000. Locks us to banding-aware average metering — critical
+    // against LCD backlight flicker.
+    (0x3A00, 0x78),
+
+    // ── AEC stable range: 0x3A0F (WPT) / 0x3A10 (BPT) / 0x3A1B / 0x3A1E ──
+    // Slightly wider than init table (0x58/0x48) to stop AEC oscillating
+    // on high-contrast pure-B/W QR patterns. 0x60/0x40 = enter at 96, exit
+    // at 64 on a 0-255 luma scale. Narrow enough to keep contrast punchy.
+    // NOTE: the cam_tune slider overrides these when the user drags it.
+    (0x3A0F, 0x60), (0x3A10, 0x40),
+    (0x3A1B, 0x60), (0x3A1E, 0x40),
+
+    // ── AGC ceiling: keep gain moderate to limit noise amplification ──
+    // (0x3A18=0x00 / 0x3A19=0xF8 is the init-table default = ~64x ceiling.)
+    // We pull it down to ~32x to reduce noise that hurts rqrr edge detection.
+    (0x3A18, 0x00), (0x3A19, 0x78),
+
+    // ── ISP master control: 0x5000 ──
+    // bit7=LENC ON (lens shading correction), bit5=raw gamma OFF,
+    // bit2=BPC ON (bad pixel cancel), bit1=WPC ON (white pixel cancel),
+    // bit0=CIP ON (colour interpolation + edge processing).
+    // 0xA7 = 0b1010_0111. Crucially CIP is ON — blurred input needs the
+    // sharpening pass, not smoothing.
+    (0x5000, 0xA7),
+
+    // ── CIP sharpen: 0x5302 / 0x5308 / 0x5309 / 0x530B ──
+    // 0x5302 = sharpen MT offset1: stronger sharpen on mid-frequency edges.
+    // 0x5308 = sharpen auto-threshold (cam_tune slider 5 later overrides).
+    // 0x5309 = sharpen MT threshold high — aggressive for blur recovery.
+    // 0x530B = sharpen TH offset1 — minimum, let auto handle detail.
+    (0x5302, 0x30),
+    (0x5308, 0x40),
+    (0x5309, 0x20),
+    (0x530B, 0x08),
+
+    // ── Denoise: 0x5306 / 0x5307 ──
+    // Keep denoise moderate — too much kills QR module edges.
+    (0x5306, 0x08),
+    (0x5307, 0x10),
+
+    // ── Contrast/Brightness SDE: 0x5580 ──
+    // bit2=contrast enable, bit1=brightness enable. Slider 2/3 write
+    // 0x5586/0x5587. Enable both bits so slider adjustments take effect.
+    (0x5580, 0x06),
+];
+
+#[cfg(feature = "af")]
 include!("ov5640_af_fw.rs");

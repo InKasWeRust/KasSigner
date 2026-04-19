@@ -63,8 +63,17 @@ pub fn handle_settings_touch(
                                 #[cfg(feature = "waveshare")]
                                 match item {
                                     0 => { ad.app.state = crate::app::input::AppState::DisplaySettings; }
-                                    1 => { ad.app.state = crate::app::input::AppState::SdCardSettings; }
-                                    2 => { ad.app.state = crate::app::input::AppState::About; }
+                                    1 => {
+                                        // Enter Camera Settings: flag cam_tune_active so the
+                                        // camera loop uses the 198×178 overlay viewfinder and
+                                        // skips QR decode. cam_tune_dirty pushes current vals
+                                        // to the sensor on the first camera cycle.
+                                        ad.cam_tune_active = true;
+                                        ad.cam_tune_dirty = true;
+                                        ad.app.state = crate::app::input::AppState::CameraSettings;
+                                    }
+                                    2 => { ad.app.state = crate::app::input::AppState::SdCardSettings; }
+                                    3 => { ad.app.state = crate::app::input::AppState::About; }
                                     _ => {}
                                 }
                                 #[cfg(feature = "m5stack")]
@@ -289,6 +298,106 @@ pub fn handle_settings_touch(
                     crate::app::input::AppState::About => {
                         ad.app.state = crate::app::input::AppState::SettingsMenu;
                         needs_redraw = true;
+                    }
+                    // ────────────────────────────────────────────────────────
+                    // CameraSettings: live cam-tune overlay
+                    // Layout: 6 param buttons (right panel) + EXIT + bottom slider
+                    // The camera feed renders to the 198×178 viewfinder at (0,0).
+                    // Sensor I2C writes are driven from the main loop via
+                    // ad.cam_tune_dirty (which uses cam_i2c, not the main i2c
+                    // available here).
+                    // ────────────────────────────────────────────────────────
+                    // Waveshare-only: M5Stack GC0308 works at defaults and
+                    // doesn't expose this screen.
+                    #[cfg(feature = "waveshare")]
+                    crate::app::input::AppState::CameraSettings => {
+                        if is_back {
+                            ad.cam_tune_active = false;
+                            ad.app.state = crate::app::input::AppState::SettingsMenu;
+                            needs_redraw = true;
+                        } else {
+                            // Zone order matters: test the bottom strip FIRST
+                            // so a tap at (x=290, y=210) — which overlaps the
+                            // param-grid x-range — hits [+] not the grid.
+                            // Hit zones are larger than the visual buttons
+                            // for forgiving touch response; visuals unchanged.
+                            //
+                            // Bottom strip: y >= 190 (button visual y=200..234)
+                            //   [−] visual x=2..52   → hit x=0..70
+                            //   [+] visual x=268..318 → hit x=250..320
+                            //   slider visual x=56..264 → hit x=70..250
+                            //
+                            // Top strip: y <= 36, x >= 198 → EXIT
+                            // Middle right: y=38..180, x>=198 → 6 param buttons
+
+                            // EXIT button (top-right)
+                            if (198..=320).contains(&x) && y <= 36 {
+                                sound::click(delay);
+                                ad.cam_tune_active = false;
+                                ad.app.state = crate::app::input::AppState::SettingsMenu;
+                                needs_redraw = true;
+                            }
+                            // Bottom strip — tested BEFORE param grid so the
+                            // [+] hit zone (x>=250) isn't shadowed by the
+                            // right-column param arm (x>=262).
+                            else if y >= 190 {
+                                if x <= 70 {
+                                    // [−] button — enlarged hit zone
+                                    let p = ad.cam_tune_param as usize;
+                                    ad.cam_tune_vals[p] =
+                                        ad.cam_tune_vals[p].saturating_sub(4);
+                                    ad.cam_tune_dirty = true;
+                                    sound::click(delay);
+                                    boot_display.update_cam_tune_slider(
+                                        ad.cam_tune_param, &ad.cam_tune_vals);
+                                } else if x >= 250 {
+                                    // [+] button — enlarged hit zone
+                                    let p = ad.cam_tune_param as usize;
+                                    ad.cam_tune_vals[p] =
+                                        ad.cam_tune_vals[p].saturating_add(4);
+                                    ad.cam_tune_dirty = true;
+                                    sound::click(delay);
+                                    boot_display.update_cam_tune_slider(
+                                        ad.cam_tune_param, &ad.cam_tune_vals);
+                                } else {
+                                    // Slider track — map x=70..250 to 0..255
+                                    let clamped =
+                                        (x as i32 - 70).max(0).min(180) as u32;
+                                    let p = ad.cam_tune_param as usize;
+                                    ad.cam_tune_vals[p] =
+                                        ((clamped * 255) / 180) as u8;
+                                    ad.cam_tune_dirty = true;
+                                    boot_display.update_cam_tune_slider(
+                                        ad.cam_tune_param, &ad.cam_tune_vals);
+                                }
+                            }
+                            // 6 param buttons (3 rows × 2 cols) on the
+                            // right panel. Row bands are the visual rows
+                            // (y=38..82, 85..129, 132..176); columns split
+                            // at x=259.
+                            else if x >= 198 && y >= 38 && y < 190 {
+                                let col: u8 = if x < 259 { 0 } else { 1 };
+                                let row: Option<u8> = if y <= 82 {
+                                    Some(0)
+                                } else if (85..=129).contains(&y) {
+                                    Some(1)
+                                } else if (132..=176).contains(&y) {
+                                    Some(2)
+                                } else {
+                                    None
+                                };
+                                if let Some(r) = row {
+                                    let idx = r * 2 + col;
+                                    if idx < 6 && idx != ad.cam_tune_param {
+                                        ad.cam_tune_param = idx;
+                                        sound::click(delay);
+                                        boot_display.draw_cam_tune_overlay(
+                                            ad.cam_tune_param,
+                                            &ad.cam_tune_vals);
+                                    }
+                                }
+                            }
+                        }
                     }
                     _ => { return None; }
                 }

@@ -139,7 +139,7 @@ fn check_immediate_tap(
             let y = pt.y;
             match pt.event {
                 touch::TouchEventType::PressDown | touch::TouchEventType::Contact => {
-                    let is_back = x <= 40 && y <= 40;
+                    let is_back = x <= 48 && y <= 48;
 
                     // Back button — handle directly for instant response
                     if is_back {
@@ -153,6 +153,12 @@ fn check_immediate_tap(
                                 }
                             }
                             ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx };
+                        } else if ad.app.state
+                            == crate::app::input::AppState::CameraSettings
+                        {
+                            // From Camera Settings, back goes to parent Settings menu
+                            ad.app.state =
+                                crate::app::input::AppState::SettingsMenu;
                         } else {
                             ad.app.go_main_menu();
                         }
@@ -160,27 +166,50 @@ fn check_immediate_tap(
                         return true;
                     }
 
-                    // Gear icon — activate cam-tune immediately
-                    if !ad.cam_tune_active && x >= 270 && y <= 48 {
-                        ad.cam_tune_active = true;
-                        boot_display.draw_camera_screen("", "");
-                        boot_display.draw_cam_tune_overlay(ad.cam_tune_param, &ad.cam_tune_vals);
-                        return true;
-                    }
-
-                    // When cam-tune is active, capture all taps immediately
+                    // When cam-tune is active (Camera Settings screen), route
+                    // taps by zone. Param buttons and EXIT are handled INLINE
+                    // for snappy UI — no waiting for the next camera cycle.
+                    // Slider strip falls through to the TouchTracker so it
+                    // can emit Drag events.
                     if ad.cam_tune_active {
-                        // EXIT — handle directly for instant response
                         if x >= 198 && y <= 36 {
+                            // EXIT button
                             ad.cam_tune_active = false;
-                            boot_display.draw_camera_screen("", "");
+                            ad.app.state =
+                                crate::app::input::AppState::SettingsMenu;
+                            ad.needs_redraw = true;
                             return true;
                         }
-                        // All other cam-tune taps — defer to tx.rs
-                        ad.cam_tap_x = x;
-                        ad.cam_tap_y = y;
-                        ad.cam_tap_ready = true;
-                        return true;
+                        // Param button grid — handle ONLY on PressDown to
+                        // debounce (Contact fires repeatedly while holding).
+                        // Inline handling = no 30-60ms camera-cycle wait.
+                        if matches!(pt.event, touch::TouchEventType::PressDown)
+                            && x >= 198 && y > 36 && y < 190
+                        {
+                            let col: u8 = if x < 259 { 0 } else { 1 };
+                            let row: Option<u8> = if (38..=82).contains(&y) {
+                                Some(0)
+                            } else if (85..=129).contains(&y) {
+                                Some(1)
+                            } else if (132..=176).contains(&y) {
+                                Some(2)
+                            } else {
+                                None
+                            };
+                            if let Some(r) = row {
+                                let idx = r * 2 + col;
+                                if idx < 6 && idx != ad.cam_tune_param {
+                                    ad.cam_tune_param = idx;
+                                    boot_display.draw_cam_tune_overlay(
+                                        ad.cam_tune_param, &ad.cam_tune_vals);
+                                }
+                            }
+                            return true;
+                        }
+                        // Slider strip (y>=190) and viewfinder — do NOT
+                        // return true. Fall through so the tracker sees the
+                        // events and can emit Drag/Tap actions normally.
+                        return false;
                     }
 
                     if is_back {
@@ -320,11 +349,16 @@ fn process_confirmed_qr(
             log!("   → KSFU: parse failed");
             sound::beep_error(delay);
         }
-    } else if len >= 4 && &data[..4] == b"kpub" {
-        // kpub detected — multisig creation or standalone display
+    } else if (len >= 4 && &data[..4] == b"kpub")
+        || (len == 79 && data[0] == crate::qr::payload::PAYLOAD_V1_RAW)
+    {
+        // kpub detected — two accepted formats:
+        //   Legacy:  base58check-encoded "kpub..." ASCII string
+        //   V1_RAW:  1-byte header (0x01) + 78 raw payload bytes
+        // import_kpub_any() peeks the header byte and routes correctly.
         if ad.ms_creating.n > 0 && !ad.ms_creating.active {
             // Multisig creation mode: import as cosigner key
-            match wallet::xpub::import_kpub(&data[..len]) {
+            match wallet::xpub::import_kpub_any(&data[..len]) {
                 Ok(xpub) => {
                     // Find the next empty slot
                     let mut ki: u8 = 0;
@@ -494,10 +528,20 @@ fn draw_mf_counter(
 /// Check if decoded data is a multi-frame fragment.
 #[inline(always)]
 fn is_multiframe(d: &[u8], len: usize) -> bool {
+    // Multi-frame wire format: [frame_idx, total_frames, frag_len, ...payload]
+    // Frame index > 0: accept by shape alone (previous frame 0 established the type).
+    // Frame index == 0: first payload byte must be a recognized format marker:
+    //   - "KSPT" or "kpub" (legacy ASCII formats)
+    //   - PAYLOAD_V1_RAW (0x01) — compact binary format (kpub, KSPT, etc.)
     len >= 7
         && d[1] >= 2 && d[1] <= 20
         && d[0] < d[1] && d[2] > 0
-        && (d[0] > 0 || (len >= 7 && (&d[3..7] == b"KSPT" || &d[3..7] == b"kpub")))
+        && (d[0] > 0
+            || (len >= 7 && (
+                &d[3..7] == b"KSPT"
+                || &d[3..7] == b"kpub"
+                || d[3] == crate::qr::payload::PAYLOAD_V1_RAW
+            )))
 }
 
 /// Handle a single rqrr decode result through the consecutive-match filter and routing.
@@ -604,13 +648,30 @@ pub fn run_camera_cycle(
                             .draw(&mut boot_display.display).ok();
                         delay.delay_millis(30);
                     }
-                    // Redraw chrome after wash
+                    // Redraw chrome after wash — branch by mode.
+                    // ScanQR gets the scan chrome; CameraSettings gets the
+                    // cam-tune overlay. Without this branch, first entry to
+                    // CameraSettings wiped the overlay drawn by redraw_screen.
                     #[cfg(feature = "waveshare")]
-                    boot_display.draw_camera_screen_chrome();
+                    if ad.cam_tune_active {
+                        boot_display.draw_cam_tune_overlay(
+                            ad.cam_tune_param, &ad.cam_tune_vals);
+                    } else {
+                        boot_display.draw_camera_screen_chrome();
+                    }
                     #[cfg(feature = "m5stack")]
                     {
-                        boot_display.draw_back_button();
+                        // Back icon only — ScanQR has no home shortcut in v1.0.3
+                        use embedded_graphics::image::{Image, ImageRawLE};
+                        use embedded_graphics::pixelcolor::Rgb565;
+                        let back: ImageRawLE<Rgb565> = ImageRawLE::new(
+                            crate::hw::icon_data::ICON_BACK,
+                            crate::hw::icon_data::ICON_BACK_W);
                         use embedded_graphics::prelude::*;
+                        Image::new(&back,
+                            embedded_graphics::geometry::Point::new(0, 0))
+                            .draw(&mut boot_display.display).ok();
+
                         use embedded_graphics::primitives::{Line, PrimitiveStyle};
                         let tw = crate::hw::display::measure_header("SCAN QR");
                         crate::hw::display::draw_oswald_header(
@@ -675,10 +736,66 @@ pub fn run_camera_cycle(
                     // Start continuous capture (only inits on first call)
                     cam_dma::start_capture();
 
-                    // Poll until frame done
+                    // Poll until frame done.
+                    // Also periodically sample the touch sensor so a tap on
+                    // the back button during the ~30ms DMA wait feels
+                    // instant (no waiting for the next frame cycle). We
+                    // only check for back — full touch handling still
+                    // happens pre-capture.
+                    //
+                    // Debounce: require 2 consecutive "finger on back zone"
+                    // samples before firing. Single-frame noise would
+                    // otherwise back-out spuriously under EMI / light.
                     let mut poll_count = 0u32;
+                    let mut back_confirm: u8 = 0;
                     while !cam_dma::poll_done() {
                         poll_count += 1;
+                        if poll_count % 2000 == 0 {
+                            let ts = touch::read_touch(i2c);
+                            let on_back = if let touch::TouchState::One(pt) = ts {
+                                matches!(pt.event,
+                                    touch::TouchEventType::PressDown
+                                    | touch::TouchEventType::Contact)
+                                    && pt.x <= 48 && pt.y <= 48
+                            } else {
+                                false
+                            };
+                            if on_back {
+                                back_confirm += 1;
+                            } else {
+                                back_confirm = 0;
+                            }
+                            if back_confirm >= 2 {
+                                // Confirmed back tap during DMA wait — exit now.
+                                ad.cam_tune_active = false;
+                                if ad.ms_creating.n > 0
+                                    && !ad.ms_creating.active
+                                {
+                                    let mut key_idx: u8 = 0;
+                                    for i in 0..ad.ms_creating.n {
+                                        if ad.ms_creating
+                                            .slot_empty(i as usize)
+                                        {
+                                            key_idx = i;
+                                            break;
+                                        }
+                                    }
+                                    ad.app.state =
+                                        crate::app::input::AppState::MultisigAddKey {
+                                            key_idx,
+                                        };
+                                } else if ad.app.state
+                                    == crate::app::input::AppState::CameraSettings
+                                {
+                                    ad.app.state =
+                                        crate::app::input::AppState::SettingsMenu;
+                                } else {
+                                    ad.app.go_main_menu();
+                                }
+                                ad.needs_redraw = true;
+                                return;
+                            }
+                        }
                         if poll_count > 10_000_000 {
                             log!("   cam_dma: timeout");
                             if FN < 3 { cam_dma::log_status(); }
@@ -757,9 +874,11 @@ pub fn run_camera_cycle(
                         cam_dma::poll_done();
 
                         // ── QR decode — single-pass 240×240 ──
+                        // Skip entirely when cam-tune is active (Camera Settings):
+                        // no point decoding, and it saves ~20ms per frame.
                         if QR_COOLDOWN > 0 {
                             QR_COOLDOWN -= 1;
-                        } else if FN % 2 == 0 {
+                        } else if FN % 2 == 0 && !ad.cam_tune_active {
                             let dw: usize = 240;
                             let dh: usize = 240;
                             for dy in 0..dh {
@@ -833,7 +952,7 @@ pub fn run_camera_cycle(
                             let ts = touch::read_touch(i2c);
                             let act = tracker.update(ts);
                             if let touch::TouchAction::Tap { x, y } = act {
-                                if (x <= 40 && y <= 40) || (x >= 268 && y <= 40) {
+                                if x <= 48 && y <= 48 {
                                     sound::click(delay);
                                     *cam_dma_buf_opt = Some(cam_dma_buf);
                                     *dvp_camera_opt = Some(cam);
@@ -884,7 +1003,7 @@ pub fn run_camera_cycle(
                                     let ts = touch::read_touch(i2c);
                                     let act = tracker.update(ts);
                                     if let touch::TouchAction::Tap { x, y } = act {
-                                        if (x <= 40 && y <= 40) || (x >= 268 && y <= 40) {
+                                        if x <= 48 && y <= 48 {
                                             sound::click(delay);
                                             *cam_dma_buf_opt = Some(buf_back);
                                             *dvp_camera_opt = Some(cam_back);
@@ -961,6 +1080,12 @@ pub fn run_camera_cycle(
                             }
 
                             // ── Copy full frame to DB on decode frames ──
+                            // Skip when cam-tune is active — saves copy + decode time.
+                            // cam_tune_active is Waveshare-only; on M5Stack we
+                            // always run the decoder.
+                            #[cfg(feature = "waveshare")]
+                            let is_decode_frame = FN % 2 == 0 && !ad.cam_tune_active;
+                            #[cfg(feature = "m5stack")]
                             let is_decode_frame = FN % 2 == 0;
 
                             if is_decode_frame && frame_ok && !QR_ERROR_SHOWING {
@@ -1023,7 +1148,7 @@ pub fn run_camera_cycle(
                                     let ts = touch::read_touch(i2c);
                                     let act = tracker.update(ts);
                                     if let touch::TouchAction::Tap { x, y } = act {
-                                        if (x <= 40 && y <= 40) || (x >= 268 && y <= 40) {
+                                        if x <= 48 && y <= 48 {
                                             sound::click(delay);
                                             if ad.ms_creating.n > 0 && !ad.ms_creating.active {
                                                 let mut ki: u8 = 0;
