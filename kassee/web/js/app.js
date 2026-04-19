@@ -386,6 +386,10 @@ function handleKpubImport(kpubStr) {
 // assembles into [0x01 header][78 raw payload] = 79 bytes. The header
 // is stripped by the caller; we pass the 78 raw bytes to WASM which
 // re-encodes them as a standard base58check kpub internally.
+//
+// walletData is kept as a raw JSON string to match handleKpubImport's
+// convention — downstream code (fetch_balance, fetch_utxos, etc.)
+// expects `wallet_json: &str` on the WASM side and parses internally.
 function handleKpubImportRaw(rawPayload) {
     if (!rawPayload || rawPayload.length !== 78) {
         toast('Invalid V1-raw kpub payload', 'error');
@@ -393,8 +397,7 @@ function handleKpubImportRaw(rawPayload) {
     }
     showLoading('Deriving addresses...');
     try {
-        const walletJson = import_kpub_raw(rawPayload, network);
-        walletData = JSON.parse(walletJson);
+        walletData = import_kpub_raw(rawPayload, network);
         hideLoading();
 
         showScreen('dashboard');

@@ -415,20 +415,50 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                 let amount_color = if is_change { COLOR_TEXT_DIM } else { COLOR_ORANGE };
                 draw_lato_title(&mut self.display, amount_text.as_str(), 30, 65, amount_color);
 
-                // Encode actual Kaspa address if P2PK
-                if spk.script_len == 34 && spk.script[0] == 0x20 && spk.script[33] == 0xAC {
-                    let mut out_pk = [0u8; 32];
-                    out_pk.copy_from_slice(&spk.script[1..33]);
+                // Encode destination as a proper kaspa: address when possible.
+                // Two cases we know how to render as bech32:
+                //   1. P2PK (standard single-key):  OP_DATA_32 <32B pk> OP_CHECKSIG   (len 34)
+                //   2. P2SH (multisig-funded etc.): OP_BLAKE2B OP_DATA_32 <32B hash> OP_EQUAL (len 35)
+                // Anything else falls back to a truncated script hex — legitimately
+                // unknown output shape.
+                let is_p2pk = spk.script_len == 34
+                    && spk.script[0] == 0x20 && spk.script[33] == 0xAC;
+                let is_p2sh = spk.script_len == 35
+                    && spk.script[0] == 0xAA
+                    && spk.script[1] == 0x20
+                    && spk.script[34] == 0x87;
+
+                if is_p2pk || is_p2sh {
+                    let mut key_or_hash = [0u8; 32];
+                    // P2PK carries the pubkey at [1..33]; P2SH carries the
+                    // script-hash at [2..34]. Both are 32 bytes, both feed
+                    // the same bech32 encoder with the corresponding
+                    // AddressType prefix byte.
+                    let (addr_type, src_start) = if is_p2pk {
+                        (wallet::address::AddressType::P2PK, 1usize)
+                    } else {
+                        (wallet::address::AddressType::P2SH, 2usize)
+                    };
+                    key_or_hash.copy_from_slice(&spk.script[src_start..src_start + 32]);
+
                     let mut addr_buf = [0u8; wallet::address::MAX_ADDR_LEN];
                     let addr = wallet::address::encode_address_str(
-                        &out_pk, wallet::address::AddressType::P2PK, &mut addr_buf);
+                        &key_or_hash, addr_type, &mut addr_buf);
+
+                    // Tag line above the address: "To P2SH:" helps the
+                    // signer see at a glance that funds are going to a
+                    // multisig address (e.g. a 2-of-3 escrow or funding
+                    // another multisig), not a regular wallet.
+                    if is_p2sh {
+                        draw_lato_body(&mut self.display, "To P2SH address:", 30, 88, KASPA_ACCENT);
+                    }
 
                     // Wrap address at 25 chars/line
                     let bytes = addr.as_bytes();
                     let total_len = bytes.len();
                     let chars_per_line: usize = 25;
                     let line_h: i32 = 22;
-                    let mut y_pos: i32 = 90;
+                    let mut y_pos: i32 = if is_p2sh { 108 } else { 90 };
                     let mut offset: usize = 0;
                     while offset < total_len && y_pos < 195 {
                         let end = core::cmp::min(offset + chars_per_line, total_len);
@@ -440,7 +470,10 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                         offset = end;
                     }
                 } else {
-                    // Non-P2PK: show raw script hex
+                    // Unknown script shape — show a truncated hex preview
+                    // so the signer can at least see the raw bytes. This is
+                    // the branch that used to fire for P2SH outputs (bug);
+                    // now reserved for genuinely unknown script types.
                     let mut addr_text = heapless::String::<48>::new();
                     write!(&mut addr_text, "Script: ").ok();
                     let show_bytes = core::cmp::min(8, spk.script_len);
