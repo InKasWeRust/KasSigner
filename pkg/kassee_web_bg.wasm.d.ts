@@ -18,6 +18,7 @@ export const fetch_utxos_for_address_js: (a: number, b: number, c: number, d: nu
 export const generate_qr_frames: (a: number, b: number) => [number, number, number, number];
 export const get_fee_estimate: (a: number, b: number) => any;
 export const import_kpub: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+export const import_kpub_raw: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const init: () => void;
 export const reset_qr_decoder: () => void;
 export const version: () => [number, number];

@@ -92,6 +92,15 @@ export function get_fee_estimate(ws_url: string): Promise<string>;
  */
 export function import_kpub(kpub_str: string, network: string): string;
 
+/**
+ * Import a V1-raw compact kpub (78 raw payload bytes — the header
+ * byte 0x01 should already be stripped by the JS side). Same output
+ * as `import_kpub` — the raw payload is re-encoded to a standard
+ * base58check kpub internally so all downstream paths (storage, UI,
+ * RPC) are unchanged.
+ */
+export function import_kpub_raw(raw_payload: Uint8Array, network: string): string;
+
 export function init(): void;
 
 /**
@@ -125,6 +134,7 @@ export interface InitOutput {
     readonly generate_qr_frames: (a: number, b: number) => [number, number, number, number];
     readonly get_fee_estimate: (a: number, b: number) => any;
     readonly import_kpub: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly import_kpub_raw: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly init: () => void;
     readonly reset_qr_decoder: () => void;
     readonly version: () => [number, number];
