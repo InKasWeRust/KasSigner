@@ -292,48 +292,37 @@ pub fn handle_export_touch(
                             ad.kpub_user_nframes = 0;
                             ad.kpub_frame = 0;
                             ad.app.state = crate::app::input::AppState::ExportChoice;
-                        } else if x < 80 {
-                            // Button 0: Single (1 frame — full kpub in one QR)
+                        } else if x < 160 {
+                            // Left: Single (1 frame — full kpub in one QR)
                             // Legacy ASCII base58 "kpub..." — compatible with
                             // phones, KasSee, other wallets. ad.kpub_data
                             // already holds the ASCII form from derivation.
                             ad.kpub_user_nframes = 1;
                             ad.app.state = crate::app::input::AppState::ExportKpub;
                         } else {
-                            // Buttons 1..3: Multi-frame with V1-raw compact
-                            // binary payload (1-byte header 0x01 + 78 raw
-                            // bytes = 79 bytes). Split across n frames.
-                            // Multi-frame is the device-to-device path where
-                            // both ends run our firmware — binary cuts QR
-                            // density ~40% and fits on small LCDs reliably.
-                            // The receiver side auto-detects V1-raw via
-                            // import_kpub_any().
-                            //   x 80..160  → 2 frames (largest QRs, fewest scans)
-                            //   x 160..240 → 3 frames
-                            //   x >=240    → 4 frames (smallest QRs, most scans)
-                            let n = if x < 160 { 2u8 }
-                                else if x < 240 { 3u8 }
-                                else { 4u8 };
+                            // Right: Multi — 2-frame V1-raw compact binary
+                            // (1-byte header 0x01 + 78 raw bytes = 79 bytes,
+                            // split across 2 V3 QRs at 40 B/frame). Proven
+                            // reliable device-to-device LCD scanning with
+                            // the contrast tune. Receiver auto-detects
+                            // V1-raw via import_kpub_any().
                             let mut raw_payload = [0u8; wallet::xpub::XPUB_PAYLOAD_LEN];
                             match wallet::xpub::kpub_ascii_to_raw(
                                 &ad.kpub_data[..ad.kpub_len],
                                 &mut raw_payload,
                             ) {
                                 Ok(rlen) => {
-                                    // Wrap with V1-raw header into kpub_data.
-                                    // 79 bytes total (1 header + 78 payload).
                                     ad.kpub_data[0] = crate::qr::payload::PAYLOAD_V1_RAW;
                                     ad.kpub_data[1..1 + rlen]
                                         .copy_from_slice(&raw_payload[..rlen]);
                                     ad.kpub_len = 1 + rlen;
-                                    ad.kpub_user_nframes = n;
+                                    ad.kpub_user_nframes = 2;
                                     ad.app.state = crate::app::input::AppState::ExportKpub;
                                 }
                                 Err(_) => {
-                                    // Fallback — keep ASCII path if conversion fails
                                     boot_display.draw_rejected_screen("kpub convert failed");
                                     delay.delay_millis(1500);
-                                    ad.kpub_user_nframes = n;
+                                    ad.kpub_user_nframes = 2;
                                     ad.app.state = crate::app::input::AppState::ExportKpub;
                                 }
                             }

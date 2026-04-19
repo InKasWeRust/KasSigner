@@ -368,8 +368,11 @@ static OV5640_480_OVERRIDES: &[(u16, u8)] = &[
     (0x3814, 0x11), (0x3815, 0x11),
 
     // ── ISP/DCW: 2× downscale (960→480) ──
-    // 0x5001: bit5=scale, bit1=CMX. SDE(bit7) and AWB(bit0) disabled for clean Y8.
-    (0x5001, 0x22),
+    // 0x5001: bit7=SDE ON (contrast/brightness from cam_tune slider routed
+    // through the pipeline — without this bit, writes to 0x5586/0x5587 land
+    // but have no visible effect), bit5=scale, bit1=CMX. AWB(bit0) stays OFF
+    // for clean Y8 (YUV422 luma plane unaffected by white balance anyway).
+    (0x5001, 0xA2),
     // DCW enable + 2× ratio
     (0x5600, 0x10), // DCW enable
     (0x5601, 0x11), // 2× in both H and V (was 0x22 for 4×)

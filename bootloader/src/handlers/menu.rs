@@ -515,27 +515,17 @@ pub fn handle_menu_touch(
                             ad.signed_qr_large = false;
                             ad.signed_qr_mode = 0;
                             ad.app.go_main_menu();
-                        } else if x < 80 {
-                            // Button 0: Single — standard frames for KasSee/phone
-                            // (legacy 106B/frame, single-QR if payload fits 134B)
+                        } else if x < 160 {
+                            // Left: Single — standard frames for KasSee/phone
+                            // (legacy 106 B/frame, single-QR if payload fits 134B,
+                            // auto-splits to V6-ish if bigger).
                             ad.signed_qr_large = false;
                             ad.signed_qr_mode = 0;
                             ad.signed_qr_nframes = 0;
                             ad.app.state = crate::app::input::AppState::ShowQR;
-                        } else if x < 160 {
-                            // Button 1: V5-ish (85 B/frame, fewest device scans)
-                            ad.signed_qr_large = true;
-                            ad.signed_qr_mode = 1;
-                            ad.signed_qr_nframes = 0;
-                            ad.app.state = crate::app::input::AppState::ShowQR;
-                        } else if x < 240 {
-                            // Button 2: V4 (55 B/frame, balanced — equals old "Multi")
-                            ad.signed_qr_large = true;
-                            ad.signed_qr_mode = 2;
-                            ad.signed_qr_nframes = 0;
-                            ad.app.state = crate::app::input::AppState::ShowQR;
                         } else {
-                            // Button 3: V3 (40 B/frame, rock-solid LCD decode)
+                            // Right: Multi — V3 mode (40 B/frame, binary KSPT,
+                            // proven reliable for device-to-device LCD scanning).
                             ad.signed_qr_large = true;
                             ad.signed_qr_mode = 3;
                             ad.signed_qr_nframes = 0;

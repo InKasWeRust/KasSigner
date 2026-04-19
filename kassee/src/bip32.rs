@@ -52,11 +52,27 @@ impl ExtPubKey {
             return Err(format!("Too short: {} bytes (need 78)", decoded.len()))?;
         }
 
-        let depth = decoded[4];
-        let chain_code: [u8; 32] = decoded[13..45]
+        Self::from_raw_payload(&decoded[..78])
+    }
+
+    /// Parse a 78-byte raw kpub payload (the decoded body of a base58
+    /// kpub string, without the base58check checksum). Used for the
+    /// V1-raw compact QR format — device exports `[0x01][78 raw bytes]`
+    /// across 2 small QRs, KasSee strips the 0x01 header and parses
+    /// the remaining 78 bytes here.
+    pub(crate) fn from_raw_payload(payload: &[u8]) -> Result<Self, String> {
+        if payload.len() != 78 {
+            return Err(format!(
+                "Raw kpub payload must be 78 bytes, got {}",
+                payload.len()
+            ));
+        }
+
+        let depth = payload[4];
+        let chain_code: [u8; 32] = payload[13..45]
             .try_into()
             .map_err(|_| "Bad chain code")?;
-        let key_bytes = &decoded[45..78];
+        let key_bytes = &payload[45..78];
 
         let key = PublicKey::from_sec1_bytes(key_bytes)
             .map_err(|e| format!("Invalid pubkey: {}", e))?;
@@ -168,4 +184,36 @@ pub fn import_kpub(kpub_str: &str, prefix: &str) -> Result<WalletData, String> {
         next_receive_index: 0,
         next_change_index: 0,
     })
+}
+
+/// Import a V1-raw compact kpub from the 78-byte raw payload (as
+/// decoded from the QR multi-frame reassembly — device exports
+/// `[0x01 header][78 payload]` and KasSee strips the header before
+/// calling this).
+///
+/// Re-encodes the raw payload as a standard base58check kpub string
+/// so the rest of KasSee (storage, UI display, RPC) sees the same
+/// shape regardless of which transport the user chose.
+pub fn import_kpub_raw(raw_payload: &[u8], prefix: &str) -> Result<WalletData, String> {
+    if raw_payload.len() != 78 {
+        return Err(format!(
+            "Raw kpub payload must be 78 bytes, got {}",
+            raw_payload.len()
+        ));
+    }
+    // Validate first (cheap structural check before base58 encoding).
+    let _ = ExtPubKey::from_raw_payload(raw_payload)?;
+
+    // Re-encode to base58check kpub string so downstream code
+    // (WalletData.kpub field, UI, persistence) stays uniform.
+    let kpub_str = bs58::encode(raw_payload)
+        .with_check()
+        .into_string();
+
+    web_sys::console::log_1(
+        &format!("[KasSee] V1-raw kpub re-encoded to ASCII ({} chars)",
+            kpub_str.len()).into(),
+    );
+
+    import_kpub(&kpub_str, prefix)
 }

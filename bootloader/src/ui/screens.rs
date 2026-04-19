@@ -4123,33 +4123,39 @@ pub fn draw_home_grid(&mut self) {
 
         let btn_corner = CornerRadii::new(Size::new(6, 6));
 
-        // 4 buttons in a row: Single / 2 QR / 3 QR / 4 QR
-        // 4 buttons × 72w + 3 gaps × 6 = 306 → 7px margin each side.
-        let bw: i32 = 72;
+        // 2 buttons: Single (ASCII for phone/KasSee) / Multi (V1-raw 2-frame
+        // binary for device-to-device LCD — proven reliable with contrast tune).
+        let bw: i32 = 130;
         let bh: i32 = 55;
         let by: i32 = 100;
-        let gap: i32 = 6;
-        let x_start: i32 = (320 - 4 * bw - 3 * gap) / 2;
+        let gap: i32 = 16;
+        let x0: i32 = (320 - 2 * bw - gap) / 2;
 
-        let labels: [&str; 4] = ["Single", "2 QR", "3 QR", "4 QR"];
-        let hints: [&str; 4] = ["ASCII", "V1 raw", "V1 raw", "V1 raw"];
+        // "Single" — left
+        let r0 = Rectangle::new(Point::new(x0, by), Size::new(bw as u32, bh as u32));
+        RoundedRectangle::new(r0, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let tw0 = measure_title("Single");
+        draw_lato_title(&mut self.display, "Single", x0 + (bw - tw0) / 2, by + 35, COLOR_BG);
 
-        for i in 0..4 {
-            let bx = x_start + (i as i32) * (bw + gap);
-            let rect = Rectangle::new(Point::new(bx, by), Size::new(bw as u32, bh as u32));
-            RoundedRectangle::new(rect, btn_corner)
-                .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
-                .draw(&mut self.display).ok();
-            let lw = measure_title(labels[i]);
-            draw_lato_title(&mut self.display, labels[i], bx + (bw - lw) / 2, by + 35, COLOR_BG);
-            // Hint below each button
-            let hw = measure_hint(hints[i]);
-            draw_lato_hint(&mut self.display, hints[i], bx + (bw - hw) / 2, by + bh + 14, COLOR_HINT);
-        }
+        // "Multi" — right
+        let x1 = x0 + bw + gap;
+        let r1 = Rectangle::new(Point::new(x1, by), Size::new(bw as u32, bh as u32));
+        RoundedRectangle::new(r1, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let tw1 = measure_title("Multi");
+        draw_lato_title(&mut self.display, "Multi", x1 + (bw - tw1) / 2, by + 35, COLOR_BG);
 
-        // Bottom explanation
-        let h2 = measure_hint("More frames = smaller QRs, easier LCD scan");
-        draw_lato_hint(&mut self.display, "More frames = smaller QRs, easier LCD scan", (320 - h2) / 2, 216, COLOR_HINT);
+        // Hints below buttons
+        let h0 = measure_hint("for phone/KasSee");
+        draw_lato_hint(&mut self.display, "for phone/KasSee", x0 + (bw - h0) / 2, by + bh + 14, COLOR_HINT);
+        let h1 = measure_hint("for device scan");
+        draw_lato_hint(&mut self.display, "for device scan", x1 + (bw - h1) / 2, by + bh + 14, COLOR_HINT);
+
+        let h2 = measure_hint("Multi-frame for device-to-device scan");
+        draw_lato_hint(&mut self.display, "Multi-frame for device-to-device scan", (320 - h2) / 2, 216, COLOR_HINT);
 
         self.draw_back_button();
     }
@@ -4165,32 +4171,39 @@ pub fn draw_home_grid(&mut self) {
 
         let btn_corner = CornerRadii::new(Size::new(6, 6));
 
-        // 4 buttons: Single (phone/KasSee) / V5 / V4 / V3 (device-to-device LCD)
-        // Larger QR version (V5) = fewer scans but harder on LCD.
-        // Smaller QR version (V3) = more scans but rock-solid decode.
-        let bw: i32 = 72;
+        // 2 buttons: Single (for phone/KasSee — fits or auto-splits to V6ish)
+        // / Multi (V3 40 B/frame — proven device-to-device LCD reliable).
+        let bw: i32 = 130;
         let bh: i32 = 55;
         let by: i32 = 100;
-        let gap: i32 = 6;
-        let x_start: i32 = (320 - 4 * bw - 3 * gap) / 2;
+        let gap: i32 = 16;
+        let x0: i32 = (320 - 2 * bw - gap) / 2;
 
-        let labels: [&str; 4] = ["Single", "V5", "V4", "V3"];
-        let hints: [&str; 4] = ["phone", "few QRs", "balanced", "LCD safe"];
+        // "Single" — left
+        let r0 = Rectangle::new(Point::new(x0, by), Size::new(bw as u32, bh as u32));
+        RoundedRectangle::new(r0, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let tw0 = measure_title("Single");
+        draw_lato_title(&mut self.display, "Single", x0 + (bw - tw0) / 2, by + 35, COLOR_BG);
 
-        for i in 0..4 {
-            let bx = x_start + (i as i32) * (bw + gap);
-            let rect = Rectangle::new(Point::new(bx, by), Size::new(bw as u32, bh as u32));
-            RoundedRectangle::new(rect, btn_corner)
-                .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
-                .draw(&mut self.display).ok();
-            let lw = measure_title(labels[i]);
-            draw_lato_title(&mut self.display, labels[i], bx + (bw - lw) / 2, by + 35, COLOR_BG);
-            let hw = measure_hint(hints[i]);
-            draw_lato_hint(&mut self.display, hints[i], bx + (bw - hw) / 2, by + bh + 14, COLOR_HINT);
-        }
+        // "Multi" — right
+        let x1 = x0 + bw + gap;
+        let r1 = Rectangle::new(Point::new(x1, by), Size::new(bw as u32, bh as u32));
+        RoundedRectangle::new(r1, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let tw1 = measure_title("Multi");
+        draw_lato_title(&mut self.display, "Multi", x1 + (bw - tw1) / 2, by + 35, COLOR_BG);
 
-        let h2 = measure_hint("Smaller version = more scans, easier on LCD");
-        draw_lato_hint(&mut self.display, "Smaller version = more scans, easier on LCD", (320 - h2) / 2, 216, COLOR_HINT);
+        // Hints
+        let h0 = measure_hint("for phone/KasSee");
+        draw_lato_hint(&mut self.display, "for phone/KasSee", x0 + (bw - h0) / 2, by + bh + 14, COLOR_HINT);
+        let h1 = measure_hint("for device scan");
+        draw_lato_hint(&mut self.display, "for device scan", x1 + (bw - h1) / 2, by + bh + 14, COLOR_HINT);
+
+        let h2 = measure_hint("Multi-frame for device-to-device scan");
+        draw_lato_hint(&mut self.display, "Multi-frame for device-to-device scan", (320 - h2) / 2, 216, COLOR_HINT);
 
         self.draw_back_button();
     }

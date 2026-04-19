@@ -1359,11 +1359,28 @@ fn cam_tune_apply_all<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, vals: &[u8; 6]
     write_reg(i2c, 0x3A18, 0x00);
     write_reg(i2c, 0x3A19, vals[4]);
 
-    // CIP sharpness auto-threshold (slider 5 → 0x5308).
-    // ISP master (0x5000), sharpen MT offset (0x5302) and sharpen TH offset
-    // (0x530B) are deliberately NOT touched here — they stay at the
-    // LCD-QR-tuned values written by OV5640_LCD_QR_TUNING in init_480.
-    write_reg(i2c, 0x5308, vals[5]);
+    // CIP sharpness — slider value IGNORED on OV5640.
+    //
+    // The OV5640's CIP edge-enhancement block (0x5302 with 0x5308[6]=1
+    // manual mode) is documented to accept runtime writes, but in practice
+    // changing 0x5302 during streaming produces no visible effect on the
+    // Y8 output of this module. No production OV5640 driver (Linux, STM,
+    // NXP) exposes sharpness as a user-adjustable control — they all set
+    // good baseline values at init and leave the CIP block alone.
+    //
+    // The sharpness slider is kept in the UI for consistency across the
+    // OV5640/OV2640/GC0308 camera zoo — the overlay should look the same
+    // regardless of which sensor booted. For OV2640 the cam_tune_apply_ov2640
+    // path DOES honor the slider. For OV5640 we lock 0x5302 to a fixed good
+    // value (0x30, the LCD-QR-tuned baseline) so toggling the slider won't
+    // accidentally degrade an already-working image.
+    //
+    // We still write 0x5308=0x40 each apply to ensure manual MT mode stays
+    // asserted (some re-init paths may drop it).
+    write_reg(i2c, 0x5308, 0x40);        // manual edge MT mode (bit 6)
+    write_reg(i2c, 0x5302, 0x30);        // fixed sharpen (LCD baseline)
+    // vals[5] (slider position) intentionally unused on OV5640 — logged
+    // below as SHP=xx for diagnostic parity with the other cameras.
 
     #[cfg(not(feature = "silent"))]
     {

@@ -43,6 +43,20 @@ pub fn import_kpub(kpub_str: &str, network: &str) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+/// Import a V1-raw compact kpub (78 raw payload bytes — the header
+/// byte 0x01 should already be stripped by the JS side). Same output
+/// as `import_kpub` — the raw payload is re-encoded to a standard
+/// base58check kpub internally so all downstream paths (storage, UI,
+/// RPC) are unchanged.
+#[wasm_bindgen]
+pub fn import_kpub_raw(raw_payload: &[u8], network: &str) -> Result<String, JsValue> {
+    let prefix = network_to_prefix(network);
+    let result = bip32::import_kpub_raw(raw_payload, prefix)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&result)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
 // ─── Balance ───
 
 /// Connect to node via Borsh wRPC, fetch UTXOs, return JSON balance.

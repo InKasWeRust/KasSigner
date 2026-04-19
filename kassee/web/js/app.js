@@ -8,6 +8,7 @@
 import init, {
     version,
     import_kpub,
+    import_kpub_raw,
     fetch_balance,
     fetch_utxos,
     get_fee_estimate,
@@ -301,11 +302,16 @@ function handleKpubScan(data) {
 
     // Check if this is a multi-frame fragment:
     // [frame_num][total_frames][frag_len][data...] where total >= 2
+    // Frame 0 must start with a recognised format marker:
+    //   - ASCII "kpub" (legacy base58 kpub text payload), OR
+    //   - 0x01 (V1-raw header — compact binary format, 79-byte kpub)
     const isMF = bytes.length >= 7
         && bytes[1] >= 2 && bytes[1] <= 20
         && bytes[0] < bytes[1] && bytes[2] > 0
-        && (bytes[0] > 0 || (bytes.length >= 7
-            && String.fromCharCode(bytes[3], bytes[4], bytes[5], bytes[6]) === 'kpub'));
+        && (bytes[0] > 0 || (bytes.length >= 7 && (
+            String.fromCharCode(bytes[3], bytes[4], bytes[5], bytes[6]) === 'kpub'
+            || bytes[3] === 0x01
+        )));
 
     if (isMF) {
         // Multi-frame: feed through decoder, keep scanning
@@ -315,13 +321,21 @@ function handleKpubScan(data) {
             const result = decode_qr_frame(hexStr);
             if (result && result.length > 0) {
                 stopScanner();
-                // Convert assembled hex back to ASCII kpub string
+                // Convert assembled hex → byte array
                 const assembled = [];
                 for (let i = 0; i < result.length; i += 2) {
                     assembled.push(parseInt(result.substr(i, 2), 16));
                 }
-                const kpubStr = new TextDecoder().decode(new Uint8Array(assembled)).trim();
-                handleKpubImport(kpubStr);
+                const assembledBytes = new Uint8Array(assembled);
+
+                // V1-raw path: [0x01 header][78-byte raw payload] = 79 bytes total
+                if (assembledBytes.length === 79 && assembledBytes[0] === 0x01) {
+                    handleKpubImportRaw(assembledBytes.slice(1));
+                } else {
+                    // Legacy ASCII path: assembled bytes are UTF-8 of a kpub string
+                    const kpubStr = new TextDecoder().decode(assembledBytes).trim();
+                    handleKpubImport(kpubStr);
+                }
             } else {
                 // Show frame progress
                 const prog = JSON.parse(decoder_progress());
@@ -365,6 +379,29 @@ function handleKpubImport(kpubStr) {
     } catch (e) {
         hideLoading();
         toast('Import failed: ' + e, 'error', 5000);
+    }
+}
+
+// V1-raw binary kpub entry point: called when a multi-frame QR scan
+// assembles into [0x01 header][78 raw payload] = 79 bytes. The header
+// is stripped by the caller; we pass the 78 raw bytes to WASM which
+// re-encodes them as a standard base58check kpub internally.
+function handleKpubImportRaw(rawPayload) {
+    if (!rawPayload || rawPayload.length !== 78) {
+        toast('Invalid V1-raw kpub payload', 'error');
+        return;
+    }
+    showLoading('Deriving addresses...');
+    try {
+        const walletJson = import_kpub_raw(rawPayload, network);
+        walletData = JSON.parse(walletJson);
+        hideLoading();
+
+        showScreen('dashboard');
+        refreshBalance();
+    } catch (e) {
+        hideLoading();
+        toast('V1-raw import failed: ' + e, 'error', 5000);
     }
 }
 

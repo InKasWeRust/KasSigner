@@ -349,9 +349,26 @@ pub fn new() -> Self {
             #[cfg(feature = "waveshare")]
             cam_tune_param: 0,
             #[cfg(feature = "waveshare")]
-            // Proven QR scanning defaults (iPad screen decode): AEC=58/48 CTR=8B BRT=08 AGC=70 SHP=50
-            // [0]=AEC_H(0x3A0F) [1]=AEC_L(0x3A10) [2]=contrast(0x5586) [3]=brightness(0x5587) [4]=AGC_ceil(0x3A19) [5]=sharpness(0x5308)
-            cam_tune_vals: [0x58, 0x48, 0x8B, 0x08, 0x70, 0x50],
+            // OV5640 cam-tune defaults — field-tuned for device-to-device
+            // QR scanning (Waveshare scanning M5Stack LCD at close range):
+            //   AEC=1A/00  — tight low-target exposure (LCDs are bright,
+            //                we want the sensor to UNDER-expose to preserve
+            //                module edge contrast)
+            //   CTR=3E     — aggressive contrast (was 0x8B baseline; this
+            //                pushes darks to black and lights to white,
+            //                which is exactly what 2-tone QR needs)
+            //   BRT=00     — neutral brightness (let contrast do the work)
+            //   AGC=B8     — high gain ceiling (pairs with low AEC target —
+            //                darker target + more gain = responsive exposure)
+            //   SHP=50     — default slider position (ignored on OV5640;
+            //                sharpen is locked to the LCD-QR baseline 0x30
+            //                in apply path, regardless of slider)
+            // These values produce reliable V3 2-frame kpub decode on
+            // Waveshare reading M5Stack LCD — previously only 3-4 frames
+            // worked at this range.
+            // [0]=AEC_H(0x3A0F) [1]=AEC_L(0x3A10) [2]=contrast(0x5586)
+            // [3]=brightness(0x5587) [4]=AGC_ceil(0x3A19) [5]=sharpness(ignored)
+            cam_tune_vals: [0x1A, 0x00, 0x3E, 0x00, 0xB8, 0x50],
 
             #[cfg(feature = "waveshare")]
             cam_tap_x: 0,
