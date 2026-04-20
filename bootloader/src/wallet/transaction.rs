@@ -264,6 +264,12 @@ pub struct InputSig {
     pub sighash_type: u8,
     pub pubkey_pos: u8,  // position in multisig pubkey list (0-based), 0 for P2PK
     pub present: bool,
+    /// 33-byte compressed secp256k1 pubkey that produced this signature.
+    /// Populated by `sign_transaction_multisig` and `sign_transaction_multi_addr`
+    /// in wallet/pskt.rs. Needed only by the PSKT serializer (std_pskt.rs);
+    /// KSPT emission ignores this field because KSPT identifies signers by
+    /// `pubkey_pos` alone. Zero-initialized otherwise.
+    pub pubkey_compressed: [u8; 33],
 }
 
 impl InputSig {
@@ -273,7 +279,34 @@ impl InputSig {
             sighash_type: 0,
             pubkey_pos: 0,
             present: false,
+            pubkey_compressed: [0u8; 33],
         }
+    }
+}
+
+/// A partial signature received in an incoming PSKT, keyed by full pubkey.
+///
+/// Unlike `InputSig` (which is positional in the multisig redeem script),
+/// `IncomingPartialSig` carries the full 33-byte compressed pubkey so the
+/// signer can identify its own contribution and round-trip foreign partial
+/// sigs without losing them.
+///
+/// Only populated when the input came from a PSKT payload; unused
+/// (all slots `present=false`) for the legacy KSPT flow.
+#[derive(Debug, Clone, Copy)]
+pub struct IncomingPartialSig {
+    /// 33-byte compressed secp256k1 public key.
+    /// PSKT `partialSigs` is keyed by this.
+    pub pubkey:    [u8; 33],
+    /// 64-byte Schnorr signature.
+    pub signature: [u8; 64],
+    /// False means this slot is unused.
+    pub present:   bool,
+}
+
+impl IncomingPartialSig {
+    pub const fn empty() -> Self {
+        Self { pubkey: [0u8; 33], signature: [0u8; 64], present: false }
     }
 }
 
@@ -295,6 +328,11 @@ pub struct TransactionInput {
     /// P2SH redeem script (the actual multisig script inside the P2SH wrapper)
     pub redeem_script: [u8; MAX_SCRIPT_SIZE],
     pub redeem_script_len: usize,
+    /// Partial signatures carried in an incoming PSKT, keyed by full pubkey.
+    /// Preserved byte-for-byte on re-serialization so counterparty signers
+    /// see the same PSKT they sent, plus our additions. Empty for KSPT flow.
+    pub incoming_partial_sigs: [IncomingPartialSig; MAX_SIGS_PER_INPUT],
+    pub incoming_partial_sigs_count: u8,
 }
 
 // ─── Transaction Output ───────────────────────────────────────────────
@@ -349,6 +387,8 @@ impl Transaction {
                 sighash_type: 0,
                 redeem_script: [0u8; MAX_SCRIPT_SIZE],
                 redeem_script_len: 0,
+                incoming_partial_sigs: [IncomingPartialSig::empty(); MAX_SIGS_PER_INPUT],
+                incoming_partial_sigs_count: 0,
             }),
             num_inputs: 0,
             outputs: core::array::from_fn(|_| TransactionOutput {

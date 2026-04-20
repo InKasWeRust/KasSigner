@@ -21,6 +21,66 @@
 
 use crate::{features::fw_update, hw::sd_backup, ui::seed_manager, ui::setup_wizard, wallet};
 
+/// Envelope format of the transaction payload currently loaded in AppData.
+/// Determines which serializer to use for the signed-response QR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TxInputFormat {
+    /// Legacy KSPT v1 (our custom compact binary, unsigned).
+    KsptV1,
+    /// Legacy KSPT v2 (our custom compact binary, partially signed).
+    KsptV2,
+    /// Kaspa-standard PSKT, hex-wrapped bundle JSON, `PSKB` magic prefix.
+    PsktPskb,
+    /// Kaspa-standard single PSKT (non-bundle), `PSKT` magic prefix.
+    PsktSingle,
+}
+
+impl TxInputFormat {
+    /// Returns true if this format is a Kaspa-standard PSKT variant.
+    pub fn is_pskt(self) -> bool {
+        matches!(self, Self::PsktPskb | Self::PsktSingle)
+    }
+}
+
+/// Maximum byte-range regions the PSKT parser can capture from an
+/// incoming JSON for verbatim pass-through on re-emission.
+///
+/// Used for opaque fields the signer doesn't interpret but must round-trip
+/// (`xpubs`, `proprietaries`, `bip32Derivations` values carrying unknown
+/// KeySource shapes, per-input/output unknown fields). Each region is a
+/// `(start, end)` offset pair into the original JSON bytes.
+///
+/// 16 slots covers: globals (3) + per-input (5 × 2 inputs = 10) +
+/// per-output (2 × 2 outputs = 4) with headroom. Kept small since each
+/// pair is 4 bytes.
+pub const MAX_PSKT_UNKNOWN_REGIONS: usize = 16;
+
+/// Byte-range capture state populated by the PSKT parser, consumed by the
+/// PSKT serializer on re-emission. Empty/zeroed for KSPT flows.
+#[derive(Debug, Clone, Copy)]
+pub struct PsktParsed {
+    /// `(start, end)` offsets into the original JSON bytes for regions
+    /// the parser didn't interpret. `start == end` means unused slot.
+    pub unknowns: [(u16, u16); MAX_PSKT_UNKNOWN_REGIONS],
+    pub unknowns_count: u8,
+    /// Start/end offsets of the raw JSON fragment inside the original
+    /// wire payload (after the magic prefix, after hex-decode). Used by
+    /// the serializer to slice unknown regions out of the scratch buffer.
+    pub json_start: u16,
+    pub json_len: u16,
+}
+
+impl PsktParsed {
+    pub const fn empty() -> Self {
+        Self {
+            unknowns: [(0u16, 0u16); MAX_PSKT_UNKNOWN_REGIONS],
+            unknowns_count: 0,
+            json_start: 0,
+            json_len: 0,
+        }
+    }
+}
+
 /// All mutable application state that handlers read/write.
 /// Hardware peripherals (display, i2c, delay, camera) are NOT included —
 /// they have peripheral lifetimes tied to fn main() scope.
@@ -92,6 +152,21 @@ pub struct AppData {
     pub kpub_user_nframes: u8, // user-chosen frame count (2/3/4), 0 = ask
     pub xprv_data: [u8; wallet::xpub::XPRV_MAX_LEN],
     pub xprv_len: usize,
+    // ═════════════════════════════════════════════════════════════════
+    // QR DENSITY TEST — diagnostic feature, disabled after data capture.
+    // Preserved as commented code for re-characterization when new
+    // camera hardware ships (OV2640-AF, next-gen sensors). To re-enable:
+    // (1) uncomment the field below and its init in `new()`;
+    // (2) uncomment the handler branches in handlers/export.rs and the
+    //     ExportKpubTestQr AppState variant in app/input.rs;
+    // (3) uncomment the TEST QR button in screens.rs::draw_kpub_frame_count_choice
+    //     and the draw_qr_test_screen function;
+    // (4) uncomment the redraw dispatch case in ui/redraw.rs.
+    // Results captured 20 Apr 2026: M5↔M5 V5 top (106B) reliable with
+    // retries, V6 (120B+) never decoded in 14+ attempts.
+    // ═════════════════════════════════════════════════════════════════
+    // pub qr_test_buf: [u8; 134],
+    // pub qr_test_len: usize,
 
     // ─── SD card ───
     pub sd_file_list: [[u8; 11]; 8],
@@ -118,7 +193,16 @@ pub struct AppData {
     pub qr_manual_frames: bool,
 
     // ─── Transaction / multisig ───
-    pub demo_tx: wallet::transaction::Transaction,
+    /// The current transaction being signed.
+    ///
+    /// Heap-allocated (PSRAM) to keep AppData's stack footprint down —
+    /// Transaction post-PSKT-migration is ~11 KB (8 inputs × ~1.3 KB
+    /// each after IncomingPartialSig and pubkey_compressed additions),
+    /// and a Transaction-by-value field would make main's frame
+    /// materialize that during AppData::new(). Boxing puts the struct
+    /// on PSRAM directly; field access via DerefMut works transparently
+    /// at call sites.
+    pub demo_tx: alloc::boxed::Box<wallet::transaction::Transaction>,
     pub ms_store: wallet::transaction::MultisigStore,
     pub ms_creating: wallet::transaction::MultisigConfig,
     pub ms_m: u8,
@@ -126,7 +210,16 @@ pub struct AppData {
     pub ms_scroll: u8,
     /// When >0, AddrIndexPicker returns to MultisigPickAddr with this key_idx
     pub ms_picking_key: u8,
-    pub signed_qr_buf: [u8; 1024],
+    /// Buffer for pending signed-tx QR payload (KSPT or PSKB).
+    /// Sized for the PSKB wire format of a fully-signed 2-of-3 multisig
+    /// (measured ~3.5 KB max; 4096 B gives headroom). KSPT payloads sit
+    /// well under 1 KB and use the same buffer.
+    /// Buffer for the outgoing signed KSPT/PSKT response.
+    /// Sized at 4 KB: realistic PSKBs are ~2-3 KB after signing
+    /// (measured: unsigned 2,106B → fully-signed 2-of-3 ~2,660B).
+    /// 4 KB leaves headroom for larger txs and 4-of-N multisig variants.
+    /// Lives inside Box<AppData> so it doesn't hit the stack.
+    pub signed_qr_buf: [u8; 4096],
     pub signed_qr_len: usize,
     pub signed_qr_frame: u8,
     pub signed_qr_nframes: u8,
@@ -150,6 +243,13 @@ pub struct AppData {
     /// Multisig signature status after signing (for ShowQR display)
     pub tx_sigs_present: u8,
     pub tx_sigs_required: u8,
+    /// Envelope format of the currently loaded transaction.
+    /// Set by the camera-loop dispatcher at receive time; read by the
+    /// signing-response serializer to emit in the matching format.
+    pub tx_input_format: TxInputFormat,
+    /// PSKT byte-range capture — populated by std_pskt parser, consumed
+    /// by std_pskt serializer. Zeroed for KSPT flows.
+    pub pskt_parsed: PsktParsed,
     pub scanned_addr: [u8; 80],
     pub scanned_addr_len: usize,
     pub scanned_addr_valid: bool,
@@ -296,6 +396,8 @@ pub fn new() -> Self {
             kpub_user_nframes: 0,
             xprv_data: [0u8; wallet::xpub::XPRV_MAX_LEN],
             xprv_len: 0,
+            // qr_test_buf: [0u8; 134],    // disabled — see struct def
+            // qr_test_len: 0,
 
             sd_file_list: [[b' '; 11]; 8],
             sd_file_count: 0,
@@ -310,14 +412,14 @@ pub fn new() -> Self {
             sd_txt_origin: 0,
             qr_manual_frames: false,
 
-            demo_tx: wallet::transaction::Transaction::new(),
+            demo_tx: alloc::boxed::Box::new(wallet::transaction::Transaction::new()),
             ms_store: wallet::transaction::MultisigStore::new(),
             ms_creating: wallet::transaction::MultisigConfig::new(),
             ms_m: 2,
             ms_n: 3,
             ms_scroll: 0,
             ms_picking_key: 0,
-            signed_qr_buf: [0u8; 1024],
+            signed_qr_buf: [0u8; 4096],
             signed_qr_len: 0,
             signed_qr_frame: 0,
             signed_qr_nframes: 0,
@@ -326,6 +428,8 @@ pub fn new() -> Self {
             signed_qr_via_density: false,
             tx_sigs_present: 0,
             tx_sigs_required: 0,
+            tx_input_format: TxInputFormat::KsptV1,
+            pskt_parsed: PsktParsed::empty(),
             scanned_addr: [0u8; 80],
             scanned_addr_len: 0,
             scanned_addr_valid: false,

@@ -658,6 +658,18 @@ pub fn sign_transaction_multi_addr(
                 tx.inputs[i].signature = sig.bytes;
                 tx.inputs[i].sig_len = 64;
                 tx.inputs[i].sighash_type = sighash_type.to_byte();
+                // Mirror into the InputSig slot so PSKT emission can
+                // find both the signature and the compressed pubkey.
+                // KSPT emission reads from the legacy fields and ignores
+                // this — no change to the KSPT wire.
+                tx.inputs[i].sigs[0].signature = sig.bytes;
+                tx.inputs[i].sigs[0].sighash_type = sighash_type.to_byte();
+                tx.inputs[i].sigs[0].pubkey_pos = 0;
+                tx.inputs[i].sigs[0].present = true;
+                if let Ok(pk_c) = addr_key.public_key_compressed() {
+                    tx.inputs[i].sigs[0].pubkey_compressed = pk_c;
+                }
+                tx.inputs[i].sig_count = 1;
                 signed_count += 1;
             }
         }
@@ -738,12 +750,23 @@ pub fn sign_transaction_multisig(
     // is the seed's depth-3 x-only pubkey; if it matches a multisig
     // position elsewhere in the tx, we use it directly and skip
     // address-level derivation entirely.
+    //
+    // `acct_compressed_cache[s]` holds the parallel 33-byte compressed
+    // form — needed by PSKT serialization (via InputSig.pubkey_compressed),
+    // ignored by KSPT emission. We compute it here once rather than
+    // re-deriving after signing.
     let mut acct_xonly_cache: [Option<[u8; 32]>; 8] =
+        [None, None, None, None, None, None, None, None];
+    let mut acct_compressed_cache: [Option<[u8; 33]>; 8] =
         [None, None, None, None, None, None, None, None];
     for s in 0..num_seeds {
         if let Some(ref acct) = acct_keys[s] {
-            if let Ok(pk) = acct.public_key_x_only() {
-                acct_xonly_cache[s] = Some(pk);
+            if let Ok(pk_c) = acct.public_key_compressed() {
+                acct_compressed_cache[s] = Some(pk_c);
+                // x-only is bytes 1..33 of compressed.
+                let mut xonly = [0u8; 32];
+                xonly.copy_from_slice(&pk_c[1..33]);
+                acct_xonly_cache[s] = Some(xonly);
             }
         }
     }
@@ -789,6 +812,11 @@ pub fn sign_transaction_multisig(
                                     tx.inputs[i].sigs[0].sighash_type = sighash_type.to_byte();
                                     tx.inputs[i].sigs[0].pubkey_pos = 0;
                                     tx.inputs[i].sigs[0].present = true;
+                                    // Stash compressed pubkey for PSKT
+                                    // emission (ignored by KSPT).
+                                    if let Ok(pk_c) = addr_key.public_key_compressed() {
+                                        tx.inputs[i].sigs[0].pubkey_compressed = pk_c;
+                                    }
                                     tx.inputs[i].sig_count = 1;
                                     total_new_sigs += 1;
                                     break;
@@ -838,6 +866,11 @@ pub fn sign_transaction_multisig(
                                             tx.inputs[i].sigs[sc].sighash_type = sighash_type.to_byte();
                                             tx.inputs[i].sigs[sc].pubkey_pos = pos as u8;
                                             tx.inputs[i].sigs[sc].present = true;
+                                            // Stash compressed pubkey for PSKT
+                                            // emission (ignored by KSPT).
+                                            if let Some(pk_c) = acct_compressed_cache[s] {
+                                                tx.inputs[i].sigs[sc].pubkey_compressed = pk_c;
+                                            }
                                             tx.inputs[i].sig_count += 1;
                                             total_new_sigs += 1;
                                         }
@@ -880,6 +913,11 @@ pub fn sign_transaction_multisig(
                                                     tx.inputs[i].sigs[sc].sighash_type = sighash_type.to_byte();
                                                     tx.inputs[i].sigs[sc].pubkey_pos = pos as u8;
                                                     tx.inputs[i].sigs[sc].present = true;
+                                                    // Stash compressed pubkey for PSKT
+                                                    // emission (ignored by KSPT).
+                                                    if let Ok(pk_c) = addr_key.public_key_compressed() {
+                                                        tx.inputs[i].sigs[sc].pubkey_compressed = pk_c;
+                                                    }
                                                     tx.inputs[i].sig_count += 1;
                                                     total_new_sigs += 1;
                                                 }

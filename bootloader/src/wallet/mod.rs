@@ -36,6 +36,7 @@ pub mod schnorr;
 pub mod hmac;
 pub mod address;
 pub mod pskt;
+pub mod std_pskt;
 pub mod sighash;
 pub mod transaction;
 pub mod xpub;

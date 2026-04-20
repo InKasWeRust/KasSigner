@@ -666,7 +666,15 @@ fn main() -> ! {
     app::boot_test::run_boot_tests();
 
     let (grid_zones, list_zones, page_up_zone, page_down_zone) = touch_zones();
-    let mut ad = AppData::new();
+    // AppData is ~13 KB after all the PSKT migration additions
+    // (IncomingPartialSig[5]×8 = ~4 KB, pubkey_compressed on InputSig[5]×8
+    // = ~1.3 KB, signed_qr_buf bumped 1→4 KB in Step 0). Keeping it on
+    // the stack blew the main-thread 8 KB ProCpu stack during early boot
+    // when rqrr / DMA / cam_tune all want scratch. Box it onto the heap
+    // so main's frame only holds a pointer; downstream code reborrows
+    // through `ad` unchanged.
+    let mut ad_box = alloc::boxed::Box::new(AppData::new());
+    let mut ad: &mut AppData = &mut *ad_box;
 
     // Override cam_tune defaults for OV2640 — proven QR decode settings
     #[cfg(feature = "waveshare")]

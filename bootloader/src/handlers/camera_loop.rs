@@ -48,9 +48,17 @@ static mut QR_FINDERS_BEEPED: bool = false;
 static mut QR_ERROR_SHOWING: bool = false;
 static mut QR_GUIDE_VER: u8 = 0;
 static mut QR_VER_SAME_CNT: u8 = 0;
-static mut MF_BUF: [u8; 5120] = [0u8; 5120];
-static mut MF_RECEIVED: [bool; 20] = [false; 20];
-static mut MF_FRAG_SIZE: [u16; 20] = [0; 20];
+// Multi-frame receive buffers. Increased from 20 to 40 frames (v1.0.3-wip)
+// to handle signed PSKBs which run ~2,600 bytes after adding two signatures
+// and chunk to 26 frames at the device's default 106-byte-per-frame output.
+// Slot size stays at 256 (max frag_len is 255 due to u8 header field).
+const MF_MAX_FRAMES: usize = 40;
+const MF_SLOT_SIZE: usize = 256;
+const MF_BUF_SIZE: usize = MF_MAX_FRAMES * MF_SLOT_SIZE; // 10,240 bytes
+
+static mut MF_BUF: [u8; MF_BUF_SIZE] = [0u8; MF_BUF_SIZE];
+static mut MF_RECEIVED: [bool; MF_MAX_FRAMES] = [false; MF_MAX_FRAMES];
+static mut MF_FRAG_SIZE: [u16; MF_MAX_FRAMES] = [0; MF_MAX_FRAMES];
 static mut MF_TOTAL: u8 = 0;
 static mut MF_LEN: usize = 0;
 
@@ -270,6 +278,7 @@ fn process_confirmed_qr(
             // v2 KSPT: partially signed (from another signer)
             match wallet::pskt::parse_signed_pskt_v2(data, &mut ad.demo_tx) {
                 Ok(()) => {
+                    ad.tx_input_format = crate::app::data::TxInputFormat::KsptV2;
                     let (present, required) = wallet::pskt::signature_status(&ad.demo_tx);
                     ad.tx_sigs_present = present;
                     ad.tx_sigs_required = required;
@@ -290,6 +299,7 @@ fn process_confirmed_qr(
             ad.tx_sigs_required = 0;
             match wallet::pskt::parse_pskt(data, &mut ad.demo_tx) {
                 Ok(()) => {
+                    ad.tx_input_format = crate::app::data::TxInputFormat::KsptV1;
                     log!("   → KSPT v1: {} in, {} out",
                         ad.demo_tx.num_inputs, ad.demo_tx.num_outputs);
                     ad.app.start_review(
@@ -300,6 +310,56 @@ fn process_confirmed_qr(
                 Err(e) => {
                     log!("   → KSPT v1 parse error: {:?}", e);
                 }
+            }
+        }
+    } else if len >= 4 && (&data[..4] == b"PSKB" || &data[..4] == b"PSKT") {
+        // Kaspa-standard PSKT payload (PSKB bundle or single PSKT).
+        // See wallet/std_pskt.rs for the parser, and docs/pskt/
+        // PSKT_WIRE_FORMAT.md for the envelope details.
+        //
+        // Scratch: use signed_qr_buf as a 4 KB hex-decode destination.
+        // Safe to clobber — any pending outgoing QR content is stale
+        // by the time a new transaction is received.
+        //
+        // Disjoint mutable borrows: demo_tx, pskt_parsed, signed_qr_buf
+        // are separate AppData fields so Rust's borrow checker allows
+        // simultaneous &mut access via direct field projection.
+        ad.tx_sigs_present = 0;
+        ad.tx_sigs_required = 0;
+        match wallet::std_pskt::parse_pskt(
+            data,
+            &mut ad.signed_qr_buf,
+            &mut ad.demo_tx,
+            &mut ad.pskt_parsed,
+        ) {
+            Ok(()) => {
+                // detect_tx_format distinguishes PSKB vs PSKT-single.
+                ad.tx_input_format = match wallet::std_pskt::detect_tx_format(data) {
+                    wallet::std_pskt::DetectedFormat::PsktPskb =>
+                        crate::app::data::TxInputFormat::PsktPskb,
+                    wallet::std_pskt::DetectedFormat::PsktSingle =>
+                        crate::app::data::TxInputFormat::PsktSingle,
+                    // Unreachable: we already matched the magic above,
+                    // but the match must be exhaustive. Fall back to
+                    // PsktPskb so serializer still emits a valid format.
+                    _ => crate::app::data::TxInputFormat::PsktPskb,
+                };
+                // PSKT-aware sig counter (counts incoming_partial_sigs).
+                let (present, required) =
+                    wallet::std_pskt::pskt_signature_status(&ad.demo_tx);
+                ad.tx_sigs_present = present;
+                ad.tx_sigs_required = required;
+                log!("   → PSKT: {} in, {} out, sigs {}/{}, unknownRegions {}",
+                    ad.demo_tx.num_inputs, ad.demo_tx.num_outputs,
+                    present, required,
+                    ad.pskt_parsed.unknowns_count);
+                ad.app.start_review(
+                    ad.demo_tx.num_outputs as u8,
+                    ad.demo_tx.num_inputs as u8);
+                ad.needs_redraw = true;
+            }
+            Err(e) => {
+                log!("   → PSKT parse error: {:?}", e);
             }
         }
     } else if (len == 48 || len == 96)
@@ -433,14 +493,14 @@ fn process_multiframe(
         if MF_TOTAL == 0 || MF_TOTAL != total {
             MF_TOTAL = total;
             MF_LEN = 0;
-            for i in 0..20 { MF_RECEIVED[i] = false; }
-            for i in 0..20 { MF_FRAG_SIZE[i] = 0; }
+            for i in 0..MF_MAX_FRAMES { MF_RECEIVED[i] = false; }
+            for i in 0..MF_MAX_FRAMES { MF_FRAG_SIZE[i] = 0; }
         }
 
         if !MF_RECEIVED[frame_num] {
-            let slot_offset = frame_num * 256;
+            let slot_offset = frame_num * MF_SLOT_SIZE;
             let end = slot_offset + frag_len;
-            if end <= 5120 {
+            if end <= MF_BUF_SIZE {
                 MF_BUF[slot_offset..end]
                     .copy_from_slice(&d[3..3 + frag_len]);
                 MF_FRAG_SIZE[frame_num] = frag_len as u16;
@@ -462,10 +522,22 @@ fn process_multiframe(
             let all_received = MF_RECEIVED[..total as usize]
                 .iter().all(|&r| r);
             if all_received {
-                let mut assembled = [0u8; 5120];
+                // Heap-allocate the 5 KB reassembly buffer into PSRAM
+                // instead of putting it on the main thread stack. The
+                // main stack on esp-hal 1.0.0 is ~8 KB and run_camera_cycle
+                // already carries rqrr scratch and the outer AppData
+                // reborrow chain — a 5 KB stack buffer here tips past
+                // the guard during 2-frame+ multi-frame receives (stack
+                // guard panic observed during kpub import on M5Stack).
+                //
+                // PSRAM allocator is wired up in main via
+                // `esp_alloc::psram_allocator!`, so this Vec lives in
+                // external RAM for the ~microseconds between assembly
+                // and `process_confirmed_qr`. Dropped at end of scope.
+                let mut assembled: alloc::vec::Vec<u8> = alloc::vec![0u8; MF_BUF_SIZE];
                 let mut pos = 0usize;
                 for f in 0..total as usize {
-                    let sl = f * 256;
+                    let sl = f * MF_SLOT_SIZE;
                     let sz = MF_FRAG_SIZE[f] as usize;
                     assembled[pos..pos + sz]
                         .copy_from_slice(&MF_BUF[sl..sl + sz]);
@@ -532,14 +604,16 @@ fn is_multiframe(d: &[u8], len: usize) -> bool {
     // Frame index > 0: accept by shape alone (previous frame 0 established the type).
     // Frame index == 0: first payload byte must be a recognized format marker:
     //   - "KSPT" or "kpub" (legacy ASCII formats)
+    //   - "PSKB" (kaspa-wallet-pskt bundle envelope, multi-frame)
     //   - PAYLOAD_V1_RAW (0x01) — compact binary format (kpub, KSPT, etc.)
     len >= 7
-        && d[1] >= 2 && d[1] <= 20
+        && d[1] >= 2 && d[1] as usize <= MF_MAX_FRAMES
         && d[0] < d[1] && d[2] > 0
         && (d[0] > 0
             || (len >= 7 && (
                 &d[3..7] == b"KSPT"
                 || &d[3..7] == b"kpub"
+                || &d[3..7] == b"PSKB"
                 || d[3] == crate::qr::payload::PAYLOAD_V1_RAW
             )))
 }
@@ -623,8 +697,8 @@ pub fn run_camera_cycle(
                     QR_ERROR_SHOWING = false;
                     MF_TOTAL = 0;
                     MF_LEN = 0;
-                    for i in 0..20 { MF_RECEIVED[i] = false; }
-                    for i in 0..20 { MF_FRAG_SIZE[i] = 0; }
+                    for i in 0..MF_MAX_FRAMES { MF_RECEIVED[i] = false; }
+                    for i in 0..MF_MAX_FRAMES { MF_FRAG_SIZE[i] = 0; }
 
                     // Force chrome repaint on re-entry to a camera state.
                     // The "one-time init" block below only fires when

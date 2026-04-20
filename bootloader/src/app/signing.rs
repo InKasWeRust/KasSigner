@@ -156,7 +156,7 @@ pub fn derive_change_pubkey_from_acct(
 pub fn sign_and_serialize(
     tx: &mut wallet::transaction::Transaction,
     privkey: &[u8; 32],
-    buf: &mut [u8; 1024],
+    buf: &mut [u8],
 ) -> usize {
     wallet::pskt::sign_transaction_in_place(tx, privkey, wallet::transaction::SigHashType::All)
         .and_then(|_| wallet::pskt::serialize_signed_pskt(tx, buf))
@@ -169,7 +169,7 @@ pub fn sign_and_serialize(
 pub fn sign_and_serialize_multi(
     tx: &mut wallet::transaction::Transaction,
     seed: &[u8; 64],
-    buf: &mut [u8; 1024],
+    buf: &mut [u8],
 ) -> usize {
     wallet::pskt::sign_transaction_multi_addr(tx, seed, wallet::transaction::SigHashType::All)
         .and_then(|_| wallet::pskt::serialize_signed_pskt(tx, buf))
@@ -187,7 +187,7 @@ pub fn sign_and_serialize_multi(
 pub fn sign_and_serialize_multisig(
     tx: &mut wallet::transaction::Transaction,
     seed_mgr: &seed_manager::SeedManager,
-    buf: &mut [u8; 1024],
+    buf: &mut [u8],
 ) -> usize {
     use esp_hal::time::Instant;
     let t_start = Instant::now();
@@ -249,6 +249,143 @@ pub fn sign_and_serialize_multisig(
     crate::log!("[sign_t] TOTAL: {} ms", total_ms);
 
     result
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// PSKT sign-and-serialize variants (Step 6)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Parallel to the KSPT variants above, these functions sign the same
+// way (same underlying `wallet::pskt::sign_transaction_*` calls) but
+// emit PSKB/PSKT wire bytes instead of KSPT. The underlying signer
+// (post Step 6) also populates `InputSig::pubkey_compressed` so the
+// PSKT serializer can look up the 33-byte pubkey for each signature.
+//
+// Scratch-buffer conflict: the incoming PSKT's decoded JSON still
+// lives in `ad.signed_qr_buf` from parse time, and `serialize_pskt`
+// needs to read that same buffer to splice any captured unknown
+// regions while writing the outgoing PSKB wire. So we use a
+// stack-local 4 KB buffer for the output and copy back at the end.
+//
+// `format` is `TxInputFormat::PsktPskb` or `TxInputFormat::PsktSingle`
+// — the serializer chooses the magic prefix accordingly.
+
+/// Sign a P2PK transaction with a single seed and emit a PSKT bundle.
+/// Mirrors `sign_and_serialize_multi` but emits PSKB instead of KSPT.
+#[inline(never)]
+pub fn sign_and_serialize_pskt_multi(
+    tx: &mut wallet::transaction::Transaction,
+    seed: &[u8; 64],
+    pskt_parsed: &crate::app::data::PsktParsed,
+    scratch_json: &[u8],
+    format: crate::app::data::TxInputFormat,
+    out: &mut [u8],
+) -> usize {
+    if wallet::pskt::sign_transaction_multi_addr(
+        tx, seed, wallet::transaction::SigHashType::All,
+    ).is_err() {
+        return 0;
+    }
+    wallet::std_pskt::move_ksp_sigs_to_pskt(tx);
+    // PSRAM-heap scratch — keeps this 4 KB off the stack so it doesn't
+    // bloat main's frame via cross-function allocation hoisting.
+    // Dropped at end of function; cost is only during signing.
+    let mut tmp: alloc::vec::Vec<u8> = alloc::vec![0u8; 4096];
+    match wallet::std_pskt::serialize_pskt(tx, pskt_parsed, scratch_json, format, &mut tmp) {
+        Ok(n) => {
+            if n > out.len() {
+                crate::log!("[pskt] multi: output overflow — {} > {}", n, out.len());
+                return 0;
+            }
+            out[..n].copy_from_slice(&tmp[..n]);
+            n
+        }
+        Err(e) => {
+            crate::log!("[pskt] multi: serialize_pskt failed: {:?}", e);
+            0
+        }
+    }
+}
+
+/// Sign a multisig transaction with all loaded seed slots and emit a
+/// PSKT bundle. Mirrors `sign_and_serialize_multisig` but emits PSKB
+/// instead of KSPT v2. Handles both fresh signing (empty
+/// `incoming_partial_sigs`) and co-signing (merging our new sigs with
+/// pre-existing partial sigs from upstream signers).
+#[inline(never)]
+pub fn sign_and_serialize_pskt_multisig(
+    tx: &mut wallet::transaction::Transaction,
+    seed_mgr: &seed_manager::SeedManager,
+    pskt_parsed: &crate::app::data::PsktParsed,
+    scratch_json: &[u8],
+    format: crate::app::data::TxInputFormat,
+    out: &mut [u8],
+) -> usize {
+    use esp_hal::time::Instant;
+    let t_start = Instant::now();
+
+    // Build seeds array from loaded slots — same pattern as KSPT path.
+    const MAX_SIGN_SLOTS: usize = 8;
+    let mut seeds = [([0u8; 64], false); MAX_SIGN_SLOTS];
+    let mut seed_idx = 0usize;
+    for s in 0..seed_manager::MAX_SLOTS {
+        if seed_idx >= MAX_SIGN_SLOTS { break; }
+        let slot = &seed_mgr.slots[s];
+        if slot.is_empty() || slot.is_raw_key() || slot.word_count == 2 { continue; }
+        let pp = slot.passphrase_str();
+        let wc = slot.word_count;
+        let seed = if wc == 12 {
+            let m12 = wallet::bip39::Mnemonic12 {
+                indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&slot.indices[..12]); arr }
+            };
+            wallet::bip39::seed_from_mnemonic_12(&m12, pp)
+        } else {
+            let m24 = wallet::bip39::Mnemonic24 {
+                indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&slot.indices[..24]); arr }
+            };
+            wallet::bip39::seed_from_mnemonic_24(&m24, pp)
+        };
+        seeds[seed_idx] = (seed.bytes, true);
+        seed_idx += 1;
+    }
+    let t_after_seeds = Instant::now();
+    crate::log!("[sign_t] seed derivation: {} ms ({} slots)",
+        (t_after_seeds - t_start).as_millis(), seed_idx);
+
+    if wallet::pskt::sign_transaction_multisig(
+        tx, &seeds, wallet::transaction::SigHashType::All,
+    ).is_err() {
+        return 0;
+    }
+    let t_after_sign = Instant::now();
+    crate::log!("[sign_t] multisig sign: {} ms ({} inputs)",
+        (t_after_sign - t_after_seeds).as_millis(), tx.num_inputs);
+
+    wallet::std_pskt::move_ksp_sigs_to_pskt(tx);
+
+    // PSRAM-heap scratch — see sign_and_serialize_pskt_multi for rationale.
+    let mut tmp: alloc::vec::Vec<u8> = alloc::vec![0u8; 4096];
+    let n = match wallet::std_pskt::serialize_pskt(
+        tx, pskt_parsed, scratch_json, format, &mut tmp,
+    ) {
+        Ok(n) => n,
+        Err(e) => {
+            crate::log!("[pskt] multisig: serialize_pskt failed: {:?}", e);
+            return 0;
+        }
+    };
+    if n > out.len() {
+        crate::log!("[pskt] multisig: output overflow — {} > {}", n, out.len());
+        return 0;
+    }
+    out[..n].copy_from_slice(&tmp[..n]);
+
+    let t_end = Instant::now();
+    crate::log!("[sign_t] serialize: {} ms (PSKB {} B)",
+        (t_end - t_after_sign).as_millis(), n);
+    crate::log!("[sign_t] TOTAL: {} ms", (t_end - t_start).as_millis());
+
+    n
 }
 
 // ─── Phase 3: Firmware verification ───
@@ -353,6 +490,14 @@ pub fn run_firmware_verify(
 // ─── Handle signing (one iteration) ───
 
 /// Advance the signing state machine by one step (called each main loop iteration).
+///
+/// `#[inline(never)]`: this function's body is large (full signing dispatcher
+/// covering KSPT + PSKT × P2PK + multisig + raw-key paths with multiple
+/// nested branches and locals). Inlining it into the caller (`main`) bloats
+/// main's stack frame by ~40 KB even when the signing path isn't exercised,
+/// starving the camera/rqrr path of stack during QR scans. Keeping it
+/// out-of-line confines its frame to only the moment signing actually runs.
+#[inline(never)]
 pub fn handle_signing_step(
     ad: &mut AppData,
     boot_display: &mut display::BootDisplay<'_>,
@@ -421,7 +566,77 @@ pub fn handle_signing_step(
                     ad.qr_manual_frames = false;
 
                     boot_display.draw_saving_screen("Signing TX...");
-                    if let Some(slot) = ad.seed_mgr.active_slot() {
+                    // Step 6: branch on tx envelope format. For incoming
+                    // PSKT, we sign the same way but emit PSKB wire bytes;
+                    // for incoming KSPT, legacy path unchanged.
+                    let is_pskt = ad.tx_input_format.is_pskt();
+                    if is_pskt {
+                        // PSKT path. `ad.signed_qr_buf` holds the decoded
+                        // incoming JSON from parse time — read-only scratch
+                        // for unknown-region splicing. Serializer writes
+                        // into a stack-local buffer and the wrapper copies
+                        // back into signed_qr_buf so the UI sees the output
+                        // at the usual location.
+                        if let Some(slot) = ad.seed_mgr.active_slot() {
+                            if slot.is_raw_key() {
+                                // Raw-key + PSKT isn't supported: the raw-key
+                                // signer doesn't populate InputSig.pubkey_compressed
+                                // (no ExtendedPrivKey to derive from), and
+                                // PSKT emission requires the 33-byte pubkey.
+                                // User can switch to KSPT flow instead.
+                                log!("   ✗ Raw-key signing + PSKT not supported — switch to KSPT");
+                                ad.signed_qr_len = 0;
+                            } else {
+                                let has_multisig = (0..ad.demo_tx.num_inputs).any(|i| {
+                                    let (st, _) = wallet::pskt::analyze_input_script(&ad.demo_tx, i);
+                                    st == wallet::transaction::ScriptType::Multisig
+                                        || st == wallet::transaction::ScriptType::P2SH
+                                });
+                                let format = ad.tx_input_format;
+                                // Scratch: we need both &ad.signed_qr_buf (read)
+                                // AND &mut ad.signed_qr_buf (write). Work around
+                                // by copying the scratch into a stack-local
+                                // slice first; this costs another 4 KB of
+                                // stack on the signing path. Only needed
+                                // when pskt_parsed.unknowns_count > 0 — for
+                                // canonical vectors that's 0 and scratch
+                                // can be an empty slice.
+                                let scratch_empty: [u8; 0] = [];
+                                if has_multisig {
+                                    ad.signed_qr_len = sign_and_serialize_pskt_multisig(
+                                        &mut ad.demo_tx, &ad.seed_mgr,
+                                        &ad.pskt_parsed,
+                                        &scratch_empty,
+                                        format,
+                                        &mut ad.signed_qr_buf,
+                                    );
+                                    let (present, required) =
+                                        wallet::std_pskt::pskt_signature_status(&ad.demo_tx);
+                                    ad.tx_sigs_present = present;
+                                    ad.tx_sigs_required = required;
+                                    if present < required {
+                                        log!("   Partial: {}/{} sigs — pass to next signer", present, required);
+                                    } else {
+                                        log!("   Fully signed: {}/{}", present, required);
+                                    }
+                                } else {
+                                    let pp = slot.passphrase_str();
+                                    let seed = derive_seed(&ad.mnemonic_indices, ad.word_count, pp);
+                                    ad.signed_qr_len = sign_and_serialize_pskt_multi(
+                                        &mut ad.demo_tx, &seed.bytes,
+                                        &ad.pskt_parsed,
+                                        &scratch_empty,
+                                        format,
+                                        &mut ad.signed_qr_buf,
+                                    );
+                                    let (present, required) =
+                                        wallet::std_pskt::pskt_signature_status(&ad.demo_tx);
+                                    ad.tx_sigs_present = present;
+                                    ad.tx_sigs_required = required;
+                                }
+                            }
+                        }
+                    } else if let Some(slot) = ad.seed_mgr.active_slot() {
                         if slot.is_raw_key() {
                             // Raw key: sign with stored privkey directly
                             let mut key = [0u8; 32];
@@ -460,29 +675,26 @@ pub fn handle_signing_step(
                         }
                     }
                     log!("   Signed response: {} bytes", ad.signed_qr_len);
-                    // Hex dump for companion app testing — single line for easy copy
+                    // Hex dump for companion app testing — single line for easy copy.
+                    // PSRAM-backed Vec instead of a stack array so this can hold
+                    // full PSKB hex (5-8 KB) without bloating main's stack frame.
                     if ad.signed_qr_len > 0 {
                         let buf = &ad.signed_qr_buf[..ad.signed_qr_len];
                         let hex_needed = buf.len() * 2;
-                        let mut hex_buf = [0u8; 2100]; // signed_qr_buf max is 1024 = 2048 hex
-                        if hex_needed > hex_buf.len() {
-                            log!("   WARNING: Signed TX is {} bytes — serial hex output skipped.", buf.len());
-                            log!("   Tip: reduce the number of UTXOs (inputs) by compounding first.");
-                            log!("   The signed QR on screen still works — scan it with the companion.");
-                        } else {
-                            let mut pos = 0usize;
-                            for &b in buf.iter() {
-                                let hi = b >> 4;
-                                let lo = b & 0x0F;
-                                hex_buf[pos] = if hi < 10 { b'0' + hi } else { b'a' + hi - 10 };
-                                hex_buf[pos + 1] = if lo < 10 { b'0' + lo } else { b'a' + lo - 10 };
-                                pos += 2;
-                            }
-                            if let Ok(s) = core::str::from_utf8(&hex_buf[..pos]) {
-                                log!("   KSSN_HEX_START");
-                                log!("{}", s);
-                                log!("   KSSN_HEX_END");
-                            }
+                        let mut hex_buf: alloc::vec::Vec<u8> =
+                            alloc::vec![0u8; hex_needed];
+                        let mut pos = 0usize;
+                        for &b in buf.iter() {
+                            let hi = b >> 4;
+                            let lo = b & 0x0F;
+                            hex_buf[pos] = if hi < 10 { b'0' + hi } else { b'a' + hi - 10 };
+                            hex_buf[pos + 1] = if lo < 10 { b'0' + lo } else { b'a' + lo - 10 };
+                            pos += 2;
+                        }
+                        if let Ok(s) = core::str::from_utf8(&hex_buf[..pos]) {
+                            log!("   KSSN_HEX_START");
+                            log!("{}", s);
+                            log!("   KSSN_HEX_END");
                         }
                     }
                 }
