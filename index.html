@@ -378,7 +378,56 @@
                 </div>
             </section>
 
-            <!-- Support KasSigner screen -->
+            <!-- PSKT / PSKB review screen -->
+            <section id="screen-pskt-review" class="screen">
+                <div class="screen-content">
+                    <h2>Review <span id="pskt-format">PSKB</span></h2>
+                    <p class="subtitle">Kaspa-standard partially-signed transaction</p>
+                    <div class="card">
+                        <div class="pskt-header">
+                            <div class="pskt-hdr-cell">
+                                <div class="pskt-label">TX Version</div>
+                                <div class="pskt-value" id="pskt-tx-version">0</div>
+                            </div>
+                            <div class="pskt-hdr-cell">
+                                <div class="pskt-label">Inputs</div>
+                                <div class="pskt-value" id="pskt-in-count">0</div>
+                            </div>
+                            <div class="pskt-hdr-cell">
+                                <div class="pskt-label">Outputs</div>
+                                <div class="pskt-value" id="pskt-out-count">0</div>
+                            </div>
+                        </div>
+
+                        <h3 class="pskt-section-title">Inputs</h3>
+                        <div id="pskt-inputs" class="pskt-list"></div>
+
+                        <h3 class="pskt-section-title">Outputs</h3>
+                        <div id="pskt-outputs" class="pskt-list"></div>
+
+                        <div class="pskt-totals">
+                            <div class="pskt-total-row">
+                                <span>Total in</span>
+                                <span id="pskt-total-in">0</span><span> KAS</span>
+                            </div>
+                            <div class="pskt-total-row">
+                                <span>Total out</span>
+                                <span id="pskt-total-out">0</span><span> KAS</span>
+                            </div>
+                            <div class="pskt-total-row pskt-total-fee">
+                                <span>Fee</span>
+                                <span id="pskt-fee">0</span><span> KAS</span>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-primary" id="btn-pskt-finalize">Finalize + broadcast</button>
+                        <button class="btn btn-secondary" id="btn-pskt-relay">Relay to next signer</button>
+                        <button class="btn btn-link" id="btn-pskt-back">Back</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Marker to keep diff clean -->
             <section id="screen-donate" class="screen">
                 <div class="screen-content" style="text-align:center;max-width:400px;margin:0 auto;padding:0;">
                   <!-- Donate Card — fully self-contained -->

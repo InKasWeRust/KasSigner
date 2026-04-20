@@ -104,6 +104,39 @@ export function import_kpub_raw(raw_payload: Uint8Array, network: string): strin
 export function init(): void;
 
 /**
+ * Inspect a hex payload (output of the multi-frame QR decoder) and
+ * return the detected format as a short string: "pskb", "pskt", or
+ * "unknown". JS uses this to route a decoded payload to either the
+ * PSKT review screen (this module) or the legacy KSPT flow.
+ */
+export function pskt_detect(wire_hex: string): string;
+
+/**
+ * PSKT-native finalize + broadcast. Walks the PSKB JSON once,
+ * assembles a consensus Transaction directly (sig_scripts per input,
+ * with partial sigs + redeem script for P2SH multisig), and submits
+ * via Borsh wRPC. No KSPT intermediate format, no shim — PSKB JSON
+ * in, Kaspa consensus transaction out, TX ID returned on acceptance.
+ */
+export function pskt_finalize_and_broadcast(wire_hex: string, ws_url: string): Promise<string>;
+
+/**
+ * Finalize a fully-signed PSKT/PSKB into a signed KSPT v2 hex blob
+ * that the existing `broadcast_signed` RPC path can consume directly.
+ *
+ * Fails if any multisig input lacks the required M signatures.
+ */
+export function pskt_finalize_to_kspt(wire_hex: string): string;
+
+/**
+ * Parse a PSKT/PSKB payload into a review summary (JSON string).
+ *
+ * `network` is one of "mainnet", "testnet-10/11/12", "simnet",
+ * "devnet" — used to format decoded output addresses for display.
+ */
+export function pskt_summary(wire_hex: string, network: string): string;
+
+/**
  * Reset multi-frame decoder state
  */
 export function reset_qr_decoder(): void;
@@ -136,6 +169,10 @@ export interface InitOutput {
     readonly import_kpub: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly import_kpub_raw: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly init: () => void;
+    readonly pskt_detect: (a: number, b: number) => [number, number];
+    readonly pskt_finalize_and_broadcast: (a: number, b: number, c: number, d: number) => any;
+    readonly pskt_finalize_to_kspt: (a: number, b: number) => [number, number, number, number];
+    readonly pskt_summary: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly reset_qr_decoder: () => void;
     readonly version: () => [number, number];
     readonly wasm_bindgen__convert__closures_____invoke__h200a37f11e89f6da: (a: number, b: number, c: any) => [number, number];
