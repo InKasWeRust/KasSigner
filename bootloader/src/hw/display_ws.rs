@@ -515,47 +515,53 @@ impl<'a> BootDisplay<'a> {
 
     pub fn clear_screen(&mut self) { self.display.clear(COLOR_BG).ok(); }
 
+    /// Draw the multi-frame QR page counter as a 2-line badge in the
+    /// right info column reserved by `draw_qr_screen_left`.
+    ///
+    /// Layout:
+    ///   Line 1: "FRAMES" (label, dim)
+    ///   Line 2: "F/N"    (frame / total frames, teal)
+    ///
+    /// Position: centred in x=240..316 (right column), y-range ≈ 150..210.
+    /// The QR-left layout leaves this strip empty so there's no overlap.
     pub fn draw_frame_counter(&mut self, text: &str) {
-        let tw = measure_body(text);
-        let pad = 8i32;
-        let bx = 320 - tw - pad * 2 - 4;
-        let by = 224i32;
-        let bw = (tw + pad * 2) as u32;
-        let bh = 14u32;
-        let corner = CornerRadii::new(Size::new(4, 4));
-        RoundedRectangle::new(Rectangle::new(Point::new(bx, by), Size::new(bw, bh)), corner)
-            .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
-            .draw(&mut self.display).ok();
-        draw_lato_hint(&mut self.display, text, bx + pad, by + 11, KASPA_TEAL);
+        let col_cx: i32 = 278;
+
+        // Line 1: "FRAMES" label (dim)
+        let label = "FRAMES";
+        let lw = measure_hint(label);
+        draw_lato_hint(&mut self.display, label, col_cx - lw / 2, 160, COLOR_TEXT_DIM);
+
+        // Line 2: frame/total in teal
+        let tw = measure_title(text);
+        draw_lato_title(&mut self.display, text, col_cx - tw / 2, 190, KASPA_TEAL);
     }
 
-    /// Draw multisig signature status overlay on the QR screen.
-    /// Shows "PARTIAL — next signer" or "FULLY SIGNED" with sig count.
+    /// Draw multisig signature status as a 2-line badge in the right
+    /// info column reserved by `draw_qr_screen_left`.
+    ///
+    /// Layout:
+    ///   Line 1: "SIGNER" (label, dim)
+    ///   Line 2: "P/R"    (present/required — teal when fully signed,
+    ///                      orange while partial)
+    ///
+    /// Colour conveys state: orange = more signers needed, teal = done
+    /// and ready to broadcast. This matches the Confirm screen semantics
+    /// and gives signers a clear visual cue when the tx is complete.
     pub fn draw_sig_status(&mut self, present: u8, required: u8) {
-        let (label, color) = if present >= required {
-            ("FULLY SIGNED", KASPA_TEAL)
-        } else {
-            ("PARTIAL", COLOR_ORANGE)
-        };
-        // Status badge bottom-left
-        let tw = measure_hint(label);
-        let pad = 6i32;
-        let corner = CornerRadii::new(Size::new(4, 4));
-        RoundedRectangle::new(
-            Rectangle::new(Point::new(4, 224), Size::new((tw + pad * 2) as u32, 14)),
-            corner,
-        ).into_styled(PrimitiveStyle::with_fill(COLOR_BG)).draw(&mut self.display).ok();
-        draw_lato_hint(&mut self.display, label, 4 + pad, 235, color);
-        // Sig count badge bottom-right (or left of frame counter)
+        let color = if present >= required { KASPA_TEAL } else { COLOR_ORANGE };
+        let col_cx: i32 = 278; // midpoint of x=240..316
+
+        // Line 1: "SIGNER" label (dim)
+        let label = "SIGNER";
+        let lw = measure_hint(label);
+        draw_lato_hint(&mut self.display, label, col_cx - lw / 2, 40, COLOR_TEXT_DIM);
+
+        // Line 2: present/required — teal (done) or orange (partial)
         let mut sc: heapless::String<8> = heapless::String::new();
         core::fmt::Write::write_fmt(&mut sc, format_args!("{present}/{required}")).ok();
-        let sw = measure_hint(sc.as_str());
-        let sx = 4 + pad + tw + 6;
-        RoundedRectangle::new(
-            Rectangle::new(Point::new(sx, 224), Size::new((sw + pad * 2) as u32, 14)),
-            corner,
-        ).into_styled(PrimitiveStyle::with_fill(COLOR_BG)).draw(&mut self.display).ok();
-        draw_lato_hint(&mut self.display, &sc, sx + pad, 235, color);
+        let sw = measure_title(sc.as_str());
+        draw_lato_title(&mut self.display, &sc, col_cx - sw / 2, 70, color);
     }
 
     pub fn draw_back_button(&mut self) {

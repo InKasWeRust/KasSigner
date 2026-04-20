@@ -389,14 +389,19 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                     }
                 }
 
-                // Title with CHANGE/OWN label
+                // Title with CHANGE/OWN label. Display out_idx as
+                // 1-indexed (Output 1, 2, 3...) — matches user
+                // expectation from the summary page which counts
+                // outputs as "1 of 2", "2 of 2", etc. The internal
+                // out_idx stays 0-based for array indexing.
+                let display_idx = out_idx + 1;
                 let mut title = heapless::String::<32>::new();
                 if is_change {
-                    write!(&mut title, "OUTPUT {out_idx} (CHANGE)").ok();
+                    write!(&mut title, "OUTPUT {display_idx} (CHANGE)").ok();
                 } else if is_own {
-                    write!(&mut title, "OUTPUT {out_idx} (OWN)").ok();
+                    write!(&mut title, "OUTPUT {display_idx} (OWN)").ok();
                 } else {
-                    write!(&mut title, "OUTPUT {out_idx}").ok();
+                    write!(&mut title, "OUTPUT {display_idx}").ok();
                 }
 
                 let title_color = if is_change || is_own { KASPA_TEAL } else { COLOR_TEXT };
@@ -407,13 +412,21 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                         if is_change || is_own { KASPA_TEAL } else { KASPA_TEAL }, 1))
                     .draw(&mut self.display).ok();
 
-                // Amount
+                // Amount — horizontally centered as the visual focus of
+                // the output page. The summary page uses a left-aligned
+                // "Total: X KAS" list style (amount at x=30 under "Total:")
+                // because it sits next to Fee and count lines; there
+                // centering would break the column. On output pages the
+                // amount is the headline above the centered address block,
+                // so centering it matches the address block below.
                 let kas = output.value / 100_000_000;
                 let sompi = output.value % 100_000_000;
                 let mut amount_text = heapless::String::<32>::new();
                 write!(&mut amount_text, "{kas}.{sompi:08} KAS").ok();
                 let amount_color = if is_change { COLOR_TEXT_DIM } else { COLOR_ORANGE };
-                draw_lato_title(&mut self.display, amount_text.as_str(), 30, 65, amount_color);
+                let aw = measure_title(amount_text.as_str());
+                draw_lato_title(&mut self.display, amount_text.as_str(),
+                    (320 - aw) / 2, 75, amount_color);
 
                 // Encode destination as a proper kaspa: address when possible.
                 // Two cases we know how to render as bech32:
@@ -450,24 +463,114 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                     // multisig address (e.g. a 2-of-3 escrow or funding
                     // another multisig), not a regular wallet.
                     if is_p2sh {
-                        draw_lato_body(&mut self.display, "To P2SH address:", 30, 88, KASPA_ACCENT);
+                        let tag = "To P2SH address:";
+                        let tw = measure_body(tag);
+                        draw_lato_body(&mut self.display, tag,
+                            (320 - tw) / 2, 95, KASPA_ACCENT);
                     }
 
-                    // Wrap address at 25 chars/line
+                    // Render the address in 3 balanced lines, centered
+                    // both horizontally (per-line) and vertically (as a
+                    // block) in the available area below the amount.
+                    //
+                    // Font: title weight for legibility. Previously used
+                    // body font (~13 px) which left lots of horizontal
+                    // whitespace on our 320 px display with only ~22-23
+                    // chars per line. Title glyphs are ~9 px wide so 23
+                    // chars ≈ 207 px — still comfortably centred with
+                    // ~55 px margins.
+                    //
+                    // Why 3 lines: Kaspa bech32 addresses are ~62-69
+                    // characters. Three balanced lines of ~22 chars each
+                    // are easier to visually track than longer 31-35 char
+                    // rows — shorter rows let the eye rest between them.
+                    //
+                    // Block vertical centering: amount sits at y=65,
+                    // page indicator at y=225, P2SH tag (if present) at
+                    // y=88. Available address area below: y≈100..220
+                    // (P2SH) or y≈80..220 (P2PK). Block height with
+                    // line_h=26 → 78 px → centred top margins computed
+                    // per variant below.
+                    //
+                    // Short-address fallback: if the input is unexpectedly
+                    // short (< 30 chars) draw on a single line. Real Kaspa
+                    // addresses won't hit this path.
                     let bytes = addr.as_bytes();
                     let total_len = bytes.len();
-                    let chars_per_line: usize = 25;
-                    let line_h: i32 = 22;
-                    let mut y_pos: i32 = if is_p2sh { 108 } else { 90 };
-                    let mut offset: usize = 0;
-                    while offset < total_len && y_pos < 195 {
-                        let end = core::cmp::min(offset + chars_per_line, total_len);
-                        if let Ok(line) = core::str::from_utf8(&bytes[offset..end]) {
-                            let lw = measure_body(line);
-                            draw_lato_body(&mut self.display, line, (320 - lw) / 2, y_pos, COLOR_TEXT);
+                    let line_h: i32 = 26;
+
+                    if is_p2sh {
+                        // P2SH tag drawn at y=95 above. Address block
+                        // starts just below the tag and is centred in the
+                        // remaining vertical space. With amount at y=75
+                        // and address block moved up, the signing review
+                        // feels less stretched vertically.
+                        let avail_top: i32 = 90;
+                        let avail_bot: i32 = 220;
+                        if total_len < 30 {
+                            if let Ok(line) = core::str::from_utf8(bytes) {
+                                let lw = measure_title(line);
+                                let y = avail_top + (avail_bot - avail_top) / 2;
+                                draw_lato_title(&mut self.display, line,
+                                    (320 - lw) / 2, y, COLOR_TEXT);
+                            }
+                        } else {
+                            // 3-way balanced split
+                            let third = (total_len + 2) / 3;
+                            let p1 = third;
+                            let p2 = core::cmp::min(2 * third, total_len);
+                            let block_h = 3 * line_h;
+                            let y0 = avail_top + (avail_bot - avail_top - block_h) / 2 + line_h;
+                            if let Ok(l1) = core::str::from_utf8(&bytes[..p1]) {
+                                let lw = measure_title(l1);
+                                draw_lato_title(&mut self.display, l1,
+                                    (320 - lw) / 2, y0, COLOR_TEXT);
+                            }
+                            if let Ok(l2) = core::str::from_utf8(&bytes[p1..p2]) {
+                                let lw = measure_title(l2);
+                                draw_lato_title(&mut self.display, l2,
+                                    (320 - lw) / 2, y0 + line_h, COLOR_TEXT);
+                            }
+                            if let Ok(l3) = core::str::from_utf8(&bytes[p2..]) {
+                                let lw = measure_title(l3);
+                                draw_lato_title(&mut self.display, l3,
+                                    (320 - lw) / 2, y0 + 2 * line_h, COLOR_TEXT);
+                            }
                         }
-                        y_pos += line_h;
-                        offset = end;
+                    } else {
+                        // P2PK: no tag line, more vertical room. Amount at
+                        // y=75; address block starts ~15 px below.
+                        let avail_top: i32 = 70;
+                        let avail_bot: i32 = 220;
+                        if total_len < 30 {
+                            if let Ok(line) = core::str::from_utf8(bytes) {
+                                let lw = measure_title(line);
+                                let y = avail_top + (avail_bot - avail_top) / 2;
+                                draw_lato_title(&mut self.display, line,
+                                    (320 - lw) / 2, y, COLOR_TEXT);
+                            }
+                        } else {
+                            let third = (total_len + 2) / 3;
+                            let p1 = third;
+                            let p2 = core::cmp::min(2 * third, total_len);
+                            let block_h = 3 * line_h;
+                            let y0 = avail_top + (avail_bot - avail_top - block_h) / 2 + line_h;
+                            if let Ok(l1) = core::str::from_utf8(&bytes[..p1]) {
+                                let lw = measure_title(l1);
+                                draw_lato_title(&mut self.display, l1,
+                                    (320 - lw) / 2, y0, COLOR_TEXT);
+                            }
+                            if let Ok(l2) = core::str::from_utf8(&bytes[p1..p2]) {
+                                let lw = measure_title(l2);
+                                draw_lato_title(&mut self.display, l2,
+                                    (320 - lw) / 2, y0 + line_h, COLOR_TEXT);
+                            }
+                            if let Ok(l3) = core::str::from_utf8(&bytes[p2..]) {
+                                let lw = measure_title(l3);
+                                draw_lato_title(&mut self.display, l3,
+                                    (320 - lw) / 2, y0 + 2 * line_h, COLOR_TEXT);
+                            }
+                        }
                     }
                 } else {
                     // Unknown script shape — show a truncated hex preview
@@ -562,6 +665,58 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
             draw_lato_title(&mut self.display, "QR Error", (320 - ew) / 2, 120, COLOR_DANGER);
         }
         // No back button on QR — tap anywhere to go back
+    }
+
+    /// Left-aligned full-height QR, reserving the right 80 px strip
+    /// for the multisig info column (sig status at top, frame counter
+    /// at bottom). Used by the signed-KSPT ShowQR flow where we need
+    /// to display both pieces of info without clipping the QR pixels.
+    ///
+    /// Layout:
+    ///   QR zone:         x=4..236 (232 px), y=4..236 (232 px) — full scale
+    ///   Info column:     x=240..316 (76 px wide)
+    ///     MS badge:      y≈30..90  (2 lines: "MS" header + "P/R")
+    ///     FR# badge:     y≈150..210 (2 lines: "FR#" header + "F/N")
+    ///
+    /// The ms/frame overlays (draw_sig_status + draw_frame_counter)
+    /// render into this reserved column — they target the same x range
+    /// when the layout intent is "info column" rather than "corner badge".
+    pub fn draw_qr_screen_left(&mut self, data: &[u8]) {
+        self.display.clear(COLOR_BG).ok();
+
+        if let Ok(qr) = crate::qr::encoder::encode(data) {
+            let qr_size = qr.size as i32;
+            let max_px = (DISPLAY_H as i32) - 8; // 232 px usable
+            let scale = (max_px / qr_size).max(1);
+            let total = qr_size * scale;
+            // Left-align with 4 px quiet zone.
+            let offset_x: i32 = 4 + ((232 - total) / 2); // centre within left zone
+            let offset_y = (DISPLAY_H as i32 - total) / 2;
+
+            // White QR quiet-zone background
+            Rectangle::new(
+                Point::new(offset_x - 4, offset_y - 4),
+                Size::new((total + 8) as u32, (total + 8) as u32),
+            )
+            .into_styled(PrimitiveStyle::with_fill(COLOR_TEXT))
+            .draw(&mut self.display).ok();
+
+            for y in 0..qr_size {
+                for x in 0..qr_size {
+                    if qr.get(x as u8, y as u8) {
+                        Rectangle::new(
+                            Point::new(offset_x + x * scale, offset_y + y * scale),
+                            Size::new(scale as u32, scale as u32),
+                        )
+                        .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
+                        .draw(&mut self.display).ok();
+                    }
+                }
+            }
+        } else {
+            let ew = measure_title("QR Error");
+            draw_lato_title(&mut self.display, "QR Error", (320 - ew) / 2, 120, COLOR_DANGER);
+        }
     }
 
     /// Draw transaction rejected screen
@@ -923,13 +1078,23 @@ pub fn draw_home_grid(&mut self) {
     }
 
     /// Draw address screen showing the Kaspa address string
-    pub fn draw_address_screen(&mut self, address: &str, checksum_valid: bool, addr_index: Option<u16>, select_label: Option<&str>) {
+    pub fn draw_address_screen(&mut self, address: &str, checksum_valid: bool,
+                               addr_index: Option<u16>, select_label: Option<&str>,
+                               is_change: bool) {
         self.display.clear(COLOR_BG).ok();
 
-        // Title
+        // Title: RECEIVE #N or CHANGE #N when browsing a derived index.
+        // For scanned/imported addresses there's no index, just the
+        // validity label. The `is_change` flag has no effect on the
+        // scanned/no-index variant — scanned addresses don't belong to
+        // a chain from our perspective.
         if let Some(idx) = addr_index {
             let mut title_buf: heapless::String<24> = heapless::String::new();
-            core::fmt::Write::write_fmt(&mut title_buf, format_args!("RECEIVE #{idx}")).ok();
+            if is_change {
+                core::fmt::Write::write_fmt(&mut title_buf, format_args!("CHANGE #{idx}")).ok();
+            } else {
+                core::fmt::Write::write_fmt(&mut title_buf, format_args!("RECEIVE #{idx}")).ok();
+            }
             let tw = measure_header(title_buf.as_str());
             draw_oswald_header(&mut self.display, &title_buf, (320 - tw) / 2, 30, COLOR_TEXT);
         } else {
@@ -984,7 +1149,44 @@ pub fn draw_home_grid(&mut self) {
                 draw_lato_title(&mut self.display, sel_text, sel_x + (sel_w as i32 - sw) / 2, sel_y + 22, COLOR_BG);
             }
 
-            // Bottom nav: [<] [#N] [>] always shown
+            // Chain toggle — positioned ABOVE the #N nav row so the
+            // user sees at a glance which chain they're on before
+            // interacting with the index controls. The button shows
+            // the CURRENT chain spelled out ("Receive" or "Change")
+            // since we have horizontal room to spare. Filled teal
+            // when on change (attention-getting — change addresses
+            // are rarely viewed by the user so it's worth making
+            // the state obvious), card-fill on receive.
+            //
+            // Hidden in select mode — the SELECT button occupies
+            // this vertical slot and multisig cosigner selection
+            // doesn't use the change chain.
+            if select_label.is_none() {
+                let toggle_label = if is_change { "Change" } else { "Receive" };
+                let t_w: u32 = 140;
+                let t_x: i32 = (320 - t_w as i32) / 2;
+                let t_y: i32 = 176;
+                let t_h: u32 = 28;
+                let btn_t = Rectangle::new(Point::new(t_x, t_y), Size::new(t_w, t_h));
+                let (fill, fg) = if is_change {
+                    (KASPA_TEAL, COLOR_BG)
+                } else {
+                    (COLOR_CARD, KASPA_TEAL)
+                };
+                RoundedRectangle::new(btn_t, btn_corner)
+                    .into_styled(PrimitiveStyle::with_fill(fill))
+                    .draw(&mut self.display).ok();
+                RoundedRectangle::new(btn_t, btn_corner)
+                    .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+                    .draw(&mut self.display).ok();
+                let tw = measure_title(toggle_label);
+                draw_lato_title(&mut self.display, toggle_label,
+                    t_x + (t_w as i32 - tw) / 2, t_y + 20, fg);
+            }
+
+            // Bottom nav: [<] [#N] [>] — original wide 3-button layout.
+            // With the chain toggle moved to its own row above, these
+            // reclaim the full width for easier tapping.
             let btn_l = Rectangle::new(Point::new(10, 210), Size::new(50, 28));
             RoundedRectangle::new(btn_l, btn_corner)
                 .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
@@ -4156,39 +4358,54 @@ pub fn draw_home_grid(&mut self) {
 
         let btn_corner = CornerRadii::new(Size::new(6, 6));
 
-        // 2 buttons: Single (ASCII for phone/KasSee) / Multi (V1-raw 2-frame
-        // binary for device-to-device LCD — proven reliable with contrast tune).
+        // 2 buttons:
+        //   Phone/KasSee  — ASCII base58 kpub in a single QR (V6 density).
+        //                   Compatible with phone QR readers and the
+        //                   KasSee web wallet.
+        //   KasSigner     — V1-raw compact binary, 2 frames at V3 density.
+        //                   Device-to-device only (KasSigner receivers;
+        //                   KasSee V1-raw support exists on web but sized
+        //                   for multi-frame). V3 chosen because it's the
+        //                   universal readable density given today's
+        //                   Waveshare OV5640 fixed-focus limits. Once the
+        //                   AF module or OV2640-wide ships, density can
+        //                   move up; until then V3 is the safe ceiling.
+        //
+        // V4-test third button is intentionally hidden — the code path
+        // remains in handlers/export.rs (commented block) for when we
+        // need to re-characterise with new hardware.
         let bw: i32 = 130;
         let bh: i32 = 55;
         let by: i32 = 100;
         let gap: i32 = 16;
         let x0: i32 = (320 - 2 * bw - gap) / 2;
 
-        // "Single" — left
+        // "Wallet" — left. Targets any watch-only wallet QR reader
+        // (KasSee, phone wallet apps, desktop Kaspa wallets). "Wallet"
+        // is the role of the receiving software; KasSigner is a signer,
+        // not a wallet, which makes the distinction meaningful on both
+        // buttons.
         let r0 = Rectangle::new(Point::new(x0, by), Size::new(bw as u32, bh as u32));
         RoundedRectangle::new(r0, btn_corner)
             .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
             .draw(&mut self.display).ok();
-        let tw0 = measure_title("Single");
-        draw_lato_title(&mut self.display, "Single", x0 + (bw - tw0) / 2, by + 35, COLOR_BG);
+        let tw0 = measure_title("Wallet");
+        draw_lato_title(&mut self.display, "Wallet", x0 + (bw - tw0) / 2, by + 35, COLOR_BG);
 
-        // "Multi" — right
+        // "KasSigner" — right
         let x1 = x0 + bw + gap;
         let r1 = Rectangle::new(Point::new(x1, by), Size::new(bw as u32, bh as u32));
         RoundedRectangle::new(r1, btn_corner)
             .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
             .draw(&mut self.display).ok();
-        let tw1 = measure_title("Multi");
-        draw_lato_title(&mut self.display, "Multi", x1 + (bw - tw1) / 2, by + 35, COLOR_BG);
+        let tw1 = measure_title("KasSigner");
+        draw_lato_title(&mut self.display, "KasSigner", x1 + (bw - tw1) / 2, by + 35, COLOR_BG);
 
         // Hints below buttons
-        let h0 = measure_hint("for phone/KasSee");
-        draw_lato_hint(&mut self.display, "for phone/KasSee", x0 + (bw - h0) / 2, by + bh + 14, COLOR_HINT);
-        let h1 = measure_hint("for device scan");
-        draw_lato_hint(&mut self.display, "for device scan", x1 + (bw - h1) / 2, by + bh + 14, COLOR_HINT);
-
-        let h2 = measure_hint("Multi-frame for device-to-device scan");
-        draw_lato_hint(&mut self.display, "Multi-frame for device-to-device scan", (320 - h2) / 2, 216, COLOR_HINT);
+        let h0 = measure_hint("ASCII, 1 QR");
+        draw_lato_hint(&mut self.display, "ASCII, 1 QR", x0 + (bw - h0) / 2, by + bh + 14, COLOR_HINT);
+        let h1 = measure_hint("V1-raw, 2 QR");
+        draw_lato_hint(&mut self.display, "V1-raw, 2 QR", x1 + (bw - h1) / 2, by + bh + 14, COLOR_HINT);
 
         self.draw_back_button();
     }
@@ -4204,39 +4421,102 @@ pub fn draw_home_grid(&mut self) {
 
         let btn_corner = CornerRadii::new(Size::new(6, 6));
 
-        // 2 buttons: Single (for phone/KasSee — fits or auto-splits to V6ish)
-        // / Multi (V3 40 B/frame — proven device-to-device LCD reliable).
+        // 2 buttons:
+        //   Phone/KasSee  — legacy framing (106 B/frame, single-QR if the
+        //                   payload fits 134B else V6-ish multi). Tuned
+        //                   for general-purpose QR readers.
+        //   KasSigner     — device-to-device path. Opens a density
+        //                   sub-screen (Fast V6 / Safe V3) so the user
+        //                   can pick per-peer what their receiver can
+        //                   decode.
         let bw: i32 = 130;
         let bh: i32 = 55;
         let by: i32 = 100;
         let gap: i32 = 16;
         let x0: i32 = (320 - 2 * bw - gap) / 2;
 
-        // "Single" — left
+        // "Wallet" — left. Same rationale as the kpub screen: this
+        // targets any watch-only wallet QR reader (KasSee, phone wallet
+        // apps, desktop Kaspa wallets). Keeping the label consistent
+        // between kpub and KSPT export screens helps users build a
+        // mental model of the two export paths.
         let r0 = Rectangle::new(Point::new(x0, by), Size::new(bw as u32, bh as u32));
         RoundedRectangle::new(r0, btn_corner)
             .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
             .draw(&mut self.display).ok();
-        let tw0 = measure_title("Single");
-        draw_lato_title(&mut self.display, "Single", x0 + (bw - tw0) / 2, by + 35, COLOR_BG);
+        let tw0 = measure_title("Wallet");
+        draw_lato_title(&mut self.display, "Wallet", x0 + (bw - tw0) / 2, by + 35, COLOR_BG);
 
-        // "Multi" — right
+        // "KasSigner" — right
         let x1 = x0 + bw + gap;
         let r1 = Rectangle::new(Point::new(x1, by), Size::new(bw as u32, bh as u32));
         RoundedRectangle::new(r1, btn_corner)
             .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
             .draw(&mut self.display).ok();
-        let tw1 = measure_title("Multi");
-        draw_lato_title(&mut self.display, "Multi", x1 + (bw - tw1) / 2, by + 35, COLOR_BG);
+        let tw1 = measure_title("KasSigner");
+        draw_lato_title(&mut self.display, "KasSigner", x1 + (bw - tw1) / 2, by + 35, COLOR_BG);
 
         // Hints
-        let h0 = measure_hint("for phone/KasSee");
-        draw_lato_hint(&mut self.display, "for phone/KasSee", x0 + (bw - h0) / 2, by + bh + 14, COLOR_HINT);
-        let h1 = measure_hint("for device scan");
-        draw_lato_hint(&mut self.display, "for device scan", x1 + (bw - h1) / 2, by + bh + 14, COLOR_HINT);
+        let h0 = measure_hint("for wallet app");
+        draw_lato_hint(&mut self.display, "for wallet app", x0 + (bw - h0) / 2, by + bh + 14, COLOR_HINT);
+        let h1 = measure_hint("device-to-device");
+        draw_lato_hint(&mut self.display, "device-to-device", x1 + (bw - h1) / 2, by + bh + 14, COLOR_HINT);
 
-        let h2 = measure_hint("Multi-frame for device-to-device scan");
-        draw_lato_hint(&mut self.display, "Multi-frame for device-to-device scan", (320 - h2) / 2, 216, COLOR_HINT);
+        self.draw_back_button();
+    }
+
+    /// Second-screen density picker for the KSPT "KasSigner" export path.
+    /// Two choices:
+    ///   Fast — V6 density (106 B/frame). Fewer QRs per tx, but needs a
+    ///          capable receiver (M5Stack GC0308, future OV5640 AF,
+    ///          OV2640-wide). Fails on today's Waveshare OV5640 fixed-
+    ///          focus at close range.
+    ///   Safe — V3 density (40 B/frame). More QRs, but decodes on every
+    ///          current camera including Waveshare OV5640 fixed-focus.
+    ///
+    /// The user chooses per-peer based on what they know of the receiver.
+    /// Both run through the same `signed_qr_mode` machinery in redraw.rs;
+    /// Fast sets mode=0 + signed_qr_large=false, Safe sets mode=3 +
+    /// signed_qr_large=true.
+    pub fn draw_kspt_density_choice(&mut self) {
+        self.display.clear(COLOR_BG).ok();
+
+        let tw = measure_header("KASSIGNER DENSITY");
+        draw_oswald_header(&mut self.display, "KASSIGNER DENSITY", (320 - tw) / 2, 30, KASPA_TEAL);
+        Line::new(Point::new(20, 40), Point::new(300, 40))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        let btn_corner = CornerRadii::new(Size::new(6, 6));
+
+        let bw: i32 = 130;
+        let bh: i32 = 55;
+        let by: i32 = 100;
+        let gap: i32 = 16;
+        let x0: i32 = (320 - 2 * bw - gap) / 2;
+
+        // "Fast" — left (V6 density)
+        let r0 = Rectangle::new(Point::new(x0, by), Size::new(bw as u32, bh as u32));
+        RoundedRectangle::new(r0, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let tw0 = measure_title("Fast");
+        draw_lato_title(&mut self.display, "Fast", x0 + (bw - tw0) / 2, by + 35, COLOR_BG);
+
+        // "Safe" — right (V3 density)
+        let x1 = x0 + bw + gap;
+        let r1 = Rectangle::new(Point::new(x1, by), Size::new(bw as u32, bh as u32));
+        RoundedRectangle::new(r1, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let tw1 = measure_title("Safe");
+        draw_lato_title(&mut self.display, "Safe", x1 + (bw - tw1) / 2, by + 35, COLOR_BG);
+
+        // Hints
+        let h0 = measure_hint("V6, fewer QRs");
+        draw_lato_hint(&mut self.display, "V6, fewer QRs", x0 + (bw - h0) / 2, by + bh + 14, COLOR_HINT);
+        let h1 = measure_hint("V3, works anywhere");
+        draw_lato_hint(&mut self.display, "V3, works anywhere", x1 + (bw - h1) / 2, by + bh + 14, COLOR_HINT);
 
         self.draw_back_button();
     }

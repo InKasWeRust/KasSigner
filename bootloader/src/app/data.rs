@@ -60,10 +60,23 @@ pub struct AppData {
     pub current_addr_index: u16,
     pub pubkey_cache: [[u8; 32]; 20],       // receive addresses: m/44'/111111'/0'/0/{0..19}
     pub change_pubkey_cache: [[u8; 32]; 5], // change addresses: m/44'/111111'/0'/1/{0..4}
+    /// Which BIP44 chain the address browser (AppState::ShowAddress)
+    /// is currently displaying: false = receive (chain 0), true = change
+    /// (chain 1). Toggled by the R/C button on the address screen.
+    /// Change chain uses `change_pubkey_cache` (5 entries) instead of
+    /// `pubkey_cache` (20 entries + `extra_pubkey`).
+    pub addr_view_is_change: bool,
     pub pubkeys_cached: bool,
     pub acct_key_raw: [u8; 65],
     pub extra_pubkey: [u8; 32],
     pub extra_pubkey_index: u16,
+    /// On-demand change pubkey for indices beyond change_pubkey_cache
+    /// (which only holds 5 entries). Mirrors the receive-chain
+    /// `extra_pubkey` pattern so the R/C toggle in ShowAddress can
+    /// scroll through change addresses at arbitrary indices without
+    /// a hard cap. `extra_change_pubkey_index == 0xFFFF` means empty.
+    pub extra_change_pubkey: [u8; 32],
+    pub extra_change_pubkey_index: u16,
     pub addr_input_buf: [u8; 5],
     pub addr_input_len: u8,
     pub hex_input: [u8; 64],
@@ -127,6 +140,13 @@ pub struct AppData {
     /// Higher = smaller QRs = more scans but more reliable. Paired
     /// with the ShowQrFrameChoice selector for user-chosen tradeoff.
     pub signed_qr_mode: u8,
+    /// Remember whether the user entered the KSPT export flow via the
+    /// "KasSigner" → density (Fast/Safe) sub-screen, so Back from later
+    /// screens (Auto/Manual, Save to SD popup) can return to the density
+    /// picker instead of skipping past it to the top-level Phone/KasSigner
+    /// choice. Set true when ShowQrDensityChoice is entered; reset false
+    /// when the flow starts over (main menu, ShowQrFrameChoice re-entry).
+    pub signed_qr_via_density: bool,
     /// Multisig signature status after signing (for ShowQR display)
     pub tx_sigs_present: u8,
     pub tx_sigs_required: u8,
@@ -255,10 +275,13 @@ pub fn new() -> Self {
             current_addr_index: 0,
             pubkey_cache: [[0u8; 32]; 20],
             change_pubkey_cache: [[0u8; 32]; 5],
+            addr_view_is_change: false,
             pubkeys_cached: false,
             acct_key_raw: [0u8; 65],
             extra_pubkey: [0u8; 32],
             extra_pubkey_index: 0xFFFF,
+            extra_change_pubkey: [0u8; 32],
+            extra_change_pubkey_index: 0xFFFF,
             addr_input_buf: [0u8; 5],
             addr_input_len: 0,
             hex_input: [0u8; 64],
@@ -300,6 +323,7 @@ pub fn new() -> Self {
             signed_qr_nframes: 0,
             signed_qr_large: false,
             signed_qr_mode: 0,
+            signed_qr_via_density: false,
             tx_sigs_present: 0,
             tx_sigs_required: 0,
             scanned_addr: [0u8; 80],

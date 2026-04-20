@@ -22,7 +22,7 @@
 
 use crate::log;
 use crate::{app::data::AppData, hw::display, hw::sdcard, ui::seed_manager, hw::touch, wallet};
-use crate::app::signing::derive_pubkey_from_acct;
+use crate::app::signing::{derive_pubkey_from_acct, derive_change_pubkey_from_acct};
 /// Handle touch events for export/display screens (address, QR, kpub, xprv).
 #[inline(never)]
 #[allow(unused_assignments)]
@@ -55,33 +55,67 @@ pub fn handle_export_touch(
                     }
                     crate::app::input::AppState::ShowAddress => {
                         let is_single_addr = ad.word_count == 1; // raw key = one address only
+                        let is_change = ad.addr_view_is_change;
                         if is_back {
                             ad.scanned_addr_len = 0;
+                            ad.addr_view_is_change = false;
                             ad.app.go_main_menu();
+                        } else if !is_single_addr && ad.scanned_addr_len == 0
+                            && (90..=230).contains(&x) && (176..=204).contains(&y) {
+                            // Chain toggle row — button is x=90..230, y=176..204.
+                            // Tap toggles receive ↔ change and resets the
+                            // index to 0 so we always land on a valid slot.
+                            ad.addr_view_is_change = !ad.addr_view_is_change;
+                            ad.current_addr_index = 0;
                         } else if !is_single_addr && ad.scanned_addr_len == 0 && (10..=60).contains(&x) && y >= 210 {
-                            // Bottom [<] button — previous address index
+                            // Bottom [<] — previous index (both chains).
+                            // On change: beyond the 5-slot cache, derive
+                            // into extra_change_pubkey on demand so the
+                            // user can scroll back to any previously
+                            // visited index without re-deriving.
                             if ad.current_addr_index > 0 {
                                 ad.current_addr_index -= 1;
-                                if ad.current_addr_index >= 20 && ad.extra_pubkey_index != ad.current_addr_index {
+                                if is_change {
+                                    if ad.current_addr_index >= 5
+                                        && ad.extra_change_pubkey_index != ad.current_addr_index {
+                                        derive_change_pubkey_from_acct(&ad.acct_key_raw,
+                                            ad.current_addr_index, &mut ad.extra_change_pubkey);
+                                        ad.extra_change_pubkey_index = ad.current_addr_index;
+                                    }
+                                } else if ad.current_addr_index >= 20
+                                    && ad.extra_pubkey_index != ad.current_addr_index {
                                     derive_pubkey_from_acct(&ad.acct_key_raw,
                                         ad.current_addr_index, &mut ad.extra_pubkey);
                                     ad.extra_pubkey_index = ad.current_addr_index;
                                 }
                             }
                         } else if !is_single_addr && ad.scanned_addr_len == 0 && (260..=310).contains(&x) && y >= 210 {
-                            // Bottom [>] button — next address index (no upper limit)
+                            // Bottom [>] — next index (both chains, no cap).
+                            // Symmetric with receive: beyond cache size,
+                            // derive into extra_{change_,}pubkey on demand.
                             ad.current_addr_index += 1;
-                            if ad.current_addr_index >= 20 && ad.extra_pubkey_index != ad.current_addr_index {
+                            if is_change {
+                                if ad.current_addr_index >= 5
+                                    && ad.extra_change_pubkey_index != ad.current_addr_index {
+                                    derive_change_pubkey_from_acct(&ad.acct_key_raw,
+                                        ad.current_addr_index, &mut ad.extra_change_pubkey);
+                                    ad.extra_change_pubkey_index = ad.current_addr_index;
+                                }
+                            } else if ad.current_addr_index >= 20
+                                && ad.extra_pubkey_index != ad.current_addr_index {
                                 derive_pubkey_from_acct(&ad.acct_key_raw,
                                     ad.current_addr_index, &mut ad.extra_pubkey);
                                 ad.extra_pubkey_index = ad.current_addr_index;
                             }
                         } else if !is_single_addr && ad.scanned_addr_len == 0 && (110..=210).contains(&x) && y >= 210 {
-                            // Bottom [#N] button — open index picker
+                            // Bottom [#N] — open index picker
                             ad.addr_input_len = 0;
                             ad.app.state = crate::app::input::AppState::AddrIndexPicker;
-                        } else if (40..210).contains(&y) {
-                            // Tap address area → show QR
+                        } else if (40..176).contains(&y) {
+                            // Tap address area → show QR. Upper bound
+                            // trimmed from 210 to 176 so it doesn't
+                            // swallow the chain-toggle row above the
+                            // bottom nav.
                             ad.app.state = crate::app::input::AppState::ShowAddressQR;
                         }
                         needs_redraw = true;
@@ -170,7 +204,22 @@ pub fn handle_export_touch(
                                                 ad.app.state = crate::app::input::AppState::MultisigShowAddress;
                                             } else {
                                                 ad.current_addr_index = val;
-                                                if ad.current_addr_index >= 20 && ad.extra_pubkey_index != ad.current_addr_index {
+                                                // Derive-on-demand for both chains when
+                                                // the typed index falls outside its cache.
+                                                // Without this, change indices ≥ 5 land on
+                                                // an all-zero pubkey slot and render as
+                                                // kaspa:qqqqq...; scrolling with [<]/[>]
+                                                // fixes it because the nav handlers DO
+                                                // derive. The picker must mirror that.
+                                                if ad.addr_view_is_change {
+                                                    if ad.current_addr_index >= 5
+                                                        && ad.extra_change_pubkey_index != ad.current_addr_index {
+                                                        derive_change_pubkey_from_acct(&ad.acct_key_raw,
+                                                            ad.current_addr_index, &mut ad.extra_change_pubkey);
+                                                        ad.extra_change_pubkey_index = ad.current_addr_index;
+                                                    }
+                                                } else if ad.current_addr_index >= 20
+                                                    && ad.extra_pubkey_index != ad.current_addr_index {
                                                     derive_pubkey_from_acct(&ad.acct_key_raw,
                                                         ad.current_addr_index, &mut ad.extra_pubkey);
                                                     ad.extra_pubkey_index = ad.current_addr_index;
@@ -293,19 +342,22 @@ pub fn handle_export_touch(
                             ad.kpub_frame = 0;
                             ad.app.state = crate::app::input::AppState::ExportChoice;
                         } else if x < 160 {
-                            // Left: Single (1 frame — full kpub in one QR)
-                            // Legacy ASCII base58 "kpub..." — compatible with
-                            // phones, KasSee, other wallets. ad.kpub_data
-                            // already holds the ASCII form from derivation.
+                            // Left: Phone/KasSee (1 QR — full kpub as ASCII)
+                            // Legacy base58 "kpub..." — compatible with
+                            // phones, KasSee web, other Kaspa wallets.
+                            // ad.kpub_data already holds the ASCII form
+                            // from derivation.
                             ad.kpub_user_nframes = 1;
                             ad.app.state = crate::app::input::AppState::ExportKpub;
                         } else {
-                            // Right: Multi — 2-frame V1-raw compact binary
-                            // (1-byte header 0x01 + 78 raw bytes = 79 bytes,
-                            // split across 2 V3 QRs at 40 B/frame). Proven
-                            // reliable device-to-device LCD scanning with
-                            // the contrast tune. Receiver auto-detects
-                            // V1-raw via import_kpub_any().
+                            // Right: KasSigner — 2-frame V1-raw compact
+                            // binary (1-byte header 0x01 + 78 raw bytes =
+                            // 79 bytes total, split across 2 V3 QRs at
+                            // 40 B/frame). Device-to-device only; V3 is
+                            // the universal readable density today. When
+                            // better cameras (OV5640 AF, OV2640 wide)
+                            // ship we can upgrade this to V4/V5 — wire
+                            // format is the same.
                             let mut raw_payload = [0u8; wallet::xpub::XPUB_PAYLOAD_LEN];
                             match wallet::xpub::kpub_ascii_to_raw(
                                 &ad.kpub_data[..ad.kpub_len],
@@ -326,6 +378,53 @@ pub fn handle_export_touch(
                                     ad.app.state = crate::app::input::AppState::ExportKpub;
                                 }
                             }
+
+                            // ═════════════════════════════════════════════
+                            // V4 READABILITY TEST — diagnostic dead code.
+                            // Preserved for re-enabling once better cameras
+                            // (OV5640 AF, OV2640 wide, future sensors) ship.
+                            // To re-enable: change the kpub export screen
+                            // to a 3-button layout, add an else-if branch
+                            // above this block, and copy the code below
+                            // back into live control flow. See git history
+                            // for the 3-button variant of this handler.
+                            //
+                            // Generates a 330-byte dummy payload and routes
+                            // it through the KSPT multi-frame render path
+                            // with signed_qr_mode=2 (V4 density, 55 B/frame):
+                            //   mode 2 → n_frames = ceil(330/55) = 6
+                            //   balanced = ceil(330/6) = 55 bytes/frame
+                            //   wire packet = 55 + 3 header = 58 bytes
+                            //   58 > V3 cap (53) → encoder picks V4 (cap 78)
+                            //
+                            // Test result on OV5640 fixed-focus (19 Apr 2026):
+                            // V4 decodes only intermittently (2/6 frames in
+                            // 15 minutes of active scanning). NOT currently
+                            // viable as device-to-device default. Re-test
+                            // when AF module arrives.
+                            //
+                            // /*
+                            // const V4SEQ_LEN: usize = 330;
+                            // for i in 0..V4SEQ_LEN {
+                            //     ad.signed_qr_buf[i] = match i % 8 {
+                            //         0 => b'V',
+                            //         1 => b'4',
+                            //         2 => b'S',
+                            //         3 => b'E',
+                            //         4 => b'Q',
+                            //         5 => (i / 8) as u8,
+                            //         6 => 0xA5,
+                            //         _ => 0x5A,
+                            //     };
+                            // }
+                            // ad.signed_qr_len = V4SEQ_LEN;
+                            // ad.signed_qr_large = true;
+                            // ad.signed_qr_mode = 2;
+                            // ad.signed_qr_nframes = 0;
+                            // ad.signed_qr_frame = 0;
+                            // ad.app.state = crate::app::input::AppState::ShowQR;
+                            // */
+                            // ═════════════════════════════════════════════
                         }
                         needs_redraw = true;
                     }
@@ -777,7 +876,16 @@ pub fn cycle_kpub_qr(
                 frame_buf[3..3 + frag_len]
                     .copy_from_slice(&ad.kpub_data[offset..offset + frag_len]);
                 let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
-                boot_display.draw_qr_screen(&frame_buf[..qr_len]);
+                // Mirror redraw.rs kpub multi-frame: left-aligned QR +
+                // FRAMES counter in the right info column. Without this,
+                // the auto-cycle loop would paint the first frame
+                // correctly but subsequent frames would snap back to
+                // centre with a bottom-right counter.
+                boot_display.draw_qr_screen_left(&frame_buf[..qr_len]);
+                let mut fc_buf: heapless::String<8> = heapless::String::new();
+                core::fmt::Write::write_fmt(&mut fc_buf,
+                    format_args!("{}/{}", ad.kpub_frame + 1, ad.kpub_nframes)).ok();
+                boot_display.draw_frame_counter(&fc_buf);
             }
         }
     }

@@ -133,6 +133,24 @@ pub fn derive_pubkey_from_acct(
     }
 }
 
+/// Change-chain variant of `derive_pubkey_from_acct`. Derives from
+/// m/44'/111111'/0'/1/addr_index. Used by the address browser when
+/// the user scrolls past the cached change range (change_pubkey_cache
+/// only holds the first 5 entries; higher indices derive on demand).
+#[inline(never)]
+pub fn derive_change_pubkey_from_acct(
+    acct_raw: &[u8; 65],
+    addr_index: u16,
+    out: &mut [u8; 32],
+) {
+    let acct = wallet::bip32::ExtendedPrivKey::from_raw(acct_raw);
+    if let Ok(key) = wallet::bip32::derive_change_key(&acct, addr_index) {
+        if let Ok(pk) = key.public_key_x_only() {
+            *out = pk;
+        }
+    }
+}
+
 /// Sign a transaction and serialize the response (single key — backward compat)
 #[inline(never)]
 pub fn sign_and_serialize(
@@ -160,12 +178,20 @@ pub fn sign_and_serialize_multi(
 
 /// Sign a transaction with multisig support: tries all loaded seed slots,
 /// signs P2PK and multisig inputs, outputs v2 KSPT with partial/full sigs.
+///
+/// Timing instrumentation (v1.0.3): prints elapsed milliseconds for each
+/// phase (seed derivation, multisig sign, serialize) so we can locate the
+/// real bottleneck of the ~30-40 s total signing time. Logs appear on the
+/// serial monitor prefixed with `[sign_t]`.
 #[inline(never)]
 pub fn sign_and_serialize_multisig(
     tx: &mut wallet::transaction::Transaction,
     seed_mgr: &seed_manager::SeedManager,
     buf: &mut [u8; 1024],
 ) -> usize {
+    use esp_hal::time::Instant;
+    let t_start = Instant::now();
+
     // Build seeds array from loaded slots (cap at 8 to limit stack usage)
     const MAX_SIGN_SLOTS: usize = 8;
     let mut seeds = [([0u8; 64], false); MAX_SIGN_SLOTS];
@@ -190,11 +216,18 @@ pub fn sign_and_serialize_multisig(
         seeds[seed_idx] = (seed.bytes, true);
         seed_idx += 1;
     }
+    let t_after_seeds = Instant::now();
+    let seed_ms = (t_after_seeds - t_start).as_millis();
+    crate::log!("[sign_t] seed derivation: {} ms ({} slots)", seed_ms, seed_idx);
 
     let signed = wallet::pskt::sign_transaction_multisig(
         tx, &seeds, wallet::transaction::SigHashType::All,
     );
-    match signed {
+    let t_after_sign = Instant::now();
+    let sign_ms = (t_after_sign - t_after_seeds).as_millis();
+    crate::log!("[sign_t] multisig sign: {} ms ({} inputs)", sign_ms, tx.num_inputs);
+
+    let result = match signed {
         Ok(_new_sigs) => {
             // Use v2 serialization if any input is multisig or P2SH, else v1 for compat
             let has_multisig = (0..tx.num_inputs).any(|i| {
@@ -208,7 +241,14 @@ pub fn sign_and_serialize_multisig(
             }
         }
         Err(_) => 0,
-    }
+    };
+    let t_end = Instant::now();
+    let ser_ms = (t_end - t_after_sign).as_millis();
+    let total_ms = (t_end - t_start).as_millis();
+    crate::log!("[sign_t] serialize: {} ms (KSPT {} B)", ser_ms, result);
+    crate::log!("[sign_t] TOTAL: {} ms", total_ms);
+
+    result
 }
 
 // ─── Phase 3: Firmware verification ───
@@ -363,6 +403,10 @@ pub fn handle_signing_step(
                     boot_display.draw_saving_screen("Deriving addresses...");
                     let pp = ad.seed_mgr.active_slot().map(|s| s.passphrase_str()).unwrap_or("");
                     derive_all_pubkeys(&ad.mnemonic_indices, ad.word_count, pp, &mut ad.pubkey_cache, &mut ad.acct_key_raw);
+                    // Also derive change chain so ShowAddress R/C toggle
+                    // works after signing without requiring re-entry
+                    // through the View Address menu.
+                    derive_change_pubkeys(&ad.acct_key_raw, &mut ad.change_pubkey_cache);
                     ad.pubkeys_cached = true;
                 }
                 log!("   Signing input {}/{}...", input_idx + 1, ad.app.total_inputs);
@@ -444,6 +488,31 @@ pub fn handle_signing_step(
                 }
 
                 ad.app.advance_signing();
+
+                // After all inputs are signed, advance_signing() lands
+                // us on ShowQrFrameChoice (the "Wallet vs KasSigner"
+                // picker). That picker only makes sense for multisig
+                // signing — a single-sig tx has no second signer to
+                // receive the KSPT, it goes straight to a wallet for
+                // broadcast. Skip the picker for single-sig and go
+                // directly to ShowQR (centred, Wallet-compatible legacy
+                // framing). `signed_qr_via_density` is cleared so Back
+                // nav from ShowQR returns to main rather than to a
+                // density picker the user never saw.
+                if let crate::app::input::AppState::ShowQrFrameChoice = ad.app.state {
+                    let is_multisig = (0..ad.demo_tx.num_inputs).any(|i| {
+                        let (st, _) = wallet::pskt::analyze_input_script(&ad.demo_tx, i);
+                        st == wallet::transaction::ScriptType::Multisig
+                            || st == wallet::transaction::ScriptType::P2SH
+                    });
+                    if !is_multisig {
+                        ad.signed_qr_large = false;
+                        ad.signed_qr_mode = 0;
+                        ad.signed_qr_nframes = 0;
+                        ad.signed_qr_via_density = false;
+                        ad.app.state = crate::app::input::AppState::ShowQR;
+                    }
+                }
                 ad.needs_redraw = true;
             }
         }
@@ -478,11 +547,24 @@ pub fn cycle_signed_qr(
                     frame_buf[3..3 + frag_len]
                         .copy_from_slice(&ad.signed_qr_buf[offset..offset + frag_len]);
                     let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
-                    boot_display.draw_qr_screen(&frame_buf[..qr_len]);
+                    // Match unified redraw.rs ShowQR logic (v1.0.3):
+                    // multi-frame QRs always use the left-aligned layout
+                    // so the right info column stays available for the
+                    // FRAMES counter. SIGNER badge only for multisig.
+                    let is_multisig = (0..ad.demo_tx.num_inputs).any(|i| {
+                        let (st, _) = wallet::pskt::analyze_input_script(&ad.demo_tx, i);
+                        st == wallet::transaction::ScriptType::Multisig
+                            || st == wallet::transaction::ScriptType::P2SH
+                    });
+                    boot_display.draw_qr_screen_left(&frame_buf[..qr_len]);
                     let mut fc_buf: heapless::String<8> = heapless::String::new();
                     core::fmt::Write::write_fmt(&mut fc_buf,
                         format_args!("{}/{}", ad.signed_qr_frame + 1, ad.signed_qr_nframes)).ok();
                     boot_display.draw_frame_counter(&fc_buf);
+                    if is_multisig {
+                        boot_display.draw_sig_status(
+                            ad.tx_sigs_present, ad.tx_sigs_required);
+                    }
                 }
             }
         }

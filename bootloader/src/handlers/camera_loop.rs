@@ -625,6 +625,31 @@ pub fn run_camera_cycle(
                     MF_LEN = 0;
                     for i in 0..20 { MF_RECEIVED[i] = false; }
                     for i in 0..20 { MF_FRAG_SIZE[i] = 0; }
+
+                    // Force chrome repaint on re-entry to a camera state.
+                    // The "one-time init" block below only fires when
+                    // cam_status == SensorReady (i.e. cold boot into the
+                    // first camera screen). After the first entry the
+                    // sensor stays streaming, so a subsequent entry (e.g.
+                    // CameraSettings → SettingsMenu → ScanQR) skips that
+                    // block entirely and relies on redraw_screen having
+                    // painted the ScanQR chrome. This can race with the
+                    // viewfinder blit — particularly when cam_tune_active
+                    // was just toggled — producing a broken overlay where
+                    // only the visor paints and back/header are missing.
+                    //
+                    // Fix: always repaint chrome on re-entry. Cheap (one
+                    // back icon + header line) and guarantees the layout
+                    // the blit will overlay is correct for the current
+                    // mode. Branch on cam_tune_active so CameraSettings
+                    // re-entries also work.
+                    #[cfg(feature = "waveshare")]
+                    if ad.cam_tune_active {
+                        boot_display.draw_cam_tune_overlay(
+                            ad.cam_tune_param, &ad.cam_tune_vals);
+                    } else {
+                        boot_display.draw_camera_screen_chrome();
+                    }
                 }
 
                 // One-time init

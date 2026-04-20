@@ -514,18 +514,60 @@ pub fn handle_menu_touch(
                             ad.signed_qr_nframes = 0;
                             ad.signed_qr_large = false;
                             ad.signed_qr_mode = 0;
+                            ad.signed_qr_via_density = false;
                             ad.app.go_main_menu();
                         } else if x < 160 {
-                            // Left: Single — standard frames for KasSee/phone
-                            // (legacy 106 B/frame, single-QR if payload fits 134B,
-                            // auto-splits to V6-ish if bigger).
+                            // Left: Phone/KasSee — standard legacy framing
+                            // (mode 0 + signed_qr_large=false → 106 B/frame,
+                            // single-QR if payload fits 134B else auto-splits
+                            // to V6-ish multi). Tuned for general QR readers.
+                            ad.signed_qr_large = false;
+                            ad.signed_qr_mode = 0;
+                            ad.signed_qr_nframes = 0;
+                            ad.signed_qr_via_density = false;
+                            ad.app.state = crate::app::input::AppState::ShowQR;
+                        } else {
+                            // Right: KasSigner — open density sub-screen.
+                            // Flag remembers that downstream screens
+                            // (ShowQrModeChoice, ShowQrPopup) should
+                            // return here to density picker on back,
+                            // not jump straight to ShowQrFrameChoice.
+                            ad.signed_qr_nframes = 0;
+                            ad.signed_qr_via_density = true;
+                            ad.app.state =
+                                crate::app::input::AppState::ShowQrDensityChoice;
+                        }
+                        ad.needs_redraw = true;
+                    }
+                    crate::app::input::AppState::ShowQrDensityChoice => {
+                        if is_back {
+                            // Back to Phone/KasSigner choice. Clear the
+                            // via_density flag — we're exiting that path.
+                            ad.signed_qr_nframes = 0;
+                            ad.signed_qr_large = false;
+                            ad.signed_qr_mode = 0;
+                            ad.signed_qr_via_density = false;
+                            ad.app.state =
+                                crate::app::input::AppState::ShowQrFrameChoice;
+                        } else if x < 160 {
+                            // Left: Fast — V6 density (mode 0 +
+                            // signed_qr_large=false, 106 B/frame). Fewer
+                            // QRs per tx but needs a capable receiver
+                            // (M5Stack GC0308, future OV5640 AF, OV2640
+                            // wide). Same encoding as Phone/KasSee; users
+                            // who know their peer has a good camera get
+                            // the efficient path without going through
+                            // the phone-compatible button name.
                             ad.signed_qr_large = false;
                             ad.signed_qr_mode = 0;
                             ad.signed_qr_nframes = 0;
                             ad.app.state = crate::app::input::AppState::ShowQR;
                         } else {
-                            // Right: Multi — V3 mode (40 B/frame, binary KSPT,
-                            // proven reliable for device-to-device LCD scanning).
+                            // Right: Safe — V3 density (mode 3,
+                            // signed_qr_large=true, 40 B/frame). More
+                            // QRs, but decodes on every current camera
+                            // including Waveshare OV5640 fixed-focus at
+                            // close range. Universal ceiling today.
                             ad.signed_qr_large = true;
                             ad.signed_qr_mode = 3;
                             ad.signed_qr_nframes = 0;
@@ -535,14 +577,25 @@ pub fn handle_menu_touch(
                     }
                     crate::app::input::AppState::ShowQR => {
                         if is_back {
-                            // Reset nframes so re-entry shows mode choice again
+                            // Reset per-tx QR state; keep via_density so
+                            // we can route back to the right upstream
+                            // screen.
                             ad.signed_qr_nframes = 0;
                             ad.signed_qr_large = false;
                             // If we came from a live multisig descriptor, go back there
                             if ad.ms_creating.active {
                                 ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                            } else if ad.signed_qr_via_density {
+                                // Came via KasSigner → Density (Fast/Safe)
+                                // — return to the density picker so the
+                                // user can flip density without restarting.
+                                ad.app.state =
+                                    crate::app::input::AppState::ShowQrDensityChoice;
                             } else {
-                                ad.app.go_main_menu();
+                                // Phone/KasSee direct path → return to the
+                                // top-level Phone/KasSigner choice.
+                                ad.app.state =
+                                    crate::app::input::AppState::ShowQrFrameChoice;
                             }
                         } else if ad.signed_qr_len > 0 {
                             if ad.qr_manual_frames && ad.signed_qr_nframes > 1 {

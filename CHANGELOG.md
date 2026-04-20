@@ -34,6 +34,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Descriptor load error bailout**: parse failure or invalid file size now returns to main menu after the error screen (prevents re-tapping the same bad file on the list).
 - New helper: `parse_descriptor()` in `handlers/sd.rs` — validates prefix/suffix, single-digit M, exactly 64 hex chars per pubkey, comma separators, max keys per `MAX_MULTISIG_KEYS`.
 
+### Added — UX polish & label alignment
+- **SIGNER / FRAMES badges on multi-frame QR screens.** Labels renamed from MS→SIGNER and FR#→FRAMES on both Waveshare and M5Stack. Color logic: teal when `present >= required` (fully signed), orange when partial. SIGNER badge only renders when the tx is multisig; FRAMES badge always renders for multi-frame QR regardless of signature type.
+- **Multi-QR layout unified.** Rule: ANY multi-frame QR → left-aligned with FRAMES counter (right column). SIGNER badge added only on multisig. Single-frame QR → centered, no chrome. Fixes the descriptor multi-QR centered bug, kpub multi-QR snap-back on auto-cycle, and signed-KSPT auto-cycle skipping the signed_qr_large flag.
+- **Single-sig skips density picker.** After `advance_signing()`, if the transaction has no P2SH/Multisig inputs, the flow jumps directly to `ShowQR` with `mode=0` (legacy, wallet-compatible). Multisig still shows the picker → optional density sub-screen. Removes one unnecessary UI step for the common case.
+- **Change address view toggle on address browser.** Added `addr_view_is_change: bool` field on `AppData`. New Receive/Change button above the `#N` nav, H-centered x=90..230 y=176..204, full-word label, teal fill when toggled to change. Bottom nav restored to the original 3-button wide `[<] [#N] [>]`. Tap-for-QR area trimmed to y=40..176 to avoid collision.
+- **Change chain navigation now unlimited.** Mirrored the receive chain's on-demand derivation pattern for change addresses. Added `extra_change_pubkey: [u8; 32]` and `extra_change_pubkey_index: u16` fields on `AppData`. New helper `derive_change_pubkey_from_acct()` mirrors `derive_pubkey_from_acct()` but using `derive_change_key`. Both `[<]` and `[>]` handlers now derive on-demand for both chains beyond cache (receive: 20+, change: 5+). Removed the `max_change_idx` cap.
+- **`AddrIndexPicker` GO branches on chain.** Typing an index via the numeric picker on the change chain now correctly lands on an on-demand-derived address (was landing on empty slot `kaspa:qqqqq...` because only the nav buttons triggered derivation). GO now writes into `extra_change_pubkey` when `val ≥ 5 && addr_view_is_change`, or `extra_pubkey` when `val ≥ 20 && !addr_view_is_change`.
+
+### Fixed — Change address derivation
+- **CRITICAL: all change addresses rendered as `kaspa:qqqqqqqqq...`** Root cause: `View Address` menu handlers in `handlers/seed.rs` (both xprv and mnemonic paths) and the auto-derive path in `app/signing.rs` only called `derive_pubkeys()` for the receive chain, never `derive_change_pubkeys()`. Result: `change_pubkey_cache` stayed all-zero, and every change address was the bech32m of a 32-byte all-zero pubkey. Fix: all three paths now call `derive_change_pubkeys(&ad.acct_key_raw, &mut ad.change_pubkey_cache)` after receive derivation. Affected the change-chain view toggle that landed in this release, but also fixes latent incorrectness in any prior code that consulted `change_pubkey_cache` directly.
+
+### Changed — Labels
+- **"Phone" → "Wallet"** on kpub export screen and associated hints. KasSigner is a SIGNER, not a wallet; "Wallet" = role of receiving software (KasSee, phone wallet apps, desktop Kaspa wallets). Applies to: kpub screen ("Wallet" button), KSPT screen ("for wallet app" hint).
+- **Output header numbering 1-indexed.** QR display now shows "OUTPUT 1", "OUTPUT 2" instead of zero-indexed "OUTPUT 0". "To P2SH address:" tag is center-aligned.
+
 ### Changed
 - Bootloader `Cargo.toml` version bumped to 1.0.3
 - `fw_update::CURRENT_VERSION` bumped to 10003

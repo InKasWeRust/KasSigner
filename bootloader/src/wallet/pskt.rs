@@ -733,6 +733,32 @@ pub fn sign_transaction_multisig(
         }
     }
 
+    // Pre-compute account-level x-only pubkey for each loaded seed ONCE
+    // for the whole tx (rather than per-input). `acct_xonly_cache[s]`
+    // is the seed's depth-3 x-only pubkey; if it matches a multisig
+    // position elsewhere in the tx, we use it directly and skip
+    // address-level derivation entirely.
+    let mut acct_xonly_cache: [Option<[u8; 32]>; 8] =
+        [None, None, None, None, None, None, None, None];
+    for s in 0..num_seeds {
+        if let Some(ref acct) = acct_keys[s] {
+            if let Ok(pk) = acct.public_key_x_only() {
+                acct_xonly_cache[s] = Some(pk);
+            }
+        }
+    }
+
+    // Address-level pubkey tables, built lazily per seed. Only built
+    // when a seed has no account-level match AND we hit an input that
+    // requires an address-level search. Stored on the stack — each
+    // table is ~1.3 KB (40 × 32-byte x-only pubkeys), max 8 tables =
+    // ~10 KB worst case (fine for ESP32-S3's 512 KB SRAM).
+    //
+    // Using Option so we don't pay the build cost until needed, and
+    // `built` tracks which slots have been populated.
+    let mut addr_tables: [Option<bip32::AddrPubkeyTable>; 8] =
+        [None, None, None, None, None, None, None, None];
+
     for i in 0..tx.num_inputs {
         let (script_type, ms_info) = analyze_input_script(tx, i);
 
@@ -775,6 +801,22 @@ pub fn sign_transaction_multisig(
 
             ScriptType::Multisig | ScriptType::P2SH => {
                 if let Some(ref ms) = ms_info {
+                    // Per-input: figure out which position each seed
+                    // matches via the cached account-level pubkey. This
+                    // is a few byte-comparisons, effectively free.
+                    let mut seed_pos_match: [Option<u8>; 8] =
+                        [None, None, None, None, None, None, None, None];
+                    for s in 0..num_seeds {
+                        if let Some(pk) = acct_xonly_cache[s] {
+                            for p in 0..ms.n as usize {
+                                if pk == ms.pubkeys[p] {
+                                    seed_pos_match[s] = Some(p as u8);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
                     for pos in 0..ms.n as usize {
                         // Already have a sig for this position? skip
                         let already = (0..tx.inputs[i].sig_count as usize)
@@ -785,34 +827,52 @@ pub fn sign_transaction_multisig(
 
                         for s in 0..num_seeds {
                             if let Some(ref acct) = acct_keys[s] {
-                                // Try address-level match first (m/44'/111111'/0'/0/idx)
-                                if let Some((idx, is_chg)) = bip32::find_address_index_for_pubkey(acct, target_pk) {
-                                    let key_result = if is_chg {
-                                        bip32::derive_change_key(acct, idx)
-                                    } else {
-                                        bip32::derive_address_key(acct, idx)
-                                    };
-                                    if let Ok(addr_key) = key_result {
-                                        let privkey = addr_key.private_key_bytes();
-                                        if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
-                                            let sc = tx.inputs[i].sig_count as usize;
-                                            if sc < MAX_SIGS_PER_INPUT {
-                                                tx.inputs[i].sigs[sc].signature = sig.bytes;
-                                                tx.inputs[i].sigs[sc].sighash_type = sighash_type.to_byte();
-                                                tx.inputs[i].sigs[sc].pubkey_pos = pos as u8;
-                                                tx.inputs[i].sigs[sc].present = true;
-                                                tx.inputs[i].sig_count += 1;
-                                                total_new_sigs += 1;
-                                            }
-                                            break;
+                                // Fast path: account-level match.
+                                // Zero derivations.
+                                if seed_pos_match[s] == Some(pos as u8) {
+                                    let privkey = acct.private_key_bytes();
+                                    if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
+                                        let sc = tx.inputs[i].sig_count as usize;
+                                        if sc < MAX_SIGS_PER_INPUT {
+                                            tx.inputs[i].sigs[sc].signature = sig.bytes;
+                                            tx.inputs[i].sigs[sc].sighash_type = sighash_type.to_byte();
+                                            tx.inputs[i].sigs[sc].pubkey_pos = pos as u8;
+                                            tx.inputs[i].sigs[sc].present = true;
+                                            tx.inputs[i].sig_count += 1;
+                                            total_new_sigs += 1;
                                         }
+                                        break;
                                     }
-                                } else {
-                                    // Fallback: check account-level x-only pubkey
-                                    // (for multisigs built with kpub account keys instead of address keys)
-                                    if let Ok(acct_xonly) = acct.public_key_x_only() {
-                                        if &acct_xonly == target_pk {
-                                            let privkey = acct.private_key_bytes();
+                                }
+
+                                // Address-level fallback using the cached
+                                // pubkey table. Built ONCE per seed on
+                                // first use — subsequent lookups are O(40)
+                                // array scans with zero derivations.
+                                //
+                                // This is the "multisig built from
+                                // per-address pubkeys" path. It used to
+                                // run find_address_index_for_pubkey per
+                                // (input, position, seed) which did up
+                                // to 200 derivations each — that's the
+                                // 45 s signing time we saw. The table
+                                // caps derivations at 40 per seed for
+                                // the entire tx regardless of input count.
+                                if seed_pos_match[s].is_none() {
+                                    // Lazy build
+                                    if addr_tables[s].is_none() {
+                                        addr_tables[s] =
+                                            Some(bip32::AddrPubkeyTable::build(acct));
+                                    }
+                                    let tbl = addr_tables[s].as_ref().unwrap();
+                                    if let Some((idx, is_chg)) = tbl.find_by_pubkey(target_pk) {
+                                        let key_result = if is_chg {
+                                            bip32::derive_change_key(acct, idx)
+                                        } else {
+                                            bip32::derive_address_key(acct, idx)
+                                        };
+                                        if let Ok(addr_key) = key_result {
+                                            let privkey = addr_key.private_key_bytes();
                                             if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
                                                 let sc = tx.inputs[i].sig_count as usize;
                                                 if sc < MAX_SIGS_PER_INPUT {

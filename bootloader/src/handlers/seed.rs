@@ -501,6 +501,14 @@ pub fn handle_seed_touch(
                                                         }
                                                     }
                                                 }
+                                                // Also derive change chain so the R/C
+                                                // toggle on ShowAddress has valid data.
+                                                // Previously only the receive cache was
+                                                // populated here, which made every change
+                                                // address render as all-zero pubkey →
+                                                // "kaspa:qqqqq..." (bech32 of 32 zeros).
+                                                crate::app::signing::derive_change_pubkeys(
+                                                    &ad.acct_key_raw, &mut ad.change_pubkey_cache);
                                                 ad.pubkeys_cached = true;
                                             }
                                         } else {
@@ -528,6 +536,13 @@ pub fn handle_seed_touch(
                                                             }
                                                         }
                                                     }
+                                                    // Also derive change chain (see xprv
+                                                    // branch above for rationale — the
+                                                    // R/C toggle needs real data or
+                                                    // change addresses render as
+                                                    // kaspa:qqqqq...).
+                                                    crate::app::signing::derive_change_pubkeys(
+                                                        &ad.acct_key_raw, &mut ad.change_pubkey_cache);
                                                     ad.pubkeys_cached = true;
                                                 }
                                             }

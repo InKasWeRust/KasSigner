@@ -653,48 +653,31 @@ impl<'a> BootDisplay<'a> {
     }
 
     /// Draw a frame counter overlay at bottom-right of screen (e.g. "1/3")
+    /// Draw the multi-frame QR page counter as a 2-line badge in the
+    /// right info column reserved by draw_qr_screen_left. See the
+    /// Waveshare variant for layout rationale.
     pub fn draw_frame_counter(&mut self, text: &str) {
-        // Small dark rounded rect at bottom-right with white text
-        let tw = measure_body(text);
-        let pad = 8i32;
-        let bx = 320 - tw - pad * 2 - 4;
-        let by = 224i32;
-        let bw = (tw + pad * 2) as u32;
-        let bh = 14u32;
-        let corner = CornerRadii::new(Size::new(4, 4));
-        RoundedRectangle::new(
-            Rectangle::new(Point::new(bx, by), Size::new(bw, bh)),
-            corner,
-        )
-        .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
-        .draw(&mut self.display).ok();
-        draw_lato_hint(&mut self.display, text, bx + pad, by + 11, KASPA_TEAL);
+        let col_cx: i32 = 278;
+        let label = "FRAMES";
+        let lw = measure_hint(label);
+        draw_lato_hint(&mut self.display, label, col_cx - lw / 2, 160, COLOR_TEXT_DIM);
+        let tw = measure_title(text);
+        draw_lato_title(&mut self.display, text, col_cx - tw / 2, 190, KASPA_TEAL);
     }
 
-    /// Draw multisig signature status overlay on the QR screen.
+    /// Draw multisig sig status as a 2-line badge ("SIGNER" + "P/R") in
+    /// the right info column. Teal when fully signed, orange while
+    /// partial — see display_ws.rs for rationale.
     pub fn draw_sig_status(&mut self, present: u8, required: u8) {
-        let (label, color) = if present >= required {
-            ("FULLY SIGNED", KASPA_TEAL)
-        } else {
-            ("PARTIAL", COLOR_ORANGE)
-        };
-        let tw = measure_hint(label);
-        let pad = 6i32;
-        let corner = CornerRadii::new(Size::new(4, 4));
-        RoundedRectangle::new(
-            Rectangle::new(Point::new(4, 224), Size::new((tw + pad * 2) as u32, 14)),
-            corner,
-        ).into_styled(PrimitiveStyle::with_fill(COLOR_BG)).draw(&mut self.display).ok();
-        draw_lato_hint(&mut self.display, label, 4 + pad, 235, color);
+        let color = if present >= required { KASPA_TEAL } else { COLOR_ORANGE };
+        let col_cx: i32 = 278;
+        let label = "SIGNER";
+        let lw = measure_hint(label);
+        draw_lato_hint(&mut self.display, label, col_cx - lw / 2, 40, COLOR_TEXT_DIM);
         let mut sc: heapless::String<8> = heapless::String::new();
         core::fmt::Write::write_fmt(&mut sc, format_args!("{}/{}", present, required)).ok();
-        let sw = measure_hint(sc.as_str());
-        let sx = 4 + pad + tw + 6;
-        RoundedRectangle::new(
-            Rectangle::new(Point::new(sx, 224), Size::new((sw + pad * 2) as u32, 14)),
-            corner,
-        ).into_styled(PrimitiveStyle::with_fill(COLOR_BG)).draw(&mut self.display).ok();
-        draw_lato_hint(&mut self.display, &sc, sx + pad, 235, color);
+        let sw = measure_title(sc.as_str());
+        draw_lato_title(&mut self.display, &sc, col_cx - sw / 2, 70, color);
     }
 
     /// Draw back button (top-left) and home button (top-right)

@@ -252,7 +252,14 @@ pub fn redraw_screen(
                         frame_buf[2] = frag_len as u8;
                         frame_buf[3..3 + frag_len].copy_from_slice(&ad.kpub_data[offset..offset + frag_len]);
                         let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
-                        boot_display.draw_qr_screen(&frame_buf[..qr_len]);
+                        // Multi-frame: left-aligned layout + FRAMES counter.
+                        // No SIGNER badge — kpub export isn't a multisig
+                        // signing context.
+                        boot_display.draw_qr_screen_left(&frame_buf[..qr_len]);
+                        let mut fc_buf: heapless::String<8> = heapless::String::new();
+                        core::fmt::Write::write_fmt(&mut fc_buf,
+                            format_args!("{}/{}", frame + 1, n_frames)).ok();
+                        boot_display.draw_frame_counter(&fc_buf);
                     }
                 }
                 crate::app::input::AppState::ExportKpubFrameCount => {
@@ -382,6 +389,15 @@ pub fn redraw_screen(
                 crate::app::input::AppState::ShowQrFrameChoice => {
                     boot_display.draw_kspt_frame_choice();
                 }
+                crate::app::input::AppState::ShowQrDensityChoice => {
+                    // Second screen of the "KasSigner" KSPT export path —
+                    // Fast (V6 density) vs Safe (V3 density). Reached when
+                    // user taps KasSigner on ShowQrFrameChoice; dispatch
+                    // handler in handlers/menu.rs sets signed_qr_mode +
+                    // signed_qr_large based on selection and transitions
+                    // to ShowQR.
+                    boot_display.draw_kspt_density_choice();
+                }
                 crate::app::input::AppState::ShowQR => {
                     if ad.signed_qr_len > 0 {
                         // max_payload = raw bytes/frame (not counting the 3-byte
@@ -400,8 +416,40 @@ pub fn redraw_screen(
                             4 => 27usize,
                             _ => if ad.signed_qr_large { 55usize } else { 106usize },
                         };
-                        if !ad.signed_qr_large && ad.signed_qr_mode == 0 && ad.signed_qr_len <= 134 {
-                            // Fits in single QR — display directly
+
+                        // Layout rules (unified v1.0.3 UX):
+                        //   - Single-frame QR → centred, no chrome
+                        //   - Multi-frame QR  → left-aligned at x=4 with
+                        //                        right info column (80 px
+                        //                        strip) for FRAMES counter.
+                        //                        If the tx is multisig, the
+                        //                        SIGNER badge also renders.
+                        //
+                        // `is_multisig` inspects the parsed tx for P2SH
+                        // or Multisig inputs. True for both the first
+                        // signer (unsigned v1 KSPT just scanned) and
+                        // subsequent signers (v2 partial KSPT). False for
+                        // descriptor export, kpub export, and regular
+                        // P2PK txs where there's no SIGNER concept.
+                        let is_multisig = (0..ad.demo_tx.num_inputs).any(|i| {
+                            let (st, _) = wallet::pskt::analyze_input_script(&ad.demo_tx, i);
+                            st == wallet::transaction::ScriptType::Multisig
+                                || st == wallet::transaction::ScriptType::P2SH
+                        });
+                        // For the first signer derive sigs present/required
+                        // from the tx itself so the SIGNER badge shows
+                        // correct counts even without a prior v2 scan.
+                        if is_multisig && ad.tx_sigs_required == 0 {
+                            let (p, r) = wallet::pskt::signature_status(&ad.demo_tx);
+                            ad.tx_sigs_present = p;
+                            ad.tx_sigs_required = r;
+                        }
+
+                        let single_frame = !ad.signed_qr_large
+                            && ad.signed_qr_mode == 0
+                            && ad.signed_qr_len <= 134;
+                        if single_frame {
+                            // Centred — no overlays.
                             boot_display.draw_qr_screen(&ad.signed_qr_buf[..ad.signed_qr_len]);
                         } else {
                             let n_frames = (ad.signed_qr_len + max_payload - 1) / max_payload;
@@ -425,16 +473,18 @@ pub fn redraw_screen(
                             frame_buf[2] = frag_len as u8;
                             frame_buf[3..3 + frag_len].copy_from_slice(&ad.signed_qr_buf[offset..offset + frag_len]);
                             let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
-                            boot_display.draw_qr_screen(&frame_buf[..qr_len]);
-                            // Frame counter overlay
+                            // Multi-frame: always left-aligned
+                            boot_display.draw_qr_screen_left(&frame_buf[..qr_len]);
+                            // FRAMES counter always (right column bottom)
                             let mut fc_buf: heapless::String<8> = heapless::String::new();
                             core::fmt::Write::write_fmt(&mut fc_buf,
                                 format_args!("{}/{}", frame + 1, n_frames)).ok();
                             boot_display.draw_frame_counter(&fc_buf);
-                        }
-                        // Multisig sig status overlay
-                        if ad.tx_sigs_required > 0 {
-                            boot_display.draw_sig_status(ad.tx_sigs_present, ad.tx_sigs_required);
+                            // SIGNER badge only for multisig (right column top)
+                            if is_multisig {
+                                boot_display.draw_sig_status(
+                                    ad.tx_sigs_present, ad.tx_sigs_required);
+                            }
                         }
                     } else {
                         boot_display.draw_rejected_screen("Signing Failed");
@@ -465,7 +515,7 @@ pub fn redraw_screen(
                     let addr = wallet::address::encode_address_str(
                         &pk, wallet::address::AddressType::P2PK, &mut addr_buf);
                     boot_display.draw_address_screen(addr, true,
-                        Some(ad.current_addr_index), Some("SELECT"));
+                        Some(ad.current_addr_index), Some("SELECT"), false);
                 }
                 crate::app::input::AppState::MultisigShowAddress => {
                     let mut label_buf = [0u8; 8];
@@ -681,11 +731,30 @@ pub fn redraw_screen(
                 }
                 crate::app::input::AppState::ShowAddress => {
                     if ad.scanned_addr_len > 0 {
+                        // Scanned/imported address — no chain concept,
+                        // just render as-is with is_change=false.
                         let addr = core::str::from_utf8(&ad.scanned_addr[..ad.scanned_addr_len])
                             .unwrap_or("(invalid)");
-                        boot_display.draw_address_screen(addr, ad.scanned_addr_valid, None, None);
+                        boot_display.draw_address_screen(addr, ad.scanned_addr_valid, None, None, false);
                     } else {
-                        let pk = if (ad.current_addr_index as usize) < 20 {
+                        // Derived from loaded seed. Pick chain based on the
+                        // address browser's current mode (receive / change).
+                        // Both chains: cached for the first N entries,
+                        // derive-on-demand via extra_{,change_}pubkey for
+                        // indices beyond cache size. Receive cache = 20,
+                        // change cache = 5. The `extra_*_pubkey_index`
+                        // sentinel (0xFFFF) means empty; a match means
+                        // the stored pubkey is valid for this index.
+                        let pk = if ad.addr_view_is_change {
+                            let idx = ad.current_addr_index as usize;
+                            if idx < 5 {
+                                ad.change_pubkey_cache[idx]
+                            } else if ad.extra_change_pubkey_index == ad.current_addr_index {
+                                ad.extra_change_pubkey
+                            } else {
+                                [0u8; 32]
+                            }
+                        } else if (ad.current_addr_index as usize) < 20 {
                             ad.pubkey_cache[ad.current_addr_index as usize]
                         } else if ad.extra_pubkey_index == ad.current_addr_index {
                             ad.extra_pubkey
@@ -699,11 +768,25 @@ pub fn redraw_screen(
                             &mut addr_buf,
                         );
                         let idx_option = if ad.word_count == 1 { None } else { Some(ad.current_addr_index) };
-                        boot_display.draw_address_screen(addr, true, idx_option, None);
+                        boot_display.draw_address_screen(addr, true, idx_option, None,
+                            ad.addr_view_is_change);
                     }
                 }
                 crate::app::input::AppState::ShowAddressQR => {
-                    let pk = if (ad.current_addr_index as usize) < 20 {
+                    // Same pubkey selection as ShowAddress — respects the
+                    // receive/change toggle plus extra_* on-demand entries
+                    // so the QR matches whichever index the user scrolled
+                    // to before tapping.
+                    let pk = if ad.addr_view_is_change {
+                        let idx = ad.current_addr_index as usize;
+                        if idx < 5 {
+                            ad.change_pubkey_cache[idx]
+                        } else if ad.extra_change_pubkey_index == ad.current_addr_index {
+                            ad.extra_change_pubkey
+                        } else {
+                            [0u8; 32]
+                        }
+                    } else if (ad.current_addr_index as usize) < 20 {
                         ad.pubkey_cache[ad.current_addr_index as usize]
                     } else if ad.extra_pubkey_index == ad.current_addr_index {
                         ad.extra_pubkey

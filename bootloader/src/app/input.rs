@@ -363,8 +363,11 @@ pub enum AppState {
     Signing { input_idx: u8 },
     /// Showing signed QR code
     ShowQR,
-    /// Signed KSPT QR frame size choice: Single / Multi
+    /// Signed KSPT QR frame size choice: Phone / KasSigner
     ShowQrFrameChoice,
+    /// Signed KSPT density choice: Fast (V6) / Safe (V3).
+    /// Reached from ShowQrFrameChoice when user taps "KasSigner".
+    ShowQrDensityChoice,
     /// Transaction was rejected
     Rejected,
     /// Show address screen
@@ -664,7 +667,7 @@ pub fn new() -> Self {
             }
 
             // All sub-screens: any tap goes back to main
-            AppState::ShowQR | AppState::ShowQrFrameChoice | AppState::Rejected | AppState::About
+            AppState::ShowQR | AppState::ShowQrFrameChoice | AppState::ShowQrDensityChoice | AppState::Rejected | AppState::About
             | AppState::ShowAddress | AppState::ShowAddressQR | AppState::ScanQR
             | AppState::ViewSeed | AppState::SeedBackup { .. }
             | AppState::DiceRoll | AppState::ImportWord { .. }
@@ -884,7 +887,7 @@ pub fn handler_group(&self) -> HandlerGroup {
         match self {
             // Menu screens
             MainMenu | SeedsMenu | ToolsMenu | DiceRoll
-            | ChooseWordCount { .. } | ShowQR | ShowQrFrameChoice | Rejected | ViewSeed
+            | ChooseWordCount { .. } | ShowQR | ShowQrFrameChoice | ShowQrDensityChoice | Rejected | ViewSeed
                 => HandlerGroup::Menu,
 
             // Steganography flow

@@ -1402,8 +1402,19 @@ pub fn handle_sd_touch(
                             ad.signed_qr_nframes = 0;
                             if ad.ms_creating.active {
                                 ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                            } else if ad.signed_qr_via_density {
+                                // Came through KasSigner → Density picker.
+                                // Back from the popup returns to density
+                                // so the user can flip Fast↔Safe and
+                                // regenerate the QR without going all
+                                // the way back to Phone/KasSigner.
+                                ad.app.state =
+                                    crate::app::input::AppState::ShowQrDensityChoice;
                             } else {
-                                ad.app.go_main_menu();
+                                // Phone/KasSee path → return to the
+                                // top-level Phone/KasSigner choice.
+                                ad.app.state =
+                                    crate::app::input::AppState::ShowQrFrameChoice;
                             }
                         } else {
                             // Two buttons: "Save to SD" and "Back to QR"
@@ -2015,8 +2026,17 @@ pub fn handle_sd_touch(
                             ad.signed_qr_nframes = 0;
                             if ad.ms_creating.active {
                                 ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                            } else if ad.signed_qr_via_density {
+                                // Came through the KasSigner → Density
+                                // (Fast/Safe) path — return there so the
+                                // user can flip density without restarting.
+                                ad.app.state =
+                                    crate::app::input::AppState::ShowQrDensityChoice;
                             } else {
-                                ad.app.go_main_menu();
+                                // Phone/KasSee path or legacy entry →
+                                // top-level Phone/KasSigner choice.
+                                ad.app.state =
+                                    crate::app::input::AppState::ShowQrFrameChoice;
                             }
                         } else {
                             // "Auto Cycle" button: left
