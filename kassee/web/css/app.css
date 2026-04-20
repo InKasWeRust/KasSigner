@@ -1156,3 +1156,313 @@ h2 {
         padding-top: calc(14px + env(safe-area-inset-top));
     }
 }
+
+/* ─── PSKT / PSKB review screen ─── */
+
+.pskt-header {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding: 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.pskt-hdr-cell {
+    text-align: center;
+}
+
+.pskt-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 2px;
+}
+
+.pskt-value {
+    font-size: 14px;
+    color: var(--text);
+    word-break: break-all;
+}
+
+.pskt-mono {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.pskt-section-title {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--teal);
+    margin: 14px 0 8px;
+}
+
+.pskt-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.pskt-row {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+}
+
+.pskt-row-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.pskt-idx {
+    font-family: var(--mono);
+    color: var(--text-dim);
+    font-size: 12px;
+    min-width: 28px;
+}
+
+.pskt-kind {
+    background: rgba(73, 234, 203, 0.08);
+    color: var(--teal);
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.pskt-sig-badge {
+    margin-left: auto;
+    background: rgba(229, 83, 75, 0.1);
+    color: var(--danger);
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-family: var(--mono);
+}
+
+.pskt-sig-badge.ok {
+    background: rgba(63, 185, 80, 0.12);
+    color: var(--success);
+}
+
+.pskt-row-body {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+    align-items: baseline;
+}
+
+.pskt-totals {
+    margin-top: 14px;
+    padding: 10px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.pskt-total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+}
+
+.pskt-total-row:last-child {
+    margin-bottom: 0;
+}
+
+.pskt-total-row span:nth-child(2) {
+    color: var(--text);
+    font-family: var(--mono);
+    margin-left: auto;
+}
+
+.pskt-total-row span:last-child {
+    color: var(--text-dim);
+    margin-left: 2px;
+}
+
+.pskt-total-fee {
+    margin-top: 6px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+    font-weight: 600;
+}
+
+.pskt-total-fee span:nth-child(2) {
+    color: var(--warning);
+}
+
+#btn-pskt-finalize:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: var(--surface-2);
+    color: var(--text-dim);
+    border-color: var(--border);
+}
+
+/* ─── PSKT / PSKB review screen ─── */
+
+.pskt-header {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding: 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.pskt-hdr-cell {
+    text-align: center;
+}
+
+.pskt-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 2px;
+}
+
+.pskt-value {
+    font-size: 14px;
+    color: var(--text);
+    word-break: break-all;
+}
+
+.pskt-mono {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.pskt-section-title {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--teal);
+    margin: 14px 0 8px;
+}
+
+.pskt-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.pskt-row {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+}
+
+.pskt-row-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.pskt-idx {
+    font-family: var(--mono);
+    color: var(--text-dim);
+    font-size: 12px;
+    min-width: 28px;
+}
+
+.pskt-kind {
+    background: rgba(73, 234, 203, 0.08);
+    color: var(--teal);
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.pskt-sig-badge {
+    margin-left: auto;
+    background: rgba(229, 83, 75, 0.1);
+    color: var(--danger);
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-family: var(--mono);
+}
+
+.pskt-sig-badge.ok {
+    background: rgba(63, 185, 80, 0.12);
+    color: var(--success);
+}
+
+.pskt-row-body {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+    align-items: baseline;
+}
+
+.pskt-totals {
+    margin-top: 14px;
+    padding: 10px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.pskt-total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+}
+
+.pskt-total-row:last-child {
+    margin-bottom: 0;
+}
+
+.pskt-total-row span:nth-child(2) {
+    color: var(--text);
+    font-family: var(--mono);
+    margin-left: auto;
+}
+
+.pskt-total-row span:last-child {
+    color: var(--text-dim);
+    margin-left: 2px;
+}
+
+.pskt-total-fee {
+    margin-top: 6px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+    font-weight: 600;
+}
+
+.pskt-total-fee span:nth-child(2) {
+    color: var(--warning);
+}
+
+#btn-pskt-finalize:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: var(--surface-2);
+    color: var(--text-dim);
+    border-color: var(--border);
+}

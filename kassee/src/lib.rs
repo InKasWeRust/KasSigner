@@ -10,6 +10,7 @@
 mod bip32;
 mod address;
 mod kspt;
+mod pskt;
 mod qr;
 mod rpc;
 
@@ -231,6 +232,58 @@ pub fn decoder_progress() -> String {
 #[wasm_bindgen]
 pub fn version() -> String {
     "KasSee Web".into()
+}
+
+// ─── PSKT / PSKB support (Kaspa-standard wire format) ───
+
+/// Inspect a hex payload (output of the multi-frame QR decoder) and
+/// return the detected format as a short string: "pskb", "pskt", or
+/// "unknown". JS uses this to route a decoded payload to either the
+/// PSKT review screen (this module) or the legacy KSPT flow.
+#[wasm_bindgen]
+pub fn pskt_detect(wire_hex: &str) -> String {
+    match pskt::detect_format_hex(wire_hex) {
+        pskt::PsktFormat::Pskb => "pskb".into(),
+        pskt::PsktFormat::PsktSingle => "pskt".into(),
+        pskt::PsktFormat::Unknown => "unknown".into(),
+    }
+}
+
+/// Parse a PSKT/PSKB payload into a review summary (JSON string).
+///
+/// `network` is one of "mainnet", "testnet-10/11/12", "simnet",
+/// "devnet" — used to format decoded output addresses for display.
+#[wasm_bindgen]
+pub fn pskt_summary(wire_hex: &str, network: &str) -> Result<String, JsValue> {
+    let prefix = network_to_prefix(network);
+    let summary = pskt::parse_summary(wire_hex, prefix)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&summary)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+/// Finalize a fully-signed PSKT/PSKB into a signed KSPT v2 hex blob
+/// that the existing `broadcast_signed` RPC path can consume directly.
+///
+/// Fails if any multisig input lacks the required M signatures.
+#[wasm_bindgen]
+pub fn pskt_finalize_to_kspt(wire_hex: &str) -> Result<String, JsValue> {
+    pskt::finalize_to_kspt_hex(wire_hex)
+        .map_err(|e| JsValue::from_str(&e))
+}
+
+/// PSKT-native finalize + broadcast. Walks the PSKB JSON once,
+/// assembles a consensus Transaction directly (sig_scripts per input,
+/// with partial sigs + redeem script for P2SH multisig), and submits
+/// via Borsh wRPC. No KSPT intermediate format, no shim — PSKB JSON
+/// in, Kaspa consensus transaction out, TX ID returned on acceptance.
+#[wasm_bindgen]
+pub async fn pskt_finalize_and_broadcast(
+    wire_hex: &str,
+    ws_url: &str,
+) -> Result<String, JsValue> {
+    pskt::finalize_and_broadcast(wire_hex, ws_url).await
+        .map_err(|e| JsValue::from_str(&e))
 }
 
 // ─── Address utilities ───

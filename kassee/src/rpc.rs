@@ -736,3 +736,176 @@ pub async fn broadcast_signed(ws_url: &str, signed_hex: &str) -> Result<String, 
         Ok("broadcast_ok".into())
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// PSKT-native broadcast path
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Submits a consensus-shape transaction assembled directly from a PSKT
+// Finalizer/Extractor (see `pskt::finalize_to_consensus_tx`), bypassing
+// the legacy KSPT parser at line 433. No intermediate KSPT blob exists
+// on this path — PSKB JSON is walked once, sig_scripts are assembled
+// per input with the partial sigs + redeem script, and the resulting
+// consensus Transaction is Borsh-serialized straight onto the wire.
+//
+// The wire envelope (SubmitTransactionRequest / SubmitTransactionResponse)
+// is byte-identical to what `broadcast_signed` produces — this function
+// just takes the already-assembled inputs/outputs/tx_header, skipping
+// the KSPT parse step that `broadcast_signed` runs first.
+
+/// One finalized consensus-layer input, ready for Borsh serialization.
+#[derive(Clone)]
+pub struct ConsensusInput {
+    pub prev_tx_id: [u8; 32],
+    pub prev_index: u32,
+    pub sig_script: Vec<u8>,
+    pub sequence: u64,
+    pub sig_op_count: u8,
+}
+
+/// One consensus-layer output, ready for Borsh serialization.
+#[derive(Clone)]
+pub struct ConsensusOutput {
+    pub value: u64,
+    pub spk_version: u16,
+    pub spk_script: Vec<u8>,
+}
+
+/// Submit a transaction assembled directly from PSKT. No KSPT
+/// intermediate. Produces the same on-wire Borsh RpcTransaction that
+/// `broadcast_signed` produces — only the input assembly path differs.
+pub async fn submit_consensus_tx(
+    ws_url: &str,
+    tx_version: u16,
+    inputs: &[ConsensusInput],
+    outputs: &[ConsensusOutput],
+    locktime: u64,
+    subnetwork_id: &[u8; 20],
+    gas: u64,
+    tx_payload: &[u8],
+) -> Result<String, String> {
+    let mut req_payload = Vec::new();
+    bw_u16(&mut req_payload, 1).unwrap(); // request version
+
+    // serialize!(RpcTransaction)
+    let mut tx_buf = Vec::new();
+    bw_u16(&mut tx_buf, 1).unwrap(); // struct version
+    bw_u16(&mut tx_buf, tx_version).unwrap();
+
+    // Vec<Input>
+    {
+        let mut inputs_buf = Vec::new();
+        bw_u32(&mut inputs_buf, inputs.len() as u32).unwrap();
+        for inp in inputs {
+            let mut inp_buf = Vec::new();
+            bw_u8(&mut inp_buf, 1).unwrap(); // input version
+
+            let mut op_buf = Vec::new();
+            bw_u8(&mut op_buf, 1).unwrap(); // outpoint version
+            op_buf.extend_from_slice(&inp.prev_tx_id);
+            bw_u32(&mut op_buf, inp.prev_index).unwrap();
+            bw_bytes(&mut inp_buf, &op_buf).unwrap();
+
+            bw_bytes(&mut inp_buf, &inp.sig_script).unwrap();
+            bw_u64(&mut inp_buf, inp.sequence).unwrap();
+            bw_u8(&mut inp_buf, inp.sig_op_count).unwrap();
+
+            bw_bytes(&mut inp_buf, &[0u8]).unwrap(); // None verbose data
+            bw_bytes(&mut inputs_buf, &inp_buf).unwrap();
+        }
+        bw_bytes(&mut tx_buf, &inputs_buf).unwrap();
+    }
+
+    // Vec<Output>
+    {
+        let mut outputs_buf = Vec::new();
+        bw_u32(&mut outputs_buf, outputs.len() as u32).unwrap();
+        for out in outputs {
+            let mut out_buf = Vec::new();
+            bw_u8(&mut out_buf, 1).unwrap(); // output version
+            bw_u64(&mut out_buf, out.value).unwrap();
+            bw_u16(&mut out_buf, out.spk_version).unwrap();
+            bw_bytes(&mut out_buf, &out.spk_script).unwrap();
+
+            bw_bytes(&mut out_buf, &[0u8]).unwrap(); // None verbose data
+            bw_bytes(&mut outputs_buf, &out_buf).unwrap();
+        }
+        bw_bytes(&mut tx_buf, &outputs_buf).unwrap();
+    }
+
+    bw_u64(&mut tx_buf, locktime).unwrap();
+    tx_buf.extend_from_slice(subnetwork_id);
+    bw_u64(&mut tx_buf, gas).unwrap();
+    bw_bytes(&mut tx_buf, tx_payload).unwrap();
+    bw_u64(&mut tx_buf, 0).unwrap(); // mass
+    bw_bytes(&mut tx_buf, &[0u8]).unwrap(); // None verbose data
+
+    bw_bytes(&mut req_payload, &tx_buf).unwrap();
+    bw_u8(&mut req_payload, 0).unwrap(); // allow_orphan = false
+
+    let response = ws_rpc_call(ws_url, OP_SUBMIT_TRANSACTION, &req_payload).await?;
+
+    if response.is_empty() {
+        return Err("Empty response from SubmitTransaction".into());
+    }
+
+    web_sys::console::log_1(&format!(
+        "[KasSee] Broadcast raw response: {} bytes, hex: {}",
+        response.len(),
+        hex::encode(&response[..response.len().min(200)])
+    ).into());
+
+    if response.len() > 4 {
+        let text_check = String::from_utf8_lossy(&response);
+        if text_check.contains("Reject") || text_check.contains("reject")
+            || text_check.contains("error") || text_check.contains("Error") {
+            return Err(format!("Node rejected: {}",
+                text_check.chars().take(200).collect::<String>()));
+        }
+    }
+
+    if response[0] == 0x00 {
+        if response.len() > 5 {
+            let err_len = u32::from_le_bytes([
+                response[1], response[2], response[3], response[4]
+            ]) as usize;
+            let end = (5 + err_len).min(response.len());
+            let err_text = String::from_utf8_lossy(&response[5..end]);
+            return Err(format!("Node rejected TX: {}", err_text));
+        }
+        return Err("Transaction rejected by node".into());
+    }
+
+    let inner = if response.len() > 5 {
+        let start = if response[0] == 0x01 { 1 } else { 0 };
+        if start + 4 > response.len() {
+            &response[..]
+        } else {
+            let len = u32::from_le_bytes([
+                response[start], response[start+1], response[start+2], response[start+3]
+            ]) as usize;
+            let end = (start + 4 + len).min(response.len());
+            &response[start+4..end]
+        }
+    } else {
+        &response[..]
+    };
+
+    if inner.len() >= 34 {
+        let text_check = String::from_utf8_lossy(inner);
+        if text_check.contains("Reject") || text_check.contains("error") {
+            return Err(format!("Node rejected TX: {}", text_check));
+        }
+        let tx_id = hex::encode(&inner[2..34]);
+        web_sys::console::log_1(&format!("[KasSee] TX broadcast (PSKT path): {}", tx_id).into());
+        Ok(tx_id)
+    } else if inner.len() >= 2 {
+        let text_check = String::from_utf8_lossy(inner);
+        if text_check.contains("Reject") || text_check.contains("error") {
+            return Err(format!("Node rejected TX: {}", text_check));
+        }
+        Ok(hex::encode(inner))
+    } else {
+        Ok("broadcast_ok".into())
+    }
+}

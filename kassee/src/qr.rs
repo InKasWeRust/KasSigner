@@ -12,6 +12,11 @@ use std::fmt::Write;
 
 const MAX_FRAME_DATA: usize = 106;
 
+/// Maximum number of frames for a multi-frame QR payload. Sized to
+/// cover a 3-input 2-of-3 PSKT on the tightest hardware envelope
+/// (WS-OV5640 → M5 LCD, ~37 B/frame at V3 ≈ 50 frames), with margin.
+const MAX_FRAMES: usize = 64;
+
 // ─── Frame generation ───
 
 #[derive(Serialize)]
@@ -41,8 +46,8 @@ pub fn generate_frames(kspt_hex: &str) -> Result<Vec<QrFrame>, String> {
 
     // Multi-frame
     let total_frames = data.len().div_ceil(MAX_FRAME_DATA);
-    if total_frames > 16 {
-        return Err(format!("Too large: {} bytes ({} frames, max 16)", data.len(), total_frames));
+    if total_frames > MAX_FRAMES {
+        return Err(format!("Too large: {} bytes ({} frames, max {})", data.len(), total_frames, MAX_FRAMES));
     }
 
     let balanced_size = data.len().div_ceil(total_frames);
@@ -110,22 +115,22 @@ thread_local! {
 
 struct DecoderState {
     total_frames: u8,
-    received: [bool; 16],
-    fragments: [Vec<u8>; 16],
+    received: [bool; MAX_FRAMES],
+    fragments: [Vec<u8>; MAX_FRAMES],
 }
 
 impl DecoderState {
     fn new() -> Self {
         Self {
             total_frames: 0,
-            received: [false; 16],
-            fragments: Default::default(),
+            received: [false; MAX_FRAMES],
+            fragments: core::array::from_fn(|_| Vec::new()),
         }
     }
 
     fn reset(&mut self) {
         self.total_frames = 0;
-        self.received = [false; 16];
+        self.received = [false; MAX_FRAMES];
         for f in &mut self.fragments {
             f.clear();
         }
@@ -144,7 +149,7 @@ pub fn decode_frame(frame_hex: &str) -> Result<Option<String>, String> {
     let total = payload[1] as usize;
     let frag_len = payload[2] as usize;
 
-    if total == 0 || total > 16 || frame_num >= total {
+    if total == 0 || total > MAX_FRAMES || frame_num >= total {
         return Err(format!("Invalid frame {}/{}", frame_num, total));
     }
     if payload.len() < 3 + frag_len {

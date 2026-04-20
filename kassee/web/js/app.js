@@ -23,6 +23,10 @@ import init, {
     decoder_progress,
     create_multisig_kspt,
     fetch_utxos_for_address_js,
+    pskt_detect,
+    pskt_summary,
+    pskt_finalize_to_kspt,
+    pskt_finalize_and_broadcast,
 } from '../pkg/kassee_web.js';
 
 // ─── State ───
@@ -239,6 +243,9 @@ function bindEvents() {
     el('btn-scan-signed').onclick = () => startScanner('Scan signed QR', handleSignedScan);
     el('btn-broadcast-hex').onclick = () => handleBroadcastHex();
     el('btn-broadcast-back').onclick = () => showScreen('dashboard');
+    el('btn-pskt-back').onclick = () => { _psktReviewHex = null; showScreen('dashboard'); };
+    el('btn-pskt-relay').onclick = () => handlePsktRelay();
+    el('btn-pskt-finalize').onclick = () => handlePsktFinalize();
     el('btn-broadcast-done').onclick = () => {
         hideBroadcastResult();
         showDonateScreen();
@@ -953,7 +960,17 @@ function handleSignedScan(data) {
         const result = decode_qr_frame(hexStr);
         if (result && result.length > 0) {
             stopScanner();
-            console.log('[KasSee] Signed KSPT received: ' + result.length / 2 + ' bytes');
+            console.log('[KasSee] Scan complete: ' + result.length / 2 + ' bytes');
+
+            // First: check for Kaspa-standard PSKT / PSKB envelope.
+            // Device emits these after signing when the Kaspa-standard
+            // wire format is selected. Legacy KSPT path handles the rest.
+            const psktFormat = pskt_detect(result);
+            if (psktFormat === 'pskb' || psktFormat === 'pskt') {
+                console.log('[KasSee] ' + psktFormat.toUpperCase() + ' detected — opening review');
+                openPsktReview(result);
+                return;
+            }
 
             const sigStatus = checkKsptSignatureStatus(result);
             if (sigStatus === 'partial') {
@@ -983,6 +1000,13 @@ async function handleBroadcastHex() {
     const hex = el('input-signed-hex').value.trim();
     if (!hex) { toast('Paste a signed KSPT hex string', 'error'); return; }
 
+    // If someone pasted a PSKB/PSKT hex, route through the PSKT review.
+    const psktFormat = pskt_detect(hex);
+    if (psktFormat === 'pskb' || psktFormat === 'pskt') {
+        openPsktReview(hex);
+        return;
+    }
+
     const sigStatus = checkKsptSignatureStatus(hex);
     if (sigStatus === 'partial') {
         toast('Partial signature — relay to next signer', 'info', 3000);
@@ -1009,6 +1033,154 @@ async function handleBroadcastHex() {
         showBroadcastError(e);
         console.error('Broadcast failed:', e);
     }
+}
+
+// ─── PSKT / PSKB Review ───
+//
+// When a scan or paste yields a PSKB/PSKT envelope, we open a review
+// screen showing inputs, outputs, fee, and multisig progress (M/N).
+// From there the user can:
+//   - Relay to next signer  (re-emit identical QR for the next device)
+//   - Finalize + broadcast  (when all inputs meet their sig threshold)
+
+// Stash the hex for the current review so both buttons can access it
+// without re-parsing.
+let _psktReviewHex = null;
+
+function openPsktReview(wireHex) {
+    _psktReviewHex = wireHex;
+
+    let summary;
+    try {
+        summary = JSON.parse(pskt_summary(wireHex, network));
+    } catch (e) {
+        console.error('[KasSee] PSKT parse error:', e);
+        toast('Could not parse PSKT: ' + e, 'error', 5000);
+        return;
+    }
+
+    console.log('[KasSee] PSKT summary:', summary);
+
+    // Render header
+    el('pskt-format').textContent = summary.format.toUpperCase();
+    el('pskt-tx-version').textContent = summary.tx_version;
+    el('pskt-in-count').textContent = summary.input_count;
+    el('pskt-out-count').textContent = summary.output_count;
+    el('pskt-fee').textContent = fmtKas(summary.fee_sompi);
+    el('pskt-total-in').textContent = fmtKas(summary.total_in_sompi);
+    el('pskt-total-out').textContent = fmtKas(summary.total_out_sompi);
+
+    // Inputs list
+    const inputsEl = el('pskt-inputs');
+    inputsEl.innerHTML = '';
+    summary.inputs.forEach((inp, i) => {
+        const row = document.createElement('div');
+        row.className = 'pskt-row';
+        let sigLabel;
+        if (inp.multisig_m !== null && inp.multisig_m !== undefined) {
+            const ok = inp.sigs_present >= inp.multisig_m;
+            sigLabel = `<span class="pskt-sig-badge${ok ? ' ok' : ''}">${inp.sigs_present}/${inp.multisig_m}-of-${inp.multisig_n}</span>`;
+        } else {
+            const ok = inp.sigs_present >= 1;
+            sigLabel = `<span class="pskt-sig-badge${ok ? ' ok' : ''}">${inp.sigs_present} sig${inp.sigs_present === 1 ? '' : 's'}</span>`;
+        }
+        row.innerHTML = `
+            <div class="pskt-row-head">
+                <span class="pskt-idx">#${i}</span>
+                <span class="pskt-kind">${inp.script_kind}</span>
+                ${sigLabel}
+            </div>
+            <div class="pskt-row-body">
+                <div class="pskt-label">Amount</div>
+                <div class="pskt-value">${fmtKas(inp.amount_sompi)} KAS</div>
+                <div class="pskt-label">Prev TX</div>
+                <div class="pskt-value pskt-mono">${shortenHex(inp.prev_tx_id)}:${inp.prev_index}</div>
+            </div>
+        `;
+        inputsEl.appendChild(row);
+    });
+
+    // Outputs list
+    const outputsEl = el('pskt-outputs');
+    outputsEl.innerHTML = '';
+    summary.outputs.forEach((out, i) => {
+        const row = document.createElement('div');
+        row.className = 'pskt-row';
+        row.innerHTML = `
+            <div class="pskt-row-head">
+                <span class="pskt-idx">#${i}</span>
+                <span class="pskt-kind">${out.script_kind}</span>
+            </div>
+            <div class="pskt-row-body">
+                <div class="pskt-label">Amount</div>
+                <div class="pskt-value">${fmtKas(out.amount_sompi)} KAS</div>
+                <div class="pskt-label">To</div>
+                <div class="pskt-value pskt-mono">${out.address || '(unrecognized script)'}</div>
+            </div>
+        `;
+        outputsEl.appendChild(row);
+    });
+
+    // Enable/disable Finalize button based on readiness
+    const btnFinalize = el('btn-pskt-finalize');
+    btnFinalize.disabled = !summary.finalize_ready;
+    btnFinalize.textContent = summary.finalize_ready
+        ? 'Finalize + broadcast'
+        : 'Needs more signatures';
+
+    showScreen('pskt-review');
+}
+
+/// Re-emit the same PSKB/PSKT unchanged as QR frames for the next
+/// signer to scan. No mutation of the wire format — this is just a
+/// display pass-through so the user can move a partial between devices.
+function handlePsktRelay() {
+    if (!_psktReviewHex) { toast('No PSKT loaded', 'error'); return; }
+    displayKsptQr(_psktReviewHex, 'Relay to next signer');
+}
+
+/// Finalize + broadcast — PSKT-NATIVE path.
+///
+/// Walks the PSKB JSON once inside WASM, assembles a consensus
+/// Transaction directly (sig_scripts with partial sigs + redeem
+/// script for P2SH multisig), Borsh-serializes it to the node. No
+/// KSPT intermediate format anywhere in the flow.
+async function handlePsktFinalize() {
+    if (!_psktReviewHex) { toast('No PSKT loaded', 'error'); return; }
+    if (!BROADCAST_ENABLED) {
+        toast('Broadcast disabled in this version — testing only', 'error', 5000);
+        return;
+    }
+
+    console.log('[KasSee] PSKT-native finalize + broadcast — PSKB hex length:', _psktReviewHex.length);
+
+    showLoading('Broadcasting...');
+    try {
+        const txId = await withNodeRetry(
+            wsUrl => pskt_finalize_and_broadcast(_psktReviewHex, wsUrl)
+        );
+        console.log('[KasSee] Node accepted (PSKT path). TX ID:', txId);
+        hideLoading();
+        _psktReviewHex = null;
+        showScreen('broadcast');
+        showBroadcastSuccess(txId);
+    } catch (e) {
+        hideLoading();
+        showBroadcastError(e);
+        console.error('[KasSee] Broadcast failed:', e);
+    }
+}
+
+function fmtKas(sompi) {
+    const n = Number(sompi) / 1e8;
+    if (n === 0) return '0';
+    if (Math.abs(n) < 0.00000001) return n.toExponential(2);
+    return n.toFixed(8).replace(/\.?0+$/, '');
+}
+
+function shortenHex(hex) {
+    if (!hex || hex.length <= 20) return hex;
+    return hex.slice(0, 10) + '\u2026' + hex.slice(-10);
 }
 
 // ─── Multisig Spend ───

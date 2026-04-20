@@ -403,6 +403,109 @@ export function init() {
 }
 
 /**
+ * Inspect a hex payload (output of the multi-frame QR decoder) and
+ * return the detected format as a short string: "pskb", "pskt", or
+ * "unknown". JS uses this to route a decoded payload to either the
+ * PSKT review screen (this module) or the legacy KSPT flow.
+ * @param {string} wire_hex
+ * @returns {string}
+ */
+export function pskt_detect(wire_hex) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(wire_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pskt_detect(ptr0, len0);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
+ * PSKT-native finalize + broadcast. Walks the PSKB JSON once,
+ * assembles a consensus Transaction directly (sig_scripts per input,
+ * with partial sigs + redeem script for P2SH multisig), and submits
+ * via Borsh wRPC. No KSPT intermediate format, no shim — PSKB JSON
+ * in, Kaspa consensus transaction out, TX ID returned on acceptance.
+ * @param {string} wire_hex
+ * @param {string} ws_url
+ * @returns {Promise<string>}
+ */
+export function pskt_finalize_and_broadcast(wire_hex, ws_url) {
+    const ptr0 = passStringToWasm0(wire_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(ws_url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.pskt_finalize_and_broadcast(ptr0, len0, ptr1, len1);
+    return ret;
+}
+
+/**
+ * Finalize a fully-signed PSKT/PSKB into a signed KSPT v2 hex blob
+ * that the existing `broadcast_signed` RPC path can consume directly.
+ *
+ * Fails if any multisig input lacks the required M signatures.
+ * @param {string} wire_hex
+ * @returns {string}
+ */
+export function pskt_finalize_to_kspt(wire_hex) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(wire_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pskt_finalize_to_kspt(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * Parse a PSKT/PSKB payload into a review summary (JSON string).
+ *
+ * `network` is one of "mainnet", "testnet-10/11/12", "simnet",
+ * "devnet" — used to format decoded output addresses for display.
+ * @param {string} wire_hex
+ * @param {string} network
+ * @returns {string}
+ */
+export function pskt_summary(wire_hex, network) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(wire_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(network, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.pskt_summary(ptr0, len0, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
  * Reset multi-frame decoder state
  */
 export function reset_qr_decoder() {
@@ -614,17 +717,17 @@ function __wbg_get_imports() {
             return ret;
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 115, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h2e36b7a07a0aa581);
-            return ret;
-        },
-        __wbindgen_cast_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 202, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 210, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h200a37f11e89f6da);
             return ret;
         },
+        __wbindgen_cast_0000000000000002: function(arg0, arg1) {
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 58, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h2e36b7a07a0aa581);
+            return ret;
+        },
         __wbindgen_cast_0000000000000003: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 115, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 58, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h2e36b7a07a0aa581_2);
             return ret;
         },
