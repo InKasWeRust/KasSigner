@@ -27,6 +27,17 @@ export function create_consolidate_kspt(wallet_json: string, fee_sompi: bigint, 
 export function create_multisig_kspt(descriptor: string, source_address: string, dest_address: string, amount_kas: number, fee_sompi: bigint, change_address: string, ws_url: string, addr_index: number): Promise<string>;
 
 /**
+ * Build an unsigned multisig PSKB — Path 2. Same semantics as
+ * `create_multisig_kspt` but emits a Kaspa-standard PSKB wire blob
+ * instead of legacy KSPT v1 binary.
+ *
+ * The output goes directly to `openPsktReview` on the JS side,
+ * landing the user on the Review PSKB screen with 0/M sigs where
+ * they can pick Relay → (Any wallet | KasSigner compact).
+ */
+export function create_multisig_pskb(descriptor: string, source_address: string, dest_address: string, amount_kas: number, fee_sompi: bigint, change_address: string, ws_url: string, addr_index: number): Promise<string>;
+
+/**
  * Build unsigned KSPT from wallet, destination, amount, fee → return hex
  */
 export function create_send_kspt(wallet_json: string, dest_address: string, amount_kas: number, fee_sompi: bigint, ws_url: string): Promise<string>;
@@ -129,6 +140,28 @@ export function pskt_finalize_and_broadcast(wire_hex: string, ws_url: string): P
 export function pskt_finalize_to_kspt(wire_hex: string): string;
 
 /**
+ * Inverse of `pskt_relay_to_kspt_v2`: merge the partial sigs from a
+ * device-returned KSPT v2 blob into the canonical PSKB and return
+ * the updated PSKB wire hex. Idempotent — existing sigs are not
+ * clobbered.
+ *
+ * Accepts `flags = 0x00` (partial) and `flags = 0x01` (fully signed)
+ * equally. Caller must still check whether the merged PSKB has ≥M
+ * sigs before finalizing/broadcasting.
+ */
+export function pskt_merge_signed_kspt_v2(signed_kspt_hex: string, pskb_wire_hex: string): string;
+
+/**
+ * Re-emit a PSKB/PSKT as a KSPT v2 "partial" hex blob for relay to
+ * KasSigner over QR. Does NOT require M sigs — accepts 0..=N partial
+ * sigs per input. Flags byte = 0x00 (partial).
+ *
+ * The mainnet-verified `pskt_finalize_to_kspt` path is not touched:
+ * this is a sibling function that shares no mutable state with it.
+ */
+export function pskt_relay_to_kspt_v2(wire_hex: string): string;
+
+/**
  * Parse a PSKT/PSKB payload into a review summary (JSON string).
  *
  * `network` is one of "mainnet", "testnet-10/11/12", "simnet",
@@ -154,6 +187,7 @@ export interface InitOutput {
     readonly create_compound_kspt: (a: number, b: number, c: number, d: number, e: bigint, f: number, g: number) => any;
     readonly create_consolidate_kspt: (a: number, b: number, c: bigint, d: number, e: number) => any;
     readonly create_multisig_kspt: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: bigint, i: number, j: number, k: number, l: number, m: number) => any;
+    readonly create_multisig_pskb: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: bigint, i: number, j: number, k: number, l: number, m: number) => any;
     readonly create_send_kspt: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number) => any;
     readonly create_send_kspt_selected: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number, i: number, j: number) => any;
     readonly decode_address: (a: number, b: number) => [number, number, number, number];
@@ -172,6 +206,8 @@ export interface InitOutput {
     readonly pskt_detect: (a: number, b: number) => [number, number];
     readonly pskt_finalize_and_broadcast: (a: number, b: number, c: number, d: number) => any;
     readonly pskt_finalize_to_kspt: (a: number, b: number) => [number, number, number, number];
+    readonly pskt_merge_signed_kspt_v2: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly pskt_relay_to_kspt_v2: (a: number, b: number) => [number, number, number, number];
     readonly pskt_summary: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly reset_qr_decoder: () => void;
     readonly version: () => [number, number];

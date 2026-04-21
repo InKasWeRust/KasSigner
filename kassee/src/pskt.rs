@@ -786,6 +786,213 @@ fn encode_output_kspt(buf: &mut Vec<u8>, out: &Value) -> Result<(), String> {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// KSPT v2 relay (partial-sig transport to KasSigner)
+// ═══════════════════════════════════════════════════════════════════
+//
+// Same wire layout as `finalize_to_kspt_hex`, with two relaxations:
+//
+//   1. Header `flags` byte = 0x00 (partial) instead of 0x01 (fully
+//      signed). The device's `parse_signed_pskt_v2` already accepts
+//      both values (bootloader/src/wallet/pskt.rs line 1076 discards
+//      the flag byte after reading it).
+//
+//   2. The multisig sig-count gate is removed: relay may carry 0..=N
+//      sigs per input. Finalize requires ≥M; relay does not.
+//
+// Everything else — global header, input layout, output layout,
+// redeem-script carriage, pubkey-position sort — is byte-identical
+// to `finalize_to_kspt_hex`. This is intentional: the device reads
+// the same bytes either way.
+//
+// `finalize_to_kspt_hex` is the mainnet-verified path that produced
+// tx `407d9489...`. Not one byte of it is touched by relay. The only
+// shared code path is the header/global-emission prelude, which is
+// duplicated here rather than refactored into a shared helper — any
+// future refactor happens after relay is hardware-tested.
+
+/// Re-emit a PSKB/PSKT as a KSPT v2 "partial" blob suitable for
+/// relay to KasSigner over QR. Does NOT require M sigs to be present.
+pub fn relay_pskb_as_kspt_v2_hex(wire_hex: &str) -> Result<String, String> {
+    let format = detect_format_hex(wire_hex);
+    if format == PsktFormat::Unknown {
+        return Err("Not a PSKT/PSKB payload".into());
+    }
+    let wire = hex::decode(wire_hex).map_err(|e| format!("outer hex: {}", e))?;
+    if wire.len() < 4 { return Err("payload too short".into()); }
+    let json_bytes = hex::decode(&wire[4..]).map_err(|e| format!("inner hex: {}", e))?;
+    let root: Value = serde_json::from_slice(&json_bytes)
+        .map_err(|e| format!("JSON parse: {}", e))?;
+    let pskt = match format {
+        PsktFormat::Pskb => {
+            let arr = root.as_array().ok_or_else(|| "PSKB not array".to_string())?;
+            if arr.len() != 1 { return Err(format!("PSKB must have 1 entry, got {}", arr.len())); }
+            arr[0].clone()
+        }
+        PsktFormat::PsktSingle => root,
+        PsktFormat::Unknown => unreachable!(),
+    };
+    let obj = pskt.as_object().ok_or_else(|| "PSKT not object".to_string())?;
+
+    // ─── Global ───
+    let global = obj.get("global").and_then(|v| v.as_object())
+        .ok_or_else(|| "missing global".to_string())?;
+    let tx_version = global.get("txVersion").and_then(|v| v.as_u64())
+        .ok_or_else(|| "missing txVersion".to_string())? as u16;
+
+    // ─── Input / output arrays ───
+    let inputs = obj.get("inputs").and_then(|v| v.as_array())
+        .ok_or_else(|| "missing inputs".to_string())?;
+    let outputs = obj.get("outputs").and_then(|v| v.as_array())
+        .ok_or_else(|| "missing outputs".to_string())?;
+    if inputs.len() > 255 { return Err("too many inputs".into()); }
+    if outputs.len() > 255 { return Err("too many outputs".into()); }
+
+    // ─── Build KSPT v2 partial buffer ───
+    let mut buf: Vec<u8> = Vec::with_capacity(512);
+    buf.extend_from_slice(b"KSPT");
+    buf.push(0x02); // version = v2
+    buf.push(0x00); // flags   = partial (RELAY)
+    buf.extend_from_slice(&tx_version.to_le_bytes());
+    buf.push(inputs.len() as u8);
+    buf.push(outputs.len() as u8);
+    buf.extend_from_slice(&0u64.to_le_bytes());           // locktime
+    buf.extend_from_slice(&[0u8; 20]);                    // subnetwork_id
+    buf.extend_from_slice(&0u64.to_le_bytes());           // gas
+    buf.extend_from_slice(&0u16.to_le_bytes());           // payload_len
+
+    for (i, inp) in inputs.iter().enumerate() {
+        encode_input_kspt_v2_relay(&mut buf, inp)
+            .map_err(|e| format!("input[{}]: {}", i, e))?;
+    }
+    for (i, out) in outputs.iter().enumerate() {
+        encode_output_kspt(&mut buf, out)
+            .map_err(|e| format!("output[{}]: {}", i, e))?;
+    }
+
+    Ok(hex::encode(&buf))
+}
+
+/// Encode one input in KSPT v2 layout for RELAY: carries 0..=N sigs,
+/// no M-of-N gate. Byte-for-byte identical to `encode_input_kspt_v2`
+/// except that empty `partialSigs` is allowed.
+fn encode_input_kspt_v2_relay(buf: &mut Vec<u8>, inp: &Value) -> Result<(), String> {
+    let obj = inp.as_object().ok_or_else(|| "not object".to_string())?;
+
+    // utxoEntry
+    let utxo = obj.get("utxoEntry").and_then(|v| v.as_object())
+        .ok_or_else(|| "missing utxoEntry".to_string())?;
+    let amount = utxo.get("amount").and_then(|v| v.as_u64())
+        .ok_or_else(|| "missing amount".to_string())?;
+    let spk_full = utxo.get("scriptPublicKey").and_then(|v| v.as_str())
+        .ok_or_else(|| "missing scriptPublicKey".to_string())?;
+    let (spk_version, spk_script) = parse_spk_hex(spk_full)?;
+    if spk_script.len() > 255 {
+        return Err(format!("spk too long for KSPT v2 ({} > 255)", spk_script.len()));
+    }
+
+    // outpoint
+    let op = obj.get("previousOutpoint").and_then(|v| v.as_object())
+        .ok_or_else(|| "missing previousOutpoint".to_string())?;
+    let prev_tx_id_hex = op.get("transactionId").and_then(|v| v.as_str())
+        .ok_or_else(|| "missing transactionId".to_string())?;
+    let prev_tx_id = hex::decode(prev_tx_id_hex)
+        .map_err(|e| format!("bad tx_id hex: {}", e))?;
+    if prev_tx_id.len() != 32 { return Err("tx_id not 32 bytes".into()); }
+    let prev_index = op.get("index").and_then(|v| v.as_u64())
+        .ok_or_else(|| "missing index".to_string())? as u32;
+
+    let sequence = obj.get("sequence").and_then(|v| v.as_u64()).unwrap_or(0);
+    let sig_op_count = obj.get("sigOpCount").and_then(|v| v.as_u64()).unwrap_or(1) as u8;
+
+    // redeemScript
+    let redeem: Option<Vec<u8>> = match obj.get("redeemScript") {
+        Some(v) if v.is_null() => None,
+        Some(Value::String(s)) => Some(hex::decode(s).map_err(|e| format!("redeem hex: {}", e))?),
+        _ => None,
+    };
+
+    // partialSigs (may be empty in relay mode)
+    let partial_map = obj.get("partialSigs")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_default();
+
+    let is_p2sh = spk_script.len() == 35
+        && spk_script[0] == 0xAA && spk_script[1] == 0x20 && spk_script[34] == 0x87;
+
+    let mut sig_records: Vec<(u8, Vec<u8>)> = Vec::new();
+
+    if is_p2sh && redeem.is_some() {
+        let rs = redeem.as_ref().unwrap();
+        // Parse redeem to validate it's well-formed; M is not checked for relay.
+        let _ = parse_multisig_redeem(rs)
+            .ok_or_else(|| "redeem is not a valid M-of-N multisig".to_string())?;
+
+        for (pk_hex, sig_val) in partial_map.iter() {
+            if pk_hex.len() != 66 { continue; }
+            let sig_hex = sig_val.get("schnorr").and_then(|v| v.as_str())
+                .ok_or_else(|| "partial sig missing schnorr variant (ECDSA unsupported)".to_string())?;
+            if sig_hex.len() != 128 {
+                return Err(format!("bad sig length: {}", sig_hex.len()));
+            }
+            let pos = find_pubkey_position_in_redeem(rs, pk_hex)
+                .ok_or_else(|| format!("pubkey not in redeem: {}", pk_hex))?;
+            let sig_bytes = hex::decode(sig_hex).map_err(|e| format!("sig hex: {}", e))?;
+            sig_records.push((pos, sig_bytes));
+        }
+        sig_records.sort_by_key(|t| t.0);
+        // No `sig_records.len() < required_m` gate — relay allows 0..=N.
+    } else {
+        // P2PK (or non-multisig P2SH): carry the one sig if present,
+        // otherwise emit an empty sig list. Relay must not reject inputs
+        // that have not been signed yet.
+        if let Some((_pk_hex, sig_val)) = partial_map.iter().next() {
+            let sig_hex = sig_val.get("schnorr").and_then(|v| v.as_str())
+                .ok_or_else(|| "partial sig missing schnorr variant (ECDSA unsupported)".to_string())?;
+            if sig_hex.len() != 128 {
+                return Err(format!("bad sig length: {}", sig_hex.len()));
+            }
+            let sig_bytes = hex::decode(sig_hex).map_err(|e| format!("sig hex: {}", e))?;
+            sig_records.push((0u8, sig_bytes));
+        }
+    }
+    if sig_records.len() > 255 { return Err("too many sigs".into()); }
+
+    // ─── Write bytes (layout identical to encode_input_kspt_v2) ───
+    buf.extend_from_slice(&prev_tx_id);
+    buf.extend_from_slice(&prev_index.to_le_bytes());
+    buf.extend_from_slice(&amount.to_le_bytes());
+    buf.extend_from_slice(&sequence.to_le_bytes());
+    buf.push(sig_op_count);
+    buf.extend_from_slice(&spk_version.to_le_bytes());
+    buf.push(spk_script.len() as u8);
+    buf.extend_from_slice(&spk_script);
+
+    buf.push(sig_records.len() as u8);
+    for (pos, sig) in &sig_records {
+        buf.push(*pos);
+        buf.push(0x01); // SIGHASH_ALL
+        if sig.len() != 64 { return Err("sig must be 64 bytes".into()); }
+        buf.extend_from_slice(sig);
+    }
+
+    match redeem {
+        Some(rs) => {
+            if rs.len() > 255 {
+                return Err(format!("redeem too long for KSPT v2 ({} > 255)", rs.len()));
+            }
+            buf.push(rs.len() as u8);
+            buf.extend_from_slice(&rs);
+        }
+        None => {
+            buf.push(0);
+        }
+    }
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // PSKT-native finalize + broadcast (no KSPT intermediate)
 // ═══════════════════════════════════════════════════════════════════
 //
@@ -1043,6 +1250,319 @@ fn build_p2pk_sig_script(
     sig_script.push(65u8);
     sig_script.extend_from_slice(&sig_bytes);
     Ok(sig_script)
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// KSPT v2 merge (incoming relay — device → KasSee)
+// ═══════════════════════════════════════════════════════════════════
+//
+// Inverse of `relay_pskb_as_kspt_v2_hex`. Takes a KSPT v2 blob
+// returned by the device (either `flags=0x00` partial or `flags=0x01`
+// fully-signed) together with the canonical PSKB KasSee holds, and
+// writes each (pubkey_pos, sig) record into the PSKB input's
+// `partialSigs` map at the slot keyed by the corresponding 33-byte
+// compressed cosigner pubkey.
+//
+// Pubkey reconstruction: KSPT v2 wire format carries only a 1-byte
+// `pubkey_pos`. The cosigner's 32-byte x-only key lives in the
+// redeem script at that position. The 33-byte SEC1 form is recovered
+// as `02 || xonly` — this is the Kaspa Schnorr multisig convention
+// (BIP340 "lift_x" with even-Y assumption), matching the device's
+// own `lift_x` in bootloader/src/wallet/schnorr.rs line 307.
+//
+// Merge semantics:
+//   - Pubkeys already in `partialSigs` are LEFT ALONE (no clobber).
+//     An earlier signer's sig cannot be overwritten by a later relay.
+//   - New pubkeys are INSERTED.
+//   - The canonical PSKB remains the source of truth; this function
+//     returns a new hex blob with the merged sigs. The caller keeps
+//     the result as the new canonical PSKB.
+//   - Wallet convention (KIP): cosigner ordering in the redeem script
+//     is lexicographic-by-x-only. This merge preserves that because
+//     the redeem script is copied through unchanged; we only add map
+//     entries to `partialSigs`.
+//
+// Idempotent: merging the same KSPT v2 twice is a no-op on the
+// second call.
+
+/// Merge the partial signatures from a device-returned KSPT v2 blob
+/// into the canonical PSKB and return the resulting PSKB wire hex.
+///
+/// Accepts both `flags = 0x00` (relay partial) and `flags = 0x01`
+/// (fully signed) KSPT v2 blobs — both are treated identically as
+/// "read out the sigs present". The flag byte is advisory; the real
+/// test for "ready to finalize" is still `partialSigs.len() >= M`.
+pub fn merge_signed_kspt_v2_into_pskb(
+    signed_kspt_hex: &str,
+    pskb_wire_hex: &str,
+) -> Result<String, String> {
+    // ── 1. Parse KSPT v2 bytes ──
+    let kspt = hex::decode(signed_kspt_hex)
+        .map_err(|e| format!("KSPT hex: {}", e))?;
+    let per_input = parse_kspt_v2_partials(&kspt)?;
+
+    // ── 2. Parse PSKB envelope ──
+    let format = detect_format_hex(pskb_wire_hex);
+    if format == PsktFormat::Unknown {
+        return Err("Not a PSKT/PSKB payload".into());
+    }
+    let wire = hex::decode(pskb_wire_hex)
+        .map_err(|e| format!("outer hex: {}", e))?;
+    if wire.len() < 4 { return Err("payload too short".into()); }
+    let magic = wire[0..4].to_vec(); // preserve PSKB or PSKT magic
+    let json_bytes = hex::decode(&wire[4..])
+        .map_err(|e| format!("inner hex: {}", e))?;
+    let mut root: Value = serde_json::from_slice(&json_bytes)
+        .map_err(|e| format!("JSON parse: {}", e))?;
+
+    // ── 3. Locate the inputs array (PSKB wraps in a 1-element array) ──
+    let inputs_mut: &mut Vec<Value> = match format {
+        PsktFormat::Pskb => {
+            let arr = root.as_array_mut()
+                .ok_or_else(|| "PSKB not array".to_string())?;
+            if arr.len() != 1 {
+                return Err(format!("PSKB must have 1 entry, got {}", arr.len()));
+            }
+            let pskt = arr[0].as_object_mut()
+                .ok_or_else(|| "PSKB entry not object".to_string())?;
+            pskt.get_mut("inputs")
+                .and_then(|v| v.as_array_mut())
+                .ok_or_else(|| "missing inputs".to_string())?
+        }
+        PsktFormat::PsktSingle => {
+            let pskt = root.as_object_mut()
+                .ok_or_else(|| "PSKT not object".to_string())?;
+            pskt.get_mut("inputs")
+                .and_then(|v| v.as_array_mut())
+                .ok_or_else(|| "missing inputs".to_string())?
+        }
+        PsktFormat::Unknown => unreachable!(),
+    };
+
+    // ── 4. Sanity: input counts must match ──
+    if inputs_mut.len() != per_input.len() {
+        return Err(format!(
+            "input count mismatch: PSKB has {}, KSPT v2 has {}",
+            inputs_mut.len(), per_input.len()
+        ));
+    }
+
+    // ── 5. Per-input merge ──
+    for (i, sigs_at_input) in per_input.iter().enumerate() {
+        if sigs_at_input.is_empty() { continue; }
+
+        let inp = inputs_mut[i].as_object_mut()
+            .ok_or_else(|| format!("input[{}] not object", i))?;
+
+        // Read redeem script — required for P2SH multisig. We need it
+        // to resolve pubkey_pos → 32-byte x-only.
+        let redeem_hex = match inp.get("redeemScript") {
+            Some(Value::String(s)) => s.clone(),
+            _ => return Err(format!(
+                "input[{}] has sig records but no redeemScript — non-multisig relay not yet supported", i
+            )),
+        };
+        let redeem = hex::decode(&redeem_hex)
+            .map_err(|e| format!("input[{}] redeem hex: {}", i, e))?;
+
+        // Ensure partialSigs exists as an object.
+        if !matches!(inp.get("partialSigs"), Some(Value::Object(_))) {
+            inp.insert("partialSigs".to_string(), Value::Object(Default::default()));
+        }
+        let partial_map = inp.get_mut("partialSigs")
+            .and_then(|v| v.as_object_mut())
+            .expect("just inserted/verified");
+
+        for rec in sigs_at_input {
+            // Resolve pubkey_pos → 32-byte x-only from redeem.
+            let xonly = xonly_at_position(&redeem, rec.pubkey_pos)
+                .ok_or_else(|| format!(
+                    "input[{}] pubkey_pos {} out of range for redeem",
+                    i, rec.pubkey_pos
+                ))?;
+            // Canonical Schnorr multisig: compressed pubkey = 02 || xonly.
+            let pk_hex = format!("02{}", hex::encode(xonly));
+
+            // Idempotent merge: don't clobber an existing sig at this slot.
+            if partial_map.contains_key(&pk_hex) {
+                continue;
+            }
+
+            let sig_hex = hex::encode(&rec.sig);
+            let mut sig_obj = serde_json::Map::new();
+            sig_obj.insert("schnorr".to_string(), Value::String(sig_hex));
+            partial_map.insert(pk_hex, Value::Object(sig_obj));
+        }
+    }
+
+    // ── 6. Re-serialize PSKB with the same wrapping format ──
+    // ── 6. Re-serialize PSKB with the same wrapping format ──
+    //
+    // The outer wire we decoded was `hex::decode(pskb_wire_hex)` →
+    // 4 raw magic bytes + hex-ASCII of JSON. Re-encode accordingly:
+    // build `magic || hex_ascii(json)` as bytes, then hex it.
+    let new_json = serde_json::to_vec(&root)
+        .map_err(|e| format!("re-serialize: {}", e))?;
+    let mut wire_bytes: Vec<u8> = Vec::with_capacity(4 + new_json.len() * 2);
+    wire_bytes.extend_from_slice(&magic);
+    wire_bytes.extend_from_slice(hex::encode(&new_json).as_bytes());
+    Ok(hex::encode(&wire_bytes))
+}
+
+/// One sig record as parsed from a KSPT v2 input section.
+struct KsptSigRecord {
+    pubkey_pos: u8,
+    #[allow(dead_code)]
+    sighash_type: u8,
+    sig: [u8; 64],
+}
+
+/// Parse a KSPT v2 byte blob and return, for each input, the list of
+/// `(pubkey_pos, sighash_type, sig)` records present. Does not
+/// validate sigs; that's the device/consensus job.
+///
+/// Layout (from bootloader/src/wallet/pskt.rs `serialize_signed_pskt_v2`
+/// and the matching emitter here in `encode_input_kspt_v2`):
+///
+///   Header:  "KSPT"(4) | version=0x02(1) | flags(1)
+///   Global:  tx_version(2 LE) | num_in(1) | num_out(1)
+///            locktime(8 LE) | subnetwork_id(20) | gas(8 LE)
+///            payload_len(2 LE) | payload(payload_len)
+///   Per input:
+///            prev_tx_id(32) | prev_index(4 LE) | amount(8 LE)
+///            sequence(8 LE) | sig_op_count(1)
+///            spk_version(2 LE) | spk_len(1) | spk_bytes
+///            sig_count(1)
+///            [ pubkey_pos(1) | sighash(1) | sig(64) ] × sig_count
+///            redeem_script_len(1) | redeem_script_bytes
+///   Per output:
+///            value(8 LE) | spk_version(2 LE) | spk_len(1) | spk_bytes
+fn parse_kspt_v2_partials(data: &[u8]) -> Result<Vec<Vec<KsptSigRecord>>, String> {
+    let mut r = KsptReader::new(data);
+    // Header
+    let magic = r.bytes(4)?;
+    if magic != b"KSPT" {
+        return Err("not a KSPT blob".into());
+    }
+    let version = r.u8()?;
+    if version != 0x02 {
+        return Err(format!("unsupported KSPT version: 0x{:02x}", version));
+    }
+    let _flags = r.u8()?; // 0x00 partial, 0x01 fully signed — treat same
+    // Global
+    let _tx_version = r.u16_le()?;
+    let num_in = r.u8()? as usize;
+    let num_out = r.u8()? as usize;
+    let _locktime = r.u64_le()?;
+    let _subnetwork_id = r.bytes(20)?.to_vec();
+    let _gas = r.u64_le()?;
+    let payload_len = r.u16_le()? as usize;
+    if payload_len > 0 {
+        let _ = r.bytes(payload_len)?;
+    }
+
+    let mut out: Vec<Vec<KsptSigRecord>> = Vec::with_capacity(num_in);
+    for _ in 0..num_in {
+        // Per-input header
+        let _prev_tx_id = r.bytes(32)?.to_vec();
+        let _prev_index = r.u32_le()?;
+        let _amount = r.u64_le()?;
+        let _sequence = r.u64_le()?;
+        let _sig_op = r.u8()?;
+        let _spk_version = r.u16_le()?;
+        let spk_len = r.u8()? as usize;
+        let _spk = r.bytes(spk_len)?;
+
+        // Sig records
+        let sig_count = r.u8()? as usize;
+        let mut sigs: Vec<KsptSigRecord> = Vec::with_capacity(sig_count);
+        for _ in 0..sig_count {
+            let pos = r.u8()?;
+            let sighash = r.u8()?;
+            let sig_bytes = r.bytes(64)?;
+            let mut sig = [0u8; 64];
+            sig.copy_from_slice(sig_bytes);
+            sigs.push(KsptSigRecord {
+                pubkey_pos: pos,
+                sighash_type: sighash,
+                sig,
+            });
+        }
+
+        // Redeem script (may be empty for P2PK)
+        let rs_len = r.u8()? as usize;
+        if rs_len > 0 {
+            let _ = r.bytes(rs_len)?;
+        }
+        out.push(sigs);
+    }
+
+    // Outputs — read to validate length, no data needed for merge
+    for _ in 0..num_out {
+        let _value = r.u64_le()?;
+        let _spk_version = r.u16_le()?;
+        let spk_len = r.u8()? as usize;
+        let _ = r.bytes(spk_len)?;
+    }
+
+    // Trailing bytes are tolerated by some encoders; don't fail on them.
+    Ok(out)
+}
+
+/// Return the 32-byte x-only pubkey at the given 0-indexed slot in a
+/// redeem script. Mirrors `find_pubkey_position_in_redeem` but in the
+/// opposite direction.
+fn xonly_at_position(rs: &[u8], position: u8) -> Option<[u8; 32]> {
+    if rs.len() < 4 { return None; }
+    let mut pos = 1usize; // skip OP_M
+    let mut idx: u8 = 0;
+    while pos + 33 <= rs.len() {
+        if rs[pos] != 0x20 { return None; } // OP_DATA_32
+        if idx == position {
+            let mut out = [0u8; 32];
+            out.copy_from_slice(&rs[pos + 1..pos + 33]);
+            return Some(out);
+        }
+        pos += 33;
+        idx = idx.saturating_add(1);
+    }
+    None
+}
+
+/// Minimal byte reader for parse_kspt_v2_partials. Keeps the parser
+/// itself readable — every field-read is a one-line call.
+struct KsptReader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+impl<'a> KsptReader<'a> {
+    fn new(buf: &'a [u8]) -> Self { Self { buf, pos: 0 } }
+    fn bytes(&mut self, n: usize) -> Result<&'a [u8], String> {
+        if self.pos + n > self.buf.len() {
+            return Err(format!(
+                "KSPT truncated: want {} bytes at pos {}, only {} remain",
+                n, self.pos, self.buf.len() - self.pos
+            ));
+        }
+        let s = &self.buf[self.pos..self.pos + n];
+        self.pos += n;
+        Ok(s)
+    }
+    fn u8(&mut self) -> Result<u8, String> { Ok(self.bytes(1)?[0]) }
+    fn u16_le(&mut self) -> Result<u16, String> {
+        let b = self.bytes(2)?;
+        Ok(u16::from_le_bytes([b[0], b[1]]))
+    }
+    fn u32_le(&mut self) -> Result<u32, String> {
+        let b = self.bytes(4)?;
+        Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    }
+    fn u64_le(&mut self) -> Result<u64, String> {
+        let b = self.bytes(8)?;
+        let mut a = [0u8; 8];
+        a.copy_from_slice(b);
+        Ok(u64::from_le_bytes(a))
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════

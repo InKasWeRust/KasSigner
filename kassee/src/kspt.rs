@@ -629,3 +629,227 @@ fn serialize_kspt_multisig(
 
     Ok(hex::encode(&buf))
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Multisig PSKB creation (Path 2 — sibling of create_multisig_kspt)
+// ═══════════════════════════════════════════════════════════════════
+//
+// Same input/output semantics as create_multisig_kspt (descriptor,
+// source, dest, amount, fee, change, UTXO selection) but emits an
+// UNSIGNED PSKB (Kaspa-standard partially-signed bundle) instead of
+// KSPT v1 binary.
+//
+// Wire envelope: `50534b42` (ASCII "PSKB") + hex-ASCII of a UTF-8
+// JSON array wrapping one PSKT object. Matches the format that
+// `finalize_to_kspt_hex`, `relay_pskb_as_kspt_v2_hex`, and
+// `merge_signed_kspt_v2_into_pskb` all already consume.
+//
+// Why a sibling and not a mode parameter: the mainnet-verified KSPT
+// construction path produced the ceremonies that fund the multisig
+// address we're about to spend from. Same risk asymmetry as the
+// relay sibling — duplication is fixable later; silent KSPT
+// breakage loses funds.
+//
+// The "unsigned" PSKB has `partialSigs: {}` on every input. Device
+// receives it, signs, returns a PSKB with partialSigs populated (or
+// a KSPT v2 via the compact relay path, which gets merged back).
+
+pub async fn create_multisig_pskb(
+    descriptor: &str,
+    source_address: &str,
+    dest_address: &str,
+    amount_kas: f64,
+    fee: u64,
+    change_address: &str,
+    ws_url: &str,
+    addr_index: u32,
+) -> Result<String, String> {
+    // ── HD address-index auto-discovery (identical to create_multisig_kspt) ──
+    let final_index = if descriptor.trim().starts_with("multi_hd(") {
+        let mut found: Option<u32> = None;
+        for try_idx in 0..100u32 {
+            let (m, pks) = parse_descriptor(descriptor, try_idx)?;
+            let script = build_redeem_script(m, &pks);
+            let script_hash = blake2b_hash(&script);
+            let derived_addr = crate::address::encode_p2sh_address(&script_hash, "kaspa");
+            if derived_addr == source_address {
+                found = Some(try_idx);
+                break;
+            }
+        }
+        match found {
+            Some(idx) => idx,
+            None => return Err(format!(
+                "Could not find address index (tried 0..99) that matches source address {}",
+                source_address
+            )),
+        }
+    } else {
+        addr_index
+    };
+
+    let (m, pubkeys) = parse_descriptor(descriptor, final_index)?;
+    let redeem_script = build_redeem_script(m, &pubkeys);
+    let redeem_script_hex = hex::encode(&redeem_script);
+
+    let dest_script = crate::address::address_to_script_pubkey(dest_address)?;
+    let amount_sompi = (amount_kas * 100_000_000.0) as u64;
+
+    // ── UTXO selection (identical to create_multisig_kspt) ──
+    let mut utxos = crate::rpc::fetch_utxos_for_address(ws_url, source_address).await?;
+    if utxos.is_empty() {
+        return Err("No UTXOs found for multisig address".into());
+    }
+    utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
+
+    let total_needed = amount_sompi + fee;
+    let mut selected = Vec::new();
+    let mut selected_total: u64 = 0;
+    for utxo in utxos {
+        selected_total += utxo.amount;
+        selected.push(utxo);
+        if selected_total >= total_needed { break; }
+    }
+    if selected_total < total_needed {
+        return Err(format!(
+            "Insufficient funds in multisig: have {} sompi, need {}",
+            selected_total, total_needed
+        ));
+    }
+
+    let change_amount = selected_total - amount_sompi - fee;
+    let final_change = if change_amount > 0 && is_dust(change_amount) { 0u64 } else { change_amount };
+
+    // ── Build outputs ──
+    let mut outputs: Vec<(u64, Vec<u8>)> = vec![(amount_sompi, dest_script)];
+    if final_change > 0 {
+        let change_script = crate::address::address_to_script_pubkey(change_address)?;
+        outputs.push((final_change, change_script));
+    }
+
+    // ── Build the PSKT JSON structure ──
+    //
+    // Field order matches the wire-format documentation at the top of
+    // pskt.rs lines 32-82. Using serde_json::Value with explicit
+    // insertion order (serde_json preserves insertion order by default
+    // when the `preserve_order` feature is enabled — this crate's
+    // Cargo.toml should already carry that since byte-compatibility
+    // was verified on 20 Apr 2026).
+    //
+    // tx_version = 0 (matches the KSPT path and Kaspa consensus default).
+    // sigOpCount = M per KIP §5 (corrected from N after PR #39 feedback).
+    // sighashType = 1 (SIGHASH_ALL, Kaspa's only supported mode).
+
+    let tx_version: u16 = 0;
+    let num_in = selected.len() as u16;
+    let num_out = outputs.len() as u16;
+
+    // Inputs JSON
+    let mut inputs_json = Vec::<serde_json::Value>::with_capacity(selected.len());
+    for utxo in &selected {
+        // scriptPublicKey: "<4 hex BE version><script hex>". For P2SH the
+        // script_public_key bytes are just the script; version is 0 for
+        // all standard outputs on mainnet today.
+        let spk_hex = format!("0000{}", hex::encode(&utxo.script_public_key));
+
+        let utxo_entry = serde_json::json!({
+            "amount": utxo.amount,
+            "scriptPublicKey": spk_hex,
+            "blockDaaScore": utxo.block_daa_score,
+            "isCoinbase": false
+        });
+
+        let outpoint = serde_json::json!({
+            "transactionId": utxo.tx_id,
+            "index": utxo.index
+        });
+
+        let input = serde_json::json!({
+            "utxoEntry": utxo_entry,
+            "previousOutpoint": outpoint,
+            "sequence": 0u64,
+            "minTime": serde_json::Value::Null,
+            "partialSigs": {},
+            "sighashType": 1u8,
+            "redeemScript": redeem_script_hex,
+            // sigOpCount = N (total pubkeys), not M (threshold).
+            // Under the KIP, M ≤ sigOpCount ≤ N is the valid range; M
+            // is the tight value under the KIP's lex-sort + ordered-
+            // emission conventions and N is a safe upper bound.
+            // Consensus today still evaluates P2SH-multisig sigops at
+            // N — Michael Sutton noted on X 21 Apr 2026 that exact-M
+            // only becomes possible with upcoming Silverscript. Until
+            // then, emitting M here causes "sig op count exceeds
+            // passed limit" rejections because the node counts N and
+            // our PSKB declared M.
+            //
+            // The existing KSPT path (kspt::create_multisig_kspt
+            // line 565) already emits N for the same reason. Keeping
+            // the two emitters consistent prevents an asymmetric
+            // mainnet failure mode.
+            "sigOpCount": pubkeys.len() as u8,
+            "bip32Derivations": {},
+            "finalScriptSig": serde_json::Value::Null,
+            "proprietaries": {}
+        });
+        inputs_json.push(input);
+    }
+
+    // Outputs JSON
+    let mut outputs_json = Vec::<serde_json::Value>::with_capacity(outputs.len());
+    for (amount, script) in &outputs {
+        let spk_hex = format!("0000{}", hex::encode(script));
+        let output = serde_json::json!({
+            "amount": amount,
+            "scriptPublicKey": spk_hex,
+            "redeemScript": serde_json::Value::Null,
+            "bip32Derivations": {},
+            "proprietaries": {}
+        });
+        outputs_json.push(output);
+    }
+
+    // Global
+    let global = serde_json::json!({
+        "version": 0u8,
+        "txVersion": tx_version,
+        "fallbackLockTime": serde_json::Value::Null,
+        "inputsModifiable": false,
+        "outputsModifiable": false,
+        "inputCount": num_in,
+        "outputCount": num_out,
+        "xpubs": {},
+        "id": serde_json::Value::Null,
+        "proprietaries": {}
+    });
+
+    // Full PSKT object
+    let pskt = serde_json::json!({
+        "global": global,
+        "inputs": inputs_json,
+        "outputs": outputs_json
+    });
+
+    // PSKB = single-element array wrapping the PSKT object
+    let pskb_body = serde_json::Value::Array(vec![pskt]);
+    let json_bytes = serde_json::to_vec(&pskb_body)
+        .map_err(|e| format!("serialize PSKB JSON: {}", e))?;
+
+    // Wire envelope: raw magic bytes "PSKB" + hex-ASCII of JSON,
+    // whole thing then hex-encoded. Matches relay_pskb_as_kspt_v2_hex
+    // inverse path at pskt.rs ~line 585 where it does
+    // `hex::decode(&wire[4..])` to get back at the JSON.
+    let mut wire: Vec<u8> = Vec::with_capacity(4 + json_bytes.len() * 2);
+    wire.extend_from_slice(b"PSKB");
+    wire.extend_from_slice(hex::encode(&json_bytes).as_bytes());
+    let wire_hex = hex::encode(&wire);
+
+    web_sys::console::log_1(
+        &format!(
+            "[KasSee] Multisig PSKB: {} inputs, {}-of-{}, send {}, change {}, wire hex {} chars",
+            selected.len(), m, pubkeys.len(), amount_sompi, final_change, wire_hex.len()
+        ).into(),
+    );
+
+    Ok(wire_hex)
+}

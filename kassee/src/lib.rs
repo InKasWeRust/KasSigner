@@ -179,6 +179,28 @@ pub async fn create_multisig_kspt(
         .map_err(|e| JsValue::from_str(&e))
 }
 
+/// Build an unsigned multisig PSKB — Path 2. Same semantics as
+/// `create_multisig_kspt` but emits a Kaspa-standard PSKB wire blob
+/// instead of legacy KSPT v1 binary.
+///
+/// The output goes directly to `openPsktReview` on the JS side,
+/// landing the user on the Review PSKB screen with 0/M sigs where
+/// they can pick Relay → (Any wallet | KasSigner compact).
+#[wasm_bindgen]
+pub async fn create_multisig_pskb(
+    descriptor: &str,
+    source_address: &str,
+    dest_address: &str,
+    amount_kas: f64,
+    fee_sompi: u64,
+    change_address: &str,
+    ws_url: &str,
+    addr_index: u32,
+) -> Result<String, JsValue> {
+    kspt::create_multisig_pskb(descriptor, source_address, dest_address, amount_kas, fee_sompi, change_address, ws_url, addr_index).await
+        .map_err(|e| JsValue::from_str(&e))
+}
+
 /// Fetch UTXOs for a single address (for multisig balance check) → JSON array
 #[wasm_bindgen]
 pub async fn fetch_utxos_for_address_js(address: &str, ws_url: &str) -> Result<String, JsValue> {
@@ -269,6 +291,35 @@ pub fn pskt_summary(wire_hex: &str, network: &str) -> Result<String, JsValue> {
 #[wasm_bindgen]
 pub fn pskt_finalize_to_kspt(wire_hex: &str) -> Result<String, JsValue> {
     pskt::finalize_to_kspt_hex(wire_hex)
+        .map_err(|e| JsValue::from_str(&e))
+}
+
+/// Re-emit a PSKB/PSKT as a KSPT v2 "partial" hex blob for relay to
+/// KasSigner over QR. Does NOT require M sigs — accepts 0..=N partial
+/// sigs per input. Flags byte = 0x00 (partial).
+///
+/// The mainnet-verified `pskt_finalize_to_kspt` path is not touched:
+/// this is a sibling function that shares no mutable state with it.
+#[wasm_bindgen]
+pub fn pskt_relay_to_kspt_v2(wire_hex: &str) -> Result<String, JsValue> {
+    pskt::relay_pskb_as_kspt_v2_hex(wire_hex)
+        .map_err(|e| JsValue::from_str(&e))
+}
+
+/// Inverse of `pskt_relay_to_kspt_v2`: merge the partial sigs from a
+/// device-returned KSPT v2 blob into the canonical PSKB and return
+/// the updated PSKB wire hex. Idempotent — existing sigs are not
+/// clobbered.
+///
+/// Accepts `flags = 0x00` (partial) and `flags = 0x01` (fully signed)
+/// equally. Caller must still check whether the merged PSKB has ≥M
+/// sigs before finalizing/broadcasting.
+#[wasm_bindgen]
+pub fn pskt_merge_signed_kspt_v2(
+    signed_kspt_hex: &str,
+    pskb_wire_hex: &str,
+) -> Result<String, JsValue> {
+    pskt::merge_signed_kspt_v2_into_pskb(signed_kspt_hex, pskb_wire_hex)
         .map_err(|e| JsValue::from_str(&e))
 }
 
