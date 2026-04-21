@@ -83,6 +83,39 @@ export function create_multisig_kspt(descriptor, source_address, dest_address, a
 }
 
 /**
+ * Build an unsigned multisig PSKB — Path 2. Same semantics as
+ * `create_multisig_kspt` but emits a Kaspa-standard PSKB wire blob
+ * instead of legacy KSPT v1 binary.
+ *
+ * The output goes directly to `openPsktReview` on the JS side,
+ * landing the user on the Review PSKB screen with 0/M sigs where
+ * they can pick Relay → (Any wallet | KasSigner compact).
+ * @param {string} descriptor
+ * @param {string} source_address
+ * @param {string} dest_address
+ * @param {number} amount_kas
+ * @param {bigint} fee_sompi
+ * @param {string} change_address
+ * @param {string} ws_url
+ * @param {number} addr_index
+ * @returns {Promise<string>}
+ */
+export function create_multisig_pskb(descriptor, source_address, dest_address, amount_kas, fee_sompi, change_address, ws_url, addr_index) {
+    const ptr0 = passStringToWasm0(descriptor, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(source_address, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(dest_address, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ptr3 = passStringToWasm0(change_address, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ptr4 = passStringToWasm0(ws_url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len4 = WASM_VECTOR_LEN;
+    const ret = wasm.create_multisig_pskb(ptr0, len0, ptr1, len1, ptr2, len2, amount_kas, fee_sompi, ptr3, len3, ptr4, len4, addr_index);
+    return ret;
+}
+
+/**
  * Build unsigned KSPT from wallet, destination, amount, fee → return hex
  * @param {string} wallet_json
  * @param {string} dest_address
@@ -474,6 +507,73 @@ export function pskt_finalize_to_kspt(wire_hex) {
 }
 
 /**
+ * Inverse of `pskt_relay_to_kspt_v2`: merge the partial sigs from a
+ * device-returned KSPT v2 blob into the canonical PSKB and return
+ * the updated PSKB wire hex. Idempotent — existing sigs are not
+ * clobbered.
+ *
+ * Accepts `flags = 0x00` (partial) and `flags = 0x01` (fully signed)
+ * equally. Caller must still check whether the merged PSKB has ≥M
+ * sigs before finalizing/broadcasting.
+ * @param {string} signed_kspt_hex
+ * @param {string} pskb_wire_hex
+ * @returns {string}
+ */
+export function pskt_merge_signed_kspt_v2(signed_kspt_hex, pskb_wire_hex) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(signed_kspt_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(pskb_wire_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.pskt_merge_signed_kspt_v2(ptr0, len0, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
+ * Re-emit a PSKB/PSKT as a KSPT v2 "partial" hex blob for relay to
+ * KasSigner over QR. Does NOT require M sigs — accepts 0..=N partial
+ * sigs per input. Flags byte = 0x00 (partial).
+ *
+ * The mainnet-verified `pskt_finalize_to_kspt` path is not touched:
+ * this is a sibling function that shares no mutable state with it.
+ * @param {string} wire_hex
+ * @returns {string}
+ */
+export function pskt_relay_to_kspt_v2(wire_hex) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(wire_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pskt_relay_to_kspt_v2(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * Parse a PSKT/PSKB payload into a review summary (JSON string).
  *
  * `network` is one of "mainnet", "testnet-10/11/12", "simnet",
@@ -717,17 +817,17 @@ function __wbg_get_imports() {
             return ret;
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 210, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h200a37f11e89f6da);
-            return ret;
-        },
-        __wbindgen_cast_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 58, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 131, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h2e36b7a07a0aa581);
             return ret;
         },
+        __wbindgen_cast_0000000000000002: function(arg0, arg1) {
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 216, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h200a37f11e89f6da);
+            return ret;
+        },
         __wbindgen_cast_0000000000000003: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 58, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 131, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h2e36b7a07a0aa581_2);
             return ret;
         },

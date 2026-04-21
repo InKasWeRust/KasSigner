@@ -27,6 +27,9 @@ import init, {
     pskt_summary,
     pskt_finalize_to_kspt,
     pskt_finalize_and_broadcast,
+    pskt_relay_to_kspt_v2,
+    pskt_merge_signed_kspt_v2,
+    create_multisig_pskb,
 } from '../pkg/kassee_web.js';
 
 // ─── State ───
@@ -244,7 +247,10 @@ function bindEvents() {
     el('btn-broadcast-hex').onclick = () => handleBroadcastHex();
     el('btn-broadcast-back').onclick = () => showScreen('dashboard');
     el('btn-pskt-back').onclick = () => { _psktReviewHex = null; showScreen('dashboard'); };
-    el('btn-pskt-relay').onclick = () => handlePsktRelay();
+    el('btn-pskt-relay').onclick = () => openRelayModal();
+    el('btn-relay-standard').onclick = () => { closeRelayModal(); handlePsktRelay(); };
+    el('btn-relay-compact').onclick = () => { closeRelayModal(); handlePsktRelayCompact(); };
+    el('btn-relay-cancel').onclick = () => closeRelayModal();
     el('btn-pskt-finalize').onclick = () => handlePsktFinalize();
     el('btn-broadcast-done').onclick = () => {
         hideBroadcastResult();
@@ -973,6 +979,25 @@ function handleSignedScan(data) {
             }
 
             const sigStatus = checkKsptSignatureStatus(result);
+
+            // Compact-relay return path: if we sent a KSPT v2 to the
+            // device via handlePsktRelayCompact, _psktReviewHex still
+            // holds the canonical PSKB. Merge the new partial sigs
+            // from the KSPT v2 back into the PSKB and re-open review.
+            if ((sigStatus === 'partial' || sigStatus === 'signed') && _psktReviewHex) {
+                console.log('[KasSee] KSPT v2 return with canonical PSKB held — merging');
+                try {
+                    const mergedPskb = pskt_merge_signed_kspt_v2(result, _psktReviewHex);
+                    openPsktReview(mergedPskb);
+                    toast('Signature merged into PSKB', 'ok', 2500);
+                    return;
+                } catch (e) {
+                    console.error('[KasSee] merge failed:', e);
+                    toast('Merge failed: ' + e, 'error', 5000);
+                    // Fall through to legacy relay path below.
+                }
+            }
+
             if (sigStatus === 'partial') {
                 console.log('[KasSee] Partial signature — relay to next signer');
                 toast('Partial signature — scan with next device', 'info', 3000);
@@ -1131,12 +1156,47 @@ function openPsktReview(wireHex) {
     showScreen('pskt-review');
 }
 
-/// Re-emit the same PSKB/PSKT unchanged as QR frames for the next
-/// signer to scan. No mutation of the wire format — this is just a
-/// display pass-through so the user can move a partial between devices.
+/// Open the relay format picker modal. User chooses between standard
+/// PSKB (any wallet) or compact KSPT v2 (KasSigner devices only).
+function openRelayModal() {
+    if (!_psktReviewHex) { toast('No PSKT loaded', 'error'); return; }
+    el('relay-choice-modal').classList.remove('hidden');
+}
+
+function closeRelayModal() {
+    el('relay-choice-modal').classList.add('hidden');
+}
+
+/// Relay in STANDARD PSKB hex — interoperable with any Kaspa wallet
+/// that speaks PSKB, including another KasSee instance. The wire
+/// format is not mutated; this is a display pass-through.
 function handlePsktRelay() {
     if (!_psktReviewHex) { toast('No PSKT loaded', 'error'); return; }
     displayKsptQr(_psktReviewHex, 'Relay to next signer');
+}
+
+/// Relay in COMPACT KSPT v2 — converts the canonical PSKB to a KSPT
+/// v2 partial blob (~5× fewer QR frames). Only KasSigner devices
+/// can decode this. The PSKB stays as the canonical in-memory state;
+/// only the wire transport is compressed.
+///
+/// Flow: KasSee holds PSKB → compact-relay to KasSigner → device
+/// signs and returns a KSPT v2 → handleSignedScan merges the new
+/// sigs back into _psktReviewHex via pskt_merge_signed_kspt_v2.
+function handlePsktRelayCompact() {
+    if (!_psktReviewHex) { toast('No PSKT loaded', 'error'); return; }
+    let ksptHex;
+    try {
+        ksptHex = pskt_relay_to_kspt_v2(_psktReviewHex);
+    } catch (e) {
+        console.error('[KasSee] compact relay encode failed:', e);
+        toast('Compact relay failed: ' + e, 'error', 5000);
+        return;
+    }
+    console.log('[KasSee] Compact relay: PSKB hex ' + _psktReviewHex.length +
+                ' → KSPT v2 hex ' + ksptHex.length +
+                ' (' + Math.round((1 - ksptHex.length / _psktReviewHex.length) * 100) + '% smaller)');
+    displayKsptQr(ksptHex, 'Relay to KasSigner (compact)');
 }
 
 /// Finalize + broadcast — PSKT-NATIVE path.
@@ -1247,7 +1307,7 @@ async function handleMultisigCreate() {
     // Change goes back to the same multisig address
     const changeAddr = sourceAddr;
 
-    showLoading('Building multisig TX...');
+    showLoading('Building multisig PSKB...');
     try {
         const fee = lastFeeEstimate ? lastFeeEstimate.suggested_fee : 20000;
         const wsUrl = await resolveNodeUrl();
@@ -1255,10 +1315,18 @@ async function handleMultisigCreate() {
         // derived address to spend from. Legacy multi() ignores this (always 0).
         const addrIndexEl = el('input-ms-addr-index');
         const addrIndex = addrIndexEl ? parseInt(addrIndexEl.value) || 0 : 0;
-        const ksptHex = await create_multisig_kspt(descriptor, sourceAddr, resolvedDest, parseFloat(amountStr), BigInt(fee), changeAddr, wsUrl, addrIndex);
+
+        // Always PSKB — the Kaspa-standard wire format. Lands on Review
+        // PSKB with 0/M sigs; user relays from there via the Relay modal
+        // which picks between standard PSKB (any wallet) and compact
+        // KSPT v2 (KasSigner devices only).
+        const pskbHex = await create_multisig_pskb(
+            descriptor, sourceAddr, resolvedDest, parseFloat(amountStr),
+            BigInt(fee), changeAddr, wsUrl, addrIndex
+        );
         hideLoading();
-        console.log('[KasSee] Multisig KSPT created: ' + ksptHex.length / 2 + ' bytes');
-        displayKsptQr(ksptHex, 'Scan with KasSigner');
+        console.log('[KasSee] Multisig PSKB created: ' + pskbHex.length / 2 + ' bytes');
+        openPsktReview(pskbHex);
     } catch (e) {
         hideLoading();
         toast('Multisig TX failed: ' + e, 'error', 5000);
