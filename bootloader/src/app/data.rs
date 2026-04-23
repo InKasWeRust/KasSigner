@@ -94,6 +94,9 @@ pub struct AppData {
     // ─── Menus ───
     pub tools_menu: crate::app::input::Menu,
     pub export_menu: crate::app::input::Menu,
+    pub seed_backup_menu: crate::app::input::Menu,
+    pub watch_only_menu: crate::app::input::Menu,
+    pub signing_keys_menu: crate::app::input::Menu,
     pub qr_export_menu: crate::app::input::Menu,
     pub xprv_export_menu: crate::app::input::Menu,
     pub settings_menu: crate::app::input::Menu,
@@ -126,6 +129,7 @@ pub struct AppData {
     /// Change chain uses `change_pubkey_cache` (5 entries) instead of
     /// `pubkey_cache` (20 entries + `extra_pubkey`).
     pub addr_view_is_change: bool,
+    pub addr_partial_redraw: bool,
     pub pubkeys_cached: bool,
     pub acct_key_raw: [u8; 65],
     pub extra_pubkey: [u8; 32],
@@ -187,6 +191,7 @@ pub struct AppData {
     /// Set by any file-list handler before routing to SdDeleteConfirm, so
     /// the confirm screen can bounce back to the correct list.
     pub sd_delete_return: crate::app::input::AppState,
+    pub seed_backup_return: crate::app::input::AppState,
     /// SD TXT save origin: 0=multisig address, 1=kpub (used by SdKsptEncryptPass back-nav)
     pub sd_txt_origin: u8,
     /// QR multi-frame display: true = manual tap-to-advance, false = auto-cycle
@@ -332,17 +337,23 @@ pub fn new() -> Self {
                   "Sign Message"]
             ),
             export_menu: crate::app::input::Menu::from_items(
-                &["Show Seed Words", "QR Export", "JPEG Stego Export",
-                  "kpub Watch-Only", "kpub to SD",
-                  "xprv Account",
-                  "Seed Backup to SD",
-                  "Private Key"]
+                &["Seed Backup", "Watch-Only",
+                  "Signing Keys", "Steganography"]
+            ),
+            seed_backup_menu: crate::app::input::Menu::from_items(
+                &["Show Seed Words", "QR Export", "Backup to SD"]
+            ),
+            watch_only_menu: crate::app::input::Menu::from_items(
+                &["kpub as QR", "kpub to SD"]
+            ),
+            signing_keys_menu: crate::app::input::Menu::from_items(
+                &["xprv Account", "Private Key"]
             ),
             xprv_export_menu: crate::app::input::Menu::from_items(
                 &["Show as QR", "Encrypt to SD"]
             ),
             qr_export_menu: crate::app::input::Menu::from_items(
-                &["CompactSeedQR", "Standard SeedQR", "Plain Words QR"]
+                &["CompactSeedQR", "Standard SeedQR", "Plain Text QR"]
             ),
             #[cfg(feature = "waveshare")]
             settings_menu: crate::app::input::Menu::from_items(
@@ -376,6 +387,7 @@ pub fn new() -> Self {
             pubkey_cache: [[0u8; 32]; 20],
             change_pubkey_cache: [[0u8; 32]; 5],
             addr_view_is_change: false,
+            addr_partial_redraw: false,
             pubkeys_cached: false,
             acct_key_raw: [0u8; 65],
             extra_pubkey: [0u8; 32],
@@ -409,6 +421,7 @@ pub fn new() -> Self {
             sd_overwrite_next: crate::app::input::AppState::MainMenu,
             sd_overwrite_back: crate::app::input::AppState::MainMenu,
             sd_delete_return: crate::app::input::AppState::MainMenu,
+            seed_backup_return: crate::app::input::AppState::SeedList,
             sd_txt_origin: 0,
             qr_manual_frames: false,
 

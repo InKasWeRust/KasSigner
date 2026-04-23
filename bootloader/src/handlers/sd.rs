@@ -273,7 +273,7 @@ pub fn handle_sd_touch(
     match ad.app.state {
                     crate::app::input::AppState::SdBackupWarning => {
                         if is_back {
-                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                            ad.app.state = crate::app::input::AppState::SeedBackupMenu;
                         } else if (85..=235).contains(&x) && y >= 205 {
                             // "I understand" button → filename keyboard first
                             let next = scan_auto_increment(i2c, delay, b"SD", b"KAS");
@@ -292,13 +292,14 @@ pub fn handle_sd_touch(
                     crate::app::input::AppState::SdSeedFilename => {
                         if is_back {
                             ad.pp_input.reset();
-                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                            ad.app.state = crate::app::input::AppState::SeedBackupMenu;
+                            needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
                                 2 => { ad.pp_input.next_page(); }
-                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "SEED FILENAME"); needs_redraw = false; }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "SEED FILENAME"); }
                                 5 => { /* no space in filenames */ }
-                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "SEED FILENAME"); needs_redraw = false; }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "SEED FILENAME"); }
                                 6 => {
                                     // OK — build 8.3 filename, extension KAS
                                     let name_83 = build_filename_83(&ad.pp_input.buf, ad.pp_input.len, b"KAS");
@@ -316,18 +317,18 @@ pub fn handle_sd_touch(
                                 _ => {}
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdBackupPassphrase => {
                         if is_back {
                             ad.pp_input.reset();
-                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                            ad.app.state = crate::app::input::AppState::SeedBackupMenu;
+                            needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); }
-                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); needs_redraw = false; }
-                                5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); needs_redraw = false; }
-                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); needs_redraw = false; }
+                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); }
+                                5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); }
                                 6 => { // OK — encrypt and write backup to SD
                                     // Show encrypting screen with progress bar
                                     boot_display.draw_saving_screen("Encrypting seed...");
@@ -379,16 +380,17 @@ pub fn handle_sd_touch(
                                     }
                                     ad.pp_input.reset();
                                     ad.app.state = crate::app::input::AppState::SeedList;
+                                    needs_redraw = true;
                                 }
                                 _ => {}
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdFileList => {
                         if is_back {
                             ad.sd_file_scroll = 0;
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::SdImportMenu;
+                            needs_redraw = true;
                         } else {
                             let max_vis: usize = 4;
                             let scroll_off = ad.sd_file_scroll as usize;
@@ -402,10 +404,12 @@ pub fn handle_sd_touch(
                                 } else {
                                     ad.sd_file_scroll = 0;
                                 }
+                                needs_redraw = true;
                             }
                             // Right arrow — page down
                             else if x >= 280 && y >= 42 && can_page_down {
                                 ad.sd_file_scroll += max_vis as u8;
+                                needs_redraw = true;
                             } else {
                             let mut tapped: Option<usize> = None;
                             let mut tapped_delete = false;
@@ -415,12 +419,13 @@ pub fn handle_sd_touch(
                                     if idx < (ad.sd_file_count) as usize {
                                         tapped = Some(idx);
                                         // Right 40px of card = delete zone
-                                        tapped_delete = x > 236;
+                                        tapped_delete = x > 228;
                                     }
                                     break;
                                 }
                             }
                             if let Some(i) = tapped {
+                                    needs_redraw = true;
                                     ad.sd_selected_file = ad.sd_file_list[i];
                                     if tapped_delete {
                                         // Show delete confirmation
@@ -467,6 +472,9 @@ pub fn handle_sd_touch(
                                                             }
                                                         }
                                                     }
+                                                    // Derive change pubkeys (m/44'/111111'/0'/1/{0..4})
+                                                    crate::app::signing::derive_change_pubkeys(
+                                                        &raw, &mut ad.change_pubkey_cache);
                                                     // Store in slot
                                                     use sha2::{Sha256, Digest};
                                                     let hash = Sha256::digest(acct_key.private_key_bytes());
@@ -494,6 +502,7 @@ pub fn handle_sd_touch(
                                                         log!("[SD-IMPORT] Plain xprv imported to slot {}", slot_idx);
                                                         boot_display.draw_saving_screen("XPrv imported!");
                                                         delay.delay_millis(2000);
+                                                        ad.app.state = crate::app::input::AppState::SeedList;
                                                     } else {
                                                         boot_display.draw_rejected_screen("All 4 slots full!");
                                                         delay.delay_millis(2000);
@@ -558,7 +567,6 @@ pub fn handle_sd_touch(
                                     }
                         }
                         } // close page-up/down/tap else
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdDeleteConfirm => {
                         // Caller sets ad.sd_delete_return before routing here.
@@ -700,7 +708,7 @@ pub fn handle_sd_touch(
                     crate::app::input::AppState::SdRestorePassphrase => {
                         if is_back {
                             ad.pp_input.reset();
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::SdFileList;
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
@@ -787,13 +795,14 @@ pub fn handle_sd_touch(
                     crate::app::input::AppState::SdXprvFilename => {
                         if is_back {
                             ad.pp_input.reset();
-                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                            ad.app.state = crate::app::input::AppState::SigningKeysMenu;
+                            needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); }
-                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "XPRV FILENAME"); needs_redraw = false; }
+                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "XPRV FILENAME"); }
                                 5 => { /* no space in filenames */ }
-                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "XPRV FILENAME"); needs_redraw = false; }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "XPRV FILENAME"); }
                                 6 => {
                                     // OK — build 8.3 filename, extension KAS
                                     let name_83 = build_filename_83(&ad.pp_input.buf, ad.pp_input.len, b"KAS");
@@ -807,16 +816,16 @@ pub fn handle_sd_touch(
                                         ad.pp_input.reset();
                                         ad.app.state = crate::app::input::AppState::SdXprvExportPassphrase;
                                     }
+                                    needs_redraw = true;
                                 }
                                 _ => {}
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdXprvExportPassphrase => {
                         if is_back {
                             ad.pp_input.reset();
-                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                            ad.app.state = crate::app::input::AppState::SigningKeysMenu;
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
@@ -894,7 +903,8 @@ pub fn handle_sd_touch(
                     crate::app::input::AppState::SdXprvFileList => {
                         if is_back {
                             ad.sd_file_scroll = 0;
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::SdImportMenu;
+                            needs_redraw = true;
                         } else {
                             let max_vis: usize = 4;
                             let scroll_off = ad.sd_file_scroll as usize;
@@ -907,8 +917,10 @@ pub fn handle_sd_touch(
                                 } else {
                                     ad.sd_file_scroll = 0;
                                 }
+                                needs_redraw = true;
                             } else if x >= 280 && y >= 42 && can_page_down {
                                 ad.sd_file_scroll += max_vis as u8;
+                                needs_redraw = true;
                             } else {
                             for slot in 0..4u8 {
                                 if list_zones[slot as usize].contains(x, y) {
@@ -917,18 +929,18 @@ pub fn handle_sd_touch(
                                         ad.sd_selected_file = ad.sd_file_list[idx];
                                         ad.pp_input.reset();
                                         ad.app.state = crate::app::input::AppState::SdXprvImportPassphrase;
+                                        needs_redraw = true;
                                     }
                                     break;
                                 }
                             }
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdXprvImportPassphrase => {
                         if is_back {
                             ad.pp_input.reset();
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::SdXprvFileList;
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
@@ -978,8 +990,11 @@ pub fn handle_sd_touch(
                                                                         ad.pubkey_cache[idx as usize].copy_from_slice(&xpub);
                                                                     }
                                                                 }
-                                                                boot_display.update_progress_bar(75 + ((idx as u8 + 1) * 25 / 20));
+                                                                boot_display.update_progress_bar((75 + ((idx as u32 + 1) * 25 / 20)) as u8);
                                                             }
+                                                            // Derive change pubkeys (m/44'/111111'/0'/1/{0..4})
+                                                            crate::app::signing::derive_change_pubkeys(
+                                                                &raw, &mut ad.change_pubkey_cache);
                                                             let mut dummy_indices = [0u16; 24];
                                                             use sha2::{Sha256, Digest};
                                                             let hash = Sha256::digest(acct_key.private_key_bytes());
@@ -987,22 +1002,26 @@ pub fn handle_sd_touch(
                                                             for i in 0..16 {
                                                                 dummy_indices[i] = u16::from_le_bytes([raw[i*2], raw[i*2+1]]);
                                                             }
-                                                            if let Some(slot_idx) = ad.seed_mgr.find_free() {
+                                                            if let Some(slot_idx) = ad.seed_mgr.find_by_fingerprint(&fp).or_else(|| ad.seed_mgr.find_free()) {
                                                                 let slot = &mut ad.seed_mgr.slots[slot_idx];
-                                                                slot.word_count = 2;
-                                                                slot.indices = dummy_indices;
-                                                                slot.passphrase[..32].copy_from_slice(&raw[32..64]);
-                                                                slot.passphrase[32] = raw[64];
-                                                                slot.passphrase_len = 33;
-                                                                slot.fingerprint = fp;
+                                                                if slot.is_empty() {
+                                                                    slot.word_count = 2;
+                                                                    slot.indices = dummy_indices;
+                                                                    slot.passphrase[..32].copy_from_slice(&raw[32..64]);
+                                                                    slot.passphrase[32] = raw[64];
+                                                                    slot.passphrase_len = 33;
+                                                                    slot.fingerprint = fp;
+                                                                }
                                                                 ad.seed_mgr.activate(slot_idx);
                                                                 (ad.seed_loaded) = true;
                                                                 (ad.pubkeys_cached) = true;
                                                                 (ad.current_addr_index) = 0;
                                                                 (ad.extra_pubkey_index) = 0xFFFF;
+                                                                ad.word_count = 2;
                                                                 log!("[SD-XPRV] Imported xprv to slot {}", slot_idx);
                                                                 boot_display.draw_saving_screen("XPrv imported!");
                                                                 delay.delay_millis(2000);
+                                                                ad.app.state = crate::app::input::AppState::SeedList;
                                                             } else {
                                                                 boot_display.draw_rejected_screen("All 4 slots full!");
                                                                 delay.delay_millis(2000);
@@ -1031,7 +1050,11 @@ pub fn handle_sd_touch(
                                         unsafe { core::ptr::write_volatile(b, 0); }
                                     }
                                     ad.pp_input.reset();
-                                    ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                    // Only fall back to SdFileList if no import succeeded
+                                    // (successful import already set state to SeedList)
+                                    if ad.app.state == crate::app::input::AppState::SdXprvImportPassphrase {
+                                        ad.app.state = crate::app::input::AppState::SdFileList;
+                                    }
                                     needs_redraw = true;
                                 }
                                 _ => {}
@@ -1042,10 +1065,13 @@ pub fn handle_sd_touch(
                         if is_back {
                             ad.sd_import_menu.reset();
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            needs_redraw = true;
                         } else if page_up_zone.contains(x, y) && ad.sd_import_menu.can_page_up() {
                             ad.sd_import_menu.page_up();
+                            needs_redraw = true;
                         } else if page_down_zone.contains(x, y) && ad.sd_import_menu.can_page_down() {
                             ad.sd_import_menu.page_down();
+                            needs_redraw = true;
                         } else {
                             // Chip-row list navigation
                             let mut tapped_item: Option<u8> = None;
@@ -1059,6 +1085,7 @@ pub fn handle_sd_touch(
                                 }
                             }
                             if let Some(item) = tapped_item {
+                                needs_redraw = true;
                                 match item {
                                     0 => {
                                         // Seed Backup — scan SD for compatible seed/xprv/key files
@@ -1309,12 +1336,12 @@ pub fn handle_sd_touch(
                                 }
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdKsptFileList => {
                         if is_back {
                             ad.sd_file_scroll = 0;
                             ad.app.state = crate::app::input::AppState::SdImportMenu;
+                            needs_redraw = true;
                         } else {
                             let max_vis: usize = 4;
                             let scroll_off = ad.sd_file_scroll as usize;
@@ -1327,8 +1354,10 @@ pub fn handle_sd_touch(
                                 } else {
                                     ad.sd_file_scroll = 0;
                                 }
+                                needs_redraw = true;
                             } else if x >= 280 && y >= 42 && can_page_down {
                                 ad.sd_file_scroll += max_vis as u8;
+                                needs_redraw = true;
                             } else {
                                 let mut tapped: Option<usize> = None;
                                 let mut tapped_delete = false;
@@ -1338,12 +1367,13 @@ pub fn handle_sd_touch(
                                         if idx < (ad.sd_file_count) as usize {
                                             tapped = Some(idx);
                                             // Right 40px of card = delete zone
-                                            tapped_delete = x > 236;
+                                            tapped_delete = x > 228;
                                         }
                                         break;
                                     }
                                 }
                                 if let Some(i) = tapped {
+                                    needs_redraw = true;
                                     ad.sd_selected_file = ad.sd_file_list[i];
                                     if tapped_delete {
                                         // Show delete confirmation
@@ -1395,13 +1425,13 @@ pub fn handle_sd_touch(
                                 }
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::ShowQrPopup => {
                         if is_back {
                             ad.signed_qr_nframes = 0;
                             if ad.ms_creating.active {
                                 ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                                needs_redraw = true;
                             } else if ad.signed_qr_via_density {
                                 // Came through KasSigner → Density picker.
                                 // Back from the popup returns to density
@@ -1437,18 +1467,18 @@ pub fn handle_sd_touch(
                                 ad.app.state = crate::app::input::AppState::ShowQrModeChoice;
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdKsptFilename => {
                         if is_back {
                             ad.pp_input.reset();
                             ad.app.state = crate::app::input::AppState::ShowQrPopup;
+                            needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
                                 2 => { ad.pp_input.next_page(); }
-                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "FILENAME"); needs_redraw = false; }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "FILENAME"); }
                                 5 => { /* no space in filenames — ignore */ }
-                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "FILENAME"); needs_redraw = false; }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "FILENAME"); }
                                 6 => {
                                     // OK — build 8.3 filename from input
                                     let name_83 = build_filename_83(&ad.pp_input.buf, ad.pp_input.len, b"KSP");
@@ -1466,7 +1496,6 @@ pub fn handle_sd_touch(
                                 _ => {}
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdKsptEncryptAsk => {
                         if is_back {
@@ -1512,6 +1541,7 @@ pub fn handle_sd_touch(
                         if is_back {
                             ad.sd_file_scroll = 0;
                             ad.app.state = crate::app::input::AppState::SdImportMenu;
+                            needs_redraw = true;
                         } else {
                             let max_vis: usize = 4;
                             let scroll_off = ad.sd_file_scroll as usize;
@@ -1524,8 +1554,10 @@ pub fn handle_sd_touch(
                                 } else {
                                     ad.sd_file_scroll = 0;
                                 }
+                                needs_redraw = true;
                             } else if x >= 280 && y >= 42 && can_page_down {
                                 ad.sd_file_scroll += max_vis as u8;
+                                needs_redraw = true;
                             } else {
                                 let mut tapped: Option<usize> = None;
                                 let mut tapped_delete = false;
@@ -1536,12 +1568,13 @@ pub fn handle_sd_touch(
                                             tapped = Some(idx);
                                             // Right ~40px of card = delete zone
                                             // (trash icon draws at start_x + card_w - 44 .. -6, same as SdFileList)
-                                            tapped_delete = x > 236;
+                                            tapped_delete = x > 228;
                                         }
                                         break;
                                     }
                                 }
                                 if let Some(i) = tapped {
+                                    needs_redraw = true;
                                     ad.sd_selected_file = ad.sd_file_list[i];
                                     if tapped_delete {
                                         // Return to this same list after delete/cancel
@@ -1633,14 +1666,10 @@ pub fn handle_sd_touch(
                                                         } else {
                                                             boot_display.draw_rejected_screen("Bad descriptor format");
                                                             delay.delay_millis(2000);
-                                                            // Bailout to main menu on parse failure —
-                                                            // prevents re-tapping the same bad file.
-                                                            ad.app.go_main_menu();
                                                         }
                                                     } else {
                                                         boot_display.draw_rejected_screen("Invalid descriptor");
                                                         delay.delay_millis(2000);
-                                                        ad.app.go_main_menu();
                                                     }
                                                 }
                                                 _ => {}
@@ -1656,23 +1685,22 @@ pub fn handle_sd_touch(
                                 }
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdKpubFilename => {
                         if is_back {
                             ad.pp_input.reset();
-                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                            ad.app.state = crate::app::input::AppState::WatchOnlyMenu;
+                            needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); }
-                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "KPUB FILENAME"); needs_redraw = false; }
+                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "KPUB FILENAME"); }
                                 5 => { /* no space in filenames */ }
-                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "KPUB FILENAME"); needs_redraw = false; }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "KPUB FILENAME"); }
                                 6 => {
                                     // OK — build 8.3 filename, extension TXT
                                     let name_83 = build_filename_83(&ad.pp_input.buf, ad.pp_input.len, b"TXT");
                                     ad.kspt_filename = name_83;
-                                    // Check if file already exists on SD
                                     if sd_file_exists(i2c, delay, &name_83) {
                                         ad.sd_overwrite_next = crate::app::input::AppState::SdKpubEncryptAsk;
                                         ad.sd_overwrite_back = crate::app::input::AppState::SdKpubFilename;
@@ -1681,11 +1709,11 @@ pub fn handle_sd_touch(
                                         ad.pp_input.reset();
                                         ad.app.state = crate::app::input::AppState::SdKpubEncryptAsk;
                                     }
+                                    needs_redraw = true;
                                 }
                                 _ => {}
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdMsAddrFilename => {
                         if is_back {
@@ -1760,6 +1788,7 @@ pub fn handle_sd_touch(
                             ad.pp_input.reset();
                             ad.app.state = crate::app::input::AppState::MultisigDescriptor;
                             needs_redraw = true;
+                            needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
                                 2 => { ad.pp_input.next_page(); needs_redraw = true; }
@@ -1779,7 +1808,6 @@ pub fn handle_sd_touch(
                                         ad.pp_input.reset();
                                         ad.app.state = crate::app::input::AppState::SdMsDescEncryptAsk;
                                     }
-                                    needs_redraw = true;
                                 }
                                 _ => {}
                             }
@@ -2057,6 +2085,7 @@ pub fn handle_sd_touch(
                         if is_back {
                             // Return to the filename keyboard that brought us here
                             ad.app.state = ad.sd_overwrite_back;
+                            needs_redraw = true;
                         } else {
                             // "Yes" button — left: proceed with overwrite
                             if (30..=155).contains(&x) && (140..=185).contains(&y) {
@@ -2068,11 +2097,10 @@ pub fn handle_sd_touch(
                                 ad.app.state = ad.sd_overwrite_back;
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdKpubEncryptAsk => {
                         if is_back {
-                            ad.app.state = crate::app::input::AppState::ExportChoice;
+                            ad.app.state = crate::app::input::AppState::WatchOnlyMenu;
                         } else {
                             if (30..=155).contains(&x) && (140..=185).contains(&y) {
                                 // Yes — encrypt: copy kpub into signed_qr_buf, reuse KSPT encrypt path
@@ -2101,7 +2129,7 @@ pub fn handle_sd_touch(
                                         delay.delay_millis(2000);
                                     }
                                 }
-                                ad.app.state = crate::app::input::AppState::ExportChoice;
+                                ad.app.state = crate::app::input::AppState::WatchOnlyMenu;
                             }
                         }
                         needs_redraw = true;

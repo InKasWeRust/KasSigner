@@ -109,7 +109,7 @@ pub fn redraw_screen(
                     }
                 }
                 crate::app::input::AppState::ToolsMenu => {
-                    boot_display.draw_menu_screen("TOOLS", &ad.tools_menu);
+                    boot_display.update_menu_content("TOOLS", &ad.tools_menu);
                 }
                 crate::app::input::AppState::ChooseWordCount { action } => {
                     let title = match action {
@@ -191,7 +191,16 @@ pub fn redraw_screen(
                     boot_display.draw_qr_export_menu(&ad.qr_export_menu, ad.word_count);
                 }
                 crate::app::input::AppState::XprvExportMenu => {
-                    boot_display.draw_menu_screen("XPRV ACCOUNT", &ad.xprv_export_menu);
+                    boot_display.update_menu_content("XPRV ACCOUNT", &ad.xprv_export_menu);
+                }
+                crate::app::input::AppState::SeedBackupMenu => {
+                    boot_display.update_menu_content("SEED BACKUP", &ad.seed_backup_menu);
+                }
+                crate::app::input::AppState::WatchOnlyMenu => {
+                    boot_display.update_menu_content("WATCH-ONLY", &ad.watch_only_menu);
+                }
+                crate::app::input::AppState::SigningKeysMenu => {
+                    boot_display.update_menu_content("SIGNING KEYS", &ad.signing_keys_menu);
                 }
                 crate::app::input::AppState::ExportPlainWordsQR => {
                     if let Some(slot) = ad.seed_mgr.active_slot() {
@@ -290,7 +299,7 @@ pub fn redraw_screen(
                     }
                 }
                 crate::app::input::AppState::SettingsMenu => {
-                    boot_display.draw_menu_screen("SETTINGS", &ad.settings_menu);
+                    boot_display.update_menu_content("SETTINGS", &ad.settings_menu);
                 }
                 crate::app::input::AppState::DisplaySettings => {
                     boot_display.draw_display_settings(ad.brightness);
@@ -650,7 +659,7 @@ pub fn redraw_screen(
                 }
                 // ─── SD KSPT Redraws ────────────
                 crate::app::input::AppState::SdImportMenu => {
-                    boot_display.draw_menu_screen("IMPORT FROM SD", &ad.sd_import_menu);
+                    boot_display.update_menu_content("IMPORT FROM SD", &ad.sd_import_menu);
                 }
                 crate::app::input::AppState::SdKsptFileList => {
                     // Reuse file list UI — no fingerprint highlighting for .KSP files
@@ -731,20 +740,10 @@ pub fn redraw_screen(
                 }
                 crate::app::input::AppState::ShowAddress => {
                     if ad.scanned_addr_len > 0 {
-                        // Scanned/imported address — no chain concept,
-                        // just render as-is with is_change=false.
                         let addr = core::str::from_utf8(&ad.scanned_addr[..ad.scanned_addr_len])
                             .unwrap_or("(invalid)");
                         boot_display.draw_address_screen(addr, ad.scanned_addr_valid, None, None, false);
                     } else {
-                        // Derived from loaded seed. Pick chain based on the
-                        // address browser's current mode (receive / change).
-                        // Both chains: cached for the first N entries,
-                        // derive-on-demand via extra_{,change_}pubkey for
-                        // indices beyond cache size. Receive cache = 20,
-                        // change cache = 5. The `extra_*_pubkey_index`
-                        // sentinel (0xFFFF) means empty; a match means
-                        // the stored pubkey is valid for this index.
                         let pk = if ad.addr_view_is_change {
                             let idx = ad.current_addr_index as usize;
                             if idx < 5 {
@@ -768,8 +767,16 @@ pub fn redraw_screen(
                             &mut addr_buf,
                         );
                         let idx_option = if ad.word_count == 1 { None } else { Some(ad.current_addr_index) };
-                        boot_display.draw_address_screen(addr, true, idx_option, None,
-                            ad.addr_view_is_change);
+                        // Use partial redraw when addr_partial flag is set
+                        // (set by </>  handlers), full draw otherwise (first entry, toggle)
+                        if ad.addr_partial_redraw && ad.word_count != 1 {
+                            boot_display.update_address_content(addr, ad.current_addr_index,
+                                ad.addr_view_is_change);
+                            ad.addr_partial_redraw = false;
+                        } else {
+                            boot_display.draw_address_screen(addr, true, idx_option, None,
+                                ad.addr_view_is_change);
+                        }
                     }
                 }
                 crate::app::input::AppState::ShowAddressQR => {

@@ -267,11 +267,17 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
         s if s.starts_with("Encrypt to")  => draw_icon!(size24px::actions::UploadSquare),
         s if s.starts_with("CompactSeed") => draw_icon!(size24px::other::QrCode),
         s if s.starts_with("Standard Seed")=> draw_icon!(size24px::other::QrCode),
-        s if s.starts_with("Plain Words") => draw_icon!(size24px::other::QrCode),
+        s if s.starts_with("Plain Text") => draw_icon!(size24px::other::QrCode),
         s if s.starts_with("QR Export")   => draw_icon!(size24px::other::QrCode),
-        s if s.starts_with("kpub")        => draw_icon!(size24px::finance::AppleWallet),
+        s if s.starts_with("kpub as")     => draw_icon!(size24px::other::QrCode),
+        s if s.starts_with("kpub to")     => draw_icon!(size24px::finance::AppleWallet),
+        s if s.starts_with("kpub")        => draw_icon!(size24px::actions::EyeEmpty),
         s if s.starts_with("xprv")        => draw_icon!(size24px::security::Lock),
         s if s.starts_with("Seed Backup") => draw_icon!(size24px::actions::Upload),
+        s if s.starts_with("Watch-Only")  => draw_icon!(size24px::actions::EyeEmpty),
+        s if s.starts_with("Signing Key") => draw_icon!(size24px::editor::EditPencil),
+        s if s.starts_with("Steganogra")  => draw_icon!(size24px::actions::EyeOff),
+        s if s.starts_with("Backup to")   => draw_icon!(size24px::devices::SaveFloppyDisk),
         s if s.starts_with("Private Key") => draw_icon!(size24px::security::PasswordCursor),
         s if s.starts_with("Multisig A")  => draw_icon!(size24px::other::QrCode),
         s if s.starts_with("Multisig D")  => draw_icon!(size24px::docs::Page),
@@ -693,6 +699,18 @@ impl<'a> BootDisplay<'a> {
             crate::hw::icon_data::ICON_HOME, crate::hw::icon_data::ICON_HOME_W);
         Image::new(&home, Point::new(286, 0))
             .draw(&mut self.display).ok();
+    }
+
+    /// Clear the screen but preserve the back/home icon POSITIONS.
+    /// Repaints both icons to ensure stale content is overwritten.
+    pub fn clear_keep_nav(&mut self) {
+        Rectangle::new(Point::new(34, 0), Size::new(252, 34))
+            .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
+            .draw(&mut self.display).ok();
+        Rectangle::new(Point::new(0, 34), Size::new(320, 206))
+            .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
+            .draw(&mut self.display).ok();
+        self.draw_back_button();
     }
 }
 

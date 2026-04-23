@@ -58,20 +58,23 @@ pub fn handle_menu_touch(
                     crate::app::input::AppState::SeedsMenu => {
                         if is_back {
                             ad.app.go_main_menu();
+                            ad.needs_redraw = true;
                         } else {
                             // Always go to SeedList
                             ad.app.state = crate::app::input::AppState::SeedList;
                         }
-                        ad.needs_redraw = true;
                     }
                     crate::app::input::AppState::ToolsMenu => {
                         if is_back {
                             ad.tools_menu.reset();
                             ad.app.go_main_menu();
+                            ad.needs_redraw = true;
                         } else if page_up_zone.contains(x, y) && ad.tools_menu.can_page_up() {
                             ad.tools_menu.page_up();
+                            ad.needs_redraw = true;
                         } else if page_down_zone.contains(x, y) && ad.tools_menu.can_page_down() {
                             ad.tools_menu.page_down();
+                            ad.needs_redraw = true;
                         } else {
                             // Find which visible slot was tapped
                             let mut tapped_item: Option<u8> = None;
@@ -85,6 +88,7 @@ pub fn handle_menu_touch(
                                 }
                             }
                             if let Some(item) = tapped_item {
+                                ad.needs_redraw = true;
                                 match item {
                                     0 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 0 }; }
                                     1 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 1 }; }
@@ -202,7 +206,6 @@ pub fn handle_menu_touch(
                                 }
                             }
                         }
-                        ad.needs_redraw = true;
                     }
                     #[cfg(feature = "icon-browser")]
                     crate::app::input::AppState::IconBrowser { page } => {
@@ -226,6 +229,7 @@ pub fn handle_menu_touch(
                             // Cancel dice roll, go to tools menu
                             ad.dice_collector.count = 0;
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.needs_redraw = true;
                         } else {
                             // Check dice buttons: Row 1 y=70..135, Row 2 y=135..200
                             let dice_x: [u16; 3] = [10, 110, 210];
@@ -264,18 +268,22 @@ pub fn handle_menu_touch(
                                     ad.word_count = wc;
                                     wizard.zeroize();
                                     log!("   Dice seed generated ({} words)", wc);
-                                    // → passphrase prompt
                                     ad.pp_input.reset();
                                     ad.app.state = crate::app::input::AppState::PassphraseEntry;
+                                    ad.needs_redraw = true;
+                                } else {
+                                    boot_display.update_dice_progress(
+                                        ad.dice_collector.count, ad.dice_collector.target);
                                 }
                             }
                             // Undo button: centered, x=100..220, y=200..240
                             else if (100..=220).contains(&x) && y >= 200 && ad.dice_collector.count > 0 {
                                 ad.dice_collector.undo();
                                 log!("   Dice undo ({}/{})", ad.dice_collector.count, ad.dice_collector.target);
+                                boot_display.update_dice_progress(
+                                    ad.dice_collector.count, ad.dice_collector.target);
                             }
                         }
-                        ad.needs_redraw = true;
                     }
                     crate::app::input::AppState::ChooseWordCount { action } => {
                         if is_back {
@@ -358,7 +366,7 @@ pub fn handle_menu_touch(
                                         #[cfg(feature = "waveshare")]
                                         if dvp_camera_opt.is_none() {
                                             crate::hw::cam_dma::start_capture();
-                                            delay.delay_millis(100); // let a few frames arrive
+                                            delay.delay_millis(50); // let DMA settle
                                         }
                                         for frame_idx in 0..8u8 {
                                             if let Some(cam) = dvp_camera_opt.take() {
@@ -398,15 +406,15 @@ pub fn handle_menu_touch(
                                                 }
                                             }
                                             // Waveshare cam_dma fallback: DvpCamera is None,
-                                            // use cam_dma::get_frame() for PSRAM pixel entropy
+                                            // use cam_dma::get_frame_any() for PSRAM pixel entropy
+                                            // (partial frames are fine — any pixel data is good randomness)
                                             #[cfg(feature = "waveshare")]
                                             if dvp_camera_opt.is_none() {
-                                                // Poll until a frame arrives (max ~50ms per frame at 20fps)
-                                                for _ in 0..500u16 {
-                                                    if crate::hw::cam_dma::poll_done() { break; }
-                                                    delay.delay_millis(1);
-                                                }
-                                                if let Some(pixels) = crate::hw::cam_dma::get_frame() {
+                                                // Wait one frame period (~50ms at 20fps) then grab
+                                                delay.delay_millis(60);
+                                                // Drain any pending VSYNC
+                                                crate::hw::cam_dma::poll_done();
+                                                if let Some(pixels) = crate::hw::cam_dma::get_frame_any() {
                                                     let t0 = ad.idle_ticks;
                                                     use sha2::{Sha256, Digest};
                                                     let mut hasher = Sha256::new();

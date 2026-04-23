@@ -52,12 +52,19 @@ pub fn handle_seed_touch(
                     crate::app::input::AppState::Bip85Index { word_count: bwc } => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            needs_redraw = true;
                         } else if (85..=125).contains(&x) && (98..=132).contains(&y) {
-                            // [-] button (row_x=85, btn_sz=40, row_y=98, btn_h=34)
-                            if ad.bip85_index > 0 { ad.bip85_index -= 1; }
+                            // [-] button
+                            if ad.bip85_index > 0 {
+                                ad.bip85_index -= 1;
+                                boot_display.update_bip85_index(ad.bip85_index);
+                            }
                         } else if (195..=235).contains(&x) && (98..=132).contains(&y) {
-                            // [+] button (plus_x=195, btn_sz=40)
-                            if ad.bip85_index < 99 { ad.bip85_index += 1; }
+                            // [+] button
+                            if ad.bip85_index < 99 {
+                                ad.bip85_index += 1;
+                                boot_display.update_bip85_index(ad.bip85_index);
+                            }
                         } else if (90..=230).contains(&x) && (150..=182).contains(&y) {
                             // Derive button (derive_x=90, derive_w=140, derive_y=150, derive_h=32)
                             if ad.seed_loaded {
@@ -101,10 +108,12 @@ pub fn handle_seed_touch(
                                             }
                                             sound::success(delay);
                                             ad.app.state = crate::app::input::AppState::Bip85ShowWord { word_idx: 0, word_count: 12 };
+                                            needs_redraw = true;
                                         }
                                         Err(_) => {
                                             sound::beep_error(delay);
                                             ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                            needs_redraw = true;
                                         }
                                     }
                                 } else {
@@ -127,10 +136,12 @@ pub fn handle_seed_touch(
                                             }
                                             sound::success(delay);
                                             ad.app.state = crate::app::input::AppState::Bip85ShowWord { word_idx: 0, word_count: 24 };
+                                            needs_redraw = true;
                                         }
                                         Err(_) => {
                                             sound::beep_error(delay);
                                             ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                            needs_redraw = true;
                                         }
                                     }
                                 }
@@ -140,7 +151,6 @@ pub fn handle_seed_touch(
                                 delay.delay_millis(1500);
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::Bip85ShowWord { word_idx, word_count: bwc } => {
                         if is_back {
@@ -166,6 +176,7 @@ pub fn handle_seed_touch(
                         if is_back {
                             ad.hex_input_len = 0;
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            needs_redraw = true;
                         } else {
                             use crate::ui::keyboard::{hit_test, KeyboardMode, KeyAction};
                             match hit_test(x, y, KeyboardMode::Hex, 0) {
@@ -176,9 +187,11 @@ pub fn handle_seed_touch(
                                         ad.hex_input[ad.hex_input_len as usize] = ch_lower;
                                         ad.hex_input_len += 1;
                                     }
+                                    boot_display.update_import_privkey_input(&ad.hex_input, ad.hex_input_len);
                                 }
                                 KeyAction::Backspace => {
                                     if ad.hex_input_len > 0 { ad.hex_input_len -= 1; }
+                                    boot_display.update_import_privkey_input(&ad.hex_input, ad.hex_input_len);
                                 }
                                 KeyAction::Ok => {
                                     if ad.hex_input_len == 64 {
@@ -206,17 +219,21 @@ pub fn handle_seed_touch(
                                                     sound::success(delay);
                                                     delay.delay_millis(1500);
                                                     ad.app.state = crate::app::input::AppState::SeedsMenu;
+                                                    needs_redraw = true;
                                                 } else {
                                                     boot_display.draw_rejected_screen("All 4 slots full!");
                                                     delay.delay_millis(2000);
+                                                    needs_redraw = true;
                                                 }
                                             } else {
                                                 boot_display.draw_rejected_screen("Invalid key (not on curve)");
                                                 delay.delay_millis(2000);
+                                                needs_redraw = true;
                                             }
                                         } else {
                                             boot_display.draw_rejected_screen("Invalid hex characters");
                                             delay.delay_millis(2000);
+                                            needs_redraw = true;
                                         }
                                         for b in key.iter_mut() {
                                             unsafe { core::ptr::write_volatile(b as *mut u8, 0); }
@@ -226,7 +243,6 @@ pub fn handle_seed_touch(
                                 _ => {}
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::ImportWord { word_idx, word_count: wc } => {
                         if is_back {
@@ -243,15 +259,19 @@ pub fn handle_seed_touch(
                                     ad.word_count = wc;
                                     ad.pp_input.reset();
                                     ad.app.state = crate::app::input::AppState::PassphraseEntry;
+                                    needs_redraw = true;
                                 } else {
+                                    boot_display.draw_rejected_screen("Invalid seed phrase");
+                                    delay.delay_millis(2500);
                                     ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                    needs_redraw = true;
                                 }
                             } else {
                                 ad.app.state = crate::app::input::AppState::ImportWord {
                                     word_idx: next, word_count: wc,
                                 };
+                                boot_display.update_import_word_header(next, wc, &ad.word_input);
                             }
-                            needs_redraw = true;
                         } else {
                             use crate::ui::keyboard::{hit_test, KeyboardMode, KeyAction};
                             match hit_test(x, y, KeyboardMode::Alpha, 0) {
@@ -276,17 +296,21 @@ pub fn handle_seed_touch(
                                                 log!("   Import complete — {} words → passphrase", wc);
                                                 ad.pp_input.reset();
                                                 ad.app.state = crate::app::input::AppState::PassphraseEntry;
+                                                needs_redraw = true;
                                             } else {
                                                 log!("   Import FAILED — bad checksum");
+                                                boot_display.draw_rejected_screen("Invalid seed phrase");
+                                                delay.delay_millis(2500);
                                                 ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                                needs_redraw = true;
                                             }
                                         } else {
                                             ad.app.state = crate::app::input::AppState::ImportWord {
                                                 word_idx: next, word_count: wc,
                                             };
+                                            boot_display.update_import_word_header(next, wc, &ad.word_input);
                                         }
                                     }
-                                    needs_redraw = true;
                                 }
                                 KeyAction::Cancel => {
                                     ad.word_input.reset();
@@ -317,12 +341,13 @@ pub fn handle_seed_touch(
                                 delay.delay_millis(3000);
                                 ad.pp_input.reset();
                                 ad.app.state = crate::app::input::AppState::PassphraseEntry;
+                                needs_redraw = true;
                             } else {
                                 ad.app.state = crate::app::input::AppState::CalcLastWord {
                                     word_idx: next, word_count: wc,
                                 };
+                                boot_display.update_calc_last_word_header(next, wc, &ad.word_input);
                             }
-                            needs_redraw = true;
                         } else {
                             use crate::ui::keyboard::{hit_test, KeyboardMode, KeyAction};
                             match hit_test(x, y, KeyboardMode::Alpha, 0) {
@@ -349,13 +374,14 @@ pub fn handle_seed_touch(
                                             delay.delay_millis(3000);
                                             ad.pp_input.reset();
                                             ad.app.state = crate::app::input::AppState::PassphraseEntry;
+                                            needs_redraw = true;
                                         } else {
                                             ad.app.state = crate::app::input::AppState::CalcLastWord {
                                                 word_idx: next, word_count: wc,
                                             };
+                                            boot_display.update_calc_last_word_header(next, wc, &ad.word_input);
                                         }
                                     }
-                                    needs_redraw = true;
                                 }
                                 KeyAction::Cancel => {
                                     ad.word_input.reset();
@@ -402,6 +428,7 @@ pub fn handle_seed_touch(
                                             }
                                             ad.app.state = crate::app::input::AppState::MultisigPickSeed { key_idx: ki };
                                         } else {
+                                            ad.seed_backup_return = crate::app::input::AppState::SeedList;
                                             ad.app.state = crate::app::input::AppState::SeedBackup { word_idx: 0 };
                                         }
                                     } else {
@@ -420,6 +447,7 @@ pub fn handle_seed_touch(
                         if is_back {
                             ad.seed_list_scroll = 0;
                             ad.app.go_main_menu();
+                            needs_redraw = true;
                         } else {
                             let mut loaded_idx: [usize; 16] = [0; 16];
                             let mut loaded_n: usize = 0;

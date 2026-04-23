@@ -391,6 +391,12 @@ pub enum AppState {
     QrExportMenu,
     /// xprv export submenu: "Show as QR" / "Encrypt to SD"
     XprvExportMenu,
+    /// Seed Backup submenu: Show Words / QR Export / Backup to SD
+    SeedBackupMenu,
+    /// Watch-Only submenu: kpub as QR / kpub to SD
+    WatchOnlyMenu,
+    /// Signing Keys submenu: xprv Account / Private Key
+    SigningKeysMenu,
     /// Export plain BIP39 words as text QR code
     ExportPlainWordsQR,
     /// Export account-level kpub as multi-frame QR for watch-only wallet import
@@ -679,7 +685,7 @@ pub fn new() -> Self {
             | AppState::SignTxGuide
             | AppState::SignMsgChoice | AppState::SignMsgType | AppState::SignMsgFile
             | AppState::SignMsgPreview | AppState::SignMsgResult
-            | AppState::QrExportMenu | AppState::XprvExportMenu | AppState::ExportPlainWordsQR => {
+            | AppState::QrExportMenu | AppState::XprvExportMenu | AppState::SeedBackupMenu | AppState::WatchOnlyMenu | AppState::SigningKeysMenu | AppState::ExportPlainWordsQR => {
                 if event == ButtonEvent::ShortPress || event == ButtonEvent::LongPress {
                     self.go_main_menu();
                     return Action::Redraw;
@@ -923,7 +929,7 @@ pub fn handler_group(&self) -> HandlerGroup {
             // Export/display
             SeedBackup { .. } | ShowAddress | ShowAddressQR | AddrIndexPicker
             | ExportSeedQR | ExportCompactSeedQR | SeedQrGrid { .. }
-            | QrExportMenu | XprvExportMenu | ExportPlainWordsQR
+            | QrExportMenu | XprvExportMenu | SeedBackupMenu | WatchOnlyMenu | SigningKeysMenu | ExportPlainWordsQR
             | ExportKpub | ExportKpubFrameCount | ExportKpubModeChoice | ExportKpubPopup | KpubScannedPopup | ExportXprv | ExportChoice | ExportPrivKey
             | ExportPrivKeyIndex
                 => HandlerGroup::Export,

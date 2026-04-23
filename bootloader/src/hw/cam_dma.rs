@@ -229,6 +229,20 @@ pub fn get_frame() -> Option<&'static [u8]> {
     }
 }
 
+/// Get whatever frame data is available, even partial.
+/// For entropy mixing only — any pixel data is good randomness.
+pub fn get_frame_any() -> Option<&'static [u8]> {
+    unsafe {
+        STATE.as_ref()
+            .filter(|s| s.last_captured > 0)
+            .map(|s| {
+                let read_idx = WRITE_IDX ^ 1;
+                let len = s.last_captured.min(FRAME_BYTES);
+                core::slice::from_raw_parts(FRAME_PTRS[read_idx] as *const u8, len)
+            })
+    }
+}
+
 /// Stop DMA + camera. Call before heavy PSRAM reads (Y extraction, decode).
 /// Next start_capture() call will reinitialize.
 pub fn stop() {

@@ -40,7 +40,6 @@ pub fn handle_tx_touch(
                         if is_back {
                             ad.tools_menu.reset();
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
-                            needs_redraw = true;
                         } else if ad.seed_loaded {
                             // "SCAN KSPT" button: drawn at y=194..230, x=60..260
                             if (190..=234).contains(&y) && (55..=265).contains(&x) {
@@ -48,6 +47,7 @@ pub fn handle_tx_touch(
                                 needs_redraw = true;
                             }
                         }
+                        needs_redraw = true;
                     }
                     crate::app::input::AppState::ScanQR => {
                         // Back button (top-left) — both platforms
@@ -66,7 +66,6 @@ pub fn handle_tx_touch(
                             } else {
                                 ad.app.go_main_menu();
                             }
-                            needs_redraw = true;
                         }
                         // Note: in v1.0.3 the top-right home shortcut was
                         // removed on M5Stack for UX consistency with Waveshare.
@@ -77,12 +76,12 @@ pub fn handle_tx_touch(
                     crate::app::input::AppState::ReviewTx { .. } => {
                         if is_back {
                             ad.app.go_main_menu();
+                            needs_redraw = true;
                         } else {
                             // Next page
                             let evt = crate::app::input::ButtonEvent::ShortPress;
                             ad.app.handle_boot(evt);
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::ConfirmTx => {
                         if is_back {
@@ -144,6 +143,7 @@ pub fn handle_tx_touch(
                         if is_back {
                             if key_idx == 0 {
                                 ad.app.state = crate::app::input::AppState::MultisigChooseMN;
+                                needs_redraw = true;
                             } else {
                                 ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: key_idx - 1 };
                             }
@@ -163,11 +163,11 @@ pub fn handle_tx_touch(
                                 }
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::MultisigPickSeed { key_idx } => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx };
+                            needs_redraw = true;
                         } else {
                             // Count loaded seeds for scroll bounds
                             let loaded_count = ad.seed_mgr.slots.iter()
@@ -250,11 +250,11 @@ pub fn handle_tx_touch(
                                 }
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::MultisigPickAddr { key_idx } => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::MultisigPickSeed { key_idx };
+                            needs_redraw = true;
                         } else if (10..=60).contains(&x) && (205..=240).contains(&y) {
                             // [<] previous address
                             if ad.current_addr_index > 0 {
@@ -316,7 +316,6 @@ pub fn handle_tx_touch(
                                 }
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::MultisigShowAddress => {
                         if is_back {
@@ -430,6 +429,7 @@ pub fn handle_tx_touch(
                         if is_back {
                             if ad.ms_creating.active {
                                 ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                                needs_redraw = true;
                             } else {
                                 // SD-loaded view-only flow: back to main menu
                                 ad.app.go_main_menu();
@@ -505,7 +505,6 @@ pub fn handle_tx_touch(
                                 ad.qr_manual_frames = false;
                                 ad.app.state = crate::app::input::AppState::ShowQR;
                         }
-                        needs_redraw = true;
                     }
                     // ─── Sign Message Flow ────────────
                     crate::app::input::AppState::SignMsgChoice => {
@@ -630,6 +629,7 @@ pub fn handle_tx_touch(
                     crate::app::input::AppState::SignMsgPreview => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::SignMsgChoice;
+                            needs_redraw = true;
                         } else if (185..=225).contains(&y) && (100..=220).contains(&x) {
                             // SIGN button tapped
                             boot_display.draw_saving_screen("Signing...");
@@ -668,7 +668,6 @@ pub fn handle_tx_touch(
                             // Zeroize private key
                             wallet::hmac::zeroize_buf(&mut privkey);
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SignMsgResult => {
                         if is_back {

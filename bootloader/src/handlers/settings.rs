@@ -44,10 +44,13 @@ pub fn handle_settings_touch(
                         if is_back {
                             ad.settings_menu.reset();
                             ad.app.go_main_menu();
+                            needs_redraw = true;
                         } else if page_up_zone.contains(x, y) && ad.settings_menu.can_page_up() {
                             ad.settings_menu.page_up();
+                            needs_redraw = true;
                         } else if page_down_zone.contains(x, y) && ad.settings_menu.can_page_down() {
                             ad.settings_menu.page_down();
+                            needs_redraw = true;
                         } else {
                             let mut tapped_item: Option<u8> = None;
                             for slot in 0..4u8 {
@@ -60,6 +63,7 @@ pub fn handle_settings_touch(
                                 }
                             }
                             if let Some(item) = tapped_item {
+                                needs_redraw = true;
                                 #[cfg(feature = "waveshare")]
                                 match item {
                                     0 => { ad.app.state = crate::app::input::AppState::DisplaySettings; }
@@ -86,45 +90,57 @@ pub fn handle_settings_touch(
                                 }
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::DisplaySettings => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::SettingsMenu;
                             needs_redraw = true;
                         } else {
+                            let mut changed = false;
                             if x <= 68 && (70..=120).contains(&y) {
                                 ad.brightness = (ad.brightness).saturating_sub(25);
                                 crate::hw::pmu::set_brightness(i2c, ad.brightness);
+                                changed = true;
                             } else if x >= 252 && (70..=120).contains(&y) {
                                 ad.brightness = (ad.brightness).saturating_add(25).min(255);
                                 crate::hw::pmu::set_brightness(i2c, ad.brightness);
+                                changed = true;
                             } else if (70..=250).contains(&x) && (75..=115).contains(&y) {
                                 let pct = ((x as u32 - 70) * 255 / 180).min(255) as u8;
                                 ad.brightness = pct;
                                 crate::hw::pmu::set_brightness(i2c, ad.brightness);
+                                changed = true;
                             }
-                            needs_redraw = true;
+                            if changed {
+                                boot_display.update_brightness_bar(ad.brightness);
+                            }
                         }
                     }
                     #[cfg(feature = "m5stack")]
                     crate::app::input::AppState::AudioSettings => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::SettingsMenu;
+                            needs_redraw = true;
                         } else {
+                            let mut changed = false;
                             if x <= 68 && (70..=120).contains(&y) {
                                 ad.volume = (ad.volume).saturating_sub(25);
                                 sound::set_volume(ad.volume);
+                                changed = true;
                             } else if x >= 252 && (70..=120).contains(&y) {
                                 ad.volume = (ad.volume).saturating_add(25).min(255);
                                 sound::set_volume(ad.volume);
+                                changed = true;
                             } else if (70..=250).contains(&x) && (75..=115).contains(&y) {
                                 let pct = ((x as u32 - 70) * 255 / 180).min(255) as u8;
                                 ad.volume = pct;
                                 sound::set_volume(ad.volume);
+                                changed = true;
+                            }
+                            if changed {
+                                boot_display.update_volume_bar(ad.volume);
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SdCardSettings => {
                         if is_back {

@@ -177,7 +177,11 @@ pub fn word_to_index(word: &str) -> Result<u16, Bip39Error> {
 
 /// Return the word corresponding to an index (0-2047).
 pub fn index_to_word(index: u16) -> &'static str {
-    WORDLIST[index as usize]
+    if (index as usize) < WORDLIST.len() {
+        WORDLIST[index as usize]
+    } else {
+        "???"
+    }
 }
 
 // ─── Seed derivation (PBKDF2-HMAC-SHA512) ─────────────────────────────
