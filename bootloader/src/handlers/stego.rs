@@ -567,7 +567,7 @@ pub fn handle_stego_touch(
                     // ─── Stego Import Flow ────────────
                     crate::app::input::AppState::StegoImportPick => {
                         if is_back {
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::ImportMenu;
                         } else if page_up_zone.contains(x, y) && (ad.import_jpeg_selected) >= 4 {
                             (ad.import_jpeg_selected) = (ad.import_jpeg_selected).saturating_sub(4);
                             needs_redraw = true;
@@ -816,7 +816,7 @@ pub fn handle_stego_touch(
                                                             boot_display.draw_rejected_screen("All slots full!");
                                                             sound::beep_error(delay);
                                                             delay.delay_millis(2000);
-                                                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                                            ad.app.state = crate::app::input::AppState::ImportMenu;
                                                             needs_redraw = true;
                                                             decrypt_ok = true; // not a password error
                                                         }

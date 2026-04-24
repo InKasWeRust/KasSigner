@@ -243,6 +243,21 @@ pub fn get_frame_any() -> Option<&'static [u8]> {
     }
 }
 
+/// Get the write buffer + bounce buffers for entropy.
+/// On Waveshare the OV5640 produces only partial frames (not swapped to read),
+/// so the write buffer is where the actual pixel data lives.
+pub fn get_entropy_bytes() -> Option<&'static [u8]> {
+    unsafe {
+        STATE.as_ref()
+            .filter(|s| s.last_captured > 0)
+            .map(|s| {
+                // Return the write buffer — this is where poll_done() copies partial data
+                let len = s.last_captured.min(FRAME_BYTES);
+                core::slice::from_raw_parts(FRAME_PTRS[WRITE_IDX] as *const u8, len)
+            })
+    }
+}
+
 /// Stop DMA + camera. Call before heavy PSRAM reads (Y extraction, decode).
 /// Next start_capture() call will reinitialize.
 pub fn stop() {
@@ -252,6 +267,9 @@ pub fn stop() {
         let link = core::ptr::read_volatile(0x6003_F020u32 as *const u32);
         core::ptr::write_volatile(0x6003_F020u32 as *mut u32, link | (1 << 21)); // INLINK_STOP
         STARTED = false;
+        if let Some(ref mut s) = STATE {
+            s.last_captured = 0;
+        }
     }
 }
 

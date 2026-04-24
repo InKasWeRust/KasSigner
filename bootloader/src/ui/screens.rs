@@ -84,12 +84,12 @@ impl<'a> BootDisplay<'a> {
                 "Open your Kaspa wallet",
                 "Import the kpub",
                 "Create a Send transaction",
-                "Show the KSPT QR code",
+                "Show the PSKB QR code",
             ];
             let step_h: i32 = 26;
             let block_h = steps.len() as i32 * step_h;
             let avail_top: i32 = 92;
-            let avail_bot: i32 = 192;
+            let avail_bot: i32 = 186;
             let start_sy = avail_top + (avail_bot - avail_top - block_h) / 2;
             for (i, step) in steps.iter().enumerate() {
                 let sy = start_sy + i as i32 * step_h;
@@ -97,18 +97,30 @@ impl<'a> BootDisplay<'a> {
                 draw_lato_18(&mut self.display, step, (320 - sw) / 2, sy, COLOR_TEXT);
             }
 
-            // "SCAN KSPT" button — moved down
-            let btn_w: u32 = 200;
-            let btn_h: u32 = 36;
-            let btn_x: i32 = (320 - btn_w as i32) / 2;
-            let btn_y: i32 = 194;
-            let btn_rect = Rectangle::new(Point::new(btn_x, btn_y), Size::new(btn_w, btn_h));
-            let btn_corner = CornerRadii::new(Size::new(8, 8));
-            RoundedRectangle::new(btn_rect, btn_corner)
+            // Two buttons side by side
+            let btn_corner = CornerRadii::new(Size::new(6, 6));
+            let bw: i32 = 124;
+            let bh: u32 = 36;
+            let by: i32 = 194;
+            let gap: i32 = 12;
+            let x0: i32 = (320 - 2 * bw - gap) / 2;
+
+            // "EXPORT KPUB" — left
+            let r0 = Rectangle::new(Point::new(x0, by), Size::new(bw as u32, bh));
+            RoundedRectangle::new(r0, btn_corner)
                 .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
                 .draw(&mut self.display).ok();
-            let lw = measure_title("SCAN KSPT");
-            draw_lato_title(&mut self.display, "SCAN KSPT", btn_x + (btn_w as i32 - lw) / 2, btn_y + 26, COLOR_BG);
+            let tw0 = measure_title("EXP. KPUB");
+            draw_lato_title(&mut self.display, "EXP. KPUB", x0 + (bw - tw0) / 2, by + 24, COLOR_BG);
+
+            // "SCAN PSKB" — right
+            let x1 = x0 + bw + gap;
+            let r1 = Rectangle::new(Point::new(x1, by), Size::new(bw as u32, bh));
+            RoundedRectangle::new(r1, btn_corner)
+                .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+                .draw(&mut self.display).ok();
+            let tw1 = measure_title("SCAN PSKB");
+            draw_lato_title(&mut self.display, "SCAN PSKB", x1 + (bw - tw1) / 2, by + 24, COLOR_BG);
         }
 
     }
@@ -919,8 +931,6 @@ pub fn draw_home_grid(&mut self) {
         let start_x: i32 = 44; // 40px left strip + 4px margin
 
         // Near-black teal for inactive arrows/dots — max contrast with active
-        let teal_dark = Rgb565::new(0b00001, 0b000100, 0b00010); // ~#081008 near-black with teal tint
-
         for i in 0..visible_count {
             let item_idx = menu.scroll + i;
             if item_idx >= menu.count { break; }
@@ -2141,7 +2151,7 @@ pub fn draw_home_grid(&mut self) {
     /// Each slot: [fingerprint] [12w/24w] [PP] — tap to activate
     /// Active slot has teal highlight
     pub fn draw_seed_list_screen(&mut self, seed_mgr: &crate::ui::seed_manager::SeedManager, scroll: u8) {
-        self.display.clear(COLOR_BG).ok();
+        self.clear_keep_nav();
 
         // Header
         let tw = measure_header("SEEDS");
@@ -2357,16 +2367,17 @@ pub fn draw_home_grid(&mut self) {
 
     pub fn draw_export_seed_qr_screen(&mut self, data: &[u8], word_count: u8) {
         self.display.clear(COLOR_BG).ok();
-        let mut title_buf: heapless::String<24> = heapless::String::new();
+        let mut title_buf: heapless::String<32> = heapless::String::new();
+        let grid = if word_count <= 12 { "25x25" } else { "29x29" };
         core::fmt::Write::write_fmt(&mut title_buf,
-            format_args!("SeedQR ({word_count} words)")).ok();
+            format_args!("SeedQR {grid} ({word_count}w)")).ok();
         let tw = measure_hint(title_buf.as_str());
         draw_lato_hint(&mut self.display, &title_buf, (320 - tw) / 2, 14, KASPA_TEAL);
 
         let hw = measure_hint("Tap for grid view");
         draw_lato_hint(&mut self.display, "Tap for grid view", (320 - hw) / 2, 238, COLOR_HINT);
 
-        if let Ok(qr) = crate::qr::encoder::encode(data) {
+        if let Ok(qr) = crate::qr::encoder::encode_numeric(data) {
             let qr_size = qr.size as i32;
             let scale = (200 / qr_size).max(1);
             let total = qr_size * scale;
@@ -2533,10 +2544,15 @@ pub fn draw_home_grid(&mut self) {
 
     /// Draw zoomed SeedQR grid view for manual card filling.
     /// Shows a 7x7 window into the QR, with row/col labels and navigation arrows.
-    pub fn draw_seedqr_grid(&mut self, data: &[u8], _word_count: u8, pan_x: u8, pan_y: u8) {
+    pub fn draw_seedqr_grid(&mut self, data: &[u8], _word_count: u8, pan_x: u8, pan_y: u8, numeric: bool) {
         self.clear_keep_nav();
 
-        if let Ok(qr) = crate::qr::encoder::encode(data) {
+        let qr_result = if numeric {
+            crate::qr::encoder::encode_numeric(data)
+        } else {
+            crate::qr::encoder::encode(data)
+        };
+        if let Ok(qr) = qr_result {
             let qr_size = qr.size;
             let view_cells: u8 = 7;
             let cell_px: i32 = 24;
@@ -4631,6 +4647,41 @@ pub fn draw_home_grid(&mut self) {
         draw_lato_title(&mut self.display, right_label, 165 + (125 - rw) / 2, 169, COLOR_TEXT);
 
         self.draw_back_button();
+    }
+
+    /// Draw Import / Export choice screen — two big buttons.
+    pub fn draw_import_export_choice(&mut self) {
+        self.clear_keep_nav();
+
+        let tw = measure_header("IMPORT / EXPORT");
+        draw_oswald_header(&mut self.display, "IMPORT / EXPORT", (320 - tw) / 2, 30, KASPA_TEAL);
+        Line::new(Point::new(20, 40), Point::new(300, 40))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        let btn_corner = CornerRadii::new(Size::new(6, 6));
+        let bw: i32 = 130;
+        let bh: i32 = 55;
+        let by: i32 = 100;
+        let gap: i32 = 16;
+        let x0: i32 = (320 - 2 * bw - gap) / 2;
+
+        // "Import" — left
+        let r0 = Rectangle::new(Point::new(x0, by), Size::new(bw as u32, bh as u32));
+        RoundedRectangle::new(r0, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let tw0 = measure_title("Import");
+        draw_lato_title(&mut self.display, "Import", x0 + (bw - tw0) / 2, by + 35, COLOR_BG);
+
+        // "Export" — right
+        let x1 = x0 + bw + gap;
+        let r1 = Rectangle::new(Point::new(x1, by), Size::new(bw as u32, bh as u32));
+        RoundedRectangle::new(r1, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let tw1 = measure_title("Export");
+        draw_lato_title(&mut self.display, "Export", x1 + (bw - tw1) / 2, by + 35, COLOR_BG);
     }
 
     pub fn draw_kpub_frame_count_choice(&mut self) {

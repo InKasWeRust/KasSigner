@@ -39,15 +39,25 @@ pub fn handle_tx_touch(
                     crate::app::input::AppState::SignTxGuide => {
                         if is_back {
                             ad.tools_menu.reset();
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::SingleSigMenu;
+                            needs_redraw = true;
                         } else if ad.seed_loaded {
-                            // "SCAN KSPT" button: drawn at y=194..230, x=60..260
-                            if (190..=234).contains(&y) && (55..=265).contains(&x) {
-                                ad.app.state = crate::app::input::AppState::ScanQR;
-                                needs_redraw = true;
+                            // Two buttons at y=194..230
+                            // Left: "EXPORT KPUB" x=30..154
+                            // Right: "SCAN PSKB"  x=166..290
+                            if (190..=234).contains(&y) {
+                                if (25..=159).contains(&x) {
+                                    // EXPORT KPUB
+                                    ad.kpub_export_return = crate::app::input::AppState::SignTxGuide;
+                                    ad.app.state = crate::app::input::AppState::ExportKpubFrameCount;
+                                    needs_redraw = true;
+                                } else if (161..=295).contains(&x) {
+                                    // SCAN PSKB
+                                    ad.app.state = crate::app::input::AppState::ScanQR;
+                                    needs_redraw = true;
+                                }
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::ScanQR => {
                         // Back button (top-left) — both platforms
@@ -107,23 +117,24 @@ pub fn handle_tx_touch(
                     // ─── Multisig Creation Touch Handlers ────────────
                     crate::app::input::AppState::MultisigChooseMN => {
                         if is_back {
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::MultisigMenu;
+                            needs_redraw = true;
                         } else {
                             // M-: x=60..110, y=65..103
                             if (60..=110).contains(&x) && (65..=103).contains(&y) {
-                                if ad.ms_m > 1 { ad.ms_m -= 1; }
+                                if ad.ms_m > 1 { ad.ms_m -= 1; needs_redraw = true; }
                             }
                             // M+: x=210..260, y=65..103
                             else if (210..=260).contains(&x) && (65..=103).contains(&y) {
-                                if ad.ms_m < 5 { ad.ms_m += 1; }
+                                if ad.ms_m < 5 { ad.ms_m += 1; needs_redraw = true; }
                             }
                             // N-: x=60..110, y=125..163
                             else if (60..=110).contains(&x) && (125..=163).contains(&y) {
-                                if ad.ms_n > 1 { ad.ms_n -= 1; }
+                                if ad.ms_n > 1 { ad.ms_n -= 1; needs_redraw = true; }
                             }
                             // N+: x=210..260, y=125..163
                             else if (210..=260).contains(&x) && (125..=163).contains(&y) {
-                                if ad.ms_n < 5 { ad.ms_n += 1; }
+                                if ad.ms_n < 5 { ad.ms_n += 1; needs_redraw = true; }
                             }
                             // NEXT: centered, x=80..240, y=190..230
                             else if (80..=240).contains(&x) && (190..=230).contains(&y)
@@ -133,11 +144,11 @@ pub fn handle_tx_touch(
                                 ad.ms_creating.m = ad.ms_m;
                                 ad.ms_creating.n = ad.ms_n;
                                 ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: 0 };
+                                needs_redraw = true;
                             }
                             // Keep M <= N
-                            if ad.ms_m > ad.ms_n { ad.ms_m = ad.ms_n; }
+                            if ad.ms_m > ad.ms_n { ad.ms_m = ad.ms_n; needs_redraw = true; }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::MultisigAddKey { key_idx } => {
                         if is_back {
@@ -205,7 +216,7 @@ pub fn handle_tx_touch(
                                         if list_idx >= lcount {
                                             // Empty slot tapped → go to Tools menu to create/import
                                             ad.tools_menu.reset();
-                                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                            ad.app.state = crate::app::input::AppState::SingleSigMenu;
                                             break;
                                         }
 
@@ -378,25 +389,24 @@ pub fn handle_tx_touch(
                             if ad.ms_creating.active {
                                 ad.app.state = crate::app::input::AppState::MultisigShowAddress;
                             } else {
-                                // SD-loaded: back to main menu
                                 ad.signed_qr_len = 0;
                                 ad.app.go_main_menu();
                             }
+                            needs_redraw = true;
                         } else {
                             if ad.ms_creating.active {
-                                // Live flow: tap → ask whether to save address to SD
                                 ad.app.state = crate::app::input::AppState::MultisigSaveAddrAsk;
                             } else {
-                                // SD-loaded: tap → back to main menu (already on disk)
                                 ad.signed_qr_len = 0;
                                 ad.app.go_main_menu();
                             }
+                            needs_redraw = true;
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::MultisigSaveAddrAsk => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                            needs_redraw = true;
                         } else if (30..=155).contains(&x) && (140..=185).contains(&y) {
                             // Yes — save address to SD: go to filename keyboard
                             // Build the address string and store in kpub_data for later save
@@ -419,11 +429,13 @@ pub fn handle_tx_touch(
                                 }
                             }
                             ad.app.state = crate::app::input::AppState::SdMsAddrFilename;
+                            needs_redraw = true;
                         } else if (165..=290).contains(&x) && (140..=185).contains(&y) {
                             // No — skip to descriptor
                             ad.app.state = crate::app::input::AppState::MultisigDescriptor;
                         }
-                        needs_redraw = true;
+                            needs_redraw = true;
+                        
                     }
                     crate::app::input::AppState::MultisigDescriptor => {
                         if is_back {
@@ -509,11 +521,13 @@ pub fn handle_tx_touch(
                     // ─── Sign Message Flow ────────────
                     crate::app::input::AppState::SignMsgChoice => {
                         if is_back {
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::SingleSigMenu;
+                            needs_redraw = true;
                         } else if (40..280).contains(&x) && (68..112).contains(&y) {
                             // Type manually
                             ad.pp_input.reset();
                             ad.app.state = crate::app::input::AppState::SignMsgType;
+                            needs_redraw = true;
                         } else if (40..280).contains(&x) && (114..158).contains(&y) {
                             // Load from SD — scan for .TXT files
                             boot_display.draw_loading_screen("Scanning TXT...");
@@ -547,11 +561,12 @@ pub fn handle_tx_touch(
                                 boot_display.draw_rejected_screen("No .TXT files on SD");
                                 sound::beep_error(delay);
                                 delay.delay_millis(2000);
+                                needs_redraw = true;
                             } else {
                                 ad.app.state = crate::app::input::AppState::SignMsgFile;
+                                needs_redraw = true;
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::SignMsgType => {
                         if is_back {
@@ -572,6 +587,7 @@ pub fn handle_tx_touch(
                                     ad.jpeg_desc_len = copy_len;
                                     ad.pp_input.reset();
                                     ad.app.state = crate::app::input::AppState::SignMsgPreview;
+                                    
                                     needs_redraw = true;
                                 }
                                 _ => {}
@@ -581,6 +597,7 @@ pub fn handle_tx_touch(
                     crate::app::input::AppState::SignMsgFile => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::SignMsgChoice;
+                            needs_redraw = true;
                         } else {
                             for slot in 0..4u8 {
                                 if list_zones[slot as usize].contains(x, y) {
@@ -614,17 +631,19 @@ pub fn handle_tx_touch(
                                         });
                                         if read_ok.is_ok() && ad.jpeg_desc_len > 0 {
                                             ad.app.state = crate::app::input::AppState::SignMsgPreview;
+                                            needs_redraw = true;
                                         } else {
                                             boot_display.draw_rejected_screen("Read failed");
                                             sound::beep_error(delay);
                                             delay.delay_millis(1500);
+                                            needs_redraw = true;
                                         }
                                     }
                                     break;
                                 }
                             }
                         }
-                        needs_redraw = true;
+                        
                     }
                     crate::app::input::AppState::SignMsgPreview => {
                         if is_back {
@@ -658,11 +677,13 @@ pub fn handle_tx_touch(
                                     boot_display.update_progress_bar(100);
                                     sound::success(delay);
                                     ad.app.state = crate::app::input::AppState::SignMsgResult;
+                                    needs_redraw = true;
                                 }
                                 Err(_) => {
                                     boot_display.draw_rejected_screen("Signing failed");
                                     sound::beep_error(delay);
                                     delay.delay_millis(2000);
+                                    needs_redraw = true;
                                 }
                             }
                             // Zeroize private key
@@ -671,48 +692,30 @@ pub fn handle_tx_touch(
                     }
                     crate::app::input::AppState::SignMsgResult => {
                         if is_back {
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::SingleSigMenu;
+                            needs_redraw = true;
                         } else if (155..=191).contains(&y) && (60..=260).contains(&x) {
-                            // SAVE button — write signature to SD
+                            // SAVE button — ask for filename
                             if bb_card_type.is_some() {
-                                boot_display.draw_saving_screen("Saving sig...");
-                                boot_display.update_progress_bar(50);
-                                delay.delay_millis(50);
-
-                                // Build hex string of signature
-                                let hex_chars = b"0123456789abcdef";
-                                let mut hex_buf = [0u8; 128];
-                                for i in 0..64 {
-                                    hex_buf[i * 2] = hex_chars[(ad.sign_msg_sig[i] >> 4) as usize];
-                                    hex_buf[i * 2 + 1] = hex_chars[(ad.sign_msg_sig[i] & 0x0f) as usize];
+                                // Auto-increment: SG00001.TXT
+                                let next = crate::handlers::sd::scan_auto_increment(i2c, delay, b"SG", b"TXT");
+                                let name = crate::handlers::sd::format_auto_name(b"SG", next, b"TXT");
+                                ad.kspt_filename = name;
+                                ad.pp_input.reset();
+                                for j in 0..8usize {
+                                    if name[j] != b' ' {
+                                        ad.pp_input.push_char(name[j]);
+                                    }
                                 }
-
-                                let sd_result = sdcard::with_sd_card(i2c, delay, |ct| {
-                                    let fat32 = sdcard::mount_fat32(ct)?;
-                                    let fname = *b"SIGNATURESG";
-                                    let _ = sdcard::delete_file(ct, &fat32, &fname);
-                                    sdcard::create_file(ct, &fat32, &fname, &hex_buf)?;
-                                    Ok(())
-                                });
-                                if sd_result.is_ok() {
-                                    boot_display.draw_success_screen("Signature Saved!");
-                                    sound::success(delay);
-                                    delay.delay_millis(2000);
-                                } else {
-                                    boot_display.draw_rejected_screen("SD write failed");
-                                    sound::beep_error(delay);
-                                    delay.delay_millis(1500);
-                                }
+                                ad.app.state = crate::app::input::AppState::SdSigFilename;
+                                needs_redraw = true;
                             } else {
                                 boot_display.draw_rejected_screen("No SD card");
                                 sound::beep_error(delay);
                                 delay.delay_millis(1500);
+                                needs_redraw = true;
                             }
-                        } else {
-                            // Tap elsewhere → go home
-                            ad.app.go_main_menu();
                         }
-                        needs_redraw = true;
                     }
                     _ => { return None; }
                 }

@@ -76,6 +76,8 @@ const VERSION_TABLE: [(u8, u8, u16, u16, u8); 6] = [
 /// Byte mode capacity (ECC Level L) per version
 const BYTE_CAPACITY: [usize; 6] = [17, 32, 53, 78, 106, 134];
 
+/// Numeric mode capacity (ECC Level L) per version
+const NUMERIC_CAPACITY: [usize; 6] = [41, 77, 127, 187, 255, 322];
 // ═══════════════════════════════════════════════════════════════════
 // Reed-Solomon GF(256) with primitive polynomial 0x11D
 // ═══════════════════════════════════════════════════════════════════
@@ -703,6 +705,146 @@ pub fn encode(data: &[u8]) -> Result<QrCode, QrError> {
     }
 
     // Apply best mask
+    qr.modules = saved_modules;
+    qr.apply_mask(best_mask);
+    qr.write_format_info(best_mask);
+
+    Ok(qr)
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Numeric mode encoding
+// ═══════════════════════════════════════════════════════════════════
+
+/// Select smallest QR version for numeric data
+pub fn select_version_numeric(digit_count: usize) -> Result<u8, QrError> {
+    for (i, &cap) in NUMERIC_CAPACITY.iter().enumerate() {
+        if digit_count <= cap {
+            return Ok((i + 1) as u8);
+        }
+    }
+    Err(QrError::DataTooLong)
+}
+
+/// Encode ASCII digit string into QR code using numeric mode.
+/// Input must be all ASCII '0'-'9'. Produces standard-compliant
+/// numeric-mode QR codes (mode indicator 0001).
+pub fn encode_numeric(digits: &[u8]) -> Result<QrCode, QrError> {
+    let digit_count = digits.len();
+    let version = select_version_numeric(digit_count)?;
+    let vi = (version - 1) as usize;
+    let (_, _, data_cw, ec_cw, ec_blocks) = VERSION_TABLE[vi];
+
+    let mut codewords = [0u8; 160];
+    let mut bit_buf = BitWriter::new(&mut codewords);
+
+    // Mode indicator: 0001 (numeric)
+    bit_buf.write_bits(0b0001, 4);
+
+    // Character count: 10 bits for V1-9
+    bit_buf.write_bits(digit_count as u32, 10);
+
+    // Encode digits in groups of 3 → 10 bits, 2 → 7 bits, 1 → 4 bits
+    let mut i = 0;
+    while i + 2 < digit_count {
+        let d0 = (digits[i] - b'0') as u32;
+        let d1 = (digits[i + 1] - b'0') as u32;
+        let d2 = (digits[i + 2] - b'0') as u32;
+        bit_buf.write_bits(d0 * 100 + d1 * 10 + d2, 10);
+        i += 3;
+    }
+    let remaining = digit_count - i;
+    if remaining == 2 {
+        let d0 = (digits[i] - b'0') as u32;
+        let d1 = (digits[i + 1] - b'0') as u32;
+        bit_buf.write_bits(d0 * 10 + d1, 7);
+    } else if remaining == 1 {
+        let d0 = (digits[i] - b'0') as u32;
+        bit_buf.write_bits(d0, 4);
+    }
+
+    // Terminator
+    let total_data_bits = data_cw as usize * 8;
+    let bits_used = bit_buf.bit_pos;
+    let terminator_len = 4.min(total_data_bits.saturating_sub(bits_used));
+    bit_buf.write_bits(0, terminator_len);
+
+    // Pad to byte boundary
+    while bit_buf.bit_pos % 8 != 0 {
+        bit_buf.write_bits(0, 1);
+    }
+
+    // Pad with alternating 0xEC, 0x11
+    let mut pad_byte = 0;
+    while bit_buf.bit_pos / 8 < data_cw as usize {
+        bit_buf.write_bits(if pad_byte % 2 == 0 { 0xEC } else { 0x11 }, 8);
+        pad_byte += 1;
+    }
+
+    // Error correction (same as byte mode)
+    let data_bytes = data_cw as usize;
+    let ec_bytes = ec_cw as usize;
+    let mut all_codewords = [0u8; 180];
+
+    if ec_blocks == 1 {
+        all_codewords[..data_bytes].copy_from_slice(&codewords[..data_bytes]);
+        let mut ec = [0u8; 37];
+        rs_encode(&codewords[..data_bytes], ec_bytes, &mut ec);
+        all_codewords[data_bytes..data_bytes + ec_bytes].copy_from_slice(&ec[..ec_bytes]);
+    } else {
+        let block1_data = data_bytes / 2;
+        let block2_data = data_bytes - block1_data;
+        let block_ec = ec_bytes / 2;
+
+        let mut ec1 = [0u8; 37];
+        let mut ec2 = [0u8; 37];
+        rs_encode(&codewords[..block1_data], block_ec, &mut ec1);
+        rs_encode(&codewords[block1_data..data_bytes], block_ec, &mut ec2);
+
+        let mut pos = 0;
+        let max_block = block1_data.max(block2_data);
+        for j in 0..max_block {
+            if j < block1_data {
+                all_codewords[pos] = codewords[j];
+                pos += 1;
+            }
+            if j < block2_data {
+                all_codewords[pos] = codewords[block1_data + j];
+                pos += 1;
+            }
+        }
+        for j in 0..block_ec {
+            all_codewords[pos] = ec1[j];
+            pos += 1;
+            all_codewords[pos] = ec2[j];
+            pos += 1;
+        }
+    }
+
+    let total_cw = data_bytes + ec_bytes;
+
+    // Build QR code (same matrix logic as byte mode)
+    let mut qr = QrCode::new(version);
+    qr.draw_function_patterns();
+    qr.place_data(&all_codewords[..total_cw]);
+
+    // Apply best mask
+    let mut best_mask = 0u8;
+    let mut best_penalty = u32::MAX;
+    let saved_modules = qr.modules;
+
+    for mask in 0..8u8 {
+        qr.modules = saved_modules;
+        qr.apply_mask(mask);
+        qr.write_format_info(mask);
+
+        let penalty = qr.penalty_score();
+        if penalty < best_penalty {
+            best_penalty = penalty;
+            best_mask = mask;
+        }
+    }
+
     qr.modules = saved_modules;
     qr.apply_mask(best_mask);
     qr.write_format_info(best_mask);

@@ -93,6 +93,10 @@ pub struct AppData {
 
     // ─── Menus ───
     pub tools_menu: crate::app::input::Menu,
+    pub seed_tools_menu: crate::app::input::Menu,
+    pub import_menu: crate::app::input::Menu,
+    pub single_sig_menu: crate::app::input::Menu,
+    pub multisig_menu: crate::app::input::Menu,
     pub export_menu: crate::app::input::Menu,
     pub seed_backup_menu: crate::app::input::Menu,
     pub watch_only_menu: crate::app::input::Menu,
@@ -192,6 +196,8 @@ pub struct AppData {
     /// the confirm screen can bounce back to the correct list.
     pub sd_delete_return: crate::app::input::AppState,
     pub seed_backup_return: crate::app::input::AppState,
+    pub address_return: crate::app::input::AppState,
+    pub kpub_export_return: crate::app::input::AppState,
     /// SD TXT save origin: 0=multisig address, 1=kpub (used by SdKsptEncryptPass back-nav)
     pub sd_txt_origin: u8,
     /// QR multi-frame display: true = manual tap-to-advance, false = auto-cycle
@@ -332,9 +338,19 @@ pub fn new() -> Self {
             display_asleep: false,
 
             tools_menu: crate::app::input::Menu::from_items(
-                &["New Seed", "Dice Seed", "Import Words", "Calc Last Word",
-                  "BIP85 Child", "Import Raw Key", "Import from SD", "Create Multisig", "Stego Import", "Sign TX",
-                  "Sign Message"]
+                &["Seed Tools", "Import / Export", "Single Signature", "Multisig"]
+            ),
+            seed_tools_menu: crate::app::input::Menu::from_items(
+                &["New Seed", "Dice Seed", "Import Words", "Address", "BIP85 Child", "Calc Last Word"]
+            ),
+            import_menu: crate::app::input::Menu::from_items(
+                &["Import from SD", "Stego Import", "Import Raw Key"]
+            ),
+            single_sig_menu: crate::app::input::Menu::from_items(
+                &["Sign TX", "Sign Message"]
+            ),
+            multisig_menu: crate::app::input::Menu::from_items(
+                &["Create Multisig"]
             ),
             export_menu: crate::app::input::Menu::from_items(
                 &["Seed Backup", "Watch-Only",
@@ -422,6 +438,8 @@ pub fn new() -> Self {
             sd_overwrite_back: crate::app::input::AppState::MainMenu,
             sd_delete_return: crate::app::input::AppState::MainMenu,
             seed_backup_return: crate::app::input::AppState::SeedList,
+            address_return: crate::app::input::AppState::SeedList,
+            kpub_export_return: crate::app::input::AppState::WatchOnlyMenu,
             sd_txt_origin: 0,
             qr_manual_frames: false,
 

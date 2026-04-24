@@ -853,7 +853,9 @@ fn main() -> ! {
                 ),
                 HandlerGroup::None => None,
             };
-            if let Some(r) = result { ad.needs_redraw = r; }
+            if let Some(r) = result {
+                ad.needs_redraw = r;
+            }
 
             // Waveshare CST816D: cooldown after tap to suppress ghost double-taps
             // from residual capacitance / ambient light EMI. The controller often

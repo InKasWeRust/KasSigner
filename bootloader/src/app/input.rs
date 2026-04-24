@@ -321,8 +321,18 @@ pub enum AppState {
     ViewSeed,
     /// Seed backup (show words)
     SeedBackup { word_idx: u8 },
-    /// Tools sub-menu
+    /// Tools sub-menu (top level: Seed Tools, Import/Export, Single Sig, Multisig)
     ToolsMenu,
+    /// Seed Tools sub-menu
+    SeedToolsMenu,
+    /// Import/Export choice (2-button screen)
+    ImportExportChoice,
+    /// Import sub-menu
+    ImportMenu,
+    /// Single Signature sub-menu
+    SingleSigMenu,
+    /// Multisig top-level menu
+    MultisigMenu,
     /// Settings sub-menu (Display / Audio / About)
     SettingsMenu,
     /// Display settings (brightness)
@@ -523,6 +533,7 @@ pub enum AppState {
     SdKpubFilename,
     /// SD seed backup: keyboard for naming the .KAS file before encrypt+save
     SdSeedFilename,
+    SdSigFilename,
     /// SD xprv export: keyboard for naming the .KAS file before encrypt+save
     SdXprvFilename,
     /// SD multisig address: keyboard for naming the .TXT file before save
@@ -695,6 +706,8 @@ pub fn new() -> Self {
 
             // Sub-menus handled by main.rs touch directly
             AppState::SeedsMenu | AppState::ToolsMenu | AppState::SettingsMenu
+            | AppState::SeedToolsMenu | AppState::ImportExportChoice
+            | AppState::ImportMenu | AppState::SingleSigMenu | AppState::MultisigMenu
             | AppState::Bip85Index { .. } | AppState::Bip85Deriving
             | AppState::Bip85ShowWord { .. } | AppState::AddrIndexPicker
             | AppState::ImportPrivKey | AppState::ExportPrivKey
@@ -708,7 +721,7 @@ pub fn new() -> Self {
             | AppState::SdXprvExportPassphrase | AppState::SdXprvFileList | AppState::SdXprvImportPassphrase
             | AppState::SdImportMenu | AppState::SdKsptFileList | AppState::SdKpubFileList
             | AppState::ShowQrPopup | AppState::SdKsptFilename | AppState::SdKpubFilename
-            | AppState::SdSeedFilename | AppState::SdXprvFilename | AppState::SdMsAddrFilename
+            | AppState::SdSeedFilename | AppState::SdSigFilename | AppState::SdXprvFilename | AppState::SdMsAddrFilename
             | AppState::SdMsAddrEncryptAsk
             | AppState::SdMsDescFilename | AppState::SdMsDescEncryptAsk
             | AppState::SdKsptEncryptAsk | AppState::SdKsptEncryptPass
@@ -892,7 +905,8 @@ pub fn handler_group(&self) -> HandlerGroup {
         use AppState::*;
         match self {
             // Menu screens
-            MainMenu | SeedsMenu | ToolsMenu | DiceRoll
+            MainMenu | SeedsMenu | ToolsMenu | SeedToolsMenu | ImportExportChoice
+            | ImportMenu | SingleSigMenu | MultisigMenu | DiceRoll
             | ChooseWordCount { .. } | ShowQR | ShowQrFrameChoice | ShowQrDensityChoice | Rejected | ViewSeed
                 => HandlerGroup::Menu,
 
@@ -912,7 +926,7 @@ pub fn handler_group(&self) -> HandlerGroup {
             | SdXprvFileList | SdXprvImportPassphrase
             | SdImportMenu | SdKsptFileList | SdKpubFileList
             | ShowQrPopup | SdKsptFilename | SdKpubFilename
-            | SdSeedFilename | SdXprvFilename | SdMsAddrFilename
+            | SdSeedFilename | SdSigFilename | SdXprvFilename | SdMsAddrFilename
             | SdMsAddrEncryptAsk
             | SdMsDescFilename | SdMsDescEncryptAsk
             | SdKsptEncryptAsk | SdKsptEncryptPass

@@ -111,6 +111,21 @@ pub fn redraw_screen(
                 crate::app::input::AppState::ToolsMenu => {
                     boot_display.update_menu_content("TOOLS", &ad.tools_menu);
                 }
+                crate::app::input::AppState::SeedToolsMenu => {
+                    boot_display.update_menu_content("SEED TOOLS", &ad.seed_tools_menu);
+                }
+                crate::app::input::AppState::ImportExportChoice => {
+                    boot_display.draw_import_export_choice();
+                }
+                crate::app::input::AppState::ImportMenu => {
+                    boot_display.update_menu_content("IMPORT", &ad.import_menu);
+                }
+                crate::app::input::AppState::SingleSigMenu => {
+                    boot_display.update_menu_content("SINGLE SIGNATURE", &ad.single_sig_menu);
+                }
+                crate::app::input::AppState::MultisigMenu => {
+                    boot_display.update_menu_content("MULTISIG", &ad.multisig_menu);
+                }
                 crate::app::input::AppState::ChooseWordCount { action } => {
                     let title = match action {
                         0 => "New Seed (Camera)",
@@ -214,13 +229,13 @@ pub fn redraw_screen(
                             let len = seed_manager::encode_compact_seedqr(
                                 &slot.indices, slot.word_count, &mut compact_buf);
                             boot_display.draw_seedqr_grid(
-                                &compact_buf[..len], slot.word_count, pan_x, pan_y);
+                                &compact_buf[..len], slot.word_count, pan_x, pan_y, false);
                         } else {
                             let mut seedqr_buf = [0u8; 96];
                             let len = seed_manager::encode_seedqr(
                                 &slot.indices, slot.word_count, &mut seedqr_buf);
                             boot_display.draw_seedqr_grid(
-                                &seedqr_buf[..len], slot.word_count, pan_x, pan_y);
+                                &seedqr_buf[..len], slot.word_count, pan_x, pan_y, true);
                         }
                     }
                 }
@@ -238,10 +253,28 @@ pub fn redraw_screen(
                             boot_display.draw_qr_screen(&ad.kpub_data[..ad.kpub_len]);
                             return;
                         }
-                        // Multi-frame: use user-chosen frame count
+                        // Multi-frame KasSigner mode: convert ASCII kpub to V1-raw
+                        let mut raw_buf = [0u8; 80];
+                        let raw_len;
+                        {
+                            let mut raw_payload = [0u8; wallet::xpub::XPUB_PAYLOAD_LEN];
+                            match wallet::xpub::kpub_ascii_to_raw(
+                                &ad.kpub_data[..ad.kpub_len],
+                                &mut raw_payload,
+                            ) {
+                                Ok(rlen) => {
+                                    raw_buf[0] = crate::qr::payload::PAYLOAD_V1_RAW;
+                                    raw_buf[1..1 + rlen].copy_from_slice(&raw_payload[..rlen]);
+                                    raw_len = 1 + rlen;
+                                }
+                                Err(_) => {
+                                    boot_display.draw_rejected_screen("kpub format error");
+                                    return;
+                                }
+                            }
+                        }
                         let n_frames = ad.kpub_user_nframes as usize;
-                        // Balanced split: equal-sized frames
-                        let balanced = (ad.kpub_len + n_frames - 1) / n_frames;
+                        let balanced = (raw_len + n_frames - 1) / n_frames;
                         // Show mode choice (auto/manual)
                         if ad.kpub_nframes == 0 {
                             ad.kpub_frame = 0;
@@ -253,13 +286,13 @@ pub fn redraw_screen(
                         // Build current frame: [frame_idx, total, frag_len, ...data]
                         let frame = ad.kpub_frame as usize;
                         let offset = frame * balanced;
-                        let remaining = ad.kpub_len.saturating_sub(offset);
+                        let remaining = raw_len.saturating_sub(offset);
                         let frag_len = remaining.min(balanced);
                         let mut frame_buf = [0u8; 134];
                         frame_buf[0] = frame as u8;
                         frame_buf[1] = n_frames as u8;
                         frame_buf[2] = frag_len as u8;
-                        frame_buf[3..3 + frag_len].copy_from_slice(&ad.kpub_data[offset..offset + frag_len]);
+                        frame_buf[3..3 + frag_len].copy_from_slice(&raw_buf[offset..offset + frag_len]);
                         let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
                         // Multi-frame: left-aligned layout + FRAMES counter.
                         // No SIGNER badge — kpub export isn't a multisig
@@ -681,6 +714,9 @@ pub fn redraw_screen(
                 }
                 crate::app::input::AppState::SdSeedFilename => {
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "SEED FILENAME");
+                }
+                crate::app::input::AppState::SdSigFilename => {
+                    boot_display.draw_keyboard_screen_full(&ad.pp_input, "SIG FILENAME");
                 }
                 crate::app::input::AppState::SdXprvFilename => {
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "XPRV FILENAME");

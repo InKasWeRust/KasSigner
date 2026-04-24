@@ -51,7 +51,7 @@ pub fn handle_seed_touch(
     match ad.app.state {
                     crate::app::input::AppState::Bip85Index { word_count: bwc } => {
                         if is_back {
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::SeedToolsMenu;
                             needs_redraw = true;
                         } else if (85..=125).contains(&x) && (98..=132).contains(&y) {
                             // [-] button
@@ -112,7 +112,7 @@ pub fn handle_seed_touch(
                                         }
                                         Err(_) => {
                                             sound::beep_error(delay);
-                                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                            ad.app.state = crate::app::input::AppState::SeedToolsMenu;
                                             needs_redraw = true;
                                         }
                                     }
@@ -140,7 +140,7 @@ pub fn handle_seed_touch(
                                         }
                                         Err(_) => {
                                             sound::beep_error(delay);
-                                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                            ad.app.state = crate::app::input::AppState::SeedToolsMenu;
                                             needs_redraw = true;
                                         }
                                     }
@@ -156,15 +156,15 @@ pub fn handle_seed_touch(
                         if is_back {
                             // Zeroize child indices
                             for i in ad.bip85_child_indices.iter_mut() { *i = 0; }
-                            ad.app.state = crate::app::input::AppState::MainMenu;
+                            ad.app.state = crate::app::input::AppState::SeedToolsMenu;
                         } else {
                             let next = word_idx + 1;
                             if next < bwc {
                                 ad.app.state = crate::app::input::AppState::Bip85ShowWord { word_idx: next, word_count: bwc };
                             } else {
-                                // Done viewing words — zeroize and go to main menu
+                                // Done viewing words — zeroize and return to seed tools
                                 for i in ad.bip85_child_indices.iter_mut() { *i = 0; }
-                                ad.app.state = crate::app::input::AppState::MainMenu;
+                                ad.app.state = crate::app::input::AppState::SeedToolsMenu;
                             }
                         }
                         needs_redraw = true;
@@ -175,7 +175,7 @@ pub fn handle_seed_touch(
                     crate::app::input::AppState::ImportPrivKey => {
                         if is_back {
                             ad.hex_input_len = 0;
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::ImportMenu;
                             needs_redraw = true;
                         } else {
                             use crate::ui::keyboard::{hit_test, KeyboardMode, KeyAction};
@@ -247,7 +247,7 @@ pub fn handle_seed_touch(
                     crate::app::input::AppState::ImportWord { word_idx, word_count: wc } => {
                         if is_back {
                             ad.word_input.reset();
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::SeedToolsMenu;
                             needs_redraw = true;
                         } else if let Some(idx) = suggestion_hit_test(x, y, &ad.word_input) {
                             // Suggestion tap — takes priority over keyboard
@@ -263,7 +263,7 @@ pub fn handle_seed_touch(
                                 } else {
                                     boot_display.draw_rejected_screen("Invalid seed phrase");
                                     delay.delay_millis(2500);
-                                    ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                    ad.app.state = crate::app::input::AppState::SeedToolsMenu;
                                     needs_redraw = true;
                                 }
                             } else {
@@ -301,7 +301,7 @@ pub fn handle_seed_touch(
                                                 log!("   Import FAILED — bad checksum");
                                                 boot_display.draw_rejected_screen("Invalid seed phrase");
                                                 delay.delay_millis(2500);
-                                                ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                                ad.app.state = crate::app::input::AppState::SeedToolsMenu;
                                                 needs_redraw = true;
                                             }
                                         } else {
@@ -314,7 +314,7 @@ pub fn handle_seed_touch(
                                 }
                                 KeyAction::Cancel => {
                                     ad.word_input.reset();
-                                    ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                    ad.app.state = crate::app::input::AppState::SeedToolsMenu;
                                     needs_redraw = true;
                                 }
                                 _ => {}
@@ -325,7 +325,7 @@ pub fn handle_seed_touch(
                         let target = if wc == 12 { 11u8 } else { 23u8 };
                         if is_back {
                             ad.word_input.reset();
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::SeedToolsMenu;
                             needs_redraw = true;
                         } else if let Some(idx) = suggestion_hit_test(x, y, &ad.word_input) {
                             ad.mnemonic_indices[word_idx as usize] = idx;
@@ -385,7 +385,7 @@ pub fn handle_seed_touch(
                                 }
                                 KeyAction::Cancel => {
                                     ad.word_input.reset();
-                                    ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                    ad.app.state = crate::app::input::AppState::SeedToolsMenu;
                                     needs_redraw = true;
                                 }
                                 _ => {}
@@ -395,7 +395,7 @@ pub fn handle_seed_touch(
                     crate::app::input::AppState::PassphraseEntry => {
                         if is_back {
                             ad.pp_input.reset();
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::SeedToolsMenu;
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
@@ -428,14 +428,14 @@ pub fn handle_seed_touch(
                                             }
                                             ad.app.state = crate::app::input::AppState::MultisigPickSeed { key_idx: ki };
                                         } else {
-                                            ad.seed_backup_return = crate::app::input::AppState::SeedList;
+                                            ad.seed_backup_return = crate::app::input::AppState::SeedToolsMenu;
                                             ad.app.state = crate::app::input::AppState::SeedBackup { word_idx: 0 };
                                         }
                                     } else {
                                         ad.pp_input.reset();
                                         boot_display.draw_rejected_screen("All 4 slots full!");
                                         delay.delay_millis(2000);
-                                        ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                        ad.app.state = crate::app::input::AppState::SeedToolsMenu;
                                     }
                                     needs_redraw = true;
                                 }
@@ -473,10 +473,12 @@ pub fn handle_seed_touch(
                                 } else {
                                     ad.seed_list_scroll = 0;
                                 }
+                                needs_redraw = true;
                             }
                             // R-strip page down (x >= 280, y >= 42)
                             else if x >= 280 && y >= 42 && can_page_down {
                                 ad.seed_list_scroll += max_vis as u8;
+                                needs_redraw = true;
                             }
                             // Top buttons (y=42..74) — always 2 buttons: Address, Export
                             // Sign TX was removed in v1.0.3 (still lives in Tools menu).
@@ -496,12 +498,13 @@ pub fn handle_seed_touch(
                                     }
                                 }
                                 if let Some(tapped_col) = col {
+                                    needs_redraw = true;
                                     if !ad.seed_loaded {
                                         // No seed — show friendly message, then go to Tools
                                         boot_display.draw_rejected_screen("Load a seed first");
                                         delay.delay_millis(1500);
                                         ad.tools_menu.reset();
-                                        ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                        ad.app.state = crate::app::input::AppState::SeedToolsMenu;
                                     } else if tapped_col == 0 {
                                         // ── Address ──
                                         if slot_wc == 1 {
@@ -576,6 +579,7 @@ pub fn handle_seed_touch(
                                             }
                                         }
                                         ad.scanned_addr_len = 0;
+                                        ad.address_return = crate::app::input::AppState::SeedList;
                                         ad.app.state = crate::app::input::AppState::ShowAddress;
                                     } else if tapped_col == 1 {
                                         // ── Export ──
@@ -611,18 +615,19 @@ pub fn handle_seed_touch(
                                         if list_idx >= loaded_n {
                                             // Empty row tapped → go to Tools
                                             ad.tools_menu.reset();
-                                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                            ad.app.state = crate::app::input::AppState::SeedToolsMenu;
+                                            needs_redraw = true;
                                             break;
                                         }
                                         let i = loaded_idx[list_idx];
                                         // DEL button: rightmost 38px of card
                                         if (232..276).contains(&x) {
-                                            // Store pending slot and go to confirmation screen
                                             ad.pending_delete_slot = i as u8;
                                             ad.app.state = crate::app::input::AppState::ConfirmDeleteSeed;
+                                            needs_redraw = true;
                                             break;
                                         }
-                                        // Select/activate slot
+                                        // Select/activate slot — redraw cards only (no full clear)
                                         ad.seed_mgr.activate(i);
                                         ad.mnemonic_indices = ad.seed_mgr.slots[i].indices;
                                         ad.word_count = ad.seed_mgr.slots[i].word_count;
@@ -641,23 +646,25 @@ pub fn handle_seed_touch(
                                             ad.acct_key_raw[64] = slot.passphrase[32];
                                         }
                                         sound::success(delay);
+                                        needs_redraw = true;
                                         break;
                                     }
                                 }
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::ConfirmDeleteSeed => {
                         if is_back {
                             ad.pending_delete_slot = 0xFF;
                             ad.app.state = crate::app::input::AppState::SeedList;
+                            needs_redraw = true;
                         } else if (180..=230).contains(&y) {
                             if (30..=150).contains(&x) {
                                 // CANCEL
                                 ad.pending_delete_slot = 0xFF;
                                 ad.app.state = crate::app::input::AppState::SeedList;
                                 sound::click(delay);
+                                needs_redraw = true;
                             } else if (170..=290).contains(&x) {
                                 // DELETE — hold-to-confirm (4 seconds)
                                 // Wait for finger release first
@@ -728,10 +735,39 @@ pub fn handle_seed_touch(
                                         let was_active = ad.seed_mgr.active == i as u8;
                                         ad.seed_mgr.delete(i);
                                         if was_active {
-                                            ad.seed_loaded = false;
-                                            ad.pubkeys_cached = false;
-                                            ad.current_addr_index = 0;
-                                            ad.extra_pubkey_index = 0xFFFF;
+                                            // Try to activate the next available seed
+                                            let mut found_next = false;
+                                            for si in 0..seed_manager::MAX_SLOTS {
+                                                if !ad.seed_mgr.slots[si].is_empty() {
+                                                    ad.seed_mgr.activate(si);
+                                                    ad.mnemonic_indices = ad.seed_mgr.slots[si].indices;
+                                                    ad.word_count = ad.seed_mgr.slots[si].word_count;
+                                                    ad.seed_loaded = true;
+                                                    ad.pubkeys_cached = false;
+                                                    ad.current_addr_index = 0;
+                                                    ad.extra_pubkey_index = 0xFFFF;
+                                                    if ad.word_count == 2 {
+                                                        let slot = &ad.seed_mgr.slots[si];
+                                                        for j in 0..16 {
+                                                            let le = slot.indices[j].to_le_bytes();
+                                                            ad.acct_key_raw[j * 2] = le[0];
+                                                            ad.acct_key_raw[j * 2 + 1] = le[1];
+                                                        }
+                                                        ad.acct_key_raw[32..64].copy_from_slice(&slot.passphrase[..32]);
+                                                        ad.acct_key_raw[64] = slot.passphrase[32];
+                                                    }
+                                                    found_next = true;
+                                                    break;
+                                                }
+                                            }
+                                            if !found_next {
+                                                // No seeds left
+                                                ad.seed_loaded = false;
+                                                ad.pubkeys_cached = false;
+                                                ad.current_addr_index = 0;
+                                                ad.extra_pubkey_index = 0xFFFF;
+                                            }
+                                            // Zeroize old keys
                                             for sl in ad.pubkey_cache.iter_mut() { for b in sl.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } } }
                                             for b in ad.acct_key_raw.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
                                             for b in ad.extra_pubkey.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
@@ -742,9 +778,9 @@ pub fn handle_seed_touch(
                                 }
                                 ad.pending_delete_slot = 0xFF;
                                 ad.app.state = crate::app::input::AppState::SeedList;
+                                needs_redraw = true;
                             }
                         }
-                        needs_redraw = true;
                     }
                     _ => { return None; }
                 }

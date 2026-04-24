@@ -39,7 +39,7 @@ pub fn handle_menu_touch(
     page_down_zone: &touch::TouchZone,
     x: u16, y: u16, is_back: bool,
 ) -> Option<bool> {
-    let needs_redraw = false;
+    let mut needs_redraw = false;
 
     match ad.app.state {
                     crate::app::input::AppState::MainMenu => {
@@ -49,7 +49,7 @@ pub fn handle_menu_touch(
                                 ad.app.menu.cursor = idx as u8;
                                 let evt = crate::app::input::ButtonEvent::LongPress;
                                 ad.app.handle_boot(evt);
-                                ad.needs_redraw = true;
+                                needs_redraw = true;
                                 break;
                             }
                         }
@@ -58,25 +58,18 @@ pub fn handle_menu_touch(
                     crate::app::input::AppState::SeedsMenu => {
                         if is_back {
                             ad.app.go_main_menu();
-                            ad.needs_redraw = true;
+                            needs_redraw = true;
                         } else {
-                            // Always go to SeedList
                             ad.app.state = crate::app::input::AppState::SeedList;
+                            needs_redraw = true;
                         }
                     }
                     crate::app::input::AppState::ToolsMenu => {
                         if is_back {
                             ad.tools_menu.reset();
                             ad.app.go_main_menu();
-                            ad.needs_redraw = true;
-                        } else if page_up_zone.contains(x, y) && ad.tools_menu.can_page_up() {
-                            ad.tools_menu.page_up();
-                            ad.needs_redraw = true;
-                        } else if page_down_zone.contains(x, y) && ad.tools_menu.can_page_down() {
-                            ad.tools_menu.page_down();
-                            ad.needs_redraw = true;
+                            needs_redraw = true;
                         } else {
-                            // Find which visible slot was tapped
                             let mut tapped_item: Option<u8> = None;
                             for slot in 0..4u8 {
                                 if list_zones[slot as usize].contains(x, y) {
@@ -88,13 +81,122 @@ pub fn handle_menu_touch(
                                 }
                             }
                             if let Some(item) = tapped_item {
-                                ad.needs_redraw = true;
+                                needs_redraw = true;
                                 match item {
-                                    0 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 0 }; }
-                                    1 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 1 }; }
-                                    2 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 2 }; }
-                                    3 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 3 }; }
-                                    4 => {
+                                    0 => {
+                                        ad.seed_tools_menu.reset();
+                                        ad.app.state = crate::app::input::AppState::SeedToolsMenu;
+                                    }
+                                    1 => {
+                                        ad.app.state = crate::app::input::AppState::ImportExportChoice;
+                                    }
+                                    2 => {
+                                        ad.single_sig_menu.reset();
+                                        ad.app.state = crate::app::input::AppState::SingleSigMenu;
+                                    }
+                                    3 => {
+                                        ad.multisig_menu.reset();
+                                        ad.app.state = crate::app::input::AppState::MultisigMenu;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    crate::app::input::AppState::SeedToolsMenu => {
+                        if is_back {
+                            ad.seed_tools_menu.reset();
+                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            needs_redraw = true;
+                        } else if page_up_zone.contains(x, y) && ad.seed_tools_menu.can_page_up() {
+                            ad.seed_tools_menu.page_up();
+                            needs_redraw = true;
+                        } else if page_down_zone.contains(x, y) && ad.seed_tools_menu.can_page_down() {
+                            ad.seed_tools_menu.page_down();
+                            needs_redraw = true;
+                        } else {
+                            let mut tapped_item: Option<u8> = None;
+                            for slot in 0..4u8 {
+                                if list_zones[slot as usize].contains(x, y) {
+                                    let abs = ad.seed_tools_menu.visible_to_absolute(slot);
+                                    if abs < ad.seed_tools_menu.count {
+                                        tapped_item = Some(abs);
+                                    }
+                                    break;
+                                }
+                            }
+                            if let Some(item) = tapped_item {
+                                needs_redraw = true;
+                                match item {
+                                    0 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 0 }; } // New Seed
+                                    1 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 1 }; } // Dice Seed
+                                    2 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 2 }; } // Import Words
+                                    3 => { // Address
+                                        if ad.seed_loaded {
+                                            // Derive pubkeys if not cached
+                                            if !ad.pubkeys_cached {
+                                                let slot_wc = ad.seed_mgr.active_slot().map(|s| s.word_count).unwrap_or(0);
+                                                if slot_wc == 1 {
+                                                    if let Some(slot) = ad.seed_mgr.active_slot() as Option<&crate::ui::seed_manager::SeedSlot> {
+                                                        let mut key = [0u8; 32];
+                                                        slot.raw_key_bytes(&mut key);
+                                                        if let Ok(xpub) = wallet::bip32::pubkey_from_raw_key(&key) {
+                                                            ad.pubkey_cache[0].copy_from_slice(&xpub);
+                                                        }
+                                                        for b in key.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
+                                                        ad.pubkeys_cached = true;
+                                                    }
+                                                } else if slot_wc == 2 {
+                                                    boot_display.draw_saving_screen("Deriving addresses...");
+                                                    let acct = wallet::bip32::ExtendedPrivKey::from_raw(&ad.acct_key_raw);
+                                                    for idx in 0..20u16 {
+                                                        if let Ok(ak) = wallet::bip32::derive_address_key(&acct, idx) {
+                                                            if let Ok(pk) = ak.public_key_x_only() {
+                                                                ad.pubkey_cache[idx as usize].copy_from_slice(&pk);
+                                                            }
+                                                        }
+                                                    }
+                                                    crate::app::signing::derive_change_pubkeys(
+                                                        &ad.acct_key_raw, &mut ad.change_pubkey_cache);
+                                                    ad.pubkeys_cached = true;
+                                                } else {
+                                                    boot_display.draw_saving_screen("Deriving...");
+                                                    let pp = ad.seed_mgr.active_slot().map(|s: &crate::ui::seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
+                                                    let seed_bytes = if ad.word_count == 12 {
+                                                        let m12 = wallet::bip39::Mnemonic12 {
+                                                            indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&ad.mnemonic_indices[..12]); arr }
+                                                        };
+                                                        wallet::bip39::seed_from_mnemonic_12(&m12, pp)
+                                                    } else {
+                                                        let m24 = wallet::bip39::Mnemonic24 {
+                                                            indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&ad.mnemonic_indices[..24]); arr }
+                                                        };
+                                                        wallet::bip39::seed_from_mnemonic_24(&m24, pp)
+                                                    };
+                                                    if let Ok(acct) = wallet::bip32::derive_account_key(&seed_bytes.bytes) {
+                                                        ad.acct_key_raw.copy_from_slice(&acct.to_raw());
+                                                        for idx in 0..20u16 {
+                                                            if let Ok(ak) = wallet::bip32::derive_address_key(&acct, idx) {
+                                                                if let Ok(pk) = ak.public_key_x_only() {
+                                                                    ad.pubkey_cache[idx as usize].copy_from_slice(&pk);
+                                                                }
+                                                            }
+                                                        }
+                                                        crate::app::signing::derive_change_pubkeys(
+                                                            &ad.acct_key_raw, &mut ad.change_pubkey_cache);
+                                                        ad.pubkeys_cached = true;
+                                                    }
+                                                }
+                                            }
+                                            ad.scanned_addr_len = 0;
+                                            ad.address_return = crate::app::input::AppState::SeedToolsMenu;
+                                            ad.app.state = crate::app::input::AppState::ShowAddress;
+                                        } else {
+                                            boot_display.draw_rejected_screen("Load a seed first");
+                                            delay.delay_millis(1500);
+                                        }
+                                    }
+                                    4 => { // BIP85 Child
                                         if ad.seed_loaded {
                                             ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 4 };
                                         } else {
@@ -102,24 +204,57 @@ pub fn handle_menu_touch(
                                             delay.delay_millis(1500);
                                         }
                                     }
-                                    5 => {
-                                        ad.hex_input_len = 0;
-                                        ad.app.state = crate::app::input::AppState::ImportPrivKey;
+                                    5 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 3 }; } // Calc Last Word
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    crate::app::input::AppState::ImportExportChoice => {
+                        if is_back {
+                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            needs_redraw = true;
+                        } else if (22..=152).contains(&x) && (100..=155).contains(&y) {
+                            // Import button
+                            ad.import_menu.reset();
+                            ad.app.state = crate::app::input::AppState::ImportMenu;
+                            needs_redraw = true;
+                        } else if (168..=298).contains(&x) && (100..=155).contains(&y) {
+                            // Export button → existing ExportChoice
+                            if ad.seed_loaded {
+                                ad.export_menu.reset();
+                                ad.app.state = crate::app::input::AppState::ExportChoice;
+                            } else {
+                                boot_display.draw_rejected_screen("Load a seed first");
+                                delay.delay_millis(1500);
+                            }
+                            needs_redraw = true;
+                        }
+                    }
+                    crate::app::input::AppState::ImportMenu => {
+                        if is_back {
+                            ad.import_menu.reset();
+                            ad.app.state = crate::app::input::AppState::ImportExportChoice;
+                            needs_redraw = true;
+                        } else {
+                            let mut tapped_item: Option<u8> = None;
+                            for slot in 0..4u8 {
+                                if list_zones[slot as usize].contains(x, y) {
+                                    let abs = ad.import_menu.visible_to_absolute(slot);
+                                    if abs < ad.import_menu.count {
+                                        tapped_item = Some(abs);
                                     }
-                                    6 => {
-                                        // Import from SD → submenu
+                                    break;
+                                }
+                            }
+                            if let Some(item) = tapped_item {
+                                needs_redraw = true;
+                                match item {
+                                    0 => { // Import from SD
                                         ad.sd_import_menu.reset();
                                         ad.app.state = crate::app::input::AppState::SdImportMenu;
                                     }
-                                    7 => {
-                                        // Create Multisig
-                                        ad.ms_m = 2;
-                                        ad.ms_n = 3;
-                                        ad.ms_creating = wallet::transaction::MultisigConfig::new();
-                                        ad.app.state = crate::app::input::AppState::MultisigChooseMN;
-                                    }
-                                    8 => {
-                                        // Stego Import — scan SD for JPEG files
+                                    1 => { // Stego Import
                                         boot_display.draw_loading_screen("Scanning SD...");
                                         ad.import_jpeg_count = 0;
                                         let scan_ok = sdcard::with_sd_card(i2c, delay, |ct| {
@@ -153,8 +288,35 @@ pub fn handle_menu_touch(
                                             ad.app.state = crate::app::input::AppState::StegoImportPick;
                                         }
                                     }
-                                    9 => {
-                                        // Sign TX guide — auto-derive addresses if needed
+                                    2 => { // Import Raw Key
+                                        ad.hex_input_len = 0;
+                                        ad.app.state = crate::app::input::AppState::ImportPrivKey;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    crate::app::input::AppState::SingleSigMenu => {
+                        if is_back {
+                            ad.single_sig_menu.reset();
+                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            needs_redraw = true;
+                        } else {
+                            let mut tapped_item: Option<u8> = None;
+                            for slot in 0..4u8 {
+                                if list_zones[slot as usize].contains(x, y) {
+                                    let abs = ad.single_sig_menu.visible_to_absolute(slot);
+                                    if abs < ad.single_sig_menu.count {
+                                        tapped_item = Some(abs);
+                                    }
+                                    break;
+                                }
+                            }
+                            if let Some(item) = tapped_item {
+                                needs_redraw = true;
+                                match item {
+                                    0 => { // Sign TX
                                         if ad.seed_loaded && !ad.pubkeys_cached {
                                             {
                                                 boot_display.display.clear(crate::hw::display::COLOR_BG).ok();
@@ -162,7 +324,6 @@ pub fn handle_menu_touch(
                                                 crate::hw::display::draw_oswald_header(&mut boot_display.display, "DERIVING", (320 - tw) / 2, 90, crate::hw::display::KASPA_TEAL);
                                                 let mw = crate::hw::display::measure_body("Deriving addresses...");
                                                 crate::hw::display::draw_lato_body(&mut boot_display.display, "Deriving addresses...", (320 - mw) / 2, 120, crate::hw::display::COLOR_TEXT_DIM);
-                                                // 50% progress bar
                                                 use embedded_graphics::primitives::{Rectangle, PrimitiveStyle};
                                                 use embedded_graphics::prelude::*;
                                                 Rectangle::new(Point::new(40, 145), Size::new(240, 10))
@@ -184,8 +345,7 @@ pub fn handle_menu_touch(
                                         }
                                         ad.app.state = crate::app::input::AppState::SignTxGuide;
                                     }
-                                    10 => {
-                                        // Sign Message — check seed, go to choice screen
+                                    1 => { // Sign Message
                                         let has_seed = ad.seed_loaded;
                                         if !has_seed {
                                             boot_display.draw_rejected_screen("No seed loaded");
@@ -197,10 +357,35 @@ pub fn handle_menu_touch(
                                             ad.app.state = crate::app::input::AppState::SignMsgChoice;
                                         }
                                     }
-                                    #[cfg(feature = "icon-browser")]
-                                    11 => {
-                                        // Icon browser test
-                                        ad.app.state = crate::app::input::AppState::IconBrowser { page: 0 };
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    crate::app::input::AppState::MultisigMenu => {
+                        if is_back {
+                            ad.multisig_menu.reset();
+                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            needs_redraw = true;
+                        } else {
+                            let mut tapped_item: Option<u8> = None;
+                            for slot in 0..4u8 {
+                                if list_zones[slot as usize].contains(x, y) {
+                                    let abs = ad.multisig_menu.visible_to_absolute(slot);
+                                    if abs < ad.multisig_menu.count {
+                                        tapped_item = Some(abs);
+                                    }
+                                    break;
+                                }
+                            }
+                            if let Some(item) = tapped_item {
+                                needs_redraw = true;
+                                match item {
+                                    0 => { // Create Multisig
+                                        ad.ms_m = 2;
+                                        ad.ms_n = 3;
+                                        ad.ms_creating = wallet::transaction::MultisigConfig::new();
+                                        ad.app.state = crate::app::input::AppState::MultisigChooseMN;
                                     }
                                     _ => {}
                                 }
@@ -229,7 +414,7 @@ pub fn handle_menu_touch(
                             // Cancel dice roll, go to tools menu
                             ad.dice_collector.count = 0;
                             ad.app.state = crate::app::input::AppState::ToolsMenu;
-                            ad.needs_redraw = true;
+                            needs_redraw = true;
                         } else {
                             // Check dice buttons: Row 1 y=70..135, Row 2 y=135..200
                             let dice_x: [u16; 3] = [10, 110, 210];
@@ -270,7 +455,7 @@ pub fn handle_menu_touch(
                                     log!("   Dice seed generated ({} words)", wc);
                                     ad.pp_input.reset();
                                     ad.app.state = crate::app::input::AppState::PassphraseEntry;
-                                    ad.needs_redraw = true;
+                                    needs_redraw = true;
                                 } else {
                                     boot_display.update_dice_progress(
                                         ad.dice_collector.count, ad.dice_collector.target);
@@ -287,12 +472,14 @@ pub fn handle_menu_touch(
                     }
                     crate::app::input::AppState::ChooseWordCount { action } => {
                         if is_back {
-                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                            ad.app.state = crate::app::input::AppState::SeedToolsMenu;
+                            needs_redraw = true;
                         } else {
                             let chose_12 = (30..=290).contains(&x) && (70..=130).contains(&y);
                             let chose_24 = (30..=290).contains(&x) && (150..=210).contains(&y);
                             let wc: u8 = if chose_12 { 12 } else if chose_24 { 24 } else { 0 };
                             if wc > 0 {
+                                needs_redraw = true;
                                 match action {
                                     0 => {
                                         // === HARDWARE ENTROPY COLLECTION ===
@@ -329,11 +516,12 @@ pub fn handle_menu_touch(
                                         let mut got_entropy = false;
 
                                         // Enable RC_FAST_CLK for TRNG entropy
-                                        // RTC_CNTL_CLK_CONF_REG = 0x6000_8070, bit 10 = DIG_CLK8M_EN
+                                        // RTC_CNTL_CLK_CONF_REG = 0x6000_8074, bit 10 = DIG_CLK8M_EN
                                         unsafe {
-                                            let clk_conf = core::ptr::read_volatile(0x6000_8070u32 as *const u32);
-                                            core::ptr::write_volatile(0x6000_8070u32 as *mut u32, clk_conf | (1 << 10));
+                                            let clk_conf = core::ptr::read_volatile(0x6000_8074u32 as *const u32);
+                                            core::ptr::write_volatile(0x6000_8074u32 as *mut u32, clk_conf | (1 << 10));
                                         }
+
 
                                         // Round 1: TRNG seed (32 reads at 500kHz max → ~64µs)
                                         {
@@ -342,8 +530,10 @@ pub fn handle_menu_touch(
                                             let mut trng_buf = [0u8; 128]; // 32 × 4 bytes
                                             for i in 0..32 {
                                                 let rng_val = unsafe {
-                                                    core::ptr::read_volatile(0x6003_5110u32 as *const u32)
+                                                    core::ptr::read_volatile(0x6003_5144u32 as *const u32)
                                                 };
+                                                if i < 4 {
+                                                }
                                                 trng_buf[i*4]     = (rng_val & 0xFF) as u8;
                                                 trng_buf[i*4 + 1] = ((rng_val >> 8) & 0xFF) as u8;
                                                 trng_buf[i*4 + 2] = ((rng_val >> 16) & 0xFF) as u8;
@@ -352,6 +542,25 @@ pub fn handle_menu_touch(
                                                 for _ in 0..160u32 { core::hint::spin_loop(); }
                                             }
                                             hasher.update(trng_buf);
+                                            // Mix SYSTIMER: latch counter then read full 52-bit value
+                                            unsafe {
+                                                // SYSTIMER_UNIT0_OP_REG (0x6002_3004): write 1 to bit 30 to latch
+                                                core::ptr::write_volatile(0x6002_3004u32 as *mut u32, 1 << 30);
+                                                for _ in 0..20u32 { core::hint::spin_loop(); }
+                                                let lo = core::ptr::read_volatile(0x6002_3044u32 as *const u32);
+                                                let hi = core::ptr::read_volatile(0x6002_3040u32 as *const u32);
+                                                hasher.update(lo.to_le_bytes());
+                                                hasher.update(hi.to_le_bytes());
+                                            }
+                                            // Mix eFuse MAC address (unique per chip — 6 bytes at EFUSE_RD_MAC_SPI_SYS_0/1)
+                                            unsafe {
+                                                let mac0 = core::ptr::read_volatile(0x6000_7044u32 as *const u32);
+                                                let mac1 = core::ptr::read_volatile(0x6000_7048u32 as *const u32);
+                                                hasher.update(mac0.to_le_bytes());
+                                                hasher.update(mac1.to_le_bytes());
+                                            }
+                                            // Mix idle_ticks (touch/display loop counter — varies with user interaction timing)
+                                            hasher.update((ad.idle_ticks as u32).to_le_bytes());
                                             hasher.update([0x01]); // domain separator
                                             let hash = hasher.finalize();
                                             for i in 0..32 { pool[i] ^= hash[i]; }
@@ -386,7 +595,7 @@ pub fn handle_menu_touch(
                                                             hasher.update([frame_idx, (t0 & 0xFF) as u8, (t1 & 0xFF) as u8]);
                                                             // Mix in TRNG sample taken mid-frame
                                                             let rng_mid = unsafe {
-                                                                core::ptr::read_volatile(0x6003_5110u32 as *const u32)
+                                                                core::ptr::read_volatile(0x6003_5144u32 as *const u32)
                                                             };
                                                             hasher.update(rng_mid.to_le_bytes());
                                                             let hash = hasher.finalize();
@@ -410,18 +619,29 @@ pub fn handle_menu_touch(
                                             // (partial frames are fine — any pixel data is good randomness)
                                             #[cfg(feature = "waveshare")]
                                             if dvp_camera_opt.is_none() {
-                                                // Wait one frame period (~50ms at 20fps) then grab
-                                                delay.delay_millis(60);
-                                                // Drain any pending VSYNC
+                                                // Wait for TWO frame completions so the read buffer has real pixels.
+                                                // After start_capture(), first poll_done() fills write buffer,
+                                                // second poll_done() swaps and fills the other → read buffer is fresh.
+                                                delay.delay_millis(80);
                                                 crate::hw::cam_dma::poll_done();
-                                                if let Some(pixels) = crate::hw::cam_dma::get_frame_any() {
+                                                delay.delay_millis(80);
+                                                crate::hw::cam_dma::poll_done();
+                                                if let Some(pixels) = crate::hw::cam_dma::get_entropy_bytes() {
+                                                    if frame_idx == 0 {
+                                                    }
                                                     let t0 = ad.idle_ticks;
                                                     use sha2::{Sha256, Digest};
                                                     let mut hasher = Sha256::new();
                                                     hasher.update(pixels);
+                                                    // Mix SYSTIMER for timing jitter
+                                                    let ccount: u32 = unsafe {
+                                                        core::ptr::write_volatile(0x6002_3004u32 as *mut u32, 1 << 30);
+                                                        core::ptr::read_volatile(0x6002_3044u32 as *const u32)
+                                                    };
                                                     hasher.update([frame_idx, (t0 & 0xFF) as u8, 0xCA]);
+                                                    hasher.update(ccount.to_le_bytes());
                                                     let rng_mid = unsafe {
-                                                        core::ptr::read_volatile(0x6003_5110u32 as *const u32)
+                                                        core::ptr::read_volatile(0x6003_5144u32 as *const u32)
                                                     };
                                                     hasher.update(rng_mid.to_le_bytes());
                                                     let hash = hasher.finalize();
@@ -445,7 +665,7 @@ pub fn handle_menu_touch(
                                             // 64 more TRNG reads
                                             for _ in 0..64 {
                                                 let rng_val = unsafe {
-                                                    core::ptr::read_volatile(0x6003_5110u32 as *const u32)
+                                                    core::ptr::read_volatile(0x6003_5144u32 as *const u32)
                                                 };
                                                 hasher.update(rng_val.to_le_bytes());
                                                 for _ in 0..160u32 { core::hint::spin_loop(); }
@@ -458,6 +678,22 @@ pub fn handle_menu_touch(
                                                 };
                                                 hasher.update(adc_val.to_le_bytes());
                                             }
+                                            // SYSTIMER latch for final timing jitter
+                                            unsafe {
+                                                core::ptr::write_volatile(0x6002_3004u32 as *mut u32, 1 << 30);
+                                                for _ in 0..20u32 { core::hint::spin_loop(); }
+                                                let lo = core::ptr::read_volatile(0x6002_3044u32 as *const u32);
+                                                hasher.update(lo.to_le_bytes());
+                                            }
+                                            // eFuse unique ID (OPTIONAL_UNIQUE_ID, 128 bits)
+                                            unsafe {
+                                                for off in [0x005Cu32, 0x0060, 0x0064, 0x0068] {
+                                                    let val = core::ptr::read_volatile((0x6000_7000u32 + off) as *const u32);
+                                                    hasher.update(val.to_le_bytes());
+                                                }
+                                            }
+                                            // idle_ticks again (changed since round 1 due to camera captures)
+                                            hasher.update((ad.idle_ticks as u32).to_le_bytes());
                                             hasher.update([0x03]); // domain separator
                                             let final_hash = hasher.finalize();
                                             // Replace pool with final whitened entropy
@@ -465,7 +701,7 @@ pub fn handle_menu_touch(
                                         }
 
                                         if got_entropy {
-                                            log!("   Entropy: TRNG(128B) + CAM(8 frames) + ADC + timing → SHA-256");
+                                            log!("   Entropy: CAM(8 frames) + eFuse + SYSTIMER + timing → SHA-256");
                                             wizard.generate_from_entropy(&pool[..entropy_bytes]);
                                             for b in pool.iter_mut() {
                                                 unsafe { core::ptr::write_volatile(b, 0); }
@@ -515,7 +751,6 @@ pub fn handle_menu_touch(
                                 }
                             }
                         }
-                        ad.needs_redraw = true;
                     }
                     crate::app::input::AppState::ShowQrFrameChoice => {
                         if is_back {
@@ -545,7 +780,7 @@ pub fn handle_menu_touch(
                             ad.app.state =
                                 crate::app::input::AppState::ShowQrDensityChoice;
                         }
-                        ad.needs_redraw = true;
+                        needs_redraw = true;
                     }
                     crate::app::input::AppState::ShowQrDensityChoice => {
                         if is_back {
@@ -581,7 +816,7 @@ pub fn handle_menu_touch(
                             ad.signed_qr_nframes = 0;
                             ad.app.state = crate::app::input::AppState::ShowQR;
                         }
-                        ad.needs_redraw = true;
+                        needs_redraw = true;
                     }
                     crate::app::input::AppState::ShowQR => {
                         if is_back {
@@ -622,15 +857,15 @@ pub fn handle_menu_touch(
                         } else {
                             ad.app.go_main_menu();
                         }
-                        ad.needs_redraw = true;
+                        needs_redraw = true;
                     }
                     crate::app::input::AppState::Rejected
                     | crate::app::input::AppState::ViewSeed => {
                         // Back button or tap anywhere → main menu
                         ad.app.go_main_menu();
-                        ad.needs_redraw = true;
+                        needs_redraw = true;
                     }
                     _ => { return None; }
                 }
-    if needs_redraw { Some(true) } else { None }
+    Some(needs_redraw)
 }

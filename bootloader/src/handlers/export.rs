@@ -42,13 +42,20 @@ pub fn handle_export_touch(
     match ad.app.state {
                     crate::app::input::AppState::SeedBackup { word_idx } => {
                         if is_back {
+                            // Back during word display → return to where we came from
                             ad.app.state = ad.seed_backup_return;
                         } else {
                             let next = word_idx + 1;
                             if next < ad.word_count {
                                 ad.app.state = crate::app::input::AppState::SeedBackup { word_idx: next };
                             } else {
-                                ad.app.state = ad.seed_backup_return;
+                                // Finished viewing all words → go to SeedList
+                                // (seed is now loaded and ready to use)
+                                if ad.seed_backup_return == crate::app::input::AppState::SeedToolsMenu {
+                                    ad.app.state = crate::app::input::AppState::SeedList;
+                                } else {
+                                    ad.app.state = ad.seed_backup_return;
+                                }
                             }
                         }
                         needs_redraw = true;
@@ -59,7 +66,7 @@ pub fn handle_export_touch(
                         if is_back {
                             ad.scanned_addr_len = 0;
                             ad.addr_view_is_change = false;
-                            ad.app.go_main_menu();
+                            ad.app.state = ad.address_return;
                             needs_redraw = true;
                         } else if !is_single_addr && ad.scanned_addr_len == 0
                             && (90..=230).contains(&x) && (176..=204).contains(&y) {
@@ -298,6 +305,7 @@ pub fn handle_export_touch(
                         } else if ad.kpub_user_nframes == 1 {
                             // Single frame: tap anywhere → popup (save/back)
                             ad.app.state = crate::app::input::AppState::ExportKpubPopup;
+                            needs_redraw = true;
                         } else if ad.kpub_manual_frames {
                             // Manual: tap anywhere advances, past last → popup
                             if ad.kpub_frame + 1 >= ad.kpub_nframes {
@@ -306,10 +314,12 @@ pub fn handle_export_touch(
                             } else {
                                 ad.kpub_frame += 1;
                             }
+                            needs_redraw = true;
                         } else {
                             // Auto: tap anywhere → popup
                             ad.kpub_frame = 0;
                             ad.app.state = crate::app::input::AppState::ExportKpubPopup;
+                            needs_redraw = true;
                         }
                     }
                     crate::app::input::AppState::ExportKpubFrameCount => {
@@ -317,8 +327,9 @@ pub fn handle_export_touch(
                             ad.kpub_nframes = 0;
                             ad.kpub_user_nframes = 0;
                             ad.kpub_frame = 0;
-                            ad.app.state = crate::app::input::AppState::WatchOnlyMenu;
-                        } else if x < 160 {
+                            ad.app.state = ad.kpub_export_return;
+                            needs_redraw = true;
+                        } else if (22..=152).contains(&x) && (100..=155).contains(&y) {
                             // Left: Phone/KasSee (1 QR — full kpub as ASCII)
                             // Legacy base58 "kpub..." — compatible with
                             // phones, KasSee web, other Kaspa wallets.
@@ -326,35 +337,15 @@ pub fn handle_export_touch(
                             // from derivation.
                             ad.kpub_user_nframes = 1;
                             ad.app.state = crate::app::input::AppState::ExportKpub;
-                        } else {
+                            needs_redraw = true;
+                        } else if (168..=298).contains(&x) && (100..=155).contains(&y) {
                             // Right: KasSigner — 2-frame V1-raw compact
                             // binary (1-byte header 0x01 + 78 raw bytes =
                             // 79 bytes total, split across 2 V3 QRs at
-                            // 40 B/frame). Device-to-device only; V3 is
-                            // the universal readable density today. When
-                            // better cameras (OV5640 AF, OV2640 wide)
-                            // ship we can upgrade this to V4/V5 — wire
-                            // format is the same.
-                            let mut raw_payload = [0u8; wallet::xpub::XPUB_PAYLOAD_LEN];
-                            match wallet::xpub::kpub_ascii_to_raw(
-                                &ad.kpub_data[..ad.kpub_len],
-                                &mut raw_payload,
-                            ) {
-                                Ok(rlen) => {
-                                    ad.kpub_data[0] = crate::qr::payload::PAYLOAD_V1_RAW;
-                                    ad.kpub_data[1..1 + rlen]
-                                        .copy_from_slice(&raw_payload[..rlen]);
-                                    ad.kpub_len = 1 + rlen;
-                                    ad.kpub_user_nframes = 2;
-                                    ad.app.state = crate::app::input::AppState::ExportKpub;
-                                }
-                                Err(_) => {
-                                    boot_display.draw_rejected_screen("kpub convert failed");
-                                    delay.delay_millis(1500);
-                                    ad.kpub_user_nframes = 2;
-                                    ad.app.state = crate::app::input::AppState::ExportKpub;
-                                }
-                            }
+                            // 40 B/frame). Device-to-device only.
+                            ad.kpub_user_nframes = 2;
+                            ad.app.state = crate::app::input::AppState::ExportKpub;
+                            needs_redraw = true;
 
                             // ═════════════════════════════════════════════
                             // V4 READABILITY TEST — diagnostic dead code.
@@ -403,14 +394,13 @@ pub fn handle_export_touch(
                             // */
                             // ═════════════════════════════════════════════
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::ExportKpubModeChoice => {
                         if is_back {
                             ad.kpub_nframes = 0;
                             ad.kpub_user_nframes = 0;
                             ad.kpub_frame = 0;
-                            ad.app.state = crate::app::input::AppState::WatchOnlyMenu;
+                            ad.app.state = crate::app::input::AppState::ExportKpubFrameCount;
                         } else if x < 160 {
                             // Left button: Auto Cycle
                             ad.kpub_manual_frames = false;
@@ -445,7 +435,7 @@ pub fn handle_export_touch(
                             ad.kpub_nframes = 0;
                             ad.kpub_user_nframes = 0;
                             ad.kpub_frame = 0;
-                            ad.app.state = crate::app::input::AppState::WatchOnlyMenu;
+                            ad.app.state = crate::app::input::AppState::ExportKpubFrameCount;
                             needs_redraw = true;
                         } else {
                             // "Save to SD" button — left
@@ -460,11 +450,13 @@ pub fn handle_export_touch(
                                     }
                                 }
                                 ad.app.state = crate::app::input::AppState::SdKpubFilename;
+                                needs_redraw = true;
                             }
                             // "Back to QR" button — right
                             else if (165..=290).contains(&x) && (140..=185).contains(&y) {
                                 ad.kpub_frame = 0;
                                 ad.app.state = crate::app::input::AppState::ExportKpub;
+                                needs_redraw = true;
                             }
                         }
                     }
@@ -628,6 +620,7 @@ pub fn handle_export_touch(
                                             Ok(len) => {
                                                 ad.kpub_len = len;
                                                 ad.kpub_data[..len].copy_from_slice(&kpub_buf[..len]);
+                                                ad.kpub_export_return = crate::app::input::AppState::WatchOnlyMenu;
                                                 ad.app.state = crate::app::input::AppState::ExportKpub;
                                             }
                                             Err(_) => {
@@ -660,7 +653,15 @@ pub fn handle_export_touch(
                                                 Ok(len) => {
                                                     ad.kpub_len = len;
                                                     ad.kpub_data[..len].copy_from_slice(&kpub_buf[..len]);
+                                                    let next = crate::handlers::sd::scan_auto_increment(i2c, delay, b"KP", b"TXT");
+                                                    let name = crate::handlers::sd::format_auto_name(b"KP", next, b"TXT");
+                                                    ad.kspt_filename = name;
                                                     ad.pp_input.reset();
+                                                    for j in 0..8usize {
+                                                        if name[j] != b' ' {
+                                                            ad.pp_input.push_char(name[j]);
+                                                        }
+                                                    }
                                                     ad.app.state = crate::app::input::AppState::SdKpubFilename;
                                                 }
                                                 Err(_) => {
@@ -844,8 +845,8 @@ pub fn handle_export_touch(
                         if is_back {
                             ad.addr_input_len = 0;
                             ad.app.state = crate::app::input::AppState::SigningKeysMenu;
+                            needs_redraw = true;
                         } else {
-                            // Same keypad grid as AddrIndexPicker
                             let col = if (55..120).contains(&x) { Some(0u8) }
                                 else if (130..195).contains(&x) { Some(1) }
                                 else if (205..270).contains(&x) { Some(2) }
@@ -863,14 +864,21 @@ pub fn handle_export_touch(
                                             ad.addr_input_buf[ad.addr_input_len as usize] = b'1' + idx;
                                             ad.addr_input_len += 1;
                                         }
+                                        let input_str = core::str::from_utf8(&ad.addr_input_buf[..ad.addr_input_len as usize]).unwrap_or("");
+                                        boot_display.update_addr_index_input(input_str);
                                     }
                                     10 => {
                                         if ad.addr_input_len < 5 {
                                             ad.addr_input_buf[ad.addr_input_len as usize] = b'0';
                                             ad.addr_input_len += 1;
                                         }
+                                        let input_str = core::str::from_utf8(&ad.addr_input_buf[..ad.addr_input_len as usize]).unwrap_or("");
+                                        boot_display.update_addr_index_input(input_str);
                                     }
-                                    9 => { ad.addr_input_len = 0; } // CLR
+                                    9 => {
+                                        ad.addr_input_len = 0;
+                                        boot_display.update_addr_index_input("");
+                                    }
                                     11 => {
                                         // GO — derive private key for this address index
                                         if ad.addr_input_len > 0 {
@@ -917,13 +925,13 @@ pub fn handle_export_touch(
                                                     delay.delay_millis(2000);
                                                 }
                                             }
+                                            needs_redraw = true;
                                         }
                                     }
                                     _ => {}
                                 }
                             }
                         }
-                        needs_redraw = true;
                     }
                     crate::app::input::AppState::ExportPrivKey => {
                         // Tap or back → zeroize and exit
