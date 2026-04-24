@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [1.0.3] — 2026-04-16
 
+### Added — Menu restructure & UX overhaul (2026-04-24)
+- **Tools menu restructured** into 4 top-level submenus: Seed Tools (New Seed, Dice, Import Words, Address, BIP85 Child, Calc Last Word), Import/Export (2-button choice → Import submenu + existing Export), Single Signature (Sign TX, Sign Message), Multisig (Create Multisig). Replaces the previous 11-item flat list.
+- **Export menu restructured** into 4 submenus: Seed Backup (Show Seed Words, QR Export, Backup to SD), Watch-Only (kpub as QR, kpub to SD), Signing Keys (xprv Account, Private Key), Steganography.
+- **Sign TX screen** now shows two buttons: "EXP. KPUB" (exports watch-only public key) and "SCAN PSKB" (scans Partially Signed Kaspa Binary). Step guide updated: "Show the PSKB QR code" replaces "Show the KSPT QR code".
+- **Sign message SD save** now prompts for a filename via keyboard (auto-incremented `SG00001.TXT`) instead of overwriting a fixed `SIGNATURE.SG` file. New `SdSigFilename` state handles the keyboard flow.
+- **QR encoder numeric mode** for SeedQR standard compliance. Standard SeedQR now encodes as V2 25×25 (12-word) and V3 29×29 (24-word), down from V4/V6 previously. CompactSeedQR unchanged.
+- **Distinct icons** for all menu items: `finance::Coin` for Transaction, `security::PasswordCursor` for Single Signature, `docs::Page` for Sign Message, `finance::AppleWallet` for Address. No two siblings share an icon.
+- **`get_entropy_bytes()`** in `cam_dma.rs` reads the DMA write buffer directly, where partial OV5640 frames contain real sensor noise. The previous `get_frame_any()` read the read buffer which was never swapped (partials < 98% threshold) — all PSRAM zeros.
+- **Entropy sources expanded**: SYSTIMER (latched 52-bit counter), eFuse MAC address (6 bytes unique per chip), eFuse OPTIONAL_UNIQUE_ID (128 bits), `idle_ticks` (user interaction timing). Camera sensor noise remains the primary source.
+
+### Fixed — Navigation & UX (2026-04-24)
+- **Dead-space blink eliminated** across all menu and dialog screens. Root cause: blanket `needs_redraw = true` at the end of match arms in `menu.rs`, `tx.rs`, and other handlers fired on every touch regardless of whether state changed. Moved `needs_redraw` into state-changing branches only. Also fixed `menu.rs` returning `None` (leaving stale `ad.needs_redraw = true`) → now returns `Some(needs_redraw)`.
+- **SeedList screen blink** fixed by replacing `self.display.clear(COLOR_BG)` with `self.clear_keep_nav()` in `draw_seed_list_screen` — nav icons no longer flash during card redraws.
+- **Context-aware back buttons**: ShowAddress returns to SeedToolsMenu (from Tools) or SeedList (from Seeds) via `address_return` field. ExportKpubFrameCount returns to SignTxGuide or WatchOnlyMenu via `kpub_export_return`. BIP85 word display returns to SeedToolsMenu (was MainMenu). Seed generation word display: back → SeedToolsMenu, finish all words → SeedList.
+- **Delete active seed** now auto-activates the next available slot (scans for first non-empty slot, copies indices/word_count/xprv data). Previously left no seed active, requiring manual re-selection.
+- **Address derivation from Tools → Seed Tools → Address** now derives pubkeys if not cached (handles mnemonic, xprv, and raw key wallet types). Previously showed `kaspa:qqqqq...` (all-zero pubkeys).
+- **Sign message signing** is now instant — `needs_redraw = true` added after Schnorr sign completes. Previously the screen stayed on 100% progress bar until a tap triggered the home button handler.
+- **SignMsgResult dead-space tap** no longer exits to MainMenu. Removed `else { go_main_menu() }` catch-all.
+
+### Fixed — Entropy (2026-04-24)
+- **CRITICAL: Waveshare seed generation was deterministic.** All entropy sources returned zeros: TRNG register at wrong address (`0x6003_5110` → corrected to `0x6003_5144` WDEV_RND_REG, still returns zero without WiFi), camera `get_frame_any()` read stale PSRAM (never-swapped read buffer), SAR ADC uninitialized, SYSTIMER not latched. Pool was SHA-256 of all zeros = `3a2453c7` on every generation. Fixed by reading the DMA write buffer (`get_entropy_bytes`), latching SYSTIMER properly (`UNIT0_OP_REG` write then `VALUE_LO_REG` read), and mixing eFuse chip-unique data. TRNG remains dead without WiFi — documented as hardware limitation.
+- **`cam_dma::stop()`** now resets `last_captured = 0` to prevent stale frame reuse across entropy collections.
+- **`generate_trng_nonce()`** in `sd.rs` fixed: address corrected, reads full 32-bit values with proper pacing (was reading single bytes from wrong address).
+
+### Changed — Clippy (2026-04-24)
+- Zero clippy warnings. Auto-fixed 35 needless borrows, manually resolved unused variables, redundant guards, unnecessary casts, overindented doc comments. Added `#[allow(clippy::type_complexity)]` for `parse_descriptor` return type.
+
 ### Added — HD multisig (v1.1.0 foundations)
 - **Step 3: address-index browser on `MultisigShowAddress`.** Users can navigate between the infinite series of HD multisig addresses produced by the shared cosigner xpubs. Bottom nav row with `[<]` `[#N]` `[>]` buttons mirrors the singlesig receive-address UX; the center `[#N]` button opens the existing numeric-keypad `AddrIndexPicker` (reused via a sentinel `ms_picking_key=255` so GO writes back into `ms_creating.addr_index` instead of the singlesig `current_addr_index`). Each navigation action calls `build_script()` which re-derives every cosigner's child at the new index, lex-sorts, emits a fresh script, and the redraw computes the new P2SH from the blake2b of that script. Addresses stay shared across cosigner devices — both devices browse in lockstep as long as they both land on the same index. Current index is mirrored into the matching `ms_store.configs[]` entry so leaving and re-entering the wallet returns to the last-viewed index (RAM-only; persists across navigations, not across reboots — stateless-by-design).
 
