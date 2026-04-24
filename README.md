@@ -18,19 +18,19 @@ KasSigner is an open-source signing device built on ESP32-S3. It generates priva
 
 - **Fully air-gapped** — no WiFi, Bluetooth, or USB data. All I/O via QR codes, touchscreen, and SD card
 - **No persistent storage** — all keys live in RAM only, wiped on every power-off
-- **BIP39 seed generation** — 12 or 24 words from hardware TRNG or manual dice rolls (verifiable entropy)
+- **BIP39 seed generation** — 12 or 24 words from hardware entropy (camera sensor noise, chip-unique eFuse, timing jitter) or manual dice rolls
 - **BIP32 HD key derivation** — Kaspa path `m/44'/111111'/0'`
 - **BIP39 passphrase (25th word)** — optional passphrase creates a hidden wallet; decoy wallet without it
 - **BIP85 child mnemonics** — derive independent child wallets from a master seed
 - **Schnorr signing** — native Kaspa transaction signing (secp256k1)
-- **KSPT support** — scan, parse, sign, and export KasSigner Packed Transactions via QR
+- **PSKB/KSPT support** — scan, parse, sign, and export Partially Signed Kaspa Binary transactions via QR
 - **Message signing** — sign arbitrary messages with address keys (type or load from SD)
 - **Multisig** — M-of-N P2SH multisig: create addresses, co-sign between devices via QR, broadcast. First air-gapped multisig on Kaspa mainnet.
 - **Multi-seed management** — store and switch between up to 16 seed slots in RAM (never persisted)
 - **Steganographic backup** — hide encrypted seeds inside ordinary JPEG photos on SD card
 - **Encrypted SD backup** — AES-256-GCM encrypted seed backup to MicroSD
 - **Secure boot** — firmware hash + Schnorr signature verified at every boot
-- **QR scanner** — built-in camera with rqrr V1–V40 decoder (Reed-Solomon verified, single-pass) for KSPTs, SeedQR import, and pubkey exchange
+- **QR scanner** — built-in camera with rqrr V1–V40 decoder (Reed-Solomon verified, single-pass) for PSKBs, SeedQR import, and pubkey exchange
 - **CompactSeedQR** — SeedSigner-compatible compact seed backup with grid view for manual card filling
 - **KRC-20 token detection** — recognizes KRC-20 token transactions during review
 - **kpub/xprv export** — account-level public key export for watch-only wallets, encrypted xprv via SD
@@ -202,10 +202,11 @@ KasSee connects to a public Kaspa node automatically. To use your own node, open
 
 - **Import kpub** — scan QR or paste the extended public key exported from KasSigner
 - **Dashboard** — live balance, UTXO count, funded addresses
-- **Send** — build unsigned KSPT transactions with fee estimation (low / normal / priority)
+- **Send** — build unsigned PSKB transactions with fee estimation (low / normal / priority)
 - **Send Max** — sweep all UTXOs to a single destination
 - **Receive** — display receive address with QR code and tap-to-verify
 - **Broadcast** — scan signed QR from KasSigner and submit to the network
+- **Dual format support** — handles both standard PSKB (Partially Signed Kaspa Binary) and KSPT v2 (KasSigner compact transport)
 - **UTXO explorer** — view and manually select UTXOs for transaction building
 - **Address list** — all derived addresses with tap-to-verify and long-press-to-copy
 - **Address verification** — display address QR + derivation path for on-device verification
@@ -243,7 +244,7 @@ cd web && python3 -m http.server 8080
 ```
 KasSee (browser)                KasSigner (device)
 ────────────────                ──────────────────
-1. Build unsigned KSPT
+1. Build unsigned PSKB
 2. Display as animated QR ─────→ 3. Scan QR
                                   4. Review TX on screen
                                   5. Sign with private key
@@ -256,7 +257,7 @@ KasSee (browser)                KasSigner (device)
 ```
 KasSee (browser)          Device A              Device B
 ────────────────          ────────              ────────
-1. Build KSPT
+1. Build PSKB
 2. Display QR ──────────→ 3. Scan, review
                           4. Sign (1/2)
                           5. Show partial QR ──→ 6. Scan from A's screen
@@ -275,192 +276,6 @@ KasSee (browser)          Device A              Device B
 - **WebSocket retry** — automatic reconnection on connection drops
 - **Animated QR frames** — balanced frame splitting with indicator for reliable scanning
 - **Sorted multisig keys** — deterministic P2SH addresses regardless of kpub input order
-
-## Project Structure
-
-```
-KasSigner/
-├── README.md
-├── SECURITY.md
-├── CODE_OF_CONDUCT.md
-├── CONTRIBUTING.md
-├── CHANGELOG.md
-├── LICENSE                         GPL v3
-├── Makefile                        Convenience build targets
-├── Dockerfile.base                 Frozen toolchain image (Rust 1.84.0 + espup 0.16.0)
-├── Dockerfile                      Reproducible firmware build (both platforms)
-├── Install.sh                       One-step installer script
-├── .dockerignore
-├── .gitignore
-├── .gitattributes
-├── rust-toolchain.toml
-├── .github/
-│   ├── PULL_REQUEST_TEMPLATE.md
-│   └── ISSUE_TEMPLATE/
-│       ├── bug_report.md
-│       └── feature_request.md
-│
-├── kassee/                         KasSee — browser-based watch-only companion wallet
-│   ├── Cargo.toml                  WASM crate manifest (Pure Rust, no C deps)
-│   ├── Cargo.lock
-│   ├── build.sh                    wasm-pack build script
-│   ├── src/
-│   │   ├── lib.rs                  WASM entry point + JS bindings
-│   │   ├── address.rs              Kaspa address derivation + Bech32
-│   │   ├── bip32.rs                HD key derivation (kpub → addresses)
-│   │   ├── kspt.rs                 KSPT build / parse / sign
-│   │   ├── qr.rs                   QR code generation
-│   │   └── rpc.rs                  Kaspa wRPC client (Borsh over WebSocket)
-│   └── web/
-│       ├── index.html              KasSee Web application
-│       ├── js/app.js               Application logic
-│       ├── css/app.css             Styles
-│       ├── img/                    Logo and icons
-│       ├── lib/jsQR.js             QR scanner library
-│       ├── manifest.json           PWA manifest
-│       ├── favicon.ico
-│       ├── pkg/                    Pre-built WASM (works out of the box)
-│       │   ├── kassee_web.js
-│       │   ├── kassee_web_bg.wasm
-│       │   └── ...
-│       └── constellation/
-│           └── index.html          Interactive key derivation & architecture explorer
-│
-├── docs/
-│   ├── BUILD_FLASH_GUIDE.md        Build, sign, and flash guide (all device types)
-│   ├── STEGANOGRAPHY.md            JPEG EXIF steganographic backup design
-│   ├── EFUSE_RUNBOOK.md            eFuse secure boot procedure (irreversible!)
-│   ├── REPRODUCIBLE_BUILD.md       Docker reproducible build verification
-│   ├── KasSigner_User_Guide.pdf       Complete user guide (44 pages)
-│   ├── KasSigner_Quick_Start_Guide.pdf Quick start (5 pages)
-│   ├── KasSigner_Security_Architecture.pdf  Security architecture document
-│   ├── KasSee_User_Guide.pdf       KasSee Web companion wallet guide
-│   └── KasSigner_Seed_Cards.pdf    Printable seed backup cards
-│
-├── tools/
-│   ├── Cargo.toml
-│   ├── Cargo.lock
-│   ├── setup_check.rs              Build environment checker
-│   ├── mirror.rs                   Live display mirror viewer
-│   ├── gen_hash.rs                 Firmware hash + Schnorr signing tool
-│   ├── gen_keypair.rs              Developer signing key generator
-│   ├── build_with_hash.sh          Iterative hash convergence build
-│   └── build_production.sh         Production build wrapper
-│
-├── rqrr_nostd/                     QR decoder — no_std fork of rqrr 0.10.1
-│   ├── Cargo.toml
-│   ├── src/
-│   │   ├── lib.rs                  V1–V40, all ECC levels, Reed-Solomon verified
-│   │   ├── detect.rs               Finder pattern detection
-│   │   ├── identify.rs             Grid sampling and format decoding
-│   │   ├── decode.rs               Data stream decoding + error correction
-│   │   ├── prepare.rs              Image binarization
-│   │   ├── geometry.rs             Perspective transform
-│   │   ├── galois.rs               GF(256) arithmetic for RS
-│   │   └── version_db.rs           Version/ECC parameter tables
-│   ├── LICENSE-MIT
-│   ├── LICENSE-APACHE
-│   └── LICENSE-ISC
-│
-└── bootloader/                     Device firmware (bare-metal Rust)
-    ├── Cargo.toml
-    ├── Cargo.lock
-    ├── build.rs                    Linker configuration
-    ├── .cargo/config.toml          Xtensa target + PSRAM config
-    ├── assets/                     Raw icon and logo bitmaps
-    └── src/
-        ├── main.rs                 Entry point, HW init, main loop
-        ├── firmware_hash.rs        Build-generated hash + signature
-        │
-        ├── app/                    Application state machine (~94 states)
-        │   ├── mod.rs
-        │   ├── data.rs             AppData — all mutable runtime state
-        │   ├── input.rs            AppState enum, handler dispatch
-        │   ├── signing.rs          Key derivation + signing pipeline
-        │   └── boot_test.rs        Boot-time hardware validation
-        │
-        ├── handlers/               Touch event handlers (one per domain)
-        │   ├── mod.rs
-        │   ├── menu.rs             Main menu, seeds menu, tools menu
-        │   ├── seed.rs             Seed management, BIP85, import/export
-        │   ├── tx.rs               Transaction review, confirm, multisig
-        │   ├── export.rs           Address display, QR/kpub/xprv export
-        │   ├── stego.rs            Steganography workflow (JPEG EXIF)
-        │   ├── sd.rs               SD backup/restore flows
-        │   ├── settings.rs         Display, audio, SD settings
-        │   └── camera_loop.rs      Non-blocking DMA capture + QR decode
-        │
-        ├── hw/                     Hardware abstraction layer
-        │   ├── mod.rs              Platform-gated module routing
-        │   ├── board.rs            Pin assignments (Waveshare)
-        │   ├── lockdown.rs         Radio kill + JTAG disable (Waveshare)
-        │   ├── display_ws.rs       ST7789T3 SPI driver (Waveshare)
-        │   ├── display_m5.rs       ILI9342C SPI driver (M5Stack)
-        │   ├── camera_ov2640.rs    OV2640 DVP driver (Waveshare, wide-angle)
-        │   ├── camera_ov5640.rs    OV5640 DVP driver (Waveshare, alternate)
-        │   ├── camera_gc0308.rs    GC0308 DVP driver (M5Stack)
-        │   ├── cam_dma.rs          DMA-based 480×480 capture pipeline (Waveshare)
-        │   ├── touch_cst816d.rs    CST816D I2C + gestures (Waveshare)
-        │   ├── touch_ft6336u.rs    FT6336U I2C (M5Stack)
-        │   ├── sdcard_ws.rs        SDHOST native SD (Waveshare)
-        │   ├── sdcard_m5.rs        Bitbang SPI SD (M5Stack)
-        │   ├── sd_backup.rs        AES-256-GCM encrypted backup codec
-        │   ├── sound_ws.rs         Audio stubs (Waveshare, no speaker)
-        │   ├── sound_m5.rs         AW88298 I2S speaker (M5Stack)
-        │   ├── battery_ws.rs       Battery ADC via RTC SAR (Waveshare)
-        │   ├── battery_m5.rs       AXP2101 battery gauge (M5Stack)
-        │   ├── pmu_ws.rs           Backlight PWM via LEDC (Waveshare)
-        │   ├── pmu_m5.rs           AXP2101 PMU + AW9523B IO (M5Stack)
-        │   ├── ov5640_af_fw.rs     Autofocus MCU firmware blob
-        │   ├── icon_data.rs        Custom icon bitmaps (RGB565)
-        │   └── screenshot.rs       Screenshot capture (optional)
-        │
-        ├── ui/                     User interface
-        │   ├── mod.rs
-        │   ├── screens.rs          All screen drawing functions
-        │   ├── redraw.rs           State → screen dispatch
-        │   ├── helpers.rs          Touch hit-test, validation
-        │   ├── keyboard.rs         On-screen keyboard (3 pages)
-        │   ├── pin_ui.rs           PIN entry keypad
-        │   ├── setup_wizard.rs     Dice roll + word import wizards
-        │   ├── seed_manager.rs     Multi-seed slot management
-        │   ├── icon_browser.rs     Icon browser debug screen
-        │   ├── prop_fonts.rs       Proportional fonts (Lato, Oswald, Rubik)
-        │   └── logo_data.rs        Boot splash logo bitmap
-        │
-        ├── qr/                     QR code engine
-        │   ├── mod.rs
-        │   └── encoder.rs          QR generation V1–V6, byte mode
-        │
-        ├── wallet/                 Cryptographic wallet (pure Rust, no-std)
-        │   ├── mod.rs
-        │   ├── bip39.rs            Mnemonic generation + validation
-        │   ├── bip39_wordlist.rs   2048 BIP39 English words
-        │   ├── english.txt         Word list source
-        │   ├── bip32.rs            HD key derivation (Kaspa path)
-        │   ├── bip85.rs            BIP85 child mnemonic derivation
-        │   ├── schnorr.rs          Schnorr signing (secp256k1)
-        │   ├── hmac.rs             HMAC-SHA512, PBKDF2
-        │   ├── address.rs          Kaspa address encoding (Bech32)
-        │   ├── pskt.rs             KSPT parse / sign / serialize
-        │   ├── sighash.rs          Transaction sighash (keyed Blake2b-256)
-        │   ├── transaction.rs      Transaction structures
-        │   ├── xpub.rs             Extended key (kpub/xprv) encoding
-        │   └── storage.rs          Encrypted key storage primitives
-        │
-        ├── features/               Feature modules
-        │   ├── mod.rs
-        │   ├── stego.rs            JPEG EXIF stego codec + base64
-        │   ├── krc20.rs            KRC-20 token format detection
-        │   ├── verify.rs           Firmware hash + signature verify
-        │   ├── fw_update.rs        Firmware update parsing
-        │   └── self_test.rs        Hardware self-test framework
-        │
-        └── crypto/                 Low-level security primitives
-            ├── mod.rs
-            ├── constant_time.rs    Constant-time comparison
-            └── flow.rs             Flow integrity counters
-```
 
 ## What KasSigner Is
 
@@ -484,14 +299,14 @@ KasSigner/
 
 KasSigner has **no network stack**. The ESP32-S3's WiFi and Bluetooth radios are never initialized. The only data paths are:
 
-- **QR codes** — camera input (scan KSPT / SeedQR / pubkeys) and display output (signed TX / addresses)
+- **QR codes** — camera input (scan PSKB / SeedQR / pubkeys) and display output (signed TX / addresses)
 - **SD card** — encrypted backup/restore and steganographic operations
 - **Touchscreen** — user input
 
 ### Key lifecycle
 
 ```
-Entropy (TRNG / dice)
+Entropy (camera noise + eFuse + timing / dice)
     ↓
 BIP39 mnemonic (12 or 24 words)
     ↓

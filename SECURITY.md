@@ -117,7 +117,7 @@ The project has **not** been reviewed by an independent professional security fi
 
 Priority review targets:
 
-1. `wallet/` — BIP39, BIP32, Schnorr signing, KSPT parsing
+1. `wallet/` — BIP39, BIP32, Schnorr signing, PSKB/KSPT parsing
 2. `crypto/` — constant-time operations, zeroization, secret containers
 3. `features/stego.rs` — encryption and EXIF embedding
 4. `hw/sd_backup.rs` — AES-256-GCM backup codec
