@@ -40,6 +40,8 @@ pub struct BalanceInfo {
     pub total_kas: f64,
     pub utxo_count: usize,
     pub funded_addresses: usize,
+    pub funded_receive_indices: Vec<usize>,
+    pub funded_change_indices: Vec<usize>,
 }
 
 // ─── Borsh write helpers ───
@@ -334,11 +336,34 @@ pub async fn fetch_balance(ws_url: &str, wallet: &WalletData) -> Result<BalanceI
         seen.len()
     };
 
+    let funded_scripts: std::collections::HashSet<Vec<u8>> =
+        utxos.iter().map(|u| u.script_public_key.clone()).collect();
+
+    let funded_receive_indices: Vec<usize> = wallet.receive_addresses.iter()
+        .enumerate()
+        .filter_map(|(i, addr)| {
+            crate::address::address_to_script_pubkey(addr).ok()
+                .filter(|spk| funded_scripts.contains(spk))
+                .map(|_| i)
+        })
+        .collect();
+
+    let funded_change_indices: Vec<usize> = wallet.change_addresses.iter()
+        .enumerate()
+        .filter_map(|(i, addr)| {
+            crate::address::address_to_script_pubkey(addr).ok()
+                .filter(|spk| funded_scripts.contains(spk))
+                .map(|_| i)
+        })
+        .collect();
+
     Ok(BalanceInfo {
         total_sompi,
         total_kas: total_sompi as f64 / 100_000_000.0,
         utxo_count: utxos.len(),
         funded_addresses,
+        funded_receive_indices,
+        funded_change_indices,
     })
 }
 

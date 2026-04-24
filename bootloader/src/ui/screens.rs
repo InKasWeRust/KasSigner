@@ -743,6 +743,30 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
         draw_lato_title(&mut self.display, truncated, (320 - rw) / 2, 120, COLOR_TEXT_DIM);
     }
 
+    /// Draw a two-line TX error screen. Stays visible until user taps
+    /// (caller sets state to Rejected which handles tap → main menu).
+    pub fn draw_tx_error_screen(&mut self, line1: &str, line2: &str) {
+        sound::stop_ticking();
+        self.display.clear(COLOR_BG).ok();
+
+        let tw = measure_header("ERROR");
+        draw_oswald_header(&mut self.display, "ERROR", (320 - tw) / 2, 30, COLOR_DANGER);
+        Line::new(Point::new(20, 40), Point::new(300, 40))
+            .into_styled(PrimitiveStyle::with_stroke(COLOR_DANGER, 1))
+            .draw(&mut self.display).ok();
+
+        let w1 = measure_title(line1);
+        draw_lato_title(&mut self.display, line1, (320 - w1) / 2, 100, COLOR_TEXT);
+        let w2 = measure_body(line2);
+        draw_lato_body(&mut self.display, line2, (320 - w2) / 2, 130, COLOR_TEXT_DIM);
+
+        // Tap hint
+        let hw = measure_body("Tap to continue");
+        draw_lato_body(&mut self.display, "Tap to continue",
+            (320 - hw) / 2, 210, COLOR_TEXT_DIM);
+        self.draw_back_button();
+    }
+
     /// Draw 2x2 grid home menu (SeedSigner-style)
     /// Items: ["Send Demo TX", "Show Address", "Settings", "About"]
     /// Grid: [Send TX] [Address]

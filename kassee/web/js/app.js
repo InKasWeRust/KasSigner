@@ -30,6 +30,7 @@ import init, {
     pskt_relay_to_kspt_v2,
     pskt_merge_signed_kspt_v2,
     create_multisig_pskb,
+    decode_address,
 } from '../pkg/kassee_web.js';
 
 // ─── State ───
@@ -51,6 +52,12 @@ let network = 'mainnet'; // 'mainnet', 'testnet-10', 'testnet-11'
 // No localStorage — all state lives in memory only. Session ends on tab close.
 let historyEntries = [];
 let utxoSnapshot = null;
+let fundedReceiveIndices = [];
+let fundedChangeIndices = [];
+let usedReceiveIndices = new Set();
+let usedChangeIndices = new Set();
+let addressHistoryEnabled = false;
+let customRestUrl = null;
 
 // Broadcast enabled
 const BROADCAST_ENABLED = true;
@@ -207,6 +214,7 @@ function bindEvents() {
     el('btn-logo').onclick = () => handleLogoTap();
     el('btn-import-kpub').onclick = () => handleKpubImport(el('input-kpub').value.trim());
     el('btn-multisig-welcome').onclick = () => showScreen('multisig');
+    el('btn-broadcast-welcome').onclick = () => { hideBroadcastResult(); showScreen('broadcast'); };
     el('btn-send').onclick = () => openSendScreen();
     el('btn-receive').onclick = () => showReceive();
     el('btn-broadcast').onclick = () => { hideBroadcastResult(); showScreen('broadcast'); };
@@ -245,7 +253,7 @@ function bindEvents() {
     el('btn-receive-back').onclick = () => showScreen('dashboard');
     el('btn-scan-signed').onclick = () => startScanner('Scan signed QR', handleSignedScan);
     el('btn-broadcast-hex').onclick = () => handleBroadcastHex();
-    el('btn-broadcast-back').onclick = () => showScreen('dashboard');
+    el('btn-broadcast-back').onclick = () => showScreen(walletData ? 'dashboard' : 'welcome');
     el('btn-pskt-back').onclick = () => { _psktReviewHex = null; showScreen('dashboard'); };
     el('btn-pskt-relay').onclick = () => openRelayModal();
     el('btn-relay-standard').onclick = () => { closeRelayModal(); handlePsktRelay(); };
@@ -297,6 +305,7 @@ function bindEvents() {
     };
     el('btn-utxos-back').onclick = () => showScreen('dashboard');
     el('btn-consolidate').onclick = () => handleConsolidate();
+    el('btn-consolidate-selected').onclick = () => handleConsolidateSelected();
     el('btn-history-back').onclick = () => showScreen('dashboard');
     el('btn-clear-history').onclick = () => clearHistory();
     el('btn-donate-skip').onclick = () => exitSettings();
@@ -471,15 +480,21 @@ async function refreshBalance() {
         el('balance-info').textContent =
             `${result.utxo_count} UTXO${result.utxo_count !== 1 ? 's' : ''} across ${result.funded_addresses} address${result.funded_addresses !== 1 ? 'es' : ''}`;
 
-        // Track UTXO changes for history
+        fundedReceiveIndices = result.funded_receive_indices || [];
+        fundedChangeIndices = result.funded_change_indices || [];
+
+        // Track UTXO changes for history + session used-address tracking
         try {
             const wsUrl = await resolveNodeUrl();
             const utxosJson = await fetch_utxos(walletData, wsUrl);
             const currentUtxos = JSON.parse(utxosJson);
-            trackUtxoChanges(currentUtxos);
+            trackUtxoChangesAndUsed(currentUtxos);
         } catch (e) {
             console.log('[KasSee] UTXO history track:', e);
         }
+
+        // Fetch address history from custom REST server (if enabled)
+        fetchAddressHistory();
     } catch (e) {
         setStatus('offline', 'Offline');
         hideLoading();
@@ -489,6 +504,47 @@ async function refreshBalance() {
         el('balance-info').textContent = String(e);
     } finally {
         refreshing = false;
+    }
+}
+
+// ─── Address history (custom REST server) ───
+
+async function fetchAddressHistory() {
+    if (!addressHistoryEnabled || !customRestUrl || !walletData) return;
+
+    const wallet = JSON.parse(walletData);
+    try {
+        // Try /addresses/{addr}/full first, fall back to /addresses/{addr}/transactions?limit=1
+        const testUrl = `${customRestUrl}/addresses/${wallet.receive_addresses[0]}/full`;
+        const probe = await fetch(testUrl, { signal: AbortSignal.timeout(5000) });
+        const useFull = probe.ok;
+
+        const check = async (addr, i, targetSet) => {
+            try {
+                if (useFull) {
+                    const r = await fetch(`${customRestUrl}/addresses/${addr}/full`, { signal: AbortSignal.timeout(5000) });
+                    if (r.ok) {
+                        const d = await r.json();
+                        if (d.tx_count > 0 || (d.transactions && d.transactions.length > 0)) targetSet.add(i);
+                    }
+                } else {
+                    const r = await fetch(`${customRestUrl}/addresses/${addr}/transactions?limit=1`, { signal: AbortSignal.timeout(5000) });
+                    if (r.ok) {
+                        const d = await r.json();
+                        const hasData = Array.isArray(d) ? d.length > 0 : (d.transactions && d.transactions.length > 0);
+                        if (hasData) targetSet.add(i);
+                    }
+                }
+            } catch (_) {}
+        };
+
+        const promises = [
+            ...wallet.receive_addresses.map((addr, i) => check(addr, i, usedReceiveIndices)),
+            ...wallet.change_addresses.map((addr, i) => check(addr, i, usedChangeIndices)),
+        ];
+        await Promise.all(promises);
+    } catch (e) {
+        console.log('[KasSee] address history:', e);
     }
 }
 
@@ -571,6 +627,9 @@ function toggleSendUtxos() {
                 check.textContent = '☐';
                 check.style.color = 'var(--border)';
                 item.style.borderColor = '';
+            } else if (selectedUtxoIndices.length >= 8) {
+                toast('Max 8 UTXOs per transaction', 'info', 1500);
+                return;
             } else {
                 selectedUtxoIndices.push(idx);
                 check.textContent = '☑';
@@ -789,6 +848,8 @@ async function handleCreateTx() {
 // ─── QR display ───
 
 function displayKsptQr(ksptHex, title) {
+    // Clear any stale QR cycle from a previous display
+    if (qrCycleTimer) { clearInterval(qrCycleTimer); qrCycleTimer = null; }
     try {
         const frames = JSON.parse(generate_qr_frames(ksptHex));
         qrFrames = frames;
@@ -887,14 +948,16 @@ function showReceive() {
     if (!walletData) return;
     const wallet = JSON.parse(walletData);
 
-    // Find first unused receive address (no UTXOs seen)
+    // Find first unused receive address (not funded, not session-used, not API-used)
     let addrIdx = 0;
-    if (utxoSnapshot && utxoSnapshot.length > 0) {
-        try {
-            const uniqueScripts = new Set(utxoSnapshot.map(u => JSON.stringify(u.script_public_key)));
-            addrIdx = Math.min(uniqueScripts.size, wallet.receive_addresses.length - 1);
-        } catch (e) {
-            // Fallback to index 0
+    const skipSet = new Set([...fundedReceiveIndices, ...usedReceiveIndices]);
+    if (skipSet.size > 0) {
+        let found = false;
+        for (let i = 0; i < wallet.receive_addresses.length; i++) {
+            if (!skipSet.has(i)) { addrIdx = i; found = true; break; }
+        }
+        if (!found) {
+            addrIdx = wallet.receive_addresses.length - 1;
         }
     }
 
@@ -1406,27 +1469,50 @@ function stopScanner() {
 // ─── Addresses ───
 
 let addressesReturnScreen = 'dashboard';
+function explorerUrl(addr) {
+    const prefix = (network === 'mainnet') ? '' : 'tn10.';
+    return `https://${prefix}explorer.kaspa.org/addresses/${addr}`;
+}
 function showAddresses() {
     if (!walletData) return;
     addressesReturnScreen = currentScreenName || 'dashboard';
     const wallet = JSON.parse(walletData);
+    const rcvFunded = new Set(fundedReceiveIndices);
+    const chgFunded = new Set(fundedChangeIndices);
     let html = '<div class="addr-section-title">Receive (m/44\'/111111\'/0\'/0)</div>';
     wallet.receive_addresses.forEach((addr, i) => {
-        html += `<div class="addr-item" data-addr="${i}-r">
+        const funded = rcvFunded.has(i);
+        const used = !funded && usedReceiveIndices.has(i);
+        const dimmed = funded || used;
+        html += `<div class="addr-item${dimmed ? ' addr-used' : ''}" data-addr="${i}-r">
             <span class="addr-idx">${i}</span>
             <span class="addr-val">${addr}</span>
+            ${funded ? '<span class="addr-badge">funded</span>' : ''}
+            ${used ? '<span class="addr-badge used">used</span>' : ''}
+            <a class="addr-explore" href="${explorerUrl(addr)}" target="_blank" rel="noopener" title="View in explorer">↗</a>
             <span class="copy-icon">⧉</span>
         </div>`;
     });
     html += '<div class="addr-section-title">Change (m/44\'/111111\'/0\'/1)</div>';
     wallet.change_addresses.forEach((addr, i) => {
-        html += `<div class="addr-item" data-addr="${i}-c">
+        const funded = chgFunded.has(i);
+        const used = !funded && usedChangeIndices.has(i);
+        const dimmed = funded || used;
+        html += `<div class="addr-item${dimmed ? ' addr-used' : ''}" data-addr="${i}-c">
             <span class="addr-idx">${i}</span>
             <span class="addr-val">${addr}</span>
+            ${funded ? '<span class="addr-badge">funded</span>' : ''}
+            ${used ? '<span class="addr-badge used">used</span>' : ''}
+            <a class="addr-explore" href="${explorerUrl(addr)}" target="_blank" rel="noopener" title="View in explorer">↗</a>
             <span class="copy-icon">⧉</span>
         </div>`;
     });
     el('address-list').innerHTML = html;
+
+    // Prevent explorer link click from triggering the row's onclick
+    document.querySelectorAll('.addr-explore').forEach(link => {
+        link.onclick = (e) => e.stopPropagation();
+    });
 
     document.querySelectorAll('.addr-item').forEach(item => {
         const da = item.dataset.addr;
@@ -1469,41 +1555,94 @@ function showVerify(addr, index, isChange) {
     } catch (e) {
         el('verify-qr').innerHTML = '';
     }
+
+    // Explorer link
+    const link = el('btn-verify-explore');
+    if (link) {
+        link.href = explorerUrl(addr);
+    }
     showScreen('verify');
 }
+
+let consolidateSelection = new Set();
 
 async function showUtxos() {
     if (!walletData) return;
     showLoading('Fetching UTXOs...');
+    consolidateSelection = new Set();
 
     try {
         const utxosJson = await withNodeRetry(wsUrl => fetch_utxos(walletData, wsUrl));
         const utxos = JSON.parse(utxosJson);
         hideLoading();
+        cachedUtxos = utxos;
 
         const totalSompi = utxos.reduce((s, u) => s + u.amount, 0);
         el('utxo-summary').textContent = `${utxos.length} UTXO${utxos.length !== 1 ? 's' : ''} · ${(totalSompi / 1e8).toFixed(8)} KAS`;
 
         if (utxos.length === 0) {
             el('utxo-list').innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px">No UTXOs found</div>';
+            el('btn-consolidate').style.display = 'none';
+            el('btn-consolidate-selected').style.display = 'none';
         } else {
             utxos.sort((a, b) => b.amount - a.amount);
             let html = '';
             utxos.forEach((u, i) => {
                 const kas = (u.amount / 1e8).toFixed(8);
-                html += `<div class="utxo-item">
-                    <div class="utxo-amount">${kas} KAS</div>
-                    <div class="utxo-detail">${u.tx_id}:${u.index}</div>
-                    <div class="utxo-detail" style="color:var(--text-dim)">DAA: ${u.block_daa_score}</div>
+                html += `<div class="utxo-item utxo-selectable" data-utxo-idx="${i}">
+                    <div class="utxo-check">${consolidateSelection.has(i) ? '☑' : '☐'}</div>
+                    <div class="utxo-info">
+                        <div class="utxo-amount">${kas} KAS</div>
+                        <div class="utxo-detail">${u.tx_id.slice(0, 16)}…:${u.index}</div>
+                    </div>
                 </div>`;
             });
             el('utxo-list').innerHTML = html;
+
+            // Tap to toggle selection
+            document.querySelectorAll('.utxo-selectable').forEach(item => {
+                item.onclick = () => {
+                    const idx = parseInt(item.dataset.utxoIdx);
+                    if (consolidateSelection.has(idx)) {
+                        consolidateSelection.delete(idx);
+                    } else if (consolidateSelection.size < 8) {
+                        consolidateSelection.add(idx);
+                    } else {
+                        toast('Max 8 UTXOs per consolidation', 'info', 1500);
+                        return;
+                    }
+                    // Update checkbox visual
+                    const chk = item.querySelector('.utxo-check');
+                    chk.textContent = consolidateSelection.has(idx) ? '☑' : '☐';
+                    item.style.borderColor = consolidateSelection.has(idx) ? 'var(--teal)' : '';
+                    updateConsolidateButtons(utxos.length);
+                };
+            });
+
+            updateConsolidateButtons(utxos.length);
         }
 
         showScreen('utxos');
     } catch (e) {
         hideLoading();
         toast('Failed to fetch UTXOs: ' + e, 'error', 5000);
+    }
+}
+
+function updateConsolidateButtons(totalCount) {
+    const n = consolidateSelection.size;
+    const btnAll = el('btn-consolidate');
+    const btnSel = el('btn-consolidate-selected');
+    if (totalCount <= 1) {
+        btnAll.style.display = 'none';
+        btnSel.style.display = 'none';
+    } else if (n >= 2) {
+        btnAll.style.display = 'none';
+        btnSel.style.display = '';
+        btnSel.textContent = `Consolidate ${n} Selected`;
+    } else {
+        btnAll.style.display = '';
+        btnSel.style.display = 'none';
     }
 }
 
@@ -1524,9 +1663,43 @@ async function handleConsolidate() {
     }
 }
 
+async function handleConsolidateSelected() {
+    if (!walletData || consolidateSelection.size < 2) return;
+    const wallet = JSON.parse(walletData);
+    const fee = 10000;
+    const indices = [...consolidateSelection].sort((a, b) => a - b);
+    const indicesCsv = indices.join(',');
+
+    // Calculate total of selected UTXOs
+    let totalSelected = 0;
+    for (const idx of indices) {
+        if (cachedUtxos && idx < cachedUtxos.length) {
+            totalSelected += cachedUtxos[idx].amount;
+        }
+    }
+    const sendKas = (totalSelected - fee) / 1e8;
+    if (sendKas <= 0) {
+        toast('Selected UTXOs too small to cover fee', 'error');
+        return;
+    }
+
+    showLoading(`Consolidating ${indices.length} UTXOs...`);
+    try {
+        const destAddr = wallet.receive_addresses[0];
+        const ksptHex = await withNodeRetry(wsUrl =>
+            create_send_kspt_selected(walletData, destAddr, sendKas, BigInt(fee), indicesCsv, wsUrl)
+        );
+        hideLoading();
+        displayKsptQr(ksptHex, 'Scan with KasSigner');
+    } catch (e) {
+        hideLoading();
+        toast('Consolidation failed: ' + e, 'error', 5000);
+    }
+}
+
 // ─── Transaction history (UTXO diff tracking) ───
 
-function trackUtxoChanges(currentUtxos) {
+function trackUtxoChangesAndUsed(currentUtxos) {
     const now = Date.now();
 
     if (!utxoSnapshot) {
@@ -1562,22 +1735,63 @@ function trackUtxoChanges(currentUtxos) {
         }
     }
 
-    // Gone UTXOs = spent (outgoing)
-    for (const u of utxoSnapshot) {
-        const key = u.tx_id + ':' + u.index;
-        if (!currKeys.has(key)) {
-            historyEntries.unshift({
-                type: 'out',
-                amount: u.amount,
-                tx_id: u.tx_id,
-                index: u.index,
-                time: now,
-            });
+    // Gone UTXOs = spent (outgoing) — also mark the address as "used"
+    if (walletData) {
+        const wallet = JSON.parse(walletData);
+        for (const u of utxoSnapshot) {
+            const key = u.tx_id + ':' + u.index;
+            if (!currKeys.has(key)) {
+                historyEntries.unshift({
+                    type: 'out',
+                    amount: u.amount,
+                    tx_id: u.tx_id,
+                    index: u.index,
+                    time: now,
+                });
+                // Match spent UTXO script to an address index
+                const spkJson = JSON.stringify(u.script_public_key);
+                for (let i = 0; i < wallet.receive_addresses.length; i++) {
+                    try {
+                        const decoded = JSON.parse(decode_address(wallet.receive_addresses[i]));
+                        // P2PK script: [0x20, ...32 bytes..., 0xAC]
+                        const spk = [0x20, ...Array.from(hex_to_bytes(decoded.payload)), 0xAC];
+                        if (JSON.stringify(spk) === spkJson) { usedReceiveIndices.add(i); break; }
+                    } catch (_) {}
+                }
+                for (let i = 0; i < wallet.change_addresses.length; i++) {
+                    try {
+                        const decoded = JSON.parse(decode_address(wallet.change_addresses[i]));
+                        const spk = [0x20, ...Array.from(hex_to_bytes(decoded.payload)), 0xAC];
+                        if (JSON.stringify(spk) === spkJson) { usedChangeIndices.add(i); break; }
+                    } catch (_) {}
+                }
+            }
+        }
+    } else {
+        for (const u of utxoSnapshot) {
+            const key = u.tx_id + ':' + u.index;
+            if (!currKeys.has(key)) {
+                historyEntries.unshift({
+                    type: 'out',
+                    amount: u.amount,
+                    tx_id: u.tx_id,
+                    index: u.index,
+                    time: now,
+                });
+            }
         }
     }
 
     if (historyEntries.length > 100) historyEntries.length = 100;
     utxoSnapshot = currentUtxos;
+}
+
+function hex_to_bytes(hex) {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < hex.length; i += 2) {
+        bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+    }
+    return bytes;
 }
 
 function showHistory() {
@@ -1610,6 +1824,10 @@ function clearHistory() {
     if (!confirm('Clear transaction history?')) return;
     historyEntries = [];
     utxoSnapshot = null;
+    fundedReceiveIndices = [];
+    fundedChangeIndices = [];
+    usedReceiveIndices = new Set();
+    usedChangeIndices = new Set();
     showHistory();
 }
 
@@ -1704,15 +1922,22 @@ async function showTokens() {
         }
     }
 
+    // ─── KNS domains (reverse lookup from known table) ───
+    const knsDomains = [];
+    const addrSet = new Set(allAddresses);
+    for (const [domain, addr] of Object.entries(KNS_LOOKUP)) {
+        if (addrSet.has(addr)) knsDomains.push(domain);
+    }
+
     hideLoading();
 
     // ─── Render ───
     const ticks = Object.keys(tokenMap).sort();
-    const totalItems = ticks.length + nftList.length;
+    const totalItems = ticks.length + nftList.length + knsDomains.length;
 
     if (totalItems === 0) {
-        el('tokens-summary').textContent = 'No tokens or NFTs found';
-        el('tokens-list').innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px">Your addresses have no KRC-20 tokens or KRC-721 NFTs</div>';
+        el('tokens-summary').textContent = 'No tokens, NFTs, or domains found';
+        el('tokens-list').innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px">Your addresses have no KRC-20 tokens, KRC-721 NFTs, or KNS domains</div>';
         showScreen('tokens');
         return;
     }
@@ -1725,9 +1950,7 @@ async function showTokens() {
         for (const tick of ticks) {
             const t = tokenMap[tick];
             const display = (t.balance / Math.pow(10, t.decimals)).toFixed(t.decimals);
-            const iconUrl = `img/tokens/${tick.toLowerCase()}.png`;
             html += `<div class="token-item">
-                <img class="token-icon" src="${iconUrl}" alt="${tick}" onerror="this.style.display='none'">
                 <div class="token-tick">${tick}</div>
                 <div class="token-balance">${display}</div>
             </div>`;
@@ -1739,12 +1962,19 @@ async function showTokens() {
         html += '<div class="tokens-section-label" style="margin-top:12px">KRC-721 NFTs</div>';
         for (let i = 0; i < nftList.length; i++) {
             const nft = nftList[i];
-            html += `<div class="nft-item" id="nft-item-${i}">
-                <div class="nft-thumb-placeholder" id="nft-img-${i}"></div>
-                <div class="nft-info">
-                    <div class="nft-tick">${nft.tick}</div>
-                    <div class="nft-id">#${nft.tokenId}</div>
-                </div>
+            html += `<div class="token-item">
+                <div class="token-tick">${nft.tick}</div>
+                <div class="token-balance">#${nft.tokenId}</div>
+            </div>`;
+        }
+    }
+
+    // KNS domains
+    if (knsDomains.length > 0) {
+        html += '<div class="tokens-section-label" style="margin-top:12px">KNS Domains</div>';
+        for (const d of knsDomains) {
+            html += `<div class="token-item">
+                <div class="token-tick">${d}</div>
             </div>`;
         }
     }
@@ -1752,31 +1982,10 @@ async function showTokens() {
     const parts = [];
     if (ticks.length > 0) parts.push(ticks.length + ' token' + (ticks.length !== 1 ? 's' : ''));
     if (nftList.length > 0) parts.push(nftList.length + ' NFT' + (nftList.length !== 1 ? 's' : ''));
+    if (knsDomains.length > 0) parts.push(knsDomains.length + ' domain' + (knsDomains.length !== 1 ? 's' : ''));
     el('tokens-summary').textContent = parts.join(', ') + ' found';
     el('tokens-list').innerHTML = html;
     showScreen('tokens');
-
-    // Lazy-load NFT images from IPFS metadata
-    for (let i = 0; i < nftList.length; i++) {
-        const nft = nftList[i];
-        if (!nft.image) continue;
-        const metaUrl = nft.image.startsWith('ipfs://')
-            ? 'https://gateway.pinata.cloud/ipfs/' + nft.image.slice(7)
-            : nft.image;
-        fetch(metaUrl, { signal: AbortSignal.timeout(15000) })
-            .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-            .then(meta => {
-                let imgUri = meta.image || '';
-                if (imgUri.startsWith('ipfs://')) imgUri = 'https://gateway.pinata.cloud/ipfs/' + imgUri.slice(7);
-                if (imgUri) {
-                    const container = el('nft-img-' + i);
-                    if (container) {
-                        container.innerHTML = `<img class="nft-thumb" src="${imgUri}" alt="${nft.name}" onerror="this.parentElement.innerHTML=''">`;
-                    }
-                }
-            })
-            .catch(() => {});
-    }
 }
 
 // ─── Donation / support screen ───
@@ -1811,6 +2020,8 @@ function showDonateScreen() {
 function showSettings() {
     el('input-node-url').value = customNodeUrl || '';
     el('select-network').value = network;
+    el('chk-addr-history').checked = addressHistoryEnabled;
+    el('input-rest-url').value = customRestUrl || '';
     showScreen('settings');
 }
 
@@ -1818,21 +2029,40 @@ function saveSettings() {
     const url = el('input-node-url').value.trim();
     if (url) {
         customNodeUrl = url;
-        console.log(`[KasSee] Custom node: ${url}`);
     } else {
         clearCustomNode();
     }
+
+    // Address history toggle + custom REST URL
+    const histWas = addressHistoryEnabled;
+    addressHistoryEnabled = el('chk-addr-history').checked;
+    const restUrl = el('input-rest-url').value.trim();
+    customRestUrl = restUrl || null;
+    if (addressHistoryEnabled && !customRestUrl) {
+        addressHistoryEnabled = false;
+        el('chk-addr-history').checked = false;
+        toast('Address history requires a REST URL', 'info', 2500);
+    } else if (addressHistoryEnabled && !histWas) {
+        fetchAddressHistory();
+    }
+    if (!addressHistoryEnabled) {
+        // Keep session-tracked used indices, only clear API-sourced ones
+        // (session tracking via UTXO diffs is always active)
+    }
+
     const newNetwork = el('select-network').value;
     if (newNetwork !== network) {
         network = newNetwork;
-        console.log(`[KasSee] Network: ${network}`);
-        // Network changed — clear wallet, addresses are invalid for new network
         walletData = null;
         lastFeeEstimate = null;
         selectedUtxoIndices = null;
         cachedUtxos = null;
         historyEntries = [];
         utxoSnapshot = null;
+        fundedReceiveIndices = [];
+        fundedChangeIndices = [];
+        usedReceiveIndices = new Set();
+        usedChangeIndices = new Set();
         el('balance-kas').textContent = '—';
         el('balance-sompi').textContent = '';
         el('balance-info').textContent = '';
@@ -1871,6 +2101,10 @@ function resetWallet() {
     cachedUtxos = null;
     historyEntries = [];
     utxoSnapshot = null;
+    fundedReceiveIndices = [];
+    fundedChangeIndices = [];
+    usedReceiveIndices = new Set();
+    usedChangeIndices = new Set();
     el('balance-kas').textContent = '—';
     el('balance-sompi').textContent = '';
     el('balance-info').textContent = '';

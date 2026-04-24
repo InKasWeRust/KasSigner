@@ -26,7 +26,7 @@
 // All key material is zeroized after use. PBKDF2 takes ~5s on ESP32-S3 at 240MHz.
 
 use crate::log;
-use crate::{wallet, ui::seed_manager, hw::display, app::data::AppData};
+use crate::{wallet, ui::seed_manager, hw::display, hw::sound, app::data::AppData};
 use crate::features::verify::{FirmwareInfo, VerificationResult, FIRMWARE_START_ADDR, FIRMWARE_MAX_SIZE};
 use crate::hw::display::BootStatus;
 use crate::halt_forever;
@@ -501,6 +501,7 @@ pub fn run_firmware_verify(
 pub fn handle_signing_step(
     ad: &mut AppData,
     boot_display: &mut display::BootDisplay<'_>,
+    delay: &mut esp_hal::delay::Delay,
 ) {
         if let crate::app::input::AppState::Signing { input_idx } = ad.app.state {
             if !ad.seed_loaded {
@@ -528,18 +529,12 @@ pub fn handle_signing_step(
                 if estimated_size > 1024 {
                     log!("   ✗ TX too large: {} inputs × 156 + {} outputs × 45 = ~{} bytes (max 1024)",
                         ad.demo_tx.num_inputs, ad.demo_tx.num_outputs, estimated_size);
-                    boot_display.draw_rejected_screen("Too many inputs!");
-                    // Show detail on second line
-                    {
-                        use crate::hw::display::*;
-                        let mut msg: heapless::String<48> = heapless::String::new();
-                        let _ = core::fmt::Write::write_fmt(&mut msg,
-                            format_args!("{} inputs — max 5. Compound first.", ad.demo_tx.num_inputs));
-                        let mw = measure_body(msg.as_str());
-                        draw_lato_body(&mut boot_display.display, msg.as_str(), (320 - mw) / 2, 155, COLOR_TEXT_DIM);
-                    }
+                    boot_display.draw_tx_error_screen(
+                        "Too many inputs!",
+                        "Consolidate UTXOs first");
+                    sound::beep_error(delay);
                     ad.app.state = crate::app::input::AppState::Rejected;
-                    ad.needs_redraw = true;
+                    ad.needs_redraw = false; // already drawn
                     return;
                 }
 

@@ -91,6 +91,7 @@ pub fn handle_tx_touch(
                             // Next page
                             let evt = crate::app::input::ButtonEvent::ShortPress;
                             ad.app.handle_boot(evt);
+                            needs_redraw = true;
                         }
                     }
                     crate::app::input::AppState::ConfirmTx => {

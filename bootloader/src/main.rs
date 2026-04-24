@@ -970,7 +970,7 @@ fn main() -> ! {
         }
 
         // ─── Signing, redraw, camera ─────────────────────────────
-        app::signing::handle_signing_step(ad, &mut boot_display);
+        app::signing::handle_signing_step(ad, &mut boot_display, &mut delay);
 
         if ad.needs_redraw {
             ad.idle_ticks = 0;

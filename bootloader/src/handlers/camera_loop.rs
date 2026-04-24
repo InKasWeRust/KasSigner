@@ -242,6 +242,7 @@ fn process_confirmed_qr(
     data: &[u8],
     len: usize,
     ad: &mut AppData,
+    boot_display: &mut display::BootDisplay<'_>,
     delay: &mut esp_hal::delay::Delay,
 ) {
     sound::qr_decoded(delay);
@@ -291,6 +292,10 @@ fn process_confirmed_qr(
                 }
                 Err(e) => {
                     log!("   → KSPT v2 parse error: {:?}", e);
+                    boot_display.draw_tx_error_screen("Too many UTXOs", "Consolidate first");
+                    sound::beep_error(delay);
+                    ad.app.state = crate::app::input::AppState::Rejected;
+                    ad.needs_redraw = false; // already drawn
                 }
             }
         } else {
@@ -309,6 +314,10 @@ fn process_confirmed_qr(
                 }
                 Err(e) => {
                     log!("   → KSPT v1 parse error: {:?}", e);
+                    boot_display.draw_tx_error_screen("Too many UTXOs", "Consolidate first");
+                    sound::beep_error(delay);
+                    ad.app.state = crate::app::input::AppState::Rejected;
+                    ad.needs_redraw = false;
                 }
             }
         }
@@ -360,6 +369,10 @@ fn process_confirmed_qr(
             }
             Err(e) => {
                 log!("   → PSKT parse error: {:?}", e);
+                boot_display.draw_tx_error_screen("Too many UTXOs", "Consolidate first");
+                sound::beep_error(delay);
+                ad.app.state = crate::app::input::AppState::Rejected;
+                ad.needs_redraw = false;
             }
         }
     } else if (len == 48 || len == 96)
@@ -545,7 +558,7 @@ fn process_multiframe(
                 }
                 log!("   → All {} frames, {} bytes", total, pos);
                 MF_TOTAL = 0;
-                process_confirmed_qr(&assembled[..pos], pos, ad, delay);
+                process_confirmed_qr(&assembled[..pos], pos, ad, boot_display, delay);
             }
         }
     }
@@ -662,7 +675,7 @@ fn handle_decode_result(
         QR_COOLDOWN = 90;
         QR_FINDERS_BEEPED = false;
         log!("   rqrr QR OK: {} bytes (V{})", len, ver);
-        process_confirmed_qr(decoded, len, ad, delay);
+        process_confirmed_qr(decoded, len, ad, boot_display, delay);
     }
 }
 
