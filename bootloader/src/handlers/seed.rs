@@ -615,7 +615,7 @@ pub fn handle_seed_touch(
                                         if list_idx >= loaded_n {
                                             // Empty row tapped → go to Tools
                                             ad.tools_menu.reset();
-                                            ad.app.state = crate::app::input::AppState::SeedToolsMenu;
+                                            ad.app.state = crate::app::input::AppState::ToolsMenu;
                                             needs_redraw = true;
                                             break;
                                         }
