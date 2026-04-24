@@ -13,7 +13,7 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' wss://*.kaspa.stream wss://*.kaspa.green wss://*.kaspa.blue wss://*.kaspa.red https://*.kaspa.stream https://*.kaspa.green https://*.kaspa.blue https://*.kaspa.red https://api.kasplex.org https://tn10api.kasplex.org https://mainnet.krc721.stream https://testnet-10.krc721.stream https://gateway.pinata.cloud; img-src 'self' https://gateway.pinata.cloud data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https: wss://*.kaspa.stream wss://*.kaspa.green wss://*.kaspa.blue wss://*.kaspa.red; img-src 'self' https://gateway.pinata.cloud data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com">
     <title>KasSee — KasSigner Companion</title>
     <link rel="icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="css/app.css?v=101">
@@ -24,16 +24,19 @@
         <!-- Header -->
         <header id="header">
             <div class="header-brand">
+                <button class="header-settings-btn" id="btn-header-settings" title="Settings">⚙</button>
                 <img src="img/logo-sm.png" alt="KasSigner" class="header-logo" id="btn-logo" style="cursor:pointer">
             </div>
             <div class="header-right">
                 <a href="https://x.com/KasSigner" target="_blank" rel="noopener" class="header-social" title="X / Twitter">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
                 </a>
+                <a href="https://www.youtube.com/@KasSigner" target="_blank" rel="noopener" class="header-social" title="YouTube">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                </a>
                 <a href="https://github.com/InKasWeRust/KasSigner" target="_blank" rel="noopener" class="header-social" title="GitHub">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
                 </a>
-                <button class="header-settings-btn" id="btn-header-settings" title="Settings">⚙</button>
                 <a href="https://kaspa.stream/" target="_blank" rel="noopener" class="header-social" title="Kaspa Explorer" id="btn-explorer">
                     <img src="img/kaspa-icon.png" alt="Kaspa" width="16" height="16" style="filter:brightness(0.7)">
                 </a>
@@ -76,6 +79,9 @@
                         <div class="divider">or</div>
                         <button class="btn btn-outline" id="btn-multisig-welcome" style="font-size:13px">
                             Multisig Spend
+                        </button>
+                        <button class="btn btn-outline" id="btn-broadcast-welcome" style="font-size:13px;margin-top:6px">
+                            Broadcast TX
                         </button>
                     </div>
                 </div>
@@ -136,6 +142,7 @@
                         Every character must match exactly.
                     </p>
                     <button class="btn btn-secondary" id="btn-verify-copy">Copy Address</button>
+                    <a class="btn btn-link" id="btn-verify-explore" href="#" target="_blank" rel="noopener" style="color:var(--teal-dim)">View in Explorer ↗</a>
                     <button class="btn btn-link" id="btn-verify-back">Back to Addresses</button>
                 </div>
             </section>
@@ -148,6 +155,9 @@
                     <div id="utxo-list" class="address-list"></div>
                     <button class="btn btn-outline" id="btn-consolidate" style="margin-top:12px">
                         Consolidate All
+                    </button>
+                    <button class="btn btn-primary" id="btn-consolidate-selected" style="margin-top:8px;display:none">
+                        Consolidate Selected
                     </button>
                     <button class="btn btn-link" id="btn-utxos-back">Back</button>
                 </div>
@@ -199,6 +209,28 @@
                         <button class="btn btn-link" id="btn-use-public">
                             Reset to Public Nodes
                         </button>
+                        <div class="toggle-row" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+                            <div>
+                                <label class="input-label" style="margin-bottom:2px">Address History</label>
+                                <p class="subtitle" style="margin:0;text-align:left;font-size:10px;line-height:1.4">
+                                    Detect used addresses via your own<br>
+                                    kaspa-rest-server. Requires REST URL.
+                                </p>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="chk-addr-history">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div style="margin-top:10px">
+                            <label class="input-label">REST API URL</label>
+                            <input type="text" id="input-rest-url" class="input-text"
+                                   placeholder="https://your-server:8000" autocomplete="off" spellcheck="false">
+                            <p class="subtitle" style="margin-top:0;text-align:left;font-size:10px;line-height:1.4">
+                                Your kaspa-rest-server with DB indexer.<br>
+                                Public APIs do not support this feature.
+                            </p>
+                        </div>
                         <button class="btn btn-link" id="btn-settings-back">Back</button>
                     </div>
                 </div>

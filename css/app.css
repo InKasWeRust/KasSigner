@@ -608,6 +608,99 @@ h2 {
     color: var(--teal);
 }
 
+.addr-used {
+    opacity: 0.5;
+}
+
+.addr-used .addr-val {
+    color: var(--text-dim);
+}
+
+.addr-badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--warning);
+    border: 1px solid var(--warning);
+    border-radius: 4px;
+    padding: 1px 5px;
+    flex-shrink: 0;
+    align-self: center;
+}
+
+.addr-badge.used {
+    color: var(--text-muted);
+    border-color: var(--text-muted);
+}
+
+.addr-explore {
+    font-size: 14px;
+    color: var(--teal-dim);
+    text-decoration: none;
+    flex-shrink: 0;
+    align-self: center;
+    padding: 2px 4px;
+    transition: color var(--transition);
+}
+
+.addr-explore:hover {
+    color: var(--teal);
+}
+
+/* ─── Toggle switch ─── */
+
+.toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background: var(--border);
+    border-radius: 12px;
+    transition: background var(--transition);
+}
+
+.toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    left: 3px;
+    bottom: 3px;
+    background: var(--text-dim);
+    border-radius: 50%;
+    transition: transform var(--transition), background var(--transition);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background: var(--teal-dim);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+    transform: translateX(20px);
+    background: var(--teal);
+}
+
 /* ─── UTXO items ─── */
 
 .utxo-item {
@@ -616,6 +709,27 @@ h2 {
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     margin-bottom: 6px;
+}
+
+.utxo-selectable {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    transition: border-color var(--transition);
+}
+
+.utxo-check {
+    font-size: 18px;
+    color: var(--teal);
+    flex-shrink: 0;
+    width: 22px;
+    text-align: center;
+}
+
+.utxo-info {
+    flex: 1;
+    min-width: 0;
 }
 
 .utxo-amount {
