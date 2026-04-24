@@ -1,3 +1,7 @@
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+// License: GPL-3.0
+
 #![allow(dead_code)]
 #![allow(unused_imports)]
 #![allow(static_mut_refs)]
@@ -674,7 +678,8 @@ fn main() -> ! {
     // so main's frame only holds a pointer; downstream code reborrows
     // through `ad` unchanged.
     let mut ad_box = alloc::boxed::Box::new(AppData::new());
-    let ad: &mut AppData = &mut ad_box;
+    #[allow(unused_mut)]
+    let mut ad: &mut AppData = &mut ad_box;
 
     // Override cam_tune defaults for OV2640 — proven QR decode settings
     #[cfg(feature = "waveshare")]

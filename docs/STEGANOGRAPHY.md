@@ -100,7 +100,7 @@ Offset  Size     Field
 ──────  ───────  ──────────────────────────
 0x00    4 bytes  Magic: "KAS\x01"
 0x04    1 byte   Word count (12 or 24)
-0x05    12 bytes Nonce (hardware TRNG)
+0x05    12 bytes Nonce (SHA-256 of SYSTIMER + eFuse + camera noise, truncated)
 0x11    24 or 48 Ciphertext (word indices, 2 bytes each)
 0x29/41 16 bytes AES-256-GCM authentication tag
 ──────────────────────────────────────────

@@ -22,7 +22,7 @@ was built from the public source code — no trust required.
 ```bash
 git clone https://github.com/InKasWeRust/KasSigner.git
 cd KasSigner
-git checkout <release-tag>  # e.g. v1.0.2 — use the tag you're verifying
+git checkout <release-tag>  # e.g. v1.0.3 — use the tag you're verifying
 ```
 
 ### 2. Build in Docker

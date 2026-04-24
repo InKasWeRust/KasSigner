@@ -120,12 +120,14 @@ pub fn handle_stego_touch(
                                 boot_display.draw_rejected_screen("No seed loaded");
                                 delay.delay_millis(1500);
                                 ad.app.state = crate::app::input::AppState::ExportChoice;
+                            needs_redraw = true;
                             } else {
                                 boot_display.draw_saving_screen("Encoding stego...");
                                 // For now: mark result and show confirmation
                                 // JPEG EXIF stego path handles encrypt+embed in stego.rs
                                 (ad.stego_result_ok) = true;
                                 ad.app.state = crate::app::input::AppState::StegoResult;
+                            needs_redraw = true;
                             }
                             needs_redraw = true;
                         }
@@ -138,6 +140,7 @@ pub fn handle_stego_touch(
                     crate::app::input::AppState::StegoJpegPick => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::ExportChoice;
+                            needs_redraw = true;
                         } else if page_up_zone.contains(x, y) && (ad.jpeg_selected) >= 4 {
                             (ad.jpeg_selected) = (ad.jpeg_selected).saturating_sub(4);
                         } else if page_down_zone.contains(x, y) && ((ad.jpeg_selected) / 4 + 1) * 4 < (ad.jpeg_file_count) {
@@ -152,12 +155,13 @@ pub fn handle_stego_touch(
                                         (ad.jpeg_selected) = abs;
                                         ad.jpeg_desc_len = 0;
                                         ad.app.state = crate::app::input::AppState::StegoJpegDescChoice;
+                            needs_redraw = true;
                                     }
                                     break;
                                 }
                             }
                         }
-                        needs_redraw = true;
+                        
                     }
                     crate::app::input::AppState::StegoJpegDescChoice => {
                         if is_back {
@@ -167,6 +171,7 @@ pub fn handle_stego_touch(
                             // Type manually (row 0 at y=70)
                             ad.pp_input.reset();
                             ad.app.state = crate::app::input::AppState::StegoJpegDesc;
+                            needs_redraw = true;
                         } else if (40..280).contains(&x) && (114..158).contains(&y) {
                             // Load from SD — scan for .TXT files with LFN
                             boot_display.draw_loading_screen("Scanning TXT...");
@@ -201,12 +206,14 @@ pub fn handle_stego_touch(
                                 delay.delay_millis(2000);
                             } else {
                                 ad.app.state = crate::app::input::AppState::StegoJpegDescFile;
+                            needs_redraw = true;
                             }
                         }
                     }
                     crate::app::input::AppState::StegoJpegDescFile => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::StegoJpegDescChoice;
+                            needs_redraw = true;
                         } else {
                             let scroll = 0u8; // TXT files don't have paging yet (max 8)
                             for slot in 0..4u8 {
@@ -242,6 +249,7 @@ pub fn handle_stego_touch(
                                     });
                                     if read_ok.is_ok() && ad.jpeg_desc_len > 0 {
                                         ad.app.state = crate::app::input::AppState::StegoJpegDescPreview;
+                            needs_redraw = true;
                                     } else {
                                         boot_display.draw_rejected_screen("Read failed");
                                         delay.delay_millis(1500);
@@ -251,7 +259,7 @@ pub fn handle_stego_touch(
                                 }
                             }
                         }
-                        needs_redraw = true;
+                        
                     }
                     crate::app::input::AppState::StegoJpegDesc => {
                         if is_back {
@@ -281,18 +289,21 @@ pub fn handle_stego_touch(
                     crate::app::input::AppState::StegoJpegDescPreview => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::StegoJpegDescChoice;
+                            needs_redraw = true;
                         } else if (185..=225).contains(&y) {
                             if (170..=300).contains(&x) {
                                 // USE — proceed to hint
                                 ad.stego_pp_len = 0;
                                 ad.stego_pp_enc_len = 0;
                                 ad.app.state = crate::app::input::AppState::StegoJpegPpAsk;
+                            needs_redraw = true;
                             } else if (20..=150).contains(&x) {
                                 // EDIT — go back to choice
                                 ad.app.state = crate::app::input::AppState::StegoJpegDescChoice;
+                            needs_redraw = true;
                             }
                         }
-                        needs_redraw = true;
+                        
                     }
                     crate::app::input::AppState::StegoJpegPpAsk => {
                         if is_back {
@@ -304,15 +315,18 @@ pub fn handle_stego_touch(
                                 ad.stego_pp_len = 0;
                                 ad.stego_pp_enc_len = 0;
                                 ad.app.state = crate::app::input::AppState::StegoJpegConfirm;
+                            needs_redraw = true;
                             } else if (170..=300).contains(&x) {
                                 // YES — show info screen
                                 ad.app.state = crate::app::input::AppState::StegoJpegPpInfo;
+                            needs_redraw = true;
                             }
                         }
                     }
                     crate::app::input::AppState::StegoJpegPpInfo => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::StegoJpegPpAsk;
+                            needs_redraw = true;
                         } else {
                             // 4 rows starting at y=68, each 36px step, 30px tall
                             for row in 0..4u8 {
@@ -323,6 +337,7 @@ pub fn handle_stego_touch(
                                         // Custom → go to keyboard
                                         ad.pp_input.reset();
                                         ad.app.state = crate::app::input::AppState::StegoJpegPpEntry;
+                            needs_redraw = true;
                                     } else {
                                         // Preset selected → encrypt hint directly
                                         let hint_text = stego::HINT_PRESETS[row as usize].as_bytes();
@@ -364,12 +379,13 @@ pub fn handle_stego_touch(
                                         }
                                         wallet::hmac::zeroize_buf(&mut ad.stego_pp_buf);
                                         ad.app.state = crate::app::input::AppState::StegoJpegConfirm;
+                            needs_redraw = true;
                                     }
                                     break;
                                 }
                             }
                         }
-                        needs_redraw = true;
+                        
                     }
                     crate::app::input::AppState::StegoJpegPpEntry => {
                         if is_back {
@@ -433,6 +449,7 @@ pub fn handle_stego_touch(
                     crate::app::input::AppState::StegoJpegConfirm => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::StegoJpegPpAsk;
+                            needs_redraw = true;
                         } else if (182..=225).contains(&y) {
                             // Bottom area = confirm buttons
                             if (20..=150).contains(&x) {
@@ -534,17 +551,20 @@ pub fn handle_stego_touch(
                                         if sd_result.is_ok() {
                                             (ad.stego_result_ok) = true;
                                             ad.app.state = crate::app::input::AppState::StegoResult;
+                            needs_redraw = true;
                                             sound::success(delay);
                                         } else {
                                             boot_display.draw_rejected_screen("JPEG write failed");
                                             sound::beep_error(delay);
                                             delay.delay_millis(1500);
                                             ad.app.state = crate::app::input::AppState::ExportChoice;
+                            needs_redraw = true;
                                         }
                                     } else {
                                         boot_display.draw_rejected_screen("EXIF build failed");
                                         delay.delay_millis(1500);
                                         ad.app.state = crate::app::input::AppState::ExportChoice;
+                            needs_redraw = true;
                                     }
                                     // Zeroize encrypted passphrase buffer
                                     wallet::hmac::zeroize_buf(&mut ad.stego_pp_encrypted);
@@ -553,12 +573,13 @@ pub fn handle_stego_touch(
                                         boot_display.draw_rejected_screen("Encryption failed");
                                         delay.delay_millis(1500);
                                         ad.app.state = crate::app::input::AppState::ExportChoice;
+                            needs_redraw = true;
                                     }
                                     needs_redraw = true;
                                 }
                             }
                         }
-                        needs_redraw = true;
+                        
                     }
                     crate::app::input::AppState::FwUpdateResult => {
                         ad.app.go_main_menu();
@@ -568,6 +589,7 @@ pub fn handle_stego_touch(
                     crate::app::input::AppState::StegoImportPick => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::ImportMenu;
+                            needs_redraw = true;
                         } else if page_up_zone.contains(x, y) && (ad.import_jpeg_selected) >= 4 {
                             (ad.import_jpeg_selected) = (ad.import_jpeg_selected).saturating_sub(4);
                             needs_redraw = true;
@@ -586,12 +608,13 @@ pub fn handle_stego_touch(
                                         ad.import_exif_b64_len = 0;
                                         ad.pp_input.reset();
                                         ad.app.state = crate::app::input::AppState::StegoImportDescChoice;
+                            needs_redraw = true;
                                     }
                                     break;
                                 }
                             }
                         }
-                        needs_redraw = true;
+                        
                     }
                     crate::app::input::AppState::StegoImportDescChoice => {
                         if is_back {
@@ -601,6 +624,7 @@ pub fn handle_stego_touch(
                             // Type manually
                             ad.pp_input.reset();
                             ad.app.state = crate::app::input::AppState::StegoImportPass;
+                            needs_redraw = true;
                         } else if (40..280).contains(&x) && (114..158).contains(&y) {
                             // Load from SD — scan for .TXT files
                             boot_display.draw_loading_screen("Scanning TXT...");
@@ -636,12 +660,14 @@ pub fn handle_stego_touch(
                                 delay.delay_millis(2000);
                             } else {
                                 ad.app.state = crate::app::input::AppState::StegoImportDescFile;
+                            needs_redraw = true;
                             }
                         }
                     }
                     crate::app::input::AppState::StegoImportDescFile => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::StegoImportDescChoice;
+                            needs_redraw = true;
                         } else {
                             let scroll = 0u8;
                             for slot in 0..4u8 {
@@ -682,6 +708,7 @@ pub fn handle_stego_touch(
                                         // Transition to StegoImportPass which will show the keyboard
                                         // with the descriptor pre-filled — user can review and hit OK
                                         ad.app.state = crate::app::input::AppState::StegoImportPass;
+                            needs_redraw = true;
                                     } else {
                                         boot_display.draw_rejected_screen("Read failed");
                                         sound::beep_error(delay);
@@ -692,7 +719,7 @@ pub fn handle_stego_touch(
                                 }
                             }
                         }
-                        needs_redraw = true;
+                        
                     }
                     crate::app::input::AppState::StegoImportPass => {
                         if is_back {
@@ -804,11 +831,13 @@ pub fn handle_stego_touch(
                                                             if (ad.recovered_hint_len) > 0 {
                                                                 sound::success(delay);
                                                                 ad.app.state = crate::app::input::AppState::StegoHintReveal;
+                            needs_redraw = true;
                                                             } else {
                                                                 boot_display.draw_success_screen("Seed Recovered!");
                                                                 sound::success(delay);
                                                                 delay.delay_millis(2000);
                                                                 ad.app.state = crate::app::input::AppState::SeedList;
+                            needs_redraw = true;
                                                             }
                                                             needs_redraw = true;
                                                         } else {
@@ -844,12 +873,14 @@ pub fn handle_stego_touch(
                             // Skip hint, go to seed list
                             (ad.recovered_hint_len) = 0;
                             ad.app.state = crate::app::input::AppState::SeedList;
+                            needs_redraw = true;
                         } else {
                             // Tap → go to passphrase entry
                             ad.pp_input.reset();
                             ad.app.state = crate::app::input::AppState::StegoHintPassphrase;
+                            needs_redraw = true;
                         }
-                        needs_redraw = true;
+                        
                     }
                     crate::app::input::AppState::StegoHintPassphrase => {
                         if is_back {
@@ -880,7 +911,8 @@ pub fn handle_stego_touch(
                                     sound::success(delay);
                                     delay.delay_millis(2000);
                                     ad.app.state = crate::app::input::AppState::SeedList;
-                                    needs_redraw = true;
+                            needs_redraw = true;
+                                    
                                 }
                                 _ => {}
                             }

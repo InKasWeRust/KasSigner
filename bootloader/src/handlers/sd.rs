@@ -184,19 +184,51 @@ pub(crate) fn write_file_to_sd(
     })
 }
 
-/// Generate a 12-byte nonce from the ESP32-S3 hardware TRNG.
+/// Generate a 12-byte nonce for AES-GCM from multiple entropy sources.
+/// Uses SYSTIMER (timing jitter), eFuse (chip-unique), WDEV RNG, and
+/// camera DMA write buffer (sensor noise) — hashed via SHA-256 and truncated.
 pub(crate) fn generate_trng_nonce() -> [u8; 12] {
-    let mut nonce = [0u8; 12];
-    for i in (0..12).step_by(4) {
-        let rng_val = unsafe {
-            core::ptr::read_volatile(0x6003_5144u32 as *const u32)
-        };
-        let bytes = rng_val.to_le_bytes();
-        let remaining = (12 - i).min(4);
-        nonce[i..i + remaining].copy_from_slice(&bytes[..remaining]);
-        // ~2µs delay between reads for max entropy
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+
+    // SYSTIMER — latch and read 52-bit free-running counter
+    unsafe {
+        core::ptr::write_volatile(0x6002_3004u32 as *mut u32, 1 << 30);
+        for _ in 0..20u32 { core::hint::spin_loop(); }
+        let lo = core::ptr::read_volatile(0x6002_3044u32 as *const u32);
+        let hi = core::ptr::read_volatile(0x6002_3040u32 as *const u32);
+        hasher.update(lo.to_le_bytes());
+        hasher.update(hi.to_le_bytes());
+    }
+
+    // eFuse MAC address (unique per chip)
+    unsafe {
+        let mac0 = core::ptr::read_volatile(0x6000_7044u32 as *const u32);
+        let mac1 = core::ptr::read_volatile(0x6000_7048u32 as *const u32);
+        hasher.update(mac0.to_le_bytes());
+        hasher.update(mac1.to_le_bytes());
+    }
+
+    // WDEV RNG (may return zeros without WiFi — harmless extra input)
+    for _ in 0..4u32 {
+        let rng_val = unsafe { core::ptr::read_volatile(0x6003_5144u32 as *const u32) };
+        hasher.update(rng_val.to_le_bytes());
         for _ in 0..160u32 { core::hint::spin_loop(); }
     }
+
+    // Camera DMA write buffer — first 64 bytes of sensor noise (Waveshare only)
+    #[cfg(feature = "waveshare")]
+    if let Some(pixels) = crate::hw::cam_dma::get_entropy_bytes() {
+        let len = pixels.len().min(64);
+        hasher.update(&pixels[..len]);
+    }
+
+    // Domain separator
+    hasher.update([0xAE, 0x5C]);
+
+    let hash = hasher.finalize();
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&hash[..12]);
     nonce
 }
 
