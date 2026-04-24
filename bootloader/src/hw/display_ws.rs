@@ -219,7 +219,7 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
         s if s.starts_with("Seed Tools")  => draw_icon!(size24px::git::GitFork),
         s if s.starts_with("Single Sig")  => draw_icon!(size24px::security::PasswordCursor),
         s if s.starts_with("Multisig")    => draw_icon!(size24px::users::Group),
-        s if s == "Address"               => draw_icon!(size24px::finance::AppleWallet),
+        "Address"                          => draw_icon!(size24px::finance::AppleWallet),
         s if s.starts_with("Show Seed")   => draw_icon!(size24px::actions::OpenNewWindow),
         s if s.starts_with("Show as QR")  => draw_icon!(size24px::other::QrCode),
         s if s.starts_with("Encrypt to")  => draw_icon!(size24px::actions::UploadSquare),

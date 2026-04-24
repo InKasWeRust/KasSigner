@@ -1658,7 +1658,7 @@ pub fn draw_prop_text_opaque<D: DrawTarget<Color = Rgb565>>(
                 );
                 let _ = display.fill_contiguous(
                     &area,
-                    core::iter::repeat(bg).take((gap as usize) * (height as usize)),
+                    core::iter::repeat_n(bg, (gap as usize) * (height as usize)),
                 );
             }
             cx += gap;
@@ -1698,7 +1698,7 @@ pub fn draw_prop_text_opaque<D: DrawTarget<Color = Rgb565>>(
             );
             let _ = display.fill_contiguous(
                 &gap_area,
-                core::iter::repeat(bg).take(height as usize),
+                core::iter::repeat_n(bg, height as usize),
             );
         }
         cx += cw as i32 + 1;

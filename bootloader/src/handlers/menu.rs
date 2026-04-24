@@ -532,8 +532,6 @@ pub fn handle_menu_touch(
                                                 let rng_val = unsafe {
                                                     core::ptr::read_volatile(0x6003_5144u32 as *const u32)
                                                 };
-                                                if i < 4 {
-                                                }
                                                 trng_buf[i*4]     = (rng_val & 0xFF) as u8;
                                                 trng_buf[i*4 + 1] = ((rng_val >> 8) & 0xFF) as u8;
                                                 trng_buf[i*4 + 2] = ((rng_val >> 16) & 0xFF) as u8;
@@ -560,7 +558,7 @@ pub fn handle_menu_touch(
                                                 hasher.update(mac1.to_le_bytes());
                                             }
                                             // Mix idle_ticks (touch/display loop counter — varies with user interaction timing)
-                                            hasher.update((ad.idle_ticks as u32).to_le_bytes());
+                                            hasher.update(ad.idle_ticks.to_le_bytes());
                                             hasher.update([0x01]); // domain separator
                                             let hash = hasher.finalize();
                                             for i in 0..32 { pool[i] ^= hash[i]; }
@@ -627,8 +625,6 @@ pub fn handle_menu_touch(
                                                 delay.delay_millis(80);
                                                 crate::hw::cam_dma::poll_done();
                                                 if let Some(pixels) = crate::hw::cam_dma::get_entropy_bytes() {
-                                                    if frame_idx == 0 {
-                                                    }
                                                     let t0 = ad.idle_ticks;
                                                     use sha2::{Sha256, Digest};
                                                     let mut hasher = Sha256::new();
@@ -693,7 +689,7 @@ pub fn handle_menu_touch(
                                                 }
                                             }
                                             // idle_ticks again (changed since round 1 due to camera captures)
-                                            hasher.update((ad.idle_ticks as u32).to_le_bytes());
+                                            hasher.update(ad.idle_ticks.to_le_bytes());
                                             hasher.update([0x03]); // domain separator
                                             let final_hash = hasher.finalize();
                                             // Replace pool with final whitened entropy

@@ -674,7 +674,7 @@ fn main() -> ! {
     // so main's frame only holds a pointer; downstream code reborrows
     // through `ad` unchanged.
     let mut ad_box = alloc::boxed::Box::new(AppData::new());
-    let mut ad: &mut AppData = &mut *ad_box;
+    let ad: &mut AppData = &mut ad_box;
 
     // Override cam_tune defaults for OV2640 — proven QR decode settings
     #[cfg(feature = "waveshare")]
@@ -746,7 +746,7 @@ fn main() -> ! {
                 }
                 if wake_confirm_count >= WAKE_CONFIRM_REQUIRED {
                     wake_confirm_count = 0;
-                    if handle_wake(&mut ad, &mut i2c, &mut delay, &mut tracker,
+                    if handle_wake(ad, &mut i2c, &mut delay, &mut tracker,
                                    &mut wake_debounce, touch_state, is_touch) {
                         continue;
                     }
@@ -784,7 +784,7 @@ fn main() -> ! {
         }
 
         // Idle dimming / sleep
-        handle_idle(&mut ad, &mut i2c, &mut dim_active, IDLE_DIM_TICKS, IDLE_SLEEP_TICKS);
+        handle_idle(ad, &mut i2c, &mut dim_active, IDLE_DIM_TICKS, IDLE_SLEEP_TICKS);
 
         // ─── Touch dispatch ──────────────────────────────────────
         if wake_debounce > 0 {
@@ -817,37 +817,37 @@ fn main() -> ! {
 
             let result = match ad.app.state.handler_group() {
                 HandlerGroup::Menu => handlers::menu::handle_menu_touch(
-                    &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                    ad, &mut boot_display, &mut delay, &mut i2c,
                     &_bb_card_type, &mut dvp_camera_opt, &mut cam_dma_buf_opt,
                     &grid_zones, &list_zones, &page_up_zone, &page_down_zone,
                     x, y, is_back,
                 ),
                 HandlerGroup::Stego => handlers::stego::handle_stego_touch(
-                    &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                    ad, &mut boot_display, &mut delay, &mut i2c,
                     &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
                     x, y, is_back,
                 ),
                 HandlerGroup::Sd => handlers::sd::handle_sd_touch(
-                    &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                    ad, &mut boot_display, &mut delay, &mut i2c,
                     &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
                     x, y, is_back,
                 ),
                 HandlerGroup::Seed => handlers::seed::handle_seed_touch(
-                    &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                    ad, &mut boot_display, &mut delay, &mut i2c,
                     x, y, is_back,
                 ),
                 HandlerGroup::Export => handlers::export::handle_export_touch(
-                    &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                    ad, &mut boot_display, &mut delay, &mut i2c,
                     &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
                     x, y, is_back,
                 ),
                 HandlerGroup::Settings => handlers::settings::handle_settings_touch(
-                    &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                    ad, &mut boot_display, &mut delay, &mut i2c,
                     &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
                     x, y, is_back,
                 ),
                 HandlerGroup::Tx => handlers::tx::handle_tx_touch(
-                    &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                    ad, &mut boot_display, &mut delay, &mut i2c,
                     &_bb_card_type, &list_zones,
                     x, y, is_back,
                 ),
@@ -882,23 +882,23 @@ fn main() -> ! {
                     let fake_y = 138u16;
                     let result = match ad.app.state.handler_group() {
                         HandlerGroup::Menu => handlers::menu::handle_menu_touch(
-                            &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                            ad, &mut boot_display, &mut delay, &mut i2c,
                             &_bb_card_type, &mut dvp_camera_opt, &mut cam_dma_buf_opt,
                             &grid_zones, &list_zones, &page_up_zone, &page_down_zone,
                             fake_x, fake_y, false,
                         ),
                         HandlerGroup::Stego => handlers::stego::handle_stego_touch(
-                            &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                            ad, &mut boot_display, &mut delay, &mut i2c,
                             &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
                             fake_x, fake_y, false,
                         ),
                         HandlerGroup::Export => handlers::export::handle_export_touch(
-                            &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                            ad, &mut boot_display, &mut delay, &mut i2c,
                             &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
                             fake_x, fake_y, false,
                         ),
                         HandlerGroup::Settings => handlers::settings::handle_settings_touch(
-                            &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                            ad, &mut boot_display, &mut delay, &mut i2c,
                             &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
                             fake_x, fake_y, false,
                         ),
@@ -915,23 +915,23 @@ fn main() -> ! {
                     let fake_y = 138u16;
                     let result = match ad.app.state.handler_group() {
                         HandlerGroup::Menu => handlers::menu::handle_menu_touch(
-                            &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                            ad, &mut boot_display, &mut delay, &mut i2c,
                             &_bb_card_type, &mut dvp_camera_opt, &mut cam_dma_buf_opt,
                             &grid_zones, &list_zones, &page_up_zone, &page_down_zone,
                             fake_x, fake_y, false,
                         ),
                         HandlerGroup::Stego => handlers::stego::handle_stego_touch(
-                            &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                            ad, &mut boot_display, &mut delay, &mut i2c,
                             &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
                             fake_x, fake_y, false,
                         ),
                         HandlerGroup::Export => handlers::export::handle_export_touch(
-                            &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                            ad, &mut boot_display, &mut delay, &mut i2c,
                             &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
                             fake_x, fake_y, false,
                         ),
                         HandlerGroup::Settings => handlers::settings::handle_settings_touch(
-                            &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                            ad, &mut boot_display, &mut delay, &mut i2c,
                             &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
                             fake_x, fake_y, false,
                         ),
@@ -965,7 +965,7 @@ fn main() -> ! {
         }
 
         // ─── Signing, redraw, camera ─────────────────────────────
-        app::signing::handle_signing_step(&mut ad, &mut boot_display);
+        app::signing::handle_signing_step(ad, &mut boot_display);
 
         if ad.needs_redraw {
             ad.idle_ticks = 0;
@@ -979,7 +979,7 @@ fn main() -> ! {
                 #[cfg(feature = "waveshare")]
                 { ad.ms_scroll = 0; }
             }
-            ui::redraw::redraw_screen(&mut ad, &mut boot_display, &mut i2c, &_bb_card_type);
+            ui::redraw::redraw_screen(ad, &mut boot_display, &mut i2c, &_bb_card_type);
             // Mirror mode: request non-blocking frame dump
             #[cfg(feature = "mirror")]
             hw::screenshot::request_frame();
@@ -995,7 +995,7 @@ fn main() -> ! {
         if ad.stego_auto_scan && ad.app.state == app::input::AppState::StegoModeSelect {
             ad.stego_auto_scan = false;
             let result = handlers::stego::handle_stego_touch(
-                &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                ad, &mut boot_display, &mut delay, &mut i2c,
                 &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
                 160, 120, false,
             );
@@ -1035,7 +1035,7 @@ fn main() -> ! {
             }
 
             handlers::camera_loop::run_camera_cycle(
-                &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                ad, &mut boot_display, &mut delay, &mut i2c,
                 &mut dvp_camera_opt, &mut cam_status,
                 &mut cam_dma_buf_opt, &mut tracker,
             );
@@ -1057,14 +1057,14 @@ fn main() -> ! {
                         == app::input::AppState::CameraSettings
                     {
                         handlers::settings::handle_settings_touch(
-                            &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                            ad, &mut boot_display, &mut delay, &mut i2c,
                             &_bb_card_type, &list_zones,
                             &page_up_zone, &page_down_zone,
                             x, y, is_back,
                         )
                     } else {
                         handlers::tx::handle_tx_touch(
-                            &mut ad, &mut boot_display, &mut delay, &mut i2c,
+                            ad, &mut boot_display, &mut delay, &mut i2c,
                             &_bb_card_type, &list_zones,
                             x, y, is_back,
                         )
@@ -1082,8 +1082,8 @@ fn main() -> ! {
             }
         }
 
-        app::signing::cycle_signed_qr(&mut ad, &mut boot_display, &mut delay, &mut i2c);
-        handlers::export::cycle_kpub_qr(&mut ad, &mut boot_display);
+        app::signing::cycle_signed_qr(ad, &mut boot_display, &mut delay, &mut i2c);
+        handlers::export::cycle_kpub_qr(ad, &mut boot_display);
         delay.delay_millis(1);
     }
 }

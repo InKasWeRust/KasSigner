@@ -58,12 +58,12 @@ use crate::wallet::transaction::{
 ///   - Envelope stage: bad magic, too short, truncated.
 ///   - Hex stage:      odd length, non-hex, uppercase.
 ///   - JSON stage:     unexpected token, missing/duplicate field, etc.
-///                     (populated in Step 2/3.)
+///     (populated in Step 2/3.)
 ///   - Semantic:       invalid sighash, invalid version, ECDSA rejected,
-///                     too many inputs/outputs/sigs, etc.
-///                     (populated in Step 3.)
+///     too many inputs/outputs/sigs, etc.
+///     (populated in Step 3.)
 ///   - Output:         buffer too small, scratch too small.
-///                     (populated in Step 5.)
+///     (populated in Step 5.)
 ///
 /// `Copy` so it can be returned from parser helpers without borrows
 /// propagating. `repr(u8)` so it fits in tight match arms in camera_loop.

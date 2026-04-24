@@ -53,6 +53,7 @@ fn hex_nibble(ch: u8) -> u8 {
 /// that's intentional: v1.0.x multisigs cannot be rebuilt as HD wallets
 /// because the account-level xpub (needed for child derivation) was never
 /// recorded.
+#[allow(clippy::type_complexity)]
 fn parse_descriptor(
     data: &[u8],
 ) -> Option<(

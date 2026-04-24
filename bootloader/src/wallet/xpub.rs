@@ -275,7 +275,7 @@ pub fn derive_account_raw_kpub_payload(
     // (matches kaspad convention — see serialize_kpub for rationale).
     let parent_sha = {
         let mut h = Sha256::new();
-        h.update(&parent_pubkey);
+        h.update(parent_pubkey);
         let result: [u8; 32] = h.finalize().into();
         result
     };

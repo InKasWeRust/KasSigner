@@ -133,7 +133,7 @@ pub fn run_tests() -> (u32, u32) {
     // Test 3: classify V1 raw (header 0x01)
     {
         let blob = [0x01u8, 0xAA, 0xBB, 0xCC];
-        if matches!(classify(&blob), PayloadKind::V1Raw(b) if b == &[0xAA, 0xBB, 0xCC]) {
+        if matches!(classify(&blob), PayloadKind::V1Raw(b) if b == [0xAA, 0xBB, 0xCC]) {
             passed += 1;
         }
     }
@@ -153,7 +153,7 @@ pub fn run_tests() -> (u32, u32) {
         if let Some(n) = wrap_v1_raw(&data, &mut out) {
             if n == 5 && out[0] == PAYLOAD_V1_RAW && out[1..5] == data {
                 // Round-trip through classify
-                if matches!(classify(&out[..n]), PayloadKind::V1Raw(b) if b == &data) {
+                if matches!(classify(&out[..n]), PayloadKind::V1Raw(b) if b == data) {
                     passed += 1;
                 }
             }
