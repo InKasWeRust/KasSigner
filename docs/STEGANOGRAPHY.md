@@ -20,7 +20,7 @@ KasSigner embeds encrypted seeds into JPEG photographs using EXIF metadata. EXIF
 
 KasSigner uses two EXIF fields:
 
-**`ImageDescription`** — This is your password. Not a cover story for the password. Not a hint toward the password. It *is* the password, typed into the photo's metadata where any viewer can see it. It looks like a caption: *"Sunset at Playa Blanca, Aug 2024"*. Anyone inspecting the EXIF sees a normal description. What they cannot know is that this exact string of characters — every letter, every space, every comma — was fed through PBKDF2 with 10,000 iterations of HMAC-SHA512 to derive a 256-bit AES key.
+**`ImageDescription`** — This is your password. Not a cover story for the password. Not a hint toward the password. It *is* the password, typed into the photo's metadata where any viewer can see it. It looks like a caption: *"Sunset at Playa Blanca, Aug 2024"*. Anyone inspecting the EXIF sees a normal description. What they cannot know is that this exact string of characters — every letter, every space, every comma — was fed through PBKDF2 with 100,000 iterations of HMAC-SHA512 to derive a 256-bit AES key.
 
 **`UserComment`** — This holds the encrypted seed. Base64-encoded, it looks like garbled metadata — the kind of string a camera firmware might write, the kind nobody questions. Inside it: a 12-byte random nonce, the seed word indices encrypted with AES-256-GCM, and a 16-byte authentication tag that ensures even a single bit flip is detected.
 
@@ -117,7 +117,7 @@ ImageDescription text (UTF-8 bytes)
     ▼
 PBKDF2-HMAC-SHA512
     Salt: "KasSigner-SD-v1" (15 bytes, fixed)
-    Iterations: 10,000
+    Iterations: 100,000
     │
     ▼
 256-bit AES key

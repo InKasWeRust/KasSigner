@@ -268,7 +268,7 @@ pub fn handle_stego_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); needs_redraw = true; } // PAGE — full redraw
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "IMAGE DESCRIPTOR"); }
                                 5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "IMAGE DESCRIPTOR"); }
                                 6 => {
@@ -394,7 +394,7 @@ pub fn handle_stego_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "CUSTOM HINT"); }
                                 5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "CUSTOM HINT"); }
                                 6 => {
@@ -727,7 +727,7 @@ pub fn handle_stego_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "IMAGE DESCRIPTOR"); }
                                 5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "IMAGE DESCRIPTOR"); }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "IMAGE DESCRIPTOR"); }
@@ -888,7 +888,7 @@ pub fn handle_stego_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "25TH WORD"); }
                                 5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "25TH WORD"); }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "25TH WORD"); }

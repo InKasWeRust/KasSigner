@@ -73,7 +73,7 @@ The Dockerfile pins every component of the build environment:
 - **espup 0.16.0** — installs exact Xtensa Rust toolchain
 - **Xtensa Rust (esp fork)** — the cross-compiler (version pinned by espup)
 - **Cargo.lock** — pins every dependency version
-- **espflash 4.3.0** — image creation tool
+- **espflash 3.3.0** — image creation tool
 
 Because every input is frozen, the output is deterministic.
 Same source + same tools = same binary, every time.

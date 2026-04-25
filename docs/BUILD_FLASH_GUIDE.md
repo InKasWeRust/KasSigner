@@ -11,7 +11,7 @@
 
 - Docker Desktop installed and running
 - `kassigner-toolchain:v2` Docker image present (`docker images | grep kassigner-toolchain`)
-- `esptool` installed (`pip install esptool`)
+- `esptool` installed (`pip3 install esptool`)
 - `espflash` installed (`cargo install espflash`)
 - ESP Rust toolchain installed (for local builds only)
 - RSA signing key at `<your_secure_boot_key>.pem` (eFuse devices only)
@@ -100,13 +100,13 @@ docker rm ks-extract
 shasum -a 256 kassigner-waveshare.bin
 
 # 3. Sign with RSA key for Secure Boot
-espsecure.py sign_data --version 2 \
+python3 -m espsecure sign_data --version 2 \
   --keyfile <your_secure_boot_key>.pem \
   --output kassigner-waveshare-signed.bin \
   kassigner-waveshare.bin
 
 # 4. Flash
-esptool --port /dev/cu.usbmodem21201 --baud 460800 \
+python3 -m esptool --port /dev/cu.usbmodem21201 --baud 460800 \
   write_flash 0x10000 kassigner-waveshare-signed.bin
 
 # 5. Monitor (must use --no-stub for eFuse devices)
@@ -169,13 +169,13 @@ espflash save-image --chip esp32s3 \
   kassigner-app.bin
 
 # 4. Sign with RSA key for Secure Boot
-espsecure.py sign_data --version 2 \
+python3 -m espsecure sign_data --version 2 \
   --keyfile <your_secure_boot_key>.pem \
   --output kassigner-app-signed.bin \
   kassigner-app.bin
 
 # 5. Flash
-esptool --port /dev/cu.usbmodem21201 --baud 460800 \
+python3 -m esptool --port /dev/cu.usbmodem21201 --baud 460800 \
   write_flash 0x10000 kassigner-app-signed.bin
 
 # 6. Monitor
@@ -201,7 +201,7 @@ docker create --name ks-extract kassigner-build:latest
 docker cp ks-extract:/build/kassigner-m5stack.bin kassigner-m5stack.bin
 docker rm ks-extract
 
-esptool --port /dev/cu.usbmodem21201 write_flash 0x10000 kassigner-m5stack.bin
+python3 -m esptool --port /dev/cu.usbmodem21201 write_flash 0x10000 kassigner-m5stack.bin
 espflash monitor
 ```
 
@@ -232,7 +232,7 @@ cd web && python3 -m http.server 8080
 ### `espflash flash` fails on eFuse device
 eFuse devices with Secure Boot reject `espflash flash`. Use `esptool` instead:
 ```bash
-esptool --port /dev/cu.usbmodem21201 write_flash 0x10000 <signed.bin>
+python3 -m esptool --port /dev/cu.usbmodem21201 write_flash 0x10000 <signed.bin>
 ```
 
 ### `espflash monitor` fails on eFuse device

@@ -45,7 +45,7 @@ KasSigner also has a **software-level** Schnorr signature check (the `features/v
 Before ANY eFuse operation:
 
 - [ ] Board boots and runs KasSigner correctly
-- [ ] `espefuse.py summary` shows all security eFuses at default (0)
+- [ ] `python3 -m espefuse summary` shows all security eFuses at default (0)
 - [ ] Signing key generated and backed up to 3+ offline locations
 - [ ] Flash encryption key generated (if using flash encryption)
 - [ ] Signed bootloader + signed app both verified on a TEST board first
@@ -55,7 +55,7 @@ Before ANY eFuse operation:
 
 ```bash
 # Check what's already burned (should all be zero/default on a fresh board)
-espefuse.py --port /dev/tty.usbmodem* --chip esp32s3 summary
+python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 summary
 
 # Key fields to verify are at defaults:
 #   SECURE_BOOT_EN = False
@@ -72,7 +72,7 @@ This is the key that the ROM bootloader will use to verify firmware. It is DIFFE
 
 ```bash
 # Generate RSA-3072 private key for Secure Boot v2
-espsecure.py generate_signing_key --version 2 --scheme rsa3072 \
+python3 -m espsecure generate_signing_key --version 2 --scheme rsa3072 \
     secure_boot_v2_key.pem
 
 # BACK THIS UP IMMEDIATELY:
@@ -86,7 +86,7 @@ espsecure.py generate_signing_key --version 2 --scheme rsa3072 \
 **Optional but recommended:** Generate a second key for redundancy.
 
 ```bash
-espsecure.py generate_signing_key --version 2 --scheme rsa3072 \
+python3 -m espsecure generate_signing_key --version 2 --scheme rsa3072 \
     secure_boot_v2_key_backup.pem
 ```
 
@@ -94,12 +94,12 @@ espsecure.py generate_signing_key --version 2 --scheme rsa3072 \
 
 ```bash
 # Primary key
-espsecure.py digest_sbv2_public_key \
+python3 -m espsecure digest_sbv2_public_key \
     --keyfile secure_boot_v2_key.pem \
     --output digest0.bin
 
 # Backup key (if using)
-espsecure.py digest_sbv2_public_key \
+python3 -m espsecure digest_sbv2_public_key \
     --keyfile secure_boot_v2_key_backup.pem \
     --output digest1.bin
 ```
@@ -110,11 +110,11 @@ espsecure.py digest_sbv2_public_key \
 
 ```bash
 # Burn primary key digest to BLOCK_KEY0
-espefuse.py --port /dev/tty.usbmodem* --chip esp32s3 \
+python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_key BLOCK_KEY0 digest0.bin SECURE_BOOT_DIGEST0
 
 # If using backup key, burn to BLOCK_KEY1
-espefuse.py --port /dev/tty.usbmodem* --chip esp32s3 \
+python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_key BLOCK_KEY1 digest1.bin SECURE_BOOT_DIGEST1
 ```
 
@@ -126,14 +126,14 @@ Any unused SECURE_BOOT_DIGEST slot MUST be revoked. If you used only digest0:
 
 ```bash
 # Revoke unused slots (if only using 1 key)
-espefuse.py --port /dev/tty.usbmodem* --chip esp32s3 \
+python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse SECURE_BOOT_KEY_REVOKE1
 
-espefuse.py --port /dev/tty.usbmodem* --chip esp32s3 \
+python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse SECURE_BOOT_KEY_REVOKE2
 
 # If using 2 keys (digest0 + digest1), only revoke slot 2:
-# espefuse.py --port ... burn_efuse SECURE_BOOT_KEY_REVOKE2
+# python3 -m espefuse --port ... burn_efuse SECURE_BOOT_KEY_REVOKE2
 ```
 
 ## Step 5: Build and Sign Firmware
@@ -142,15 +142,15 @@ The second-stage bootloader and app must be signed with the RSA-3072 key. Since 
 
 ```bash
 # Sign the bootloader binary
-espsecure.py sign_data --version 2 --keyfile secure_boot_v2_key.pem \
+python3 -m espsecure sign_data --version 2 --keyfile secure_boot_v2_key.pem \
     --output bootloader-signed.bin bootloader.bin
 
 # Sign the app binary  
-espsecure.py sign_data --version 2 --keyfile secure_boot_v2_key.pem \
+python3 -m espsecure sign_data --version 2 --keyfile secure_boot_v2_key.pem \
     --output kassigner-signed.bin kassigner-bootloader.bin
 
 # If using backup key, append second signature:
-espsecure.py sign_data --version 2 --keyfile secure_boot_v2_key_backup.pem \
+python3 -m espsecure sign_data --version 2 --keyfile secure_boot_v2_key_backup.pem \
     --append_signatures \
     --output kassigner-signed.bin kassigner-signed.bin
 ```
@@ -161,7 +161,7 @@ espsecure.py sign_data --version 2 --keyfile secure_boot_v2_key_backup.pem \
 
 ```bash
 # Flash the signed bootloader and app
-espflash flash --chip esp32s3 kassigner-signed.bin
+python3 -m esptool --port /dev/cu.usbmodem* --baud 460800 write_flash 0x10000 kassigner-signed.bin
 
 # Verify it boots correctly
 # Monitor serial output to confirm boot succeeds
@@ -172,7 +172,7 @@ espflash flash --chip esp32s3 kassigner-signed.bin
 **POINT OF NO RETURN. After this, only signed firmware will boot.**
 
 ```bash
-espefuse.py --port /dev/tty.usbmodem* --chip esp32s3 \
+python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse SECURE_BOOT_EN
 ```
 
@@ -182,22 +182,22 @@ For production boards, additional eFuses should be burned to prevent attacks:
 
 ```bash
 # Disable JTAG (prevents debug probe access)
-espefuse.py --port /dev/tty.usbmodem* --chip esp32s3 \
+python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse DIS_PAD_JTAG
     
-espefuse.py --port /dev/tty.usbmodem* --chip esp32s3 \
+python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse DIS_USB_JTAG
 
 # Disable USB Serial/JTAG  
-espefuse.py --port /dev/tty.usbmodem* --chip esp32s3 \
+python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse DIS_USB_SERIAL_JTAG
 
 # Disable direct boot (force secure boot path)
-espefuse.py --port /dev/tty.usbmodem* --chip esp32s3 \
+python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse DIS_DIRECT_BOOT
 
 # Enable secure download mode (restricts what UART download can do)
-espefuse.py --port /dev/tty.usbmodem* --chip esp32s3 \
+python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse ENABLE_SECURITY_DOWNLOAD
 ```
 
@@ -209,18 +209,18 @@ Flash encryption prevents reading firmware from the flash chip. This must be don
 
 ```bash
 # Generate flash encryption key
-espsecure.py generate_flash_encryption_key flash_encrypt_key.bin
+python3 -m espsecure generate_flash_encryption_key flash_encrypt_key.bin
 
 # Burn flash encryption key
-espefuse.py --port /dev/tty.usbmodem* --chip esp32s3 \
+python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_key BLOCK_KEY2 flash_encrypt_key.bin XTS_AES_128_KEY
 
 # Enable flash encryption (permanently)
-espefuse.py --port /dev/tty.usbmodem* --chip esp32s3 \
+python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse SPI_BOOT_CRYPT_CNT 0x7
 
 # Disable manual encryption in download mode
-espefuse.py --port /dev/tty.usbmodem* --chip esp32s3 \
+python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse DIS_DOWNLOAD_MANUAL_ENCRYPT
 ```
 
@@ -261,7 +261,7 @@ If flash encryption is enabled and the encryption key is lost:
 
 ```bash
 # Confirm secure boot is active
-espefuse.py --port /dev/tty.usbmodem* --chip esp32s3 summary | grep -E "SECURE_BOOT|KEY_PURPOSE|KEY_REVOKE"
+python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 summary | grep -E "SECURE_BOOT|KEY_PURPOSE|KEY_REVOKE"
 
 # Expected output (with 1 key):
 #   SECURE_BOOT_EN = True

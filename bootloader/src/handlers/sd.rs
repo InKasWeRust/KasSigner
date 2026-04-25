@@ -335,7 +335,7 @@ pub fn handle_sd_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); }
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "SEED FILENAME"); }
                                 5 => { /* no space in filenames */ }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "SEED FILENAME"); }
@@ -364,7 +364,7 @@ pub fn handle_sd_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); }
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "SIG FILENAME"); }
                                 5 => { /* no space in filenames */ }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "SIG FILENAME"); }
@@ -413,7 +413,7 @@ pub fn handle_sd_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); }
                                 5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); }
@@ -802,7 +802,7 @@ pub fn handle_sd_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
                                 5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
@@ -894,7 +894,7 @@ pub fn handle_sd_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "XPRV FILENAME"); }
                                 5 => { /* no space in filenames */ }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "XPRV FILENAME"); }
@@ -924,7 +924,7 @@ pub fn handle_sd_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
                                 5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
@@ -1039,7 +1039,7 @@ pub fn handle_sd_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
                                 5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
@@ -1570,7 +1570,7 @@ pub fn handle_sd_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); }
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "FILENAME"); }
                                 5 => { /* no space in filenames — ignore */ }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "FILENAME"); }
@@ -1788,7 +1788,7 @@ pub fn handle_sd_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "KPUB FILENAME"); }
                                 5 => { /* no space in filenames */ }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "KPUB FILENAME"); }
@@ -1817,7 +1817,7 @@ pub fn handle_sd_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "ADDRESS FILENAME"); }
                                 5 => { /* no space in filenames */ }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "ADDRESS FILENAME"); }
@@ -1886,7 +1886,7 @@ pub fn handle_sd_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "DESCRIPTOR FILENAME"); }
                                 5 => { /* no space in filenames */ }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "DESCRIPTOR FILENAME"); }
@@ -1969,7 +1969,7 @@ pub fn handle_sd_touch(
                             needs_redraw = true;
                         } else {
                             match pp_keyboard_hit(x, y, &mut ad.pp_input) {
-                                2 => { ad.pp_input.next_page(); needs_redraw = true; }
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
                                 4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); }
                                 5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); }

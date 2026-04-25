@@ -386,6 +386,8 @@ fn process_confirmed_qr(
             ad.word_count = wc;
             log!("   → SeedQR imported ({} words) → passphrase", wc);
             sound::qr_decoded(delay);
+            #[cfg(feature = "waveshare")]
+            crate::hw::cam_dma::stop();
             ad.pp_input.reset();
             ad.app.state = crate::app::input::AppState::PassphraseEntry;
             ad.needs_redraw = true;
@@ -402,6 +404,8 @@ fn process_confirmed_qr(
             ad.word_count = wc;
             log!("   → CompactSeedQR imported ({} words) → passphrase", wc);
             sound::qr_decoded(delay);
+            #[cfg(feature = "waveshare")]
+            crate::hw::cam_dma::stop();
             ad.pp_input.reset();
             ad.app.state = crate::app::input::AppState::PassphraseEntry;
             ad.needs_redraw = true;

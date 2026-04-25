@@ -2170,6 +2170,11 @@ pub fn draw_home_grid(&mut self) {
         crate::ui::keyboard::draw_keyboard(&mut self.display, crate::ui::keyboard::KeyboardMode::Full, pp_input.page);
     }
 
+    /// Redraw only the keyboard keys (for page toggle — no screen clear, no header, no text)
+    pub fn draw_keyboard_keys_only(&mut self, pp_input: &crate::ui::seed_manager::PassphraseInput) {
+        crate::ui::keyboard::draw_keyboard(&mut self.display, crate::ui::keyboard::KeyboardMode::Full, pp_input.page);
+    }
+
     /// Draw seed list screen showing all populated slots + controls
     /// Layout: title, up to 4 slot rows, "New" button at bottom
     /// Each slot: [fingerprint] [12w/24w] [PP] — tap to activate
