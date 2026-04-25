@@ -63,7 +63,7 @@ let customRestUrl = null;
 const BROADCAST_ENABLED = true;
 
 // Donation address
-const DONATE_ADDRESS = 'kaspa:qqts8pkq5cyf63dxx5j96gm74dah5jwx7ltqflrscpt3dmrz6adqc5grpeke3';
+const DONATE_ADDRESS = 'kaspa:qqz0xdq9tu92hgraa89rcmae23f8h09zzzsy4f4agvasmsw3958cza0mv7x86';
 const DONATE_KNS = 'kassigner.kns';
 
 // Kasplex API for KRC20 token balances
@@ -74,8 +74,8 @@ const KASPLEX_API = {
 
 // KNS domain → address lookup (hardcoded until KNS provides a public API)
 const KNS_LOOKUP = {
-    'kassigner.kas': 'kaspa:qqts8pkq5cyf63dxx5j96gm74dah5jwx7ltqflrscpt3dmrz6adqc5grpeke3',
-    'inkaswerust.kas': 'kaspa:qqts8pkq5cyf63dxx5j96gm74dah5jwx7ltqflrscpt3dmrz6adqc5grpeke3',
+    'kassigner.kas': 'kaspa:qqz0xdq9tu92hgraa89rcmae23f8h09zzzsy4f4agvasmsw3958cza0mv7x86',
+    'inkaswerust.kas': 'kaspa:qqz0xdq9tu92hgraa89rcmae23f8h09zzzsy4f4agvasmsw3958cza0mv7x86',
 };
 
 // KRC721 NFT indexer API
