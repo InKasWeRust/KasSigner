@@ -18,7 +18,7 @@ KasSigner is an open-source signing device built on ESP32-S3. It generates priva
 
 - **Fully air-gapped** — no WiFi, Bluetooth, or USB data. All I/O via QR codes, touchscreen, and SD card
 - **No persistent storage** — all keys live in RAM only, wiped on every power-off
-- **BIP39 seed generation** — 12 or 24 words from hardware entropy (camera sensor noise, chip-unique eFuse, timing jitter) or manual dice rolls
+- **BIP39 seed generation** — 12 or 24 words from camera frame entropy + eFuse UID + SYSTIMER + timing jitter (mixed via SHA-256), or manual dice rolls
 - **BIP32 HD key derivation** — Kaspa path `m/44'/111111'/0'`
 - **BIP39 passphrase (25th word)** — optional passphrase creates a hidden wallet; decoy wallet without it
 - **BIP85 child mnemonics** — derive independent child wallets from a master seed
@@ -127,6 +127,7 @@ Speaker:     AW88298 via I2S1 (DMA)
 
 - Rust with the Xtensa ESP32-S3 target (`espup install`)
 - [espflash](https://github.com/esp-rs/espflash) for flashing
+- USB-C data cable (not charge-only)
 
 Run the setup checker to verify your environment:
 
@@ -141,14 +142,24 @@ cargo run --bin kassigner-setup
 git clone https://github.com/InKasWeRust/KasSigner.git
 cd KasSigner/bootloader
 
-# Waveshare ESP32-S3-Touch-LCD-2 (default)
-ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release
+# Waveshare ESP32-S3-Touch-LCD-2 (default, OV5640)
+ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release --features skip-tests
+
+# Waveshare (OV2640 wide-angle camera)
+ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release --features skip-tests,ov2640-wide
 
 # M5Stack CoreS3 / CoreS3 Lite
 cargo run --release --no-default-features --features m5stack
+```
 
-# Development build (skip hardware self-tests for faster iteration)
-ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release --features skip-tests
+### Flash a pre-built release binary
+
+Download from [Releases](https://github.com/InKasWeRust/KasSigner/releases), verify the SHA-256 hash, then flash:
+
+```bash
+pip3 install esptool
+python3 -m esptool --port /dev/cu.usbmodem* --baud 460800 \
+  write_flash 0x10000 kassigner-waveshare.bin
 ```
 
 ### One-step installer (macOS only)
@@ -202,19 +213,24 @@ KasSee connects to a public Kaspa node automatically. To use your own node, open
 
 - **Import kpub** — scan QR or paste the extended public key exported from KasSigner
 - **Dashboard** — live balance, UTXO count, funded addresses
-- **Send** — build unsigned PSKB transactions with fee estimation (low / normal / priority)
+- **Send** — build unsigned KSPT transactions with fee estimation (low / normal / priority)
 - **Send Max** — sweep all UTXOs to a single destination
-- **Receive** — display receive address with QR code and tap-to-verify
+- **UTXO selection** — manually select up to 8 UTXOs when sending to stay within the signer's input limit
+- **Receive** — display next unused receive address with QR code (auto-skips funded and used addresses)
+- **Address reuse prevention** — funded addresses show an orange badge, spent addresses show gray; explorer links on every address
 - **Broadcast** — scan signed QR from KasSigner and submit to the network
-- **Dual format support** — handles both standard PSKB (Partially Signed Kaspa Binary) and KSPT v2 (KasSigner compact transport)
-- **UTXO explorer** — view and manually select UTXOs for transaction building
-- **Address list** — all derived addresses with tap-to-verify and long-press-to-copy
+- **Dual format support** — handles both PSKT/PSKB (Kaspa standard) and KSPT (KasSigner compact transport)
+- **UTXO explorer** — view all UTXOs with selectable checkboxes for consolidation
+- **UTXO consolidation** — select up to 8 UTXOs and merge them into a single output; repeat in batches
+- **Address list** — all derived addresses with funded/used badges, explorer links, tap-to-verify and long-press-to-copy
 - **Address verification** — display address QR + derivation path for on-device verification
-- **Multisig** — create P2SH multisig addresses, build multisig spend transactions
-- **Transaction history** — track confirmed transactions
+- **Multisig** — create P2SH multisig addresses, build multisig spend transactions (PSKT/PSKB), relay between co-signers, broadcast fully signed transactions
+- **Token display** — KRC-20 token balances, KRC-721 NFT listings, KNS domain names
 - **Custom node** — connect to your own Kaspa node via Settings
 - **Camera scanner** — scan QR codes directly from the browser (kpub, signed TX, descriptors)
-- **Animated QR** — multi-frame QR display with frame indicator for reliable scanning
+- **Animated QR** — multi-frame QR display with pause/play control and frame indicator
+- **Address history** — optional used-address detection via self-hosted kaspa-rest-server
+- **Donation** — tap the KasSigner logo to see the project's donation address or prefill a send
 - **PWA** — installable as a progressive web app on mobile
 
 ### Building KasSee from source
@@ -244,7 +260,7 @@ cd web && python3 -m http.server 8080
 ```
 KasSee (browser)                KasSigner (device)
 ────────────────                ──────────────────
-1. Build unsigned PSKB
+1. Build unsigned TX (KSPT)
 2. Display as animated QR ─────→ 3. Scan QR
                                   4. Review TX on screen
                                   5. Sign with private key
@@ -257,7 +273,7 @@ KasSee (browser)                KasSigner (device)
 ```
 KasSee (browser)          Device A              Device B
 ────────────────          ────────              ────────
-1. Build PSKB
+1. Build PSKT/PSKB
 2. Display QR ──────────→ 3. Scan, review
                           4. Sign (1/2)
                           5. Show partial QR ──→ 6. Scan from A's screen
@@ -361,7 +377,7 @@ A tampered binary fails verification and halts boot.
 
 ## Documentation
 
-- [docs/KasSigner_User_Guide.pdf](docs/KasSigner_User_Guide.pdf) — complete user guide (44 pages)
+- [docs/KasSigner_User_Guide.pdf](docs/KasSigner_User_Guide.pdf) — complete user guide (38 pages)
 - [docs/KasSigner_Quick_Start_Guide.pdf](docs/KasSigner_Quick_Start_Guide.pdf) — quick start (5 pages)
 - [docs/KasSigner_Security_Architecture.pdf](docs/KasSigner_Security_Architecture.pdf) — security architecture
 - [docs/KasSee_User_Guide.pdf](docs/KasSee_User_Guide.pdf) — KasSee Web companion wallet guide
