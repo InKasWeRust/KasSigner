@@ -13,9 +13,19 @@ export function broadcast_signed(signed_hex: string, ws_url: string): Promise<st
 export function create_compound_kspt(wallet_json: string, recipients_json: string, fee_sompi: bigint, ws_url: string): Promise<string>;
 
 /**
+ * Create compound unsigned PSKB: multiple recipients.
+ */
+export function create_compound_pskb(wallet_json: string, recipients_json: string, fee_sompi: bigint, ws_url: string): Promise<string>;
+
+/**
  * Consolidate all UTXOs into one
  */
 export function create_consolidate_kspt(wallet_json: string, fee_sompi: bigint, ws_url: string): Promise<string>;
+
+/**
+ * Consolidate all UTXOs into one via PSKB format.
+ */
+export function create_consolidate_pskb(wallet_json: string, fee_sompi: bigint, ws_url: string): Promise<string>;
 
 /**
  * Create unsigned multisig spend KSPT
@@ -38,6 +48,12 @@ export function create_multisig_kspt(descriptor: string, source_address: string,
 export function create_multisig_pskb(descriptor: string, source_address: string, dest_address: string, amount_kas: number, fee_sompi: bigint, change_address: string, ws_url: string, addr_index: number): Promise<string>;
 
 /**
+ * Same as `create_multisig_pskb` but with explicit UTXO indices
+ * instead of greedy auto-selection.
+ */
+export function create_multisig_pskb_selected(descriptor: string, source_address: string, dest_address: string, amount_kas: number, fee_sompi: bigint, change_address: string, ws_url: string, addr_index: number, utxo_csv: string): Promise<string>;
+
+/**
  * Build unsigned KSPT from wallet, destination, amount, fee → return hex
  */
 export function create_send_kspt(wallet_json: string, dest_address: string, amount_kas: number, fee_sompi: bigint, ws_url: string): Promise<string>;
@@ -46,6 +62,18 @@ export function create_send_kspt(wallet_json: string, dest_address: string, amou
  * Create unsigned KSPT with specific UTXO indices (comma-separated)
  */
 export function create_send_kspt_selected(wallet_json: string, dest_address: string, amount_kas: number, fee_sompi: bigint, utxo_indices_csv: string, ws_url: string): Promise<string>;
+
+/**
+ * Create unsigned single-sig PSKB — same as `create_send_kspt` but
+ * emits a standard PSKB wire blob. Routes through the PSKT review
+ * screen on the JS side (same flow as multisig PSKB).
+ */
+export function create_send_pskb(wallet_json: string, dest_address: string, amount_kas: number, fee_sompi: bigint, ws_url: string): Promise<string>;
+
+/**
+ * Create unsigned PSKB with specific UTXO indices.
+ */
+export function create_send_pskb_selected(wallet_json: string, dest_address: string, amount_kas: number, fee_sompi: bigint, utxo_csv: string, ws_url: string): Promise<string>;
 
 /**
  * Decode a Kaspa address → JSON { version, payload_hex }
@@ -185,11 +213,16 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly broadcast_signed: (a: number, b: number, c: number, d: number) => any;
     readonly create_compound_kspt: (a: number, b: number, c: number, d: number, e: bigint, f: number, g: number) => any;
+    readonly create_compound_pskb: (a: number, b: number, c: number, d: number, e: bigint, f: number, g: number) => any;
     readonly create_consolidate_kspt: (a: number, b: number, c: bigint, d: number, e: number) => any;
+    readonly create_consolidate_pskb: (a: number, b: number, c: bigint, d: number, e: number) => any;
     readonly create_multisig_kspt: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: bigint, i: number, j: number, k: number, l: number, m: number) => any;
     readonly create_multisig_pskb: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: bigint, i: number, j: number, k: number, l: number, m: number) => any;
+    readonly create_multisig_pskb_selected: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: bigint, i: number, j: number, k: number, l: number, m: number, n: number, o: number) => any;
     readonly create_send_kspt: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number) => any;
     readonly create_send_kspt_selected: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number, i: number, j: number) => any;
+    readonly create_send_pskb: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number) => any;
+    readonly create_send_pskb_selected: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number, i: number, j: number) => any;
     readonly decode_address: (a: number, b: number) => [number, number, number, number];
     readonly decode_qr_frame: (a: number, b: number) => [number, number, number, number];
     readonly decoder_progress: () => [number, number];

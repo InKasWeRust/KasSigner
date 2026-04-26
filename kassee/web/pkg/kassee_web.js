@@ -36,6 +36,25 @@ export function create_compound_kspt(wallet_json, recipients_json, fee_sompi, ws
 }
 
 /**
+ * Create compound unsigned PSKB: multiple recipients.
+ * @param {string} wallet_json
+ * @param {string} recipients_json
+ * @param {bigint} fee_sompi
+ * @param {string} ws_url
+ * @returns {Promise<string>}
+ */
+export function create_compound_pskb(wallet_json, recipients_json, fee_sompi, ws_url) {
+    const ptr0 = passStringToWasm0(wallet_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(recipients_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(ws_url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.create_compound_pskb(ptr0, len0, ptr1, len1, fee_sompi, ptr2, len2);
+    return ret;
+}
+
+/**
  * Consolidate all UTXOs into one
  * @param {string} wallet_json
  * @param {bigint} fee_sompi
@@ -48,6 +67,22 @@ export function create_consolidate_kspt(wallet_json, fee_sompi, ws_url) {
     const ptr1 = passStringToWasm0(ws_url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ret = wasm.create_consolidate_kspt(ptr0, len0, fee_sompi, ptr1, len1);
+    return ret;
+}
+
+/**
+ * Consolidate all UTXOs into one via PSKB format.
+ * @param {string} wallet_json
+ * @param {bigint} fee_sompi
+ * @param {string} ws_url
+ * @returns {Promise<string>}
+ */
+export function create_consolidate_pskb(wallet_json, fee_sompi, ws_url) {
+    const ptr0 = passStringToWasm0(wallet_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(ws_url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.create_consolidate_pskb(ptr0, len0, fee_sompi, ptr1, len1);
     return ret;
 }
 
@@ -116,6 +151,37 @@ export function create_multisig_pskb(descriptor, source_address, dest_address, a
 }
 
 /**
+ * Same as `create_multisig_pskb` but with explicit UTXO indices
+ * instead of greedy auto-selection.
+ * @param {string} descriptor
+ * @param {string} source_address
+ * @param {string} dest_address
+ * @param {number} amount_kas
+ * @param {bigint} fee_sompi
+ * @param {string} change_address
+ * @param {string} ws_url
+ * @param {number} addr_index
+ * @param {string} utxo_csv
+ * @returns {Promise<string>}
+ */
+export function create_multisig_pskb_selected(descriptor, source_address, dest_address, amount_kas, fee_sompi, change_address, ws_url, addr_index, utxo_csv) {
+    const ptr0 = passStringToWasm0(descriptor, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(source_address, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(dest_address, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ptr3 = passStringToWasm0(change_address, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ptr4 = passStringToWasm0(ws_url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len4 = WASM_VECTOR_LEN;
+    const ptr5 = passStringToWasm0(utxo_csv, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len5 = WASM_VECTOR_LEN;
+    const ret = wasm.create_multisig_pskb_selected(ptr0, len0, ptr1, len1, ptr2, len2, amount_kas, fee_sompi, ptr3, len3, ptr4, len4, addr_index, ptr5, len5);
+    return ret;
+}
+
+/**
  * Build unsigned KSPT from wallet, destination, amount, fee → return hex
  * @param {string} wallet_json
  * @param {string} dest_address
@@ -155,6 +221,51 @@ export function create_send_kspt_selected(wallet_json, dest_address, amount_kas,
     const ptr3 = passStringToWasm0(ws_url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len3 = WASM_VECTOR_LEN;
     const ret = wasm.create_send_kspt_selected(ptr0, len0, ptr1, len1, amount_kas, fee_sompi, ptr2, len2, ptr3, len3);
+    return ret;
+}
+
+/**
+ * Create unsigned single-sig PSKB — same as `create_send_kspt` but
+ * emits a standard PSKB wire blob. Routes through the PSKT review
+ * screen on the JS side (same flow as multisig PSKB).
+ * @param {string} wallet_json
+ * @param {string} dest_address
+ * @param {number} amount_kas
+ * @param {bigint} fee_sompi
+ * @param {string} ws_url
+ * @returns {Promise<string>}
+ */
+export function create_send_pskb(wallet_json, dest_address, amount_kas, fee_sompi, ws_url) {
+    const ptr0 = passStringToWasm0(wallet_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(dest_address, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(ws_url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.create_send_pskb(ptr0, len0, ptr1, len1, amount_kas, fee_sompi, ptr2, len2);
+    return ret;
+}
+
+/**
+ * Create unsigned PSKB with specific UTXO indices.
+ * @param {string} wallet_json
+ * @param {string} dest_address
+ * @param {number} amount_kas
+ * @param {bigint} fee_sompi
+ * @param {string} utxo_csv
+ * @param {string} ws_url
+ * @returns {Promise<string>}
+ */
+export function create_send_pskb_selected(wallet_json, dest_address, amount_kas, fee_sompi, utxo_csv, ws_url) {
+    const ptr0 = passStringToWasm0(wallet_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(dest_address, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(utxo_csv, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ptr3 = passStringToWasm0(ws_url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ret = wasm.create_send_pskb_selected(ptr0, len0, ptr1, len1, amount_kas, fee_sompi, ptr2, len2, ptr3, len3);
     return ret;
 }
 
@@ -817,17 +928,17 @@ function __wbg_get_imports() {
             return ret;
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 220, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h200a37f11e89f6da);
-            return ret;
-        },
-        __wbindgen_cast_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 91, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 144, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h2e36b7a07a0aa581);
             return ret;
         },
+        __wbindgen_cast_0000000000000002: function(arg0, arg1) {
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 239, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h200a37f11e89f6da);
+            return ret;
+        },
         __wbindgen_cast_0000000000000003: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 91, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 144, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h2e36b7a07a0aa581_2);
             return ret;
         },

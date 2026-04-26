@@ -164,7 +164,12 @@ pub async fn create_send_kspt_selected(
     let dest_script = crate::address::address_to_script_pubkey(dest_address)?;
     let amount_sompi = (amount_kas * 100_000_000.0) as u64;
 
-    let all_utxos = crate::rpc::fetch_all_utxos(ws_url, wallet).await?;
+    let mut all_utxos = crate::rpc::fetch_all_utxos(ws_url, wallet).await?;
+    // Sort to match the JS-side order (cachedUtxos.sort by amount desc,
+    // then tx_id asc + index asc as tiebreakers for determinism).
+    all_utxos.sort_by(|a, b| b.amount.cmp(&a.amount)
+        .then_with(|| a.tx_id.cmp(&b.tx_id))
+        .then_with(|| a.index.cmp(&b.index)));
 
     let mut selected = Vec::new();
     for &idx in utxo_indices {
@@ -631,6 +636,373 @@ fn serialize_kspt_multisig(
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Single-sig PSKB creation — standard PSKT wire format for P2PK
+// ═══════════════════════════════════════════════════════════════════
+//
+// Same input/output semantics as the KSPT single-sig constructors
+// (create_send_kspt, create_consolidate_kspt, etc.) but emits an
+// UNSIGNED PSKB (Kaspa-standard partially-signed bundle).
+//
+// Wire envelope: `PSKB` magic + hex-ASCII of a UTF-8 JSON array
+// wrapping one PSKT object. KasSigner's `std_pskt::parse_pskt`
+// already consumes this (camera_loop.rs routes PSKB magic to the
+// PSKT parser, signing.rs handles P2PK inputs via the existing
+// PSKT path). No firmware changes needed.
+//
+// The UI routes PSKB output through the existing PSKT review screen
+// — same flow as multisig PSKB: Review → Relay (standard PSKB for
+// any wallet, or compact KSPT v2 for KasSigner) → Finalize.
+//
+// Why siblings and not parameters on the KSPT functions: the KSPT
+// path is mainnet-verified. Duplication is cheap; silent KSPT
+// breakage loses funds.
+
+/// Create unsigned single-sig PSKB: fetch UTXOs, select coins,
+/// build PSKB JSON, return wire hex.
+pub async fn create_send_pskb(
+    wallet: &WalletData,
+    dest_address: &str,
+    amount_kas: f64,
+    fee: u64,
+    ws_url: &str,
+) -> Result<String, String> {
+    let dest_script = crate::address::address_to_script_pubkey(dest_address)?;
+    let amount_sompi = (amount_kas * 100_000_000.0) as u64;
+
+    let mut all_utxos = crate::rpc::fetch_all_utxos(ws_url, wallet).await?;
+    all_utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
+
+    let total_needed = amount_sompi + fee;
+    let mut selected = Vec::new();
+    let mut selected_total: u64 = 0;
+
+    for utxo in all_utxos {
+        selected_total += utxo.amount;
+        selected.push(utxo);
+        if selected_total >= total_needed { break; }
+    }
+
+    if selected_total < total_needed {
+        return Err(format!(
+            "Insufficient funds: have {} sompi ({:.8} KAS), need {} sompi",
+            selected_total, selected_total as f64 / 1e8, total_needed,
+        ));
+    }
+
+    let change_amount = selected_total - amount_sompi - fee;
+
+    if amount_sompi > 0 && is_dust(amount_sompi) {
+        return Err(format!(
+            "Amount too small: {:.8} KAS. Minimum ~0.1 KAS.",
+            amount_sompi as f64 / 1e8
+        ));
+    }
+
+    let final_change = if change_amount > 0 && is_dust(change_amount) { 0u64 } else { change_amount };
+
+    let change_script = if final_change > 0 {
+        let chg_idx = wallet.next_change_index;
+        if chg_idx >= wallet.change_addresses.len() {
+            return Err("No more change addresses. Re-import kpub.".into());
+        }
+        Some(crate::address::address_to_script_pubkey(
+            &wallet.change_addresses[chg_idx],
+        )?)
+    } else {
+        None
+    };
+
+    let mut outputs = vec![(amount_sompi, dest_script)];
+    if let Some(chg_script) = change_script {
+        outputs.push((final_change, chg_script));
+    }
+
+    let pskb_hex = serialize_pskb_single_sig(&selected, &outputs)?;
+
+    web_sys::console::log_1(
+        &format!(
+            "[KasSee] PSKB TX: {} inputs, send {}, change {}, wire hex {} chars",
+            selected.len(), amount_sompi, final_change, pskb_hex.len()
+        ).into(),
+    );
+
+    Ok(pskb_hex)
+}
+
+/// Consolidate all UTXOs into one via PSKB format.
+pub async fn create_consolidate_pskb(
+    wallet: &WalletData,
+    fee: u64,
+    ws_url: &str,
+) -> Result<String, String> {
+    let mut all_utxos = crate::rpc::fetch_all_utxos(ws_url, wallet).await?;
+
+    if all_utxos.is_empty() {
+        return Err("No UTXOs to consolidate".into());
+    }
+    if all_utxos.len() == 1 {
+        return Err("Only 1 UTXO — nothing to consolidate".into());
+    }
+
+    all_utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
+    let selected: Vec<_> = all_utxos.into_iter().take(5).collect();
+
+    let total: u64 = selected.iter().map(|u| u.amount).sum();
+    if total <= fee {
+        return Err("Balance too low to cover fee".into());
+    }
+
+    let dest_addr = &wallet.receive_addresses[0];
+    let dest_script = crate::address::address_to_script_pubkey(dest_addr)?;
+    let send_amount = total - fee;
+
+    let outputs = vec![(send_amount, dest_script)];
+    let pskb_hex = serialize_pskb_single_sig(&selected, &outputs)?;
+
+    web_sys::console::log_1(
+        &format!(
+            "[KasSee] Consolidate PSKB: {} inputs -> {} sompi, fee {}, wire hex {} chars",
+            selected.len(), send_amount, fee, pskb_hex.len()
+        ).into(),
+    );
+
+    Ok(pskb_hex)
+}
+
+/// Create unsigned PSKB with specific UTXO indices.
+pub async fn create_send_pskb_selected(
+    wallet: &WalletData,
+    dest_address: &str,
+    amount_kas: f64,
+    fee: u64,
+    utxo_indices: &[usize],
+    ws_url: &str,
+) -> Result<String, String> {
+    let dest_script = crate::address::address_to_script_pubkey(dest_address)?;
+    let amount_sompi = (amount_kas * 100_000_000.0) as u64;
+
+    let mut all_utxos = crate::rpc::fetch_all_utxos(ws_url, wallet).await?;
+    // Sort to match the JS-side order (cachedUtxos.sort by amount desc,
+    // then tx_id asc + index asc as tiebreakers for determinism).
+    all_utxos.sort_by(|a, b| b.amount.cmp(&a.amount)
+        .then_with(|| a.tx_id.cmp(&b.tx_id))
+        .then_with(|| a.index.cmp(&b.index)));
+
+    let mut selected = Vec::new();
+    for &idx in utxo_indices {
+        if idx >= all_utxos.len() {
+            return Err(format!("UTXO index {} out of range (have {})", idx, all_utxos.len()));
+        }
+        selected.push(all_utxos[idx].clone());
+    }
+
+    let selected_total: u64 = selected.iter().map(|u| u.amount).sum();
+    let total_needed = amount_sompi + fee;
+
+    if selected_total < total_needed {
+        return Err(format!(
+            "Selected UTXOs: {} sompi, need {} sompi",
+            selected_total, total_needed,
+        ));
+    }
+
+    let change_amount = selected_total - amount_sompi - fee;
+    let final_change = if change_amount > 0 && is_dust(change_amount) { 0u64 } else { change_amount };
+
+    let change_script = if final_change > 0 {
+        let chg_idx = wallet.next_change_index;
+        if chg_idx >= wallet.change_addresses.len() {
+            return Err("No more change addresses".into());
+        }
+        Some(crate::address::address_to_script_pubkey(&wallet.change_addresses[chg_idx])?)
+    } else {
+        None
+    };
+
+    let mut outputs = vec![(amount_sompi, dest_script)];
+    if let Some(chg_script) = change_script {
+        outputs.push((final_change, chg_script));
+    }
+
+    serialize_pskb_single_sig(&selected, &outputs)
+}
+
+/// Create compound unsigned PSKB: multiple recipients in one transaction.
+pub async fn create_compound_pskb(
+    wallet: &WalletData,
+    recipients_json: &str,
+    fee: u64,
+    ws_url: &str,
+) -> Result<String, String> {
+    let recipients: Vec<serde_json::Value> = serde_json::from_str(recipients_json)
+        .map_err(|e| format!("Invalid recipients JSON: {}", e))?;
+
+    if recipients.is_empty() {
+        return Err("No recipients".into());
+    }
+    if recipients.len() > 10 {
+        return Err("Maximum 10 recipients per transaction".into());
+    }
+
+    let mut outputs: Vec<(u64, Vec<u8>)> = Vec::new();
+    let mut total_send: u64 = 0;
+
+    for (i, r) in recipients.iter().enumerate() {
+        let addr = r["address"].as_str()
+            .ok_or_else(|| format!("Recipient {}: missing address", i + 1))?;
+        let amount_kas = r["amount_kas"].as_f64()
+            .ok_or_else(|| format!("Recipient {}: missing amount_kas", i + 1))?;
+        let amount_sompi = (amount_kas * 100_000_000.0) as u64;
+
+        if amount_sompi == 0 {
+            return Err(format!("Recipient {}: amount must be > 0", i + 1));
+        }
+        if is_dust(amount_sompi) {
+            return Err(format!("Recipient {}: amount too small ({:.8} KAS)", i + 1, amount_kas));
+        }
+
+        let script = crate::address::address_to_script_pubkey(addr)?;
+        outputs.push((amount_sompi, script));
+        total_send += amount_sompi;
+    }
+
+    let mut all_utxos = crate::rpc::fetch_all_utxos(ws_url, wallet).await?;
+    all_utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
+
+    let total_needed = total_send + fee;
+    let mut selected = Vec::new();
+    let mut selected_total: u64 = 0;
+
+    for utxo in all_utxos {
+        selected_total += utxo.amount;
+        selected.push(utxo);
+        if selected_total >= total_needed { break; }
+    }
+
+    if selected_total < total_needed {
+        return Err(format!(
+            "Insufficient funds: have {} sompi ({:.8} KAS), need {} sompi",
+            selected_total, selected_total as f64 / 1e8, total_needed,
+        ));
+    }
+
+    let change_amount = selected_total - total_send - fee;
+    let final_change = if change_amount > 0 && is_dust(change_amount) { 0u64 } else { change_amount };
+
+    if final_change > 0 {
+        let chg_idx = wallet.next_change_index;
+        if chg_idx >= wallet.change_addresses.len() {
+            return Err("No more change addresses".into());
+        }
+        let chg_script = crate::address::address_to_script_pubkey(&wallet.change_addresses[chg_idx])?;
+        outputs.push((final_change, chg_script));
+    }
+
+    let pskb_hex = serialize_pskb_single_sig(&selected, &outputs)?;
+
+    web_sys::console::log_1(
+        &format!(
+            "[KasSee] Compound PSKB: {} inputs, {} recipients, send {}, change {}, wire hex {} chars",
+            selected.len(), recipients.len(), total_send, final_change, pskb_hex.len()
+        ).into(),
+    );
+
+    Ok(pskb_hex)
+}
+
+/// Serialize an unsigned single-sig PSKB wire payload.
+///
+/// Builds the same JSON shape as `create_multisig_pskb` but for P2PK
+/// inputs: `redeemScript: null`, `sigOpCount: 1`, empty `partialSigs`.
+///
+/// JSON field order matches `kaspa-wallet-pskt`'s BTreeMap emission
+/// and the existing `create_multisig_pskb` — verified on the device's
+/// strict-shape parser in `std_pskt.rs`.
+fn serialize_pskb_single_sig(
+    inputs: &[crate::rpc::UtxoEntry],
+    outputs: &[(u64, Vec<u8>)],
+) -> Result<String, String> {
+    let tx_version: u16 = 0;
+    let num_in = inputs.len() as u16;
+    let num_out = outputs.len() as u16;
+
+    let mut inputs_json = Vec::<serde_json::Value>::with_capacity(inputs.len());
+    for utxo in inputs {
+        let spk_hex = format!("0000{}", hex::encode(&utxo.script_public_key));
+
+        let utxo_entry = serde_json::json!({
+            "amount": utxo.amount,
+            "scriptPublicKey": spk_hex,
+            "blockDaaScore": utxo.block_daa_score,
+            "isCoinbase": false
+        });
+
+        let outpoint = serde_json::json!({
+            "transactionId": utxo.tx_id,
+            "index": utxo.index
+        });
+
+        let input = serde_json::json!({
+            "utxoEntry": utxo_entry,
+            "previousOutpoint": outpoint,
+            "sequence": 0u64,
+            "minTime": serde_json::Value::Null,
+            "partialSigs": {},
+            "sighashType": 1u8,
+            "redeemScript": serde_json::Value::Null,
+            "sigOpCount": 1u8,
+            "bip32Derivations": {},
+            "finalScriptSig": serde_json::Value::Null,
+            "proprietaries": {}
+        });
+        inputs_json.push(input);
+    }
+
+    let mut outputs_json = Vec::<serde_json::Value>::with_capacity(outputs.len());
+    for (amount, script) in outputs {
+        let spk_hex = format!("0000{}", hex::encode(script));
+        let output = serde_json::json!({
+            "amount": amount,
+            "scriptPublicKey": spk_hex,
+            "redeemScript": serde_json::Value::Null,
+            "bip32Derivations": {},
+            "proprietaries": {}
+        });
+        outputs_json.push(output);
+    }
+
+    let global = serde_json::json!({
+        "version": 0u8,
+        "txVersion": tx_version,
+        "fallbackLockTime": serde_json::Value::Null,
+        "inputsModifiable": false,
+        "outputsModifiable": false,
+        "inputCount": num_in,
+        "outputCount": num_out,
+        "xpubs": {},
+        "id": serde_json::Value::Null,
+        "proprietaries": {}
+    });
+
+    let pskt = serde_json::json!({
+        "global": global,
+        "inputs": inputs_json,
+        "outputs": outputs_json
+    });
+
+    let pskb_body = serde_json::Value::Array(vec![pskt]);
+    let json_bytes = serde_json::to_vec(&pskb_body)
+        .map_err(|e| format!("serialize PSKB JSON: {}", e))?;
+
+    let mut wire: Vec<u8> = Vec::with_capacity(4 + json_bytes.len() * 2);
+    wire.extend_from_slice(b"PSKB");
+    wire.extend_from_slice(hex::encode(&json_bytes).as_bytes());
+    let wire_hex = hex::encode(&wire);
+
+    Ok(wire_hex)
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Multisig PSKB creation (Path 2 — sibling of create_multisig_kspt)
 // ═══════════════════════════════════════════════════════════════════
 //
@@ -847,6 +1219,163 @@ pub async fn create_multisig_pskb(
     web_sys::console::log_1(
         &format!(
             "[KasSee] Multisig PSKB: {} inputs, {}-of-{}, send {}, change {}, wire hex {} chars",
+            selected.len(), m, pubkeys.len(), amount_sompi, final_change, wire_hex.len()
+        ).into(),
+    );
+
+    Ok(wire_hex)
+}
+
+/// Create unsigned multisig PSKB with specific UTXO indices.
+/// Same as `create_multisig_pskb` but uses explicit UTXO indices
+/// instead of greedy auto-selection.
+pub async fn create_multisig_pskb_selected(
+    descriptor: &str,
+    source_address: &str,
+    dest_address: &str,
+    amount_kas: f64,
+    fee: u64,
+    change_address: &str,
+    ws_url: &str,
+    addr_index: u32,
+    utxo_indices: &[usize],
+) -> Result<String, String> {
+    let final_index = if descriptor.trim().starts_with("multi_hd(") {
+        let mut found: Option<u32> = None;
+        for try_idx in 0..100u32 {
+            let (m, pks) = parse_descriptor(descriptor, try_idx)?;
+            let script = build_redeem_script(m, &pks);
+            let script_hash = blake2b_hash(&script);
+            let derived_addr = crate::address::encode_p2sh_address(&script_hash, "kaspa");
+            if derived_addr == source_address {
+                found = Some(try_idx);
+                break;
+            }
+        }
+        match found {
+            Some(idx) => idx,
+            None => return Err(format!(
+                "Could not find address index (tried 0..99) that matches source address {}",
+                source_address
+            )),
+        }
+    } else {
+        addr_index
+    };
+
+    let (m, pubkeys) = parse_descriptor(descriptor, final_index)?;
+    let redeem_script = build_redeem_script(m, &pubkeys);
+    let redeem_script_hex = hex::encode(&redeem_script);
+
+    let dest_script = crate::address::address_to_script_pubkey(dest_address)?;
+    let amount_sompi = (amount_kas * 100_000_000.0) as u64;
+
+    let mut utxos = crate::rpc::fetch_utxos_for_address(ws_url, source_address).await?;
+    if utxos.is_empty() {
+        return Err("No UTXOs found for multisig address".into());
+    }
+    utxos.sort_by(|a, b| b.amount.cmp(&a.amount)
+        .then_with(|| a.tx_id.cmp(&b.tx_id))
+        .then_with(|| a.index.cmp(&b.index)));
+
+    let mut selected = Vec::new();
+    for &idx in utxo_indices {
+        if idx >= utxos.len() {
+            return Err(format!("UTXO index {} out of range (have {})", idx, utxos.len()));
+        }
+        selected.push(utxos[idx].clone());
+    }
+
+    let selected_total: u64 = selected.iter().map(|u| u.amount).sum();
+    let total_needed = amount_sompi + fee;
+    if selected_total < total_needed {
+        return Err(format!(
+            "Selected UTXOs: {} sompi, need {} sompi",
+            selected_total, total_needed
+        ));
+    }
+
+    let change_amount = selected_total - amount_sompi - fee;
+    let final_change = if change_amount > 0 && is_dust(change_amount) { 0u64 } else { change_amount };
+
+    let mut outputs: Vec<(u64, Vec<u8>)> = vec![(amount_sompi, dest_script)];
+    if final_change > 0 {
+        let change_script = crate::address::address_to_script_pubkey(change_address)?;
+        outputs.push((final_change, change_script));
+    }
+
+    let tx_version: u16 = 0;
+    let num_in = selected.len() as u16;
+    let num_out = outputs.len() as u16;
+
+    let mut inputs_json = Vec::<serde_json::Value>::with_capacity(selected.len());
+    for utxo in &selected {
+        let spk_hex = format!("0000{}", hex::encode(&utxo.script_public_key));
+        let input = serde_json::json!({
+            "utxoEntry": {
+                "amount": utxo.amount,
+                "scriptPublicKey": spk_hex,
+                "blockDaaScore": utxo.block_daa_score,
+                "isCoinbase": false
+            },
+            "previousOutpoint": {
+                "transactionId": utxo.tx_id,
+                "index": utxo.index
+            },
+            "sequence": 0u64,
+            "minTime": serde_json::Value::Null,
+            "partialSigs": {},
+            "sighashType": 1u8,
+            "redeemScript": redeem_script_hex,
+            "sigOpCount": pubkeys.len() as u8,
+            "bip32Derivations": {},
+            "finalScriptSig": serde_json::Value::Null,
+            "proprietaries": {}
+        });
+        inputs_json.push(input);
+    }
+
+    let mut outputs_json = Vec::<serde_json::Value>::with_capacity(outputs.len());
+    for (amount, script) in &outputs {
+        let spk_hex = format!("0000{}", hex::encode(script));
+        outputs_json.push(serde_json::json!({
+            "amount": amount,
+            "scriptPublicKey": spk_hex,
+            "redeemScript": serde_json::Value::Null,
+            "bip32Derivations": {},
+            "proprietaries": {}
+        }));
+    }
+
+    let pskt = serde_json::json!({
+        "global": {
+            "version": 0u8,
+            "txVersion": tx_version,
+            "fallbackLockTime": serde_json::Value::Null,
+            "inputsModifiable": false,
+            "outputsModifiable": false,
+            "inputCount": num_in,
+            "outputCount": num_out,
+            "xpubs": {},
+            "id": serde_json::Value::Null,
+            "proprietaries": {}
+        },
+        "inputs": inputs_json,
+        "outputs": outputs_json
+    });
+
+    let pskb_body = serde_json::Value::Array(vec![pskt]);
+    let json_bytes = serde_json::to_vec(&pskb_body)
+        .map_err(|e| format!("serialize PSKB JSON: {}", e))?;
+
+    let mut wire: Vec<u8> = Vec::with_capacity(4 + json_bytes.len() * 2);
+    wire.extend_from_slice(b"PSKB");
+    wire.extend_from_slice(hex::encode(&json_bytes).as_bytes());
+    let wire_hex = hex::encode(&wire);
+
+    web_sys::console::log_1(
+        &format!(
+            "[KasSee] Multisig PSKB (selected): {} inputs, {}-of-{}, send {}, change {}, wire hex {} chars",
             selected.len(), m, pubkeys.len(), amount_sompi, final_change, wire_hex.len()
         ).into(),
     );

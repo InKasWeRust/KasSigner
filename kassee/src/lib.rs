@@ -201,6 +201,27 @@ pub async fn create_multisig_pskb(
         .map_err(|e| JsValue::from_str(&e))
 }
 
+/// Same as `create_multisig_pskb` but with explicit UTXO indices
+/// instead of greedy auto-selection.
+#[wasm_bindgen]
+pub async fn create_multisig_pskb_selected(
+    descriptor: &str,
+    source_address: &str,
+    dest_address: &str,
+    amount_kas: f64,
+    fee_sompi: u64,
+    change_address: &str,
+    ws_url: &str,
+    addr_index: u32,
+    utxo_csv: &str,
+) -> Result<String, JsValue> {
+    let indices: Vec<usize> = utxo_csv.split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+    kspt::create_multisig_pskb_selected(descriptor, source_address, dest_address, amount_kas, fee_sompi, change_address, ws_url, addr_index, &indices).await
+        .map_err(|e| JsValue::from_str(&e))
+}
+
 /// Fetch UTXOs for a single address (for multisig balance check) → JSON array
 #[wasm_bindgen]
 pub async fn fetch_utxos_for_address_js(address: &str, ws_url: &str) -> Result<String, JsValue> {
@@ -208,6 +229,71 @@ pub async fn fetch_utxos_for_address_js(address: &str, ws_url: &str) -> Result<S
         .map_err(|e| JsValue::from_str(&e))?;
     serde_json::to_string(&utxos)
         .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+// ─── Single-sig PSKB (standard PSKT wire format for P2PK) ───
+
+/// Create unsigned single-sig PSKB — same as `create_send_kspt` but
+/// emits a standard PSKB wire blob. Routes through the PSKT review
+/// screen on the JS side (same flow as multisig PSKB).
+#[wasm_bindgen]
+pub async fn create_send_pskb(
+    wallet_json: &str,
+    dest_address: &str,
+    amount_kas: f64,
+    fee_sompi: u64,
+    ws_url: &str,
+) -> Result<String, JsValue> {
+    let wallet: bip32::WalletData = serde_json::from_str(wallet_json)
+        .map_err(|e| JsValue::from_str(&format!("Bad wallet: {}", e)))?;
+    kspt::create_send_pskb(&wallet, dest_address, amount_kas, fee_sompi, ws_url).await
+        .map_err(|e| JsValue::from_str(&e))
+}
+
+/// Consolidate all UTXOs into one via PSKB format.
+#[wasm_bindgen]
+pub async fn create_consolidate_pskb(
+    wallet_json: &str,
+    fee_sompi: u64,
+    ws_url: &str,
+) -> Result<String, JsValue> {
+    let wallet: bip32::WalletData = serde_json::from_str(wallet_json)
+        .map_err(|e| JsValue::from_str(&format!("Bad wallet: {}", e)))?;
+    kspt::create_consolidate_pskb(&wallet, fee_sompi, ws_url).await
+        .map_err(|e| JsValue::from_str(&e))
+}
+
+/// Create unsigned PSKB with specific UTXO indices.
+#[wasm_bindgen]
+pub async fn create_send_pskb_selected(
+    wallet_json: &str,
+    dest_address: &str,
+    amount_kas: f64,
+    fee_sompi: u64,
+    utxo_csv: &str,
+    ws_url: &str,
+) -> Result<String, JsValue> {
+    let wallet: bip32::WalletData = serde_json::from_str(wallet_json)
+        .map_err(|e| JsValue::from_str(&format!("Bad wallet: {}", e)))?;
+    let indices: Vec<usize> = utxo_csv.split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+    kspt::create_send_pskb_selected(&wallet, dest_address, amount_kas, fee_sompi, &indices, ws_url).await
+        .map_err(|e| JsValue::from_str(&e))
+}
+
+/// Create compound unsigned PSKB: multiple recipients.
+#[wasm_bindgen]
+pub async fn create_compound_pskb(
+    wallet_json: &str,
+    recipients_json: &str,
+    fee_sompi: u64,
+    ws_url: &str,
+) -> Result<String, JsValue> {
+    let wallet: bip32::WalletData = serde_json::from_str(wallet_json)
+        .map_err(|e| JsValue::from_str(&format!("Bad wallet: {}", e)))?;
+    kspt::create_compound_pskb(&wallet, recipients_json, fee_sompi, ws_url).await
+        .map_err(|e| JsValue::from_str(&e))
 }
 
 // ─── Broadcast ───
