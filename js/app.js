@@ -16,6 +16,10 @@ import init, {
     create_consolidate_kspt,
     create_send_kspt_selected,
     create_compound_kspt,
+    create_send_pskb,
+    create_consolidate_pskb,
+    create_send_pskb_selected,
+    create_compound_pskb,
     broadcast_signed,
     generate_qr_frames,
     decode_qr_frame,
@@ -30,6 +34,7 @@ import init, {
     pskt_relay_to_kspt_v2,
     pskt_merge_signed_kspt_v2,
     create_multisig_pskb,
+    create_multisig_pskb_selected,
     decode_address,
 } from '../pkg/kassee_web.js';
 
@@ -40,6 +45,8 @@ let customNodeUrl = null;
 let lastFeeEstimate = null;
 let selectedUtxoIndices = null; // null = auto-select, array = manual
 let cachedUtxos = null;
+let msSelectedUtxoIndices = null; // multisig UTXO picker: null = auto, array = manual
+let msCachedUtxos = null;
 let scanCallback = null;
 let scanStream = null;
 let scanAnimFrame = null;
@@ -222,6 +229,7 @@ function bindEvents() {
     el('btn-ms-back').onclick = () => showScreen(walletData ? 'dashboard' : 'welcome');
     el('btn-ms-create').onclick = () => handleMultisigCreate();
     el('btn-ms-max').onclick = () => handleMsMax();
+    el('btn-toggle-ms-utxos').onclick = () => toggleMsUtxos();
     el('btn-scan-ms-source').onclick = () => startScanner('Scan P2SH address', (data) => {
         const text = new TextDecoder().decode(new Uint8Array(data));
         const addr = text.trim();
@@ -584,7 +592,12 @@ async function openSendScreen() {
         el('btn-fee-normal').classList.add('fee-card-active');
         const utxosJson = await fetch_utxos(walletData, wsUrl);
         cachedUtxos = JSON.parse(utxosJson);
-        cachedUtxos.sort((a, b) => b.amount - a.amount);
+        // Sort: amount desc, then tx_id asc + index asc for determinism.
+        // Must match the Rust _selected functions' sort order exactly so
+        // positional indices refer to the same UTXOs on both sides.
+        cachedUtxos.sort((a, b) => b.amount - a.amount
+            || a.tx_id.localeCompare(b.tx_id)
+            || a.index - b.index);
     } catch (e) {
         console.log('[KasSee] Fee/UTXO fetch:', e);
     }
@@ -814,29 +827,30 @@ async function handleCreateTx() {
 
     showLoading('Creating transaction...');
     try {
-        let ksptHex;
+        let pskbHex;
 
         if (extras.length > 0) {
-            // Compound transaction — multiple recipients
             const recipients = [{ address: dest, amount_kas: amount }, ...extras];
-            ksptHex = await withNodeRetry(wsUrl =>
-                create_compound_kspt(walletData, JSON.stringify(recipients), BigInt(fee), wsUrl)
+            pskbHex = await withNodeRetry(wsUrl =>
+                create_compound_pskb(walletData, JSON.stringify(recipients), BigInt(fee), wsUrl)
             );
         } else if (selectedUtxoIndices && selectedUtxoIndices.length > 0) {
             const csv = selectedUtxoIndices.join(',');
-            ksptHex = await withNodeRetry(wsUrl =>
-                create_send_kspt_selected(walletData, dest, amount, BigInt(fee), csv, wsUrl)
+            pskbHex = await withNodeRetry(wsUrl =>
+                create_send_pskb_selected(walletData, dest, amount, BigInt(fee), csv, wsUrl)
             );
         } else {
-            ksptHex = await withNodeRetry(wsUrl =>
-                create_send_kspt(walletData, dest, amount, BigInt(fee), wsUrl)
+            pskbHex = await withNodeRetry(wsUrl =>
+                create_send_pskb(walletData, dest, amount, BigInt(fee), wsUrl)
             );
         }
 
         hideLoading();
-        console.log(`[KasSee] KSPT created: ${ksptHex.length / 2} bytes`);
-        window._lastKsptHex = ksptHex;
-        displayKsptQr(ksptHex, 'Scan with KasSigner');
+        console.log(`[KasSee] PSKB created: ${pskbHex.length} hex chars`);
+        // Route through the existing PSKT review screen — same flow as
+        // multisig: Review → Relay (standard PSKB or compact KSPT v2
+        // for KasSigner) → Finalize & Broadcast.
+        openPsktReview(pskbHex);
 
     } catch (e) {
         hideLoading();
@@ -1344,6 +1358,74 @@ function handleDescriptorScan(data) {
     }
 }
 
+async function toggleMsUtxos() {
+    const list = el('ms-utxo-list');
+    if (!list.classList.contains('hidden')) {
+        list.classList.add('hidden');
+        el('btn-toggle-ms-utxos').textContent = 'Select UTXOs manually ▸';
+        msSelectedUtxoIndices = null;
+        return;
+    }
+    const sourceAddr = el('input-ms-source').value.trim();
+    if (!sourceAddr) { toast('Enter source address first', 'error'); return; }
+
+    // Fetch UTXOs for the multisig address
+    try {
+        const wsUrl = await resolveNodeUrl();
+        const utxosJson = await fetch_utxos_for_address_js(sourceAddr, wsUrl);
+        msCachedUtxos = JSON.parse(utxosJson);
+        msCachedUtxos.sort((a, b) => b.amount - a.amount
+            || a.tx_id.localeCompare(b.tx_id)
+            || a.index - b.index);
+    } catch (e) {
+        toast('UTXO fetch failed: ' + e, 'error');
+        return;
+    }
+
+    if (!msCachedUtxos || msCachedUtxos.length === 0) {
+        toast('No UTXOs for this address', 'error');
+        return;
+    }
+
+    el('btn-toggle-ms-utxos').textContent = 'Select UTXOs manually ▾';
+    let html = '';
+    msCachedUtxos.forEach((u, i) => {
+        const kas = (u.amount / 1e8).toFixed(8);
+        html += `<div class="utxo-item" data-idx="${i}" style="cursor:pointer;display:flex;align-items:center;gap:10px">
+            <span style="font-size:18px;color:var(--border)" class="utxo-check">☐</span>
+            <div style="flex:1">
+                <div class="utxo-amount" style="font-size:13px">${kas} KAS</div>
+                <div class="utxo-detail">${u.tx_id.slice(0, 16)}…:${u.index}</div>
+            </div>
+        </div>`;
+    });
+    list.innerHTML = html;
+    msSelectedUtxoIndices = [];
+
+    list.querySelectorAll('.utxo-item').forEach(item => {
+        item.onclick = () => {
+            const idx = parseInt(item.dataset.idx);
+            const check = item.querySelector('.utxo-check');
+            const pos = msSelectedUtxoIndices.indexOf(idx);
+            if (pos >= 0) {
+                msSelectedUtxoIndices.splice(pos, 1);
+                check.textContent = '☐';
+                check.style.color = 'var(--border)';
+                item.style.borderColor = '';
+            } else if (msSelectedUtxoIndices.length >= 8) {
+                toast('Max 8 UTXOs per transaction', 'info', 1500);
+                return;
+            } else {
+                msSelectedUtxoIndices.push(idx);
+                check.textContent = '☑';
+                check.style.color = 'var(--teal)';
+                item.style.borderColor = 'var(--teal)';
+            }
+        };
+    });
+    list.classList.remove('hidden');
+}
+
 async function handleMultisigCreate() {
     const descriptor = el('input-ms-descriptor').value.trim();
     const sourceAddr = el('input-ms-source').value.trim();
@@ -1355,7 +1437,6 @@ async function handleMultisigCreate() {
     if (!destAddr) { toast('Enter the destination address', 'error'); return; }
     if (!amountStr || parseFloat(amountStr) <= 0) { toast('Enter amount', 'error'); return; }
 
-    // Resolve KNS if needed
     let resolvedDest = destAddr;
     if (destAddr.endsWith('.kas')) {
         const kns = KNS_LOOKUP[destAddr.toLowerCase()];
@@ -1367,26 +1448,28 @@ async function handleMultisigCreate() {
         }
     }
 
-    // Change goes back to the same multisig address
     const changeAddr = sourceAddr;
 
     showLoading('Building multisig PSKB...');
     try {
         const fee = lastFeeEstimate ? lastFeeEstimate.suggested_fee : 20000;
         const wsUrl = await resolveNodeUrl();
-        // HD multisig address index — for multi_hd descriptors, selects which
-        // derived address to spend from. Legacy multi() ignores this (always 0).
         const addrIndexEl = el('input-ms-addr-index');
         const addrIndex = addrIndexEl ? parseInt(addrIndexEl.value) || 0 : 0;
 
-        // Always PSKB — the Kaspa-standard wire format. Lands on Review
-        // PSKB with 0/M sigs; user relays from there via the Relay modal
-        // which picks between standard PSKB (any wallet) and compact
-        // KSPT v2 (KasSigner devices only).
-        const pskbHex = await create_multisig_pskb(
-            descriptor, sourceAddr, resolvedDest, parseFloat(amountStr),
-            BigInt(fee), changeAddr, wsUrl, addrIndex
-        );
+        let pskbHex;
+        if (msSelectedUtxoIndices && msSelectedUtxoIndices.length > 0) {
+            const csv = msSelectedUtxoIndices.join(',');
+            pskbHex = await create_multisig_pskb_selected(
+                descriptor, sourceAddr, resolvedDest, parseFloat(amountStr),
+                BigInt(fee), changeAddr, wsUrl, addrIndex, csv
+            );
+        } else {
+            pskbHex = await create_multisig_pskb(
+                descriptor, sourceAddr, resolvedDest, parseFloat(amountStr),
+                BigInt(fee), changeAddr, wsUrl, addrIndex
+            );
+        }
         hideLoading();
         console.log('[KasSee] Multisig PSKB created: ' + pskbHex.length / 2 + ' bytes');
         openPsktReview(pskbHex);
@@ -1401,6 +1484,16 @@ async function handleMsMax() {
     const sourceAddr = el('input-ms-source').value.trim();
     if (!sourceAddr) { toast('Enter source address first', 'error'); return; }
 
+    const fee = lastFeeEstimate ? lastFeeEstimate.suggested_fee : 20000;
+
+    // If UTXOs are manually selected, use those
+    if (msSelectedUtxoIndices && msSelectedUtxoIndices.length > 0 && msCachedUtxos) {
+        const selectedTotal = msSelectedUtxoIndices.reduce((s, i) => s + msCachedUtxos[i].amount, 0);
+        const maxKas = Math.max(0, (selectedTotal - fee) / 1e8);
+        el('input-ms-amount').value = maxKas.toFixed(8);
+        return;
+    }
+
     showLoading('Fetching balance...');
     try {
         const wsUrl = await resolveNodeUrl();
@@ -1408,7 +1501,6 @@ async function handleMsMax() {
         hideLoading();
         const utxos = JSON.parse(utxosJson);
         const total = utxos.reduce((s, u) => s + u.amount, 0);
-        const fee = lastFeeEstimate ? lastFeeEstimate.suggested_fee : 20000;
         const maxKas = Math.max(0, (total - fee) / 100000000);
         el('input-ms-amount').value = maxKas.toFixed(8);
         el('ms-balance-info').textContent = 'Balance: ' + (total / 100000000).toFixed(8) + ' KAS (' + utxos.length + ' UTXOs)';
@@ -1652,11 +1744,11 @@ async function handleConsolidate() {
 
     showLoading('Building consolidation TX...');
     try {
-        const ksptHex = await withNodeRetry(wsUrl =>
-            create_consolidate_kspt(walletData, BigInt(fee), wsUrl)
+        const pskbHex = await withNodeRetry(wsUrl =>
+            create_consolidate_pskb(walletData, BigInt(fee), wsUrl)
         );
         hideLoading();
-        displayKsptQr(ksptHex, 'Scan with KasSigner');
+        openPsktReview(pskbHex);
     } catch (e) {
         hideLoading();
         toast('Consolidation failed: ' + e, 'error', 5000);
@@ -1686,11 +1778,11 @@ async function handleConsolidateSelected() {
     showLoading(`Consolidating ${indices.length} UTXOs...`);
     try {
         const destAddr = wallet.receive_addresses[0];
-        const ksptHex = await withNodeRetry(wsUrl =>
-            create_send_kspt_selected(walletData, destAddr, sendKas, BigInt(fee), indicesCsv, wsUrl)
+        const pskbHex = await withNodeRetry(wsUrl =>
+            create_send_pskb_selected(walletData, destAddr, sendKas, BigInt(fee), indicesCsv, wsUrl)
         );
         hideLoading();
-        displayKsptQr(ksptHex, 'Scan with KasSigner');
+        openPsktReview(pskbHex);
     } catch (e) {
         hideLoading();
         toast('Consolidation failed: ' + e, 'error', 5000);

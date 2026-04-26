@@ -3,11 +3,16 @@
 export const memory: WebAssembly.Memory;
 export const broadcast_signed: (a: number, b: number, c: number, d: number) => any;
 export const create_compound_kspt: (a: number, b: number, c: number, d: number, e: bigint, f: number, g: number) => any;
+export const create_compound_pskb: (a: number, b: number, c: number, d: number, e: bigint, f: number, g: number) => any;
 export const create_consolidate_kspt: (a: number, b: number, c: bigint, d: number, e: number) => any;
+export const create_consolidate_pskb: (a: number, b: number, c: bigint, d: number, e: number) => any;
 export const create_multisig_kspt: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: bigint, i: number, j: number, k: number, l: number, m: number) => any;
 export const create_multisig_pskb: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: bigint, i: number, j: number, k: number, l: number, m: number) => any;
+export const create_multisig_pskb_selected: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: bigint, i: number, j: number, k: number, l: number, m: number, n: number, o: number) => any;
 export const create_send_kspt: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number) => any;
 export const create_send_kspt_selected: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number, i: number, j: number) => any;
+export const create_send_pskb: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number) => any;
+export const create_send_pskb_selected: (a: number, b: number, c: number, d: number, e: number, f: bigint, g: number, h: number, i: number, j: number) => any;
 export const decode_address: (a: number, b: number) => [number, number, number, number];
 export const decode_qr_frame: (a: number, b: number) => [number, number, number, number];
 export const decoder_progress: () => [number, number];
