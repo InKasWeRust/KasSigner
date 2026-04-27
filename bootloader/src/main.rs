@@ -690,7 +690,7 @@ fn main() -> ! {
     // M5Stack runs signing pipeline test at boot
     #[cfg(feature = "m5stack")]
     #[cfg(not(feature = "skip-tests"))]
-    run_signing_pipeline_test(&mut ad);
+    run_signing_pipeline_test(ad);
 
     log!("   Touch ready — tap menu items to navigate");
 
@@ -761,7 +761,7 @@ fn main() -> ! {
             }
             #[cfg(feature = "m5stack")]
             {
-                if handle_wake(&mut ad, &mut i2c, &mut delay, &mut tracker,
+                if handle_wake(ad, &mut i2c, &mut delay, &mut tracker,
                                &mut wake_debounce, touch_state, is_touch) {
                     continue;
                 }
