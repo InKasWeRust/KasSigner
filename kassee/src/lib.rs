@@ -58,6 +58,24 @@ pub fn import_kpub_raw(raw_payload: &[u8], network: &str) -> Result<String, JsVa
         .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+/// Derive additional receive/change addresses beyond the current set.
+/// Called when gap limit is exhausted. Returns updated wallet JSON.
+#[wasm_bindgen]
+pub fn extend_addresses(
+    wallet_json: &str,
+    extra_receive: u32,
+    extra_change: u32,
+    network: &str,
+) -> Result<String, JsValue> {
+    let wallet: bip32::WalletData = serde_json::from_str(wallet_json)
+        .map_err(|e| JsValue::from_str(&format!("Invalid wallet: {}", e)))?;
+    let prefix = network_to_prefix(network);
+    let result = bip32::extend_addresses(&wallet, extra_receive, extra_change, prefix)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&result)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
 // ─── Balance ───
 
 /// Connect to node via Borsh wRPC, fetch UTXOs, return JSON balance.

@@ -36,6 +36,7 @@ import init, {
     create_multisig_pskb,
     create_multisig_pskb_selected,
     decode_address,
+    extend_addresses,
 } from '../pkg/kassee_web.js';
 
 // ─── State ───
@@ -333,12 +334,48 @@ function bindEvents() {
 
 function el(id) { return document.getElementById(id); }
 
-// ─── Address index helpers ───
+// ─── Address index helpers (auto-expanding gap limit) ───
 
-/// Pick the first change address not currently funded and not used this session.
-/// Falls back to the last change address if all are occupied.
+const GAP_EXPAND_RECEIVE = 10; // derive 10 more receive addresses when exhausted
+const GAP_EXPAND_CHANGE = 5;   // derive 5 more change addresses when exhausted
+
+/// Expand wallet addresses if all current slots are used.
+/// Derives new addresses via WASM and updates walletData in place.
+function expandAddressesIfNeeded() {
+    if (!walletData) return;
+    const wallet = JSON.parse(walletData);
+
+    const rcvSkip = new Set([...fundedReceiveIndices, ...usedReceiveIndices]);
+    const chgSkip = new Set([...fundedChangeIndices, ...usedChangeIndices]);
+
+    let needReceive = true;
+    for (let i = 0; i < wallet.receive_addresses.length; i++) {
+        if (!rcvSkip.has(i)) { needReceive = false; break; }
+    }
+
+    let needChange = true;
+    for (let i = 0; i < wallet.change_addresses.length; i++) {
+        if (!chgSkip.has(i)) { needChange = false; break; }
+    }
+
+    if (!needReceive && !needChange) return;
+
+    const extraRcv = needReceive ? GAP_EXPAND_RECEIVE : 0;
+    const extraChg = needChange ? GAP_EXPAND_CHANGE : 0;
+
+    try {
+        walletData = extend_addresses(walletData, extraRcv, extraChg, network);
+        console.log(`[KasSee] Gap expanded: +${extraRcv} receive, +${extraChg} change`);
+    } catch (e) {
+        console.error('[KasSee] Address expansion failed:', e);
+    }
+}
+
+/// Pick the first change address not currently funded and not used.
+/// Auto-expands if all are occupied.
 function getNextChangeIndex() {
     if (!walletData) return 0;
+    expandAddressesIfNeeded();
     const wallet = JSON.parse(walletData);
     const skipSet = new Set([...fundedChangeIndices, ...usedChangeIndices]);
     for (let i = 0; i < wallet.change_addresses.length; i++) {
@@ -347,9 +384,11 @@ function getNextChangeIndex() {
     return wallet.change_addresses.length - 1;
 }
 
-/// Pick the first receive address not currently funded and not used this session.
+/// Pick the first receive address not currently funded and not used.
+/// Auto-expands if all are occupied.
 function getNextReceiveIndex() {
     if (!walletData) return 0;
+    expandAddressesIfNeeded();
     const wallet = JSON.parse(walletData);
     const skipSet = new Set([...fundedReceiveIndices, ...usedReceiveIndices]);
     for (let i = 0; i < wallet.receive_addresses.length; i++) {
@@ -358,9 +397,11 @@ function getNextReceiveIndex() {
     return wallet.receive_addresses.length - 1;
 }
 
-/// Return walletData JSON with next_change_index set to the correct value.
+/// Return walletData JSON with next_change_index and next_receive_index
+/// set to the correct values. Auto-expands if needed.
 function walletWithFreshIndices() {
     if (!walletData) return walletData;
+    expandAddressesIfNeeded();
     const w = JSON.parse(walletData);
     w.next_change_index = getNextChangeIndex();
     w.next_receive_index = getNextReceiveIndex();
@@ -558,8 +599,9 @@ async function refreshBalance() {
             console.log('[KasSee] UTXO history track:', e);
         }
 
-        // Fetch address history from custom REST server (if enabled)
-        fetchAddressHistory();
+        // Detect used addresses via api.kaspa.org (or custom REST server)
+        // then expand gap limit if all addresses are occupied
+        fetchAddressHistory().then(() => expandAddressesIfNeeded());
     } catch (e) {
         setStatus('offline', 'Offline');
         hideLoading();

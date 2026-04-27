@@ -217,3 +217,62 @@ pub fn import_kpub_raw(raw_payload: &[u8], prefix: &str) -> Result<WalletData, S
 
     import_kpub(&kpub_str, prefix)
 }
+
+/// Derive additional receive and/or change addresses beyond what the
+/// wallet currently holds. Called when all existing addresses are used
+/// and the gap limit needs expanding.
+///
+/// `extra_receive`: number of new receive addresses to append.
+/// `extra_change`: number of new change addresses to append.
+///
+/// Returns an updated WalletData with the new addresses appended.
+/// The kpub is re-parsed each time (cheap — one base58 decode + one
+/// EC point parse). The derive_child calls skip to the correct index
+/// using the existing address count as the starting offset.
+pub fn extend_addresses(
+    wallet: &WalletData,
+    extra_receive: u32,
+    extra_change: u32,
+    prefix: &str,
+) -> Result<WalletData, String> {
+    let xpub = ExtPubKey::from_kpub(&wallet.kpub)?;
+
+    let mut receive_addresses = wallet.receive_addresses.clone();
+    if extra_receive > 0 {
+        let receive_chain = xpub.derive_child(0)?;
+        let start = receive_addresses.len() as u32;
+        for i in start..start + extra_receive {
+            let child = receive_chain.derive_child(i)?;
+            let addr = crate::address::encode_p2pk_address(&child.x_only_bytes(), prefix);
+            receive_addresses.push(addr);
+        }
+    }
+
+    let mut change_addresses = wallet.change_addresses.clone();
+    if extra_change > 0 {
+        let change_chain = xpub.derive_child(1)?;
+        let start = change_addresses.len() as u32;
+        for i in start..start + extra_change {
+            let child = change_chain.derive_child(i)?;
+            let addr = crate::address::encode_p2pk_address(&child.x_only_bytes(), prefix);
+            change_addresses.push(addr);
+        }
+    }
+
+    web_sys::console::log_1(
+        &format!(
+            "[KasSee] Extended: {} receive (+{}), {} change (+{})",
+            receive_addresses.len(), extra_receive,
+            change_addresses.len(), extra_change,
+        )
+        .into(),
+    );
+
+    Ok(WalletData {
+        kpub: wallet.kpub.clone(),
+        receive_addresses,
+        change_addresses,
+        next_receive_index: wallet.next_receive_index,
+        next_change_index: wallet.next_change_index,
+    })
+}

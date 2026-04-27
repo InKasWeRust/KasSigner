@@ -18,6 +18,7 @@ export const decode_qr_frame: (a: number, b: number) => [number, number, number,
 export const decoder_progress: () => [number, number];
 export const encode_p2pk_address: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const encode_p2sh_address: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+export const extend_addresses: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
 export const fetch_balance: (a: number, b: number, c: number, d: number) => any;
 export const fetch_utxos: (a: number, b: number, c: number, d: number) => any;
 export const fetch_utxos_for_address_js: (a: number, b: number, c: number, d: number) => any;
