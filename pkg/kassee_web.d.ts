@@ -102,6 +102,12 @@ export function encode_p2pk_address(pubkey_hex: string, network?: string | null)
 export function encode_p2sh_address(script_hash_hex: string, network?: string | null): string;
 
 /**
+ * Derive additional receive/change addresses beyond the current set.
+ * Called when gap limit is exhausted. Returns updated wallet JSON.
+ */
+export function extend_addresses(wallet_json: string, extra_receive: number, extra_change: number, network: string): string;
+
+/**
  * Connect to node via Borsh wRPC, fetch UTXOs, return JSON balance.
  */
 export function fetch_balance(wallet_json: string, ws_url: string): Promise<string>;
@@ -228,6 +234,7 @@ export interface InitOutput {
     readonly decoder_progress: () => [number, number];
     readonly encode_p2pk_address: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly encode_p2sh_address: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly extend_addresses: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly fetch_balance: (a: number, b: number, c: number, d: number) => any;
     readonly fetch_utxos: (a: number, b: number, c: number, d: number) => any;
     readonly fetch_utxos_for_address_js: (a: number, b: number, c: number, d: number) => any;
