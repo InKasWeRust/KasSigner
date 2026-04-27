@@ -111,7 +111,7 @@ pub async fn create_send_kspt(
     Ok(kspt_hex)
 }
 
-/// Consolidate all UTXOs into one, sending to first receive address
+/// Consolidate all UTXOs into one, sending to next unused receive address
 pub async fn create_consolidate_kspt(
     wallet: &WalletData,
     fee: u64,
@@ -135,7 +135,8 @@ pub async fn create_consolidate_kspt(
         return Err("Balance too low to cover fee".into());
     }
 
-    let dest_addr = &wallet.receive_addresses[0];
+    let rcv_idx = wallet.next_receive_index.min(wallet.receive_addresses.len() - 1);
+    let dest_addr = &wallet.receive_addresses[rcv_idx];
     let dest_script = crate::address::address_to_script_pubkey(dest_addr)?;
     let send_amount = total - fee;
 
@@ -264,21 +265,6 @@ pub async fn create_compound_kspt(
         selected.push(utxo);
         if selected_total >= total_needed { break; }
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     if selected_total < total_needed {
         return Err(format!(
@@ -535,17 +521,6 @@ pub async fn create_multisig_kspt(
         if selected_total >= total_needed { break; }
     }
 
-
-
-
-
-
-
-
-
-
-
-
     if selected_total < total_needed {
         return Err(format!(
             "Insufficient funds in multisig: have {} sompi, need {}",
@@ -759,7 +734,8 @@ pub async fn create_consolidate_pskb(
         return Err("Balance too low to cover fee".into());
     }
 
-    let dest_addr = &wallet.receive_addresses[0];
+    let rcv_idx = wallet.next_receive_index.min(wallet.receive_addresses.len() - 1);
+    let dest_addr = &wallet.receive_addresses[rcv_idx];
     let dest_script = crate::address::address_to_script_pubkey(dest_addr)?;
     let send_amount = total - fee;
 
