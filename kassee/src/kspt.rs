@@ -111,7 +111,7 @@ pub async fn create_send_kspt(
     Ok(kspt_hex)
 }
 
-/// Consolidate all UTXOs into one, sending to next unused receive address
+/// Consolidate all UTXOs into one, sending to first receive address
 pub async fn create_consolidate_kspt(
     wallet: &WalletData,
     fee: u64,
@@ -135,8 +135,7 @@ pub async fn create_consolidate_kspt(
         return Err("Balance too low to cover fee".into());
     }
 
-    let rcv_idx = wallet.next_receive_index.min(wallet.receive_addresses.len() - 1);
-    let dest_addr = &wallet.receive_addresses[rcv_idx];
+    let dest_addr = &wallet.receive_addresses[0];
     let dest_script = crate::address::address_to_script_pubkey(dest_addr)?;
     let send_amount = total - fee;
 
@@ -265,6 +264,21 @@ pub async fn create_compound_kspt(
         selected.push(utxo);
         if selected_total >= total_needed { break; }
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     if selected_total < total_needed {
         return Err(format!(
@@ -460,7 +474,6 @@ fn build_redeem_script(m: u8, pubkeys: &[[u8; 32]]) -> Vec<u8> {
 }
 
 /// Create unsigned multisig KSPT: fetch UTXOs for P2SH address, build TX with redeem scripts
-#[allow(clippy::too_many_arguments)]
 pub async fn create_multisig_kspt(
     descriptor: &str,
     source_address: &str,
@@ -522,6 +535,17 @@ pub async fn create_multisig_kspt(
         if selected_total >= total_needed { break; }
     }
 
+
+
+
+
+
+
+
+
+
+
+
     if selected_total < total_needed {
         return Err(format!(
             "Insufficient funds in multisig: have {} sompi, need {}",
@@ -529,9 +553,9 @@ pub async fn create_multisig_kspt(
         ));
     }
 
-    if selected.len() > 2 {
+    if selected.len() > 3 {
         return Err(format!(
-            "Multisig P2SH limited to 2 inputs (selected {}). Redeem script mass exceeds standard limit. Consolidate UTXOs in batches of 2.",
+            "Multisig P2SH limited to 3 inputs (selected {}). Node rejects 4+ inputs. Consolidate UTXOs in batches of 3.",
             selected.len()
         ));
     }
@@ -735,8 +759,7 @@ pub async fn create_consolidate_pskb(
         return Err("Balance too low to cover fee".into());
     }
 
-    let rcv_idx = wallet.next_receive_index.min(wallet.receive_addresses.len() - 1);
-    let dest_addr = &wallet.receive_addresses[rcv_idx];
+    let dest_addr = &wallet.receive_addresses[0];
     let dest_script = crate::address::address_to_script_pubkey(dest_addr)?;
     let send_amount = total - fee;
 
@@ -1010,7 +1033,6 @@ fn serialize_pskb_single_sig(
 // receives it, signs, returns a PSKB with partialSigs populated (or
 // a KSPT v2 via the compact relay path, which gets merged back).
 
-#[allow(clippy::too_many_arguments)]
 pub async fn create_multisig_pskb(
     descriptor: &str,
     source_address: &str,
@@ -1074,9 +1096,9 @@ pub async fn create_multisig_pskb(
         ));
     }
 
-    if selected.len() > 2 {
+    if selected.len() > 3 {
         return Err(format!(
-            "Multisig P2SH limited to 2 inputs (selected {}). Redeem script mass exceeds standard limit. Consolidate UTXOs in batches of 2.",
+            "Multisig P2SH limited to 3 inputs (selected {}). Node rejects 4+ inputs. Consolidate UTXOs in batches of 3.",
             selected.len()
         ));
     }
@@ -1221,7 +1243,6 @@ pub async fn create_multisig_pskb(
 /// Create unsigned multisig PSKB with specific UTXO indices.
 /// Same as `create_multisig_pskb` but uses explicit UTXO indices
 /// instead of greedy auto-selection.
-#[allow(clippy::too_many_arguments)]
 pub async fn create_multisig_pskb_selected(
     descriptor: &str,
     source_address: &str,
@@ -1288,9 +1309,9 @@ pub async fn create_multisig_pskb_selected(
         ));
     }
 
-    if selected.len() > 2 {
+    if selected.len() > 3 {
         return Err(format!(
-            "Multisig P2SH limited to 2 inputs (selected {}). Redeem script mass exceeds standard limit. Consolidate UTXOs in batches of 2.",
+            "Multisig P2SH limited to 3 inputs (selected {}). Node rejects 4+ inputs. Consolidate UTXOs in batches of 3.",
             selected.len()
         ));
     }
