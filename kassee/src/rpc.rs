@@ -306,14 +306,17 @@ async fn ws_rpc_call(ws_url: &str, op: u8, payload: &[u8]) -> Result<Vec<u8>, St
                     resolve4.call0(&JsValue::NULL).ok();
                 }
             });
-            // Call global setTimeout via js_sys (no web_sys Window feature needed)
-            let set_timeout: js_sys::Function = js_sys::eval("setTimeout")
-                .unwrap().dyn_into().unwrap();
-            let _ = set_timeout.call2(
-                &JsValue::NULL,
-                timeout_cb.as_ref(),
-                &JsValue::from(15_000),
-            );
+            // Get setTimeout from the global object (CSP-safe, no eval)
+            let global = js_sys::global();
+            if let Ok(st) = js_sys::Reflect::get(&global, &JsValue::from_str("setTimeout")) {
+                if let Ok(set_timeout) = st.dyn_into::<js_sys::Function>() {
+                    let _ = set_timeout.call2(
+                        &JsValue::NULL,
+                        timeout_cb.as_ref(),
+                        &JsValue::from(15_000),
+                    );
+                }
+            }
             timeout_cb.forget();
         })
     };
