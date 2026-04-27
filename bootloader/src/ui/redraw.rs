@@ -31,6 +31,7 @@ pub fn redraw_screen(
     sound::stop_ticking();
     match ad.app.state {
                 crate::app::input::AppState::MainMenu => {
+                    ad.ms_creating.n = 0;
                     boot_display.draw_home_grid();
                     // Battery indicator on home screen
                     if let Some(batt) = battery::read_battery(i2c) {

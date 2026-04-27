@@ -118,6 +118,7 @@ pub fn handle_tx_touch(
                     // ─── Multisig Creation Touch Handlers ────────────
                     crate::app::input::AppState::MultisigChooseMN => {
                         if is_back {
+                            ad.ms_creating.n = 0;
                             ad.app.state = crate::app::input::AppState::MultisigMenu;
                             needs_redraw = true;
                         } else {
@@ -154,6 +155,7 @@ pub fn handle_tx_touch(
                     crate::app::input::AppState::MultisigAddKey { key_idx } => {
                         if is_back {
                             if key_idx == 0 {
+                                ad.ms_creating.n = 0;
                                 ad.app.state = crate::app::input::AppState::MultisigChooseMN;
                                 needs_redraw = true;
                             } else {
@@ -163,15 +165,18 @@ pub fn handle_tx_touch(
                             // "Scan QR": x=30..290, y=90..135
                             if (30..=290).contains(&x) && (90..=135).contains(&y) {
                                 ad.app.state = crate::app::input::AppState::ScanQR;
+                                needs_redraw = true;
                             }
                             // "Use Loaded Seed": x=30..290, y=145..190
                             else if (30..=290).contains(&x) && (145..=190).contains(&y) {
                                 if ad.seed_loaded {
                                     ad.app.state = crate::app::input::AppState::MultisigPickSeed { key_idx };
+                                    needs_redraw = true;
                                 } else {
                                     // No seed loaded — show warning
                                     boot_display.draw_rejected_screen("Load a seed first");
                                     delay.delay_millis(1500);
+                                    needs_redraw = true;
                                 }
                             }
                         }
@@ -257,6 +262,7 @@ pub fn handle_tx_touch(
                                         }
                                         ad.current_addr_index = 0;
                                         ad.app.state = crate::app::input::AppState::MultisigPickAddr { key_idx };
+                                        needs_redraw = true;
                                         break;
                                     }
                                 }
@@ -325,6 +331,7 @@ pub fn handle_tx_touch(
                                     } else {
                                         ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: next };
                                     }
+                                    needs_redraw = true;
                                 }
                             }
                         }
@@ -386,23 +393,13 @@ pub fn handle_tx_touch(
                         }
                     }
                     crate::app::input::AppState::MultisigShowAddressQR => {
-                        if is_back {
-                            if ad.ms_creating.active {
-                                ad.app.state = crate::app::input::AppState::MultisigShowAddress;
-                            } else {
-                                ad.signed_qr_len = 0;
-                                ad.app.go_main_menu();
-                            }
-                            needs_redraw = true;
+                        // Full-screen QR: any tap goes to save/back popup or address view
+                        if ad.ms_creating.active {
+                            ad.app.state = crate::app::input::AppState::MultisigSaveAddrAsk;
                         } else {
-                            if ad.ms_creating.active {
-                                ad.app.state = crate::app::input::AppState::MultisigSaveAddrAsk;
-                            } else {
-                                ad.signed_qr_len = 0;
-                                ad.app.go_main_menu();
-                            }
-                            needs_redraw = true;
+                            ad.app.state = crate::app::input::AppState::MultisigShowAddress;
                         }
+                        needs_redraw = true;
                     }
                     crate::app::input::AppState::MultisigSaveAddrAsk => {
                         if is_back {
@@ -492,6 +489,7 @@ pub fn handle_tx_touch(
                                     }
                                 }
                                 ad.app.state = crate::app::input::AppState::SdMsDescFilename;
+                                needs_redraw = true;
                         } else if (190..=230).contains(&y) && (10..=150).contains(&x) {
                                 // QR button — show HD descriptor as QR for KasSee / another KasSigner.
                                 let hex = b"0123456789abcdef";
@@ -517,6 +515,7 @@ pub fn handle_tx_touch(
                                 ad.signed_qr_frame = 0;
                                 ad.qr_manual_frames = false;
                                 ad.app.state = crate::app::input::AppState::ShowQR;
+                                needs_redraw = true;
                         }
                     }
                     // ─── Sign Message Flow ────────────

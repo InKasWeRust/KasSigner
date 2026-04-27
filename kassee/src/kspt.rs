@@ -553,6 +553,13 @@ pub async fn create_multisig_kspt(
         ));
     }
 
+    if selected.len() > 2 {
+        return Err(format!(
+            "Multisig P2SH limited to 2 inputs (selected {}). Redeem script mass exceeds standard limit. Consolidate UTXOs in batches of 2.",
+            selected.len()
+        ));
+    }
+
     let change_amount = selected_total - amount_sompi - fee;
     let final_change = if change_amount > 0 && is_dust(change_amount) { 0u64 } else { change_amount };
 
@@ -1089,6 +1096,13 @@ pub async fn create_multisig_pskb(
         ));
     }
 
+    if selected.len() > 2 {
+        return Err(format!(
+            "Multisig P2SH limited to 2 inputs (selected {}). Redeem script mass exceeds standard limit. Consolidate UTXOs in batches of 2.",
+            selected.len()
+        ));
+    }
+
     let change_amount = selected_total - amount_sompi - fee;
     let final_change = if change_amount > 0 && is_dust(change_amount) { 0u64 } else { change_amount };
 
@@ -1292,6 +1306,13 @@ pub async fn create_multisig_pskb_selected(
         return Err(format!(
             "Selected UTXOs: {} sompi, need {} sompi",
             selected_total, total_needed
+        ));
+    }
+
+    if selected.len() > 2 {
+        return Err(format!(
+            "Multisig P2SH limited to 2 inputs (selected {}). Redeem script mass exceeds standard limit. Consolidate UTXOs in batches of 2.",
+            selected.len()
         ));
     }
 

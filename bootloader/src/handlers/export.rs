@@ -296,13 +296,8 @@ pub fn handle_export_touch(
                         }
                     }
                     crate::app::input::AppState::ExportKpub => {
-                        if is_back {
-                            ad.kpub_nframes = 0;
-                            ad.kpub_user_nframes = 0;
-                            ad.kpub_frame = 0;
-                            ad.app.state = crate::app::input::AppState::WatchOnlyMenu;
-                            needs_redraw = true;
-                        } else if ad.kpub_user_nframes == 1 {
+                        // Full-screen QR: any tap (including back zone) goes to popup or advances
+                        if ad.kpub_user_nframes == 1 {
                             // Single frame: tap anywhere → popup (save/back)
                             ad.app.state = crate::app::input::AppState::ExportKpubPopup;
                             needs_redraw = true;
@@ -960,11 +955,29 @@ pub fn cycle_kpub_qr(
                 return;
             }
             ad.kpub_frame = (ad.kpub_frame + 1) % ad.kpub_nframes;
-            // Balanced split: equal-sized frames
+
+            // Convert ASCII kpub to V1-raw binary (matches redraw.rs path)
+            let mut raw_buf = [0u8; 80];
+            let raw_len;
+            {
+                let mut raw_payload = [0u8; crate::wallet::xpub::XPUB_PAYLOAD_LEN];
+                match crate::wallet::xpub::kpub_ascii_to_raw(
+                    &ad.kpub_data[..ad.kpub_len],
+                    &mut raw_payload,
+                ) {
+                    Ok(rlen) => {
+                        raw_buf[0] = crate::qr::payload::PAYLOAD_V1_RAW;
+                        raw_buf[1..1 + rlen].copy_from_slice(&raw_payload[..rlen]);
+                        raw_len = 1 + rlen;
+                    }
+                    Err(_) => { return; }
+                }
+            }
+
             let n = ad.kpub_nframes as usize;
-            let balanced = (ad.kpub_len + n - 1) / n;
+            let balanced = (raw_len + n - 1) / n;
             let offset = ad.kpub_frame as usize * balanced;
-            let remaining = ad.kpub_len.saturating_sub(offset);
+            let remaining = raw_len.saturating_sub(offset);
             let frag_len = remaining.min(balanced);
             if frag_len > 0 {
                 let mut frame_buf = [0u8; 134];
@@ -972,13 +985,8 @@ pub fn cycle_kpub_qr(
                 frame_buf[1] = ad.kpub_nframes;
                 frame_buf[2] = frag_len as u8;
                 frame_buf[3..3 + frag_len]
-                    .copy_from_slice(&ad.kpub_data[offset..offset + frag_len]);
+                    .copy_from_slice(&raw_buf[offset..offset + frag_len]);
                 let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
-                // Mirror redraw.rs kpub multi-frame: left-aligned QR +
-                // FRAMES counter in the right info column. Without this,
-                // the auto-cycle loop would paint the first frame
-                // correctly but subsequent frames would snap back to
-                // centre with a bottom-right counter.
                 boot_display.draw_qr_screen_left(&frame_buf[..qr_len]);
                 let mut fc_buf: heapless::String<8> = heapless::String::new();
                 core::fmt::Write::write_fmt(&mut fc_buf,

@@ -815,28 +815,8 @@ pub fn handle_menu_touch(
                         needs_redraw = true;
                     }
                     crate::app::input::AppState::ShowQR => {
-                        if is_back {
-                            // Reset per-tx QR state; keep via_density so
-                            // we can route back to the right upstream
-                            // screen.
-                            ad.signed_qr_nframes = 0;
-                            ad.signed_qr_large = false;
-                            // If we came from a live multisig descriptor, go back there
-                            if ad.ms_creating.active {
-                                ad.app.state = crate::app::input::AppState::MultisigDescriptor;
-                            } else if ad.signed_qr_via_density {
-                                // Came via KasSigner → Density (Fast/Safe)
-                                // — return to the density picker so the
-                                // user can flip density without restarting.
-                                ad.app.state =
-                                    crate::app::input::AppState::ShowQrDensityChoice;
-                            } else {
-                                // Phone/KasSee direct path → return to the
-                                // top-level Phone/KasSigner choice.
-                                ad.app.state =
-                                    crate::app::input::AppState::ShowQrFrameChoice;
-                            }
-                        } else if ad.signed_qr_len > 0 {
+                        // Full-screen QR: any tap (including back zone) goes to popup or advances
+                        if ad.signed_qr_len > 0 {
                             if ad.qr_manual_frames && ad.signed_qr_nframes > 1 {
                                 // Manual mode: tap advances to next frame, no cycling
                                 let next = ad.signed_qr_frame + 1;

@@ -800,13 +800,28 @@ fn main() -> ! {
             let is_home = x >= 268 && y <= 52;
 
             // Home button — go to main menu
-            // Top-right home shortcut excluded on ScanQR for both platforms
-            // (Waveshare had gear icon there historically; M5Stack UX parity
-            // in v1.0.3 — ScanQR exits via back button only).
+            // Excluded on full-screen QR states (tap = advance/popup, no navigation)
+            // and ScanQR (camera screen exits via back button only).
             #[cfg(feature = "waveshare")]
-            let home_allowed = is_home && ad.app.state != app::input::AppState::ScanQR;
+            let home_allowed = is_home && !matches!(ad.app.state,
+                app::input::AppState::ScanQR
+                | app::input::AppState::ShowQR
+                | app::input::AppState::ShowAddressQR
+                | app::input::AppState::MultisigShowAddressQR
+                | app::input::AppState::ExportKpub
+                | app::input::AppState::ExportSeedQR
+                | app::input::AppState::ExportCompactSeedQR
+            );
             #[cfg(feature = "m5stack")]
-            let home_allowed = is_home && ad.app.state != app::input::AppState::ScanQR;
+            let home_allowed = is_home && !matches!(ad.app.state,
+                app::input::AppState::ScanQR
+                | app::input::AppState::ShowQR
+                | app::input::AppState::ShowAddressQR
+                | app::input::AppState::MultisigShowAddressQR
+                | app::input::AppState::ExportKpub
+                | app::input::AppState::ExportSeedQR
+                | app::input::AppState::ExportCompactSeedQR
+            );
 
             if home_allowed {
                 use crate::app::input::AppState;
