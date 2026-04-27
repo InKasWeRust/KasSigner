@@ -572,14 +572,55 @@ async function refreshBalance() {
     }
 }
 
-// ─── Address history (custom REST server) ───
+// ─── Address history (used-address detection) ───
+
+// Default: query api.kaspa.org /transactions-count per address.
+// Override: if user enables Address History + custom REST URL in settings,
+// use the custom server's /full or /transactions endpoints instead.
+// Both paths write into usedReceiveIndices / usedChangeIndices.
+
+const KASPA_REST_API = {
+    'mainnet': 'https://api.kaspa.org',
+    'testnet-10': 'https://api-tn10.kaspa.org',
+};
 
 async function fetchAddressHistory() {
-    if (!addressHistoryEnabled || !customRestUrl || !walletData) return;
-
+    if (!walletData) return;
     const wallet = JSON.parse(walletData);
+
+    // Custom REST server path (user-configured, optional)
+    if (addressHistoryEnabled && customRestUrl) {
+        await fetchAddressHistoryCustom(wallet);
+        return;
+    }
+
+    // Default path: api.kaspa.org /transactions-count
+    const apiBase = KASPA_REST_API[network];
+    if (!apiBase) return;
+
+    const check = async (addr, i, targetSet) => {
+        try {
+            const r = await fetch(`${apiBase}/addresses/${addr}/transactions-count`, { signal: AbortSignal.timeout(5000) });
+            if (r.ok) {
+                const d = await r.json();
+                if (d.total > 0) targetSet.add(i);
+            }
+        } catch (_) {}
+    };
+
     try {
-        // Try /addresses/{addr}/full first, fall back to /addresses/{addr}/transactions?limit=1
+        const promises = [
+            ...wallet.receive_addresses.map((addr, i) => check(addr, i, usedReceiveIndices)),
+            ...wallet.change_addresses.map((addr, i) => check(addr, i, usedChangeIndices)),
+        ];
+        await Promise.all(promises);
+    } catch (e) {
+        console.log('[KasSee] address history (default):', e);
+    }
+}
+
+async function fetchAddressHistoryCustom(wallet) {
+    try {
         const testUrl = `${customRestUrl}/addresses/${wallet.receive_addresses[0]}/full`;
         const probe = await fetch(testUrl, { signal: AbortSignal.timeout(5000) });
         const useFull = probe.ok;
@@ -609,7 +650,7 @@ async function fetchAddressHistory() {
         ];
         await Promise.all(promises);
     } catch (e) {
-        console.log('[KasSee] address history:', e);
+        console.log('[KasSee] address history (custom):', e);
     }
 }
 
@@ -1937,29 +1978,153 @@ function hex_to_bytes(hex) {
 }
 
 function showHistory() {
-    if (historyEntries.length === 0) {
-        el('history-summary').textContent = 'No transactions detected yet';
-        el('history-list').innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px">Refresh balance to start tracking</div>';
-    } else {
-        el('history-summary').textContent = historyEntries.length + ' transaction' + (historyEntries.length !== 1 ? 's' : '') + ' detected';
-        let html = '';
-        historyEntries.forEach(h => {
-            const kas = (h.amount / 1e8).toFixed(8);
-            const sign = h.type === 'in' ? '+' : '-';
-            const cls = h.type === 'in' ? 'incoming' : 'outgoing';
-            const icon = h.type === 'in' ? '↓' : '↑';
-            const ago = timeAgo(h.time);
-            html += `<div class="history-item">
-                <div class="history-icon ${cls}">${icon}</div>
-                <div class="history-info">
-                    <div class="history-amount ${cls}">${sign}${kas} KAS</div>
-                    <div class="history-time">${ago} · ${h.tx_id.slice(0, 12)}…</div>
-                </div>
-            </div>`;
-        });
-        el('history-list').innerHTML = html;
+    if (!walletData) return;
+    showLoading('Loading transaction history...');
+    fetchArchivalHistory().then(() => {
+        hideLoading();
+        renderHistory();
+        showScreen('history');
+    }).catch(e => {
+        hideLoading();
+        // Fall back to session-only history
+        renderHistory();
+        showScreen('history');
+        console.log('[KasSee] archival history fetch failed, showing session data:', e);
+    });
+}
+
+async function fetchArchivalHistory() {
+    if (!walletData) return;
+    const wallet = JSON.parse(walletData);
+    const allAddresses = [...wallet.receive_addresses, ...wallet.change_addresses];
+    const myAddressSet = new Set(allAddresses);
+
+    const apiBase = KASPA_REST_API[network];
+    if (!apiBase) return;
+
+    const txMap = new Map(); // tx_id → processed entry
+
+    // Fetch full-transactions for each address in parallel
+    const fetches = allAddresses.map(async (addr) => {
+        try {
+            const r = await fetch(
+                `${apiBase}/addresses/${addr}/full-transactions?resolve_previous_outpoints=light`,
+                { signal: AbortSignal.timeout(10000) }
+            );
+            if (!r.ok) return;
+            const txs = await r.json();
+            if (!Array.isArray(txs)) return;
+
+            for (const tx of txs) {
+                if (txMap.has(tx.transaction_id)) continue;
+
+                // Classify: sum inputs from our addresses vs outputs to our addresses
+                let inputFromUs = 0;
+                let inputTotal = 0;
+                const senders = [];
+                for (const inp of (tx.inputs || [])) {
+                    const amt = inp.previous_outpoint_amount || 0;
+                    inputTotal += amt;
+                    if (inp.previous_outpoint_address && myAddressSet.has(inp.previous_outpoint_address)) {
+                        inputFromUs += amt;
+                    } else if (inp.previous_outpoint_address) {
+                        senders.push(inp.previous_outpoint_address);
+                    }
+                }
+
+                let outputToUs = 0;
+                let outputTotal = 0;
+                const recipients = [];
+                for (const out of (tx.outputs || [])) {
+                    const amt = out.amount || 0;
+                    outputTotal += amt;
+                    if (out.script_public_key_address && myAddressSet.has(out.script_public_key_address)) {
+                        outputToUs += amt;
+                    } else if (out.script_public_key_address) {
+                        recipients.push(out.script_public_key_address);
+                    }
+                }
+
+                const fee = inputTotal > 0 ? inputTotal - outputTotal : 0;
+
+                // Direction: if we funded inputs, it's outgoing; otherwise incoming
+                let type, amount, counterparty;
+                if (inputFromUs > 0) {
+                    // We spent — outgoing. Amount = what left our wallet (excluding change back to us)
+                    amount = inputFromUs - outputToUs;
+                    type = 'out';
+                    counterparty = recipients.length > 0 ? recipients[0] : null;
+                } else {
+                    // We received
+                    amount = outputToUs;
+                    type = 'in';
+                    counterparty = senders.length > 0 ? senders[0] : null;
+                }
+
+                txMap.set(tx.transaction_id, {
+                    type,
+                    amount,
+                    fee,
+                    tx_id: tx.transaction_id,
+                    time: tx.block_time || tx.accepting_block_time || 0,
+                    counterparty,
+                    is_accepted: tx.is_accepted !== false,
+                });
+            }
+        } catch (_) {}
+    });
+
+    await Promise.all(fetches);
+
+    // Merge archival data into historyEntries, replacing session-only entries
+    if (txMap.size > 0) {
+        // Keep session entries that aren't in archival (very recent, not yet indexed)
+        const archivalIds = new Set(txMap.keys());
+        const sessionOnly = historyEntries.filter(h => !archivalIds.has(h.tx_id));
+
+        // Build merged list: archival (sorted by time desc) + session-only at top
+        const archival = [...txMap.values()].sort((a, b) => b.time - a.time);
+        historyEntries = [...sessionOnly, ...archival];
+
+        // Cap at 200
+        if (historyEntries.length > 200) historyEntries.length = 200;
     }
-    showScreen('history');
+}
+
+function renderHistory() {
+    if (historyEntries.length === 0) {
+        el('history-summary').textContent = 'No transactions found';
+        el('history-list').innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px">No transaction history available</div>';
+        return;
+    }
+
+    el('history-summary').textContent = historyEntries.length + ' transaction' + (historyEntries.length !== 1 ? 's' : '');
+    let html = '';
+    historyEntries.forEach(h => {
+        const kas = (Math.abs(h.amount) / 1e8).toFixed(8);
+        const sign = h.type === 'in' ? '+' : '-';
+        const cls = h.type === 'in' ? 'incoming' : 'outgoing';
+        const icon = h.type === 'in' ? '↓' : '↑';
+        const timeStr = h.time > 1e12 ? formatTxTime(h.time) : (h.time > 0 ? timeAgo(h.time) : '');
+        const txShort = h.tx_id ? h.tx_id.slice(0, 12) + '…' : '';
+        const txLink = h.tx_id ? explorerTxUrl(h.tx_id) : '';
+        const cpShort = h.counterparty ? h.counterparty.slice(0, 16) + '…' : '';
+
+        html += `<div class="history-item">
+            <div class="history-icon ${cls}">${icon}</div>
+            <div class="history-info">
+                <div class="history-amount ${cls}">${sign}${kas} KAS</div>
+                <div class="history-time">${timeStr}${txLink ? ` · <a href="${txLink}" target="_blank" rel="noopener" style="color:var(--teal-dim)">${txShort}</a>` : ` · ${txShort}`}</div>
+                ${cpShort ? `<div class="history-time">${h.type === 'in' ? 'from' : 'to'} ${cpShort}</div>` : ''}
+            </div>
+        </div>`;
+    });
+    el('history-list').innerHTML = html;
+}
+
+function explorerTxUrl(txId) {
+    const prefix = (network === 'mainnet') ? '' : 'tn10.';
+    return `https://${prefix}explorer.kaspa.org/txs/${txId}`;
 }
 
 function clearHistory() {
@@ -1970,7 +2135,26 @@ function clearHistory() {
     fundedChangeIndices = [];
     usedReceiveIndices = new Set();
     usedChangeIndices = new Set();
-    showHistory();
+    renderHistory();
+}
+
+function formatTxTime(blockTimeMs) {
+    const d = new Date(blockTimeMs);
+    const now = Date.now();
+    const diffMs = now - blockTimeMs;
+
+    if (diffMs < 60000) return 'just now';
+    if (diffMs < 3600000) return Math.floor(diffMs / 60000) + 'm ago';
+    if (diffMs < 86400000) return Math.floor(diffMs / 3600000) + 'h ago';
+    if (diffMs < 604800000) return Math.floor(diffMs / 86400000) + 'd ago';
+
+    // Older than a week: show date
+    const month = d.toLocaleString('en', { month: 'short' });
+    const day = d.getDate();
+    const year = d.getFullYear();
+    const hr = d.getHours().toString().padStart(2, '0');
+    const mn = d.getMinutes().toString().padStart(2, '0');
+    return `${month} ${day}, ${year} ${hr}:${mn}`;
 }
 
 function timeAgo(ts) {
