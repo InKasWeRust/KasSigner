@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 # License: GPL-3.0
 #
-# Reproducible firmware build (both platforms)
+# Reproducible firmware build (both platforms) + KasSee WASM verification
 #
 # Usage:
 #   Without signing key (anyone — unsigned reproducible build):
@@ -11,7 +11,7 @@
 #   With signing key (developer only — signed reproducible build):
 #     docker build --platform linux/amd64 --secret id=signkey,src=dev_signing_key.bin -t kassigner-build .
 #
-# Output files:
+# Output files (firmware only — KasSee is browser-deployed via gh-pages):
 #   kassigner-waveshare.bin       — app-only image (for developers, hash verification)
 #   kassigner-m5stack.bin         — app-only image (for developers, hash verification)
 #   kassigner-waveshare-full.bin  — merged full-flash image (bootloader + partition table + app)
@@ -26,13 +26,32 @@ FROM --platform=linux/amd64 kassigner-toolchain:v2
 SHELL ["/bin/bash", "-c"]
 
 WORKDIR /build/KasSigner
-COPY . .
+
+# ════════════════════════════════════════════════════
+#  Copy only code folders (no docs, no gh-pages assets)
+# ════════════════════════════════════════════════════
+COPY bootloader/ bootloader/
+COPY kassee/ kassee/
+COPY rqrr_nostd/ rqrr_nostd/
+COPY tools/ tools/
+COPY rust-toolchain.toml .
 
 ENV SOURCE_DATE_EPOCH=0
 
 # Install espflash for image generation
 RUN source /root/esp-env.sh && \
     cargo install espflash --version 3.3.0
+
+# ════════════════════════════════════════════════════
+#  Verify KasSee WASM compiles (no output retained)
+# ════════════════════════════════════════════════════
+RUN source /root/esp-env.sh && \
+    rustup target add wasm32-unknown-unknown --toolchain 1.85.0 && \
+    cd kassee && \
+    cargo build --target wasm32-unknown-unknown --release 2>&1 | tail -3 && \
+    echo "============================================" && \
+    echo "  KasSee WASM build verified" && \
+    echo "============================================"
 
 # Build gen-hash tool (uses host toolchain, not Xtensa)
 RUN cargo build --manifest-path tools/Cargo.toml --bin gen-hash --release 2>&1 | tail -1
