@@ -301,7 +301,7 @@ function bindEvents() {
             tab.classList.add('active');
             // Close menu and navigate
             closeGearMenu();
-            if (target === 'addresses') showAddresses();
+            if (target === 'addresses') { showAddresses(); addressesReturnScreen = 'dashboard'; }
             else if (target === 'utxos') showUtxos();
             else if (target === 'tokens') showTokens();
             else if (target === 'history') showHistory();
