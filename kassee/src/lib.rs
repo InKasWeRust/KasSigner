@@ -183,6 +183,7 @@ pub async fn create_compound_kspt(
 /// source_address: the P2SH multisig address holding the funds
 /// change_address: where change goes (typically same P2SH address)
 #[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
 pub async fn create_multisig_kspt(
     descriptor: &str,
     source_address: &str,
@@ -205,6 +206,7 @@ pub async fn create_multisig_kspt(
 /// landing the user on the Review PSKB screen with 0/M sigs where
 /// they can pick Relay → (Any wallet | KasSigner compact).
 #[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
 pub async fn create_multisig_pskb(
     descriptor: &str,
     source_address: &str,
@@ -222,6 +224,7 @@ pub async fn create_multisig_pskb(
 /// Same as `create_multisig_pskb` but with explicit UTXO indices
 /// instead of greedy auto-selection.
 #[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
 pub async fn create_multisig_pskb_selected(
     descriptor: &str,
     source_address: &str,

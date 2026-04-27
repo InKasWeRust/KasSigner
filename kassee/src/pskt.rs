@@ -692,8 +692,7 @@ fn encode_input_kspt_v2(buf: &mut Vec<u8>, inp: &Value) -> Result<(), String> {
 
     let mut sig_records: Vec<(u8, Vec<u8>)> = Vec::new();
 
-    if is_p2sh && redeem.is_some() {
-        let rs = redeem.as_ref().unwrap();
+    if let (true, Some(rs)) = (is_p2sh, redeem.as_ref()) {
         let (required_m, _n) = parse_multisig_redeem(rs)
             .ok_or_else(|| "redeem is not a valid M-of-N multisig".to_string())?;
 
@@ -922,8 +921,7 @@ fn encode_input_kspt_v2_relay(buf: &mut Vec<u8>, inp: &Value) -> Result<(), Stri
 
     let mut sig_records: Vec<(u8, Vec<u8>)> = Vec::new();
 
-    if is_p2sh && redeem.is_some() {
-        let rs = redeem.as_ref().unwrap();
+    if let (true, Some(rs)) = (is_p2sh, redeem.as_ref()) {
         // Parse redeem to validate it's well-formed; M is not checked for relay.
         let _ = parse_multisig_redeem(rs)
             .ok_or_else(|| "redeem is not a valid M-of-N multisig".to_string())?;
@@ -1135,8 +1133,7 @@ fn build_consensus_input(inp: &Value) -> Result<crate::rpc::ConsensusInput, Stri
     let is_p2sh = spk_script.len() == 35
         && spk_script[0] == 0xAA && spk_script[1] == 0x20 && spk_script[34] == 0x87;
 
-    let sig_script = if is_p2sh && redeem.is_some() {
-        let rs = redeem.as_ref().unwrap();
+    let sig_script = if let (true, Some(rs)) = (is_p2sh, redeem.as_ref()) {
         build_p2sh_multisig_sig_script(rs, &partial_map)?
     } else if !is_p2sh {
         build_p2pk_sig_script(&partial_map)?
@@ -1322,7 +1319,7 @@ fn merge_v2_p2pk_sig(
         .expect("just inserted/verified");
 
     if !partial_map.contains_key(&pk_hex) {
-        let sig_hex = hex::encode(&rec.sig);
+        let sig_hex = hex::encode(rec.sig);
         let mut sig_obj = serde_json::Map::new();
         sig_obj.insert("schnorr".to_string(), Value::String(sig_hex));
         partial_map.insert(pk_hex, Value::Object(sig_obj));
@@ -1435,7 +1432,7 @@ pub fn merge_signed_kspt_v2_into_pskb(
                     continue;
                 }
 
-                let sig_hex = hex::encode(&rec.sig);
+                let sig_hex = hex::encode(rec.sig);
                 let mut sig_obj = serde_json::Map::new();
                 sig_obj.insert("schnorr".to_string(), Value::String(sig_hex));
                 partial_map.insert(pk_hex, Value::Object(sig_obj));
@@ -1480,7 +1477,7 @@ pub fn merge_signed_kspt_v2_into_pskb(
                 .expect("just inserted/verified");
 
             if !partial_map.contains_key(&pk_hex) {
-                let sig_hex = hex::encode(&rec.sig);
+                let sig_hex = hex::encode(rec.sig);
                 let mut sig_obj = serde_json::Map::new();
                 sig_obj.insert("schnorr".to_string(), Value::String(sig_hex));
                 partial_map.insert(pk_hex, Value::Object(sig_obj));

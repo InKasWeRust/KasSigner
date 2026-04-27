@@ -460,6 +460,7 @@ fn build_redeem_script(m: u8, pubkeys: &[[u8; 32]]) -> Vec<u8> {
 }
 
 /// Create unsigned multisig KSPT: fetch UTXOs for P2SH address, build TX with redeem scripts
+#[allow(clippy::too_many_arguments)]
 pub async fn create_multisig_kspt(
     descriptor: &str,
     source_address: &str,
@@ -1009,6 +1010,7 @@ fn serialize_pskb_single_sig(
 // receives it, signs, returns a PSKB with partialSigs populated (or
 // a KSPT v2 via the compact relay path, which gets merged back).
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_multisig_pskb(
     descriptor: &str,
     source_address: &str,
@@ -1219,6 +1221,7 @@ pub async fn create_multisig_pskb(
 /// Create unsigned multisig PSKB with specific UTXO indices.
 /// Same as `create_multisig_pskb` but uses explicit UTXO indices
 /// instead of greedy auto-selection.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_multisig_pskb_selected(
     descriptor: &str,
     source_address: &str,

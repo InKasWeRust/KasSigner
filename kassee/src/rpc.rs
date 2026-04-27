@@ -822,6 +822,7 @@ pub struct ConsensusOutput {
 /// Submit a transaction assembled directly from PSKT. No KSPT
 /// intermediate. Produces the same on-wire Borsh RpcTransaction that
 /// `broadcast_signed` produces — only the input assembly path differs.
+#[allow(clippy::too_many_arguments)]
 pub async fn submit_consensus_tx(
     ws_url: &str,
     tx_version: u16,
