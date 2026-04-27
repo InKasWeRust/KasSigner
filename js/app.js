@@ -65,6 +65,8 @@ let usedReceiveIndices = new Set();
 let usedChangeIndices = new Set();
 let addressHistoryEnabled = false;
 let customRestUrl = null;
+let autoRefreshTimer = null;
+const AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
 
 // Broadcast enabled
 const BROADCAST_ENABLED = true;
@@ -179,6 +181,12 @@ function showScreen(name) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     const screen = document.getElementById(`screen-${name}`);
     if (screen) screen.classList.add('active');
+    // Auto-refresh when on dashboard
+    if (name === 'dashboard' && walletData) {
+        startAutoRefresh();
+    } else {
+        stopAutoRefresh();
+    }
 }
 
 function showLoading(msg) {
@@ -324,6 +332,55 @@ function bindEvents() {
 }
 
 function el(id) { return document.getElementById(id); }
+
+// ─── Address index helpers ───
+
+/// Pick the first change address not currently funded and not used this session.
+/// Falls back to the last change address if all are occupied.
+function getNextChangeIndex() {
+    if (!walletData) return 0;
+    const wallet = JSON.parse(walletData);
+    const skipSet = new Set([...fundedChangeIndices, ...usedChangeIndices]);
+    for (let i = 0; i < wallet.change_addresses.length; i++) {
+        if (!skipSet.has(i)) return i;
+    }
+    return wallet.change_addresses.length - 1;
+}
+
+/// Pick the first receive address not currently funded and not used this session.
+function getNextReceiveIndex() {
+    if (!walletData) return 0;
+    const wallet = JSON.parse(walletData);
+    const skipSet = new Set([...fundedReceiveIndices, ...usedReceiveIndices]);
+    for (let i = 0; i < wallet.receive_addresses.length; i++) {
+        if (!skipSet.has(i)) return i;
+    }
+    return wallet.receive_addresses.length - 1;
+}
+
+/// Return walletData JSON with next_change_index set to the correct value.
+function walletWithFreshIndices() {
+    if (!walletData) return walletData;
+    const w = JSON.parse(walletData);
+    w.next_change_index = getNextChangeIndex();
+    w.next_receive_index = getNextReceiveIndex();
+    return JSON.stringify(w);
+}
+
+// ─── Auto-refresh ───
+
+function startAutoRefresh() {
+    stopAutoRefresh();
+    autoRefreshTimer = setInterval(() => {
+        if (currentScreenName === 'dashboard' && walletData && !refreshing) {
+            refreshBalance();
+        }
+    }, AUTO_REFRESH_INTERVAL);
+}
+
+function stopAutoRefresh() {
+    if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+}
 
 // ─── kpub import ───
 
@@ -828,20 +885,21 @@ async function handleCreateTx() {
     showLoading('Creating transaction...');
     try {
         let pskbHex;
+        const freshWallet = walletWithFreshIndices();
 
         if (extras.length > 0) {
             const recipients = [{ address: dest, amount_kas: amount }, ...extras];
             pskbHex = await withNodeRetry(wsUrl =>
-                create_compound_pskb(walletData, JSON.stringify(recipients), BigInt(fee), wsUrl)
+                create_compound_pskb(freshWallet, JSON.stringify(recipients), BigInt(fee), wsUrl)
             );
         } else if (selectedUtxoIndices && selectedUtxoIndices.length > 0) {
             const csv = selectedUtxoIndices.join(',');
             pskbHex = await withNodeRetry(wsUrl =>
-                create_send_pskb_selected(walletData, dest, amount, BigInt(fee), csv, wsUrl)
+                create_send_pskb_selected(freshWallet, dest, amount, BigInt(fee), csv, wsUrl)
             );
         } else {
             pskbHex = await withNodeRetry(wsUrl =>
-                create_send_pskb(walletData, dest, amount, BigInt(fee), wsUrl)
+                create_send_pskb(freshWallet, dest, amount, BigInt(fee), wsUrl)
             );
         }
 
@@ -1745,7 +1803,7 @@ async function handleConsolidate() {
     showLoading('Building consolidation TX...');
     try {
         const pskbHex = await withNodeRetry(wsUrl =>
-            create_consolidate_pskb(walletData, BigInt(fee), wsUrl)
+            create_consolidate_pskb(walletWithFreshIndices(), BigInt(fee), wsUrl)
         );
         hideLoading();
         openPsktReview(pskbHex);
@@ -1777,9 +1835,9 @@ async function handleConsolidateSelected() {
 
     showLoading(`Consolidating ${indices.length} UTXOs...`);
     try {
-        const destAddr = wallet.receive_addresses[0];
+        const destAddr = wallet.receive_addresses[getNextReceiveIndex()];
         const pskbHex = await withNodeRetry(wsUrl =>
-            create_send_pskb_selected(walletData, destAddr, sendKas, BigInt(fee), indicesCsv, wsUrl)
+            create_send_pskb_selected(walletWithFreshIndices(), destAddr, sendKas, BigInt(fee), indicesCsv, wsUrl)
         );
         hideLoading();
         openPsktReview(pskbHex);
