@@ -289,6 +289,7 @@ function bindEvents() {
     el('btn-save-settings').onclick = () => saveSettings();
     el('btn-use-public').onclick = () => { clearCustomNode(); exitSettings(); };
     el('btn-settings-back').onclick = () => exitSettings();
+    el('btn-settings-back-top').onclick = () => exitSettings();
     el('btn-header-settings').onclick = () => toggleGearMenu();
 
     // Gear menu tabs
@@ -310,6 +311,7 @@ function bindEvents() {
     el('btn-addresses-back').onclick = () => showScreen(addressesReturnScreen);
     el('btn-addresses-back-top').onclick = () => showScreen(addressesReturnScreen);
     el('btn-tokens-back').onclick = () => showScreen('dashboard');
+    el('btn-tokens-back-top').onclick = () => showScreen('dashboard');
     el('btn-verify-copy').onclick = () => {
         navigator.clipboard.writeText(el('verify-address').textContent.trim());
         toast('Address copied', 'ok', 1200);
@@ -321,9 +323,11 @@ function bindEvents() {
         document.querySelector('main').scrollTop = 0;
     };
     el('btn-utxos-back').onclick = () => showScreen('dashboard');
+    el('btn-utxos-back-top').onclick = () => showScreen('dashboard');
     el('btn-consolidate').onclick = () => handleConsolidate();
     el('btn-consolidate-selected').onclick = () => handleConsolidateSelected();
     el('btn-history-back').onclick = () => showScreen('dashboard');
+    el('btn-history-back-top').onclick = () => showScreen('dashboard');
     el('btn-clear-history').onclick = () => clearHistory();
     el('btn-donate-skip').onclick = () => exitSettings();
     el('btn-copy-donate').onclick = () => {
