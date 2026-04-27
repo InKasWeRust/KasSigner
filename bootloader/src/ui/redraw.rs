@@ -160,6 +160,14 @@ pub fn redraw_screen(
                         }
                     }
                     boot_display.draw_sd_file_list_ex(&ad.sd_file_list, ad.sd_file_count, ad.sd_file_scroll, &fps, fc);
+                    // Re-init CST816D after SD scan — I2C bus was busy during
+                    // scan and touch controller may have stale state.
+                    #[cfg(feature = "waveshare")]
+                    {
+                        let _ = i2c.write(0x15u8, &[0x05, 0x60]);
+                        let _ = i2c.write(0x15u8, &[0x06, 0x30]);
+                        let _ = i2c.write(0x15u8, &[0xFE, 0x01]);
+                    }
                 }
                 crate::app::input::AppState::SdXprvExportPassphrase => {
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "PASSWORD");

@@ -850,9 +850,15 @@ pub fn handle_sd_touch(
                                                         (ad.extra_pubkey_index) = 0xFFFF;
                                                         boot_display.update_progress_bar(100);
                                                         log!("[SD-RESTORE] Restored {}-word seed to slot {}", wc, slot_idx);
-                                                        boot_display.draw_saving_screen("Seed restored!");
+                                                        boot_display.draw_success_screen("Seed restored!");
                                                         sound::success(delay);
-                                                        delay.delay_millis(2000);
+                                                        delay.delay_millis(1500);
+                                                        // Prompt for BIP39 passphrase — creates a
+                                                        // second slot if passphrase entered, or Back
+                                                        // to skip (no-passphrase slot stays).
+                                                        ad.pp_input.reset();
+                                                        ad.app.state = crate::app::input::AppState::PassphraseEntry;
+                                                        needs_redraw = true;
                                                     } else {
                                                         boot_display.draw_rejected_screen("All 4 slots full!");
                                                         delay.delay_millis(2000);
@@ -875,11 +881,14 @@ pub fn handle_sd_touch(
                                         unsafe { core::ptr::write_volatile(b, 0); }
                                     }
                                     ad.pp_input.reset();
-                                    // Go to SeedList if restore succeeded, MainMenu otherwise
-                                    if ad.seed_loaded {
-                                        ad.app.state = crate::app::input::AppState::SeedList;
-                                    } else {
-                                        ad.app.go_main_menu();
+                                    // If restore succeeded and we're heading to PassphraseEntry,
+                                    // don't overwrite. Otherwise go to SeedList/MainMenu.
+                                    if ad.app.state != crate::app::input::AppState::PassphraseEntry {
+                                        if ad.seed_loaded {
+                                            ad.app.state = crate::app::input::AppState::SeedList;
+                                        } else {
+                                            ad.app.go_main_menu();
+                                        }
                                     }
                                     needs_redraw = true;
                                 }
@@ -1394,13 +1403,16 @@ pub fn handle_sd_touch(
                                             let scan_result = sdcard::with_sd_card(i2c, delay, |ct| {
                                                 let fat32 = sdcard::mount_fat32(ct)?;
                                                 sdcard::list_root_dir(ct, &fat32, |entry| {
+                                                    let is_hidden = entry.name[0] == b'.' || entry.name[0] == 0xE5;
+                                                    let ext = [entry.name[8], entry.name[9], entry.name[10]];
+                                                    let is_txt = ext == *b"TXT" || ext == *b"txt";
+                                                    let is_ksp = ext == *b"KSP" || ext == *b"ksp";
                                                     if !entry.is_dir()
+                                                        && !is_hidden
                                                         && entry.file_size > 0
                                                         && entry.file_size <= 512
                                                         && (ad.sd_file_count as usize) < 8
-                                                        && entry.name[8] == b'T'
-                                                        && entry.name[9] == b'X'
-                                                        && entry.name[10] == b'T'
+                                                        && (is_txt || is_ksp)
                                                     {
                                                         ad.sd_file_list[ad.sd_file_count as usize] = entry.name;
                                                         ad.sd_file_count += 1;
@@ -1495,7 +1507,7 @@ pub fn handle_sd_touch(
                                                 ad.pp_input.reset();
                                                 ad.app.state = crate::app::input::AppState::SdKsptEncryptPass;
                                             } else {
-                                                // Plain KSPT — load directly
+                                                // Plain file — detect content type
                                                 ad.signed_qr_buf[..n].copy_from_slice(&buf[..n]);
                                                 ad.signed_qr_len = n;
                                                 ad.signed_qr_frame = 0;
@@ -1504,10 +1516,43 @@ pub fn handle_sd_touch(
                                                 ad.tx_sigs_present = 0;
                                                 ad.tx_sigs_required = 0;
                                                 log!("[SD-KSPT] Loaded {} bytes from SD", n);
-                                                boot_display.draw_success_screen("TX loaded!");
-                                                sound::success(delay);
-                                                delay.delay_millis(1000);
-                                                ad.app.state = crate::app::input::AppState::ShowQrFrameChoice;
+
+                                                let is_descriptor = n >= 9
+                                                    && &buf[..9] == b"multi_hd(";
+                                                let is_address = n >= 10
+                                                    && (&buf[..6] == b"kaspa:" || &buf[..10] == b"kaspatest:");
+
+                                                if is_descriptor {
+                                                    if let Some((m, nn, cosigner_pubkeys, cosigner_chain_codes)) = parse_descriptor(&buf[..n]) {
+                                                        ad.ms_creating = wallet::transaction::MultisigConfig::new();
+                                                        ad.ms_creating.m = m;
+                                                        ad.ms_creating.n = nn;
+                                                        ad.ms_creating.cosigner_pubkeys = cosigner_pubkeys;
+                                                        ad.ms_creating.cosigner_chain_codes = cosigner_chain_codes;
+                                                        ad.ms_creating.build_script();
+                                                        boot_display.draw_success_screen("Descriptor loaded!");
+                                                        sound::success(delay);
+                                                        delay.delay_millis(1000);
+                                                        ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                                                    } else {
+                                                        boot_display.draw_rejected_screen("Bad descriptor");
+                                                        delay.delay_millis(2000);
+                                                        ad.app.state = crate::app::input::AppState::SdKsptFileList;
+                                                    }
+                                                } else if is_address {
+                                                    ad.kpub_data[..n].copy_from_slice(&buf[..n]);
+                                                    ad.kpub_len = n;
+                                                    ad.ms_creating.active = false;
+                                                    boot_display.draw_success_screen("Address loaded!");
+                                                    sound::success(delay);
+                                                    delay.delay_millis(1000);
+                                                    ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                                                } else {
+                                                    boot_display.draw_success_screen("TX loaded!");
+                                                    sound::success(delay);
+                                                    delay.delay_millis(1000);
+                                                    ad.app.state = crate::app::input::AppState::ShowQrFrameChoice;
+                                                }
                                             }
                                         }
                                         Err(e) => {
@@ -1529,17 +1574,33 @@ pub fn handle_sd_touch(
                             // Two buttons: "Save to SD" and "Back to QR"
                             // Save to SD button zone: center-left area
                             if (30..=155).contains(&x) && (140..=185).contains(&y) {
-                                // Save to SD → filename keyboard
-                                let next = scan_auto_increment(i2c, delay, b"TX", b"KSP");
-                                let name = format_auto_name(b"TX", next, b"KSP");
-                                ad.kspt_filename = name;
-                                ad.pp_input.reset();
-                                for j in 0..8usize {
-                                    if name[j] != b' ' {
-                                        ad.pp_input.push_char(name[j]);
+                                // Save to SD → detect content type for correct extension
+                                let is_descriptor = ad.signed_qr_len >= 9
+                                    && &ad.signed_qr_buf[..9] == b"multi_hd(";
+                                if is_descriptor {
+                                    let next = scan_auto_increment(i2c, delay, b"MD", b"TXT");
+                                    let name = format_auto_name(b"MD", next, b"TXT");
+                                    ad.kspt_filename = name;
+                                    ad.pp_input.reset();
+                                    for j in 0..8usize {
+                                        if name[j] != b' ' {
+                                            ad.pp_input.push_char(name[j]);
+                                        }
                                     }
+                                    ad.app.state = crate::app::input::AppState::SdMsDescFilename;
+                                } else {
+                                    let next = scan_auto_increment(i2c, delay, b"TX", b"KSP");
+                                    let name = format_auto_name(b"TX", next, b"KSP");
+                                    ad.kspt_filename = name;
+                                    ad.pp_input.reset();
+                                    for j in 0..8usize {
+                                        if name[j] != b' ' {
+                                            ad.pp_input.push_char(name[j]);
+                                        }
+                                    }
+                                    ad.app.state = crate::app::input::AppState::SdKsptFilename;
                                 }
-                                ad.app.state = crate::app::input::AppState::SdKsptFilename;
+                                needs_redraw = true;
                             }
                             // Back to QR button zone: center-right area
                             else if (165..=290).contains(&x) && (140..=185).contains(&y) {
@@ -1680,65 +1741,85 @@ pub fn handle_sd_touch(
                                         Ok((buf, n)) => {
                                             match ad.txt_import_type {
                                                 0 => {
-                                                    // kpub — display as multi-frame QR
-                                                    if n > 0 && n <= wallet::xpub::KPUB_MAX_LEN {
+                                                    // kpub — validate content before accepting
+                                                    let is_kpub_ascii = n >= 4 && &buf[..4] == b"kpub";
+                                                    let is_kpub_v1raw = n == 79 && buf[0] == 0x01;
+                                                    let is_encrypted = n >= 4 && buf[0] == b'K' && buf[1] == b'A' && buf[2] == b'S' && buf[3] == 0x03;
+                                                    if is_encrypted {
+                                                        // Encrypted kpub — go to password prompt
+                                                        ad.signed_qr_buf[..n].copy_from_slice(&buf[..n]);
+                                                        ad.signed_qr_len = n;
+                                                        ad.sd_txt_origin = 1;
+                                                        ad.pp_input.reset();
+                                                        ad.app.state = crate::app::input::AppState::SdKsptEncryptPass;
+                                                    } else if (is_kpub_ascii || is_kpub_v1raw) && n <= wallet::xpub::KPUB_MAX_LEN {
                                                         ad.kpub_data[..n].copy_from_slice(&buf[..n]);
                                                         ad.kpub_len = n;
                                                         ad.kpub_frame = 0;
                                                         ad.kpub_nframes = 0;
                                                         ad.app.state = crate::app::input::AppState::ExportKpub;
                                                     } else {
-                                                        boot_display.draw_rejected_screen("Invalid kpub file");
+                                                        boot_display.draw_rejected_screen("Not a valid kpub");
                                                         delay.delay_millis(2000);
                                                     }
                                                 }
                                                 1 => {
-                                                    // Multisig address — display as fullscreen QR.
-                                                    // kpub_data is only 120 bytes; clamp size to the smallest
-                                                    // of all destination buffers to prevent overflow if the
-                                                    // file on SD is corrupted or unexpectedly large.
-                                                    let max_addr_len = wallet::xpub::KPUB_MAX_LEN
-                                                        .min(buf.len())
-                                                        .min(ad.signed_qr_buf.len());
-                                                    if n > 0 && n <= max_addr_len {
-                                                        ad.kpub_data[..n].copy_from_slice(&buf[..n]);
-                                                        ad.kpub_len = n;
-                                                        // Store address in signed_qr_buf for the
-                                                        // MultisigShowAddressQR redraw to render.
-                                                        // ms_creating.active remains false — signals
-                                                        // SD-loaded flow (no save popup, tap=back).
+                                                    // Multisig address — validate content
+                                                    let is_encrypted = n >= 4 && buf[0] == b'K' && buf[1] == b'A' && buf[2] == b'S' && buf[3] == 0x03;
+                                                    let is_address = n >= 6
+                                                        && (&buf[..6] == b"kaspa:" || (n >= 10 && &buf[..10] == b"kaspatest:"));
+                                                    if is_encrypted {
+                                                        // Encrypted address — go to password prompt
                                                         ad.signed_qr_buf[..n].copy_from_slice(&buf[..n]);
                                                         ad.signed_qr_len = n;
-                                                        ad.signed_qr_frame = 0;
-                                                        ad.signed_qr_nframes = 0;
-                                                        ad.signed_qr_large = false;
-                                                        boot_display.draw_success_screen("Address loaded!");
-                                                        sound::success(delay);
-                                                        delay.delay_millis(1000);
-                                                        ad.app.state = crate::app::input::AppState::MultisigShowAddressQR;
+                                                        ad.sd_txt_origin = 0; // address import
+                                                        ad.pp_input.reset();
+                                                        ad.app.state = crate::app::input::AppState::SdKsptEncryptPass;
+                                                    } else if is_address {
+                                                        let max_addr_len = wallet::xpub::KPUB_MAX_LEN
+                                                            .min(buf.len())
+                                                            .min(ad.signed_qr_buf.len());
+                                                        if n <= max_addr_len {
+                                                            ad.kpub_data[..n].copy_from_slice(&buf[..n]);
+                                                            ad.kpub_len = n;
+                                                            ad.ms_creating.active = false;
+                                                            ad.signed_qr_buf[..n].copy_from_slice(&buf[..n]);
+                                                            ad.signed_qr_len = n;
+                                                            ad.signed_qr_frame = 0;
+                                                            ad.signed_qr_nframes = 0;
+                                                            ad.signed_qr_large = false;
+                                                            boot_display.draw_success_screen("Address loaded!");
+                                                            sound::success(delay);
+                                                            delay.delay_millis(1000);
+                                                            ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                                                        } else {
+                                                            boot_display.draw_rejected_screen("Address too long");
+                                                            delay.delay_millis(2000);
+                                                        }
                                                     } else {
-                                                        boot_display.draw_rejected_screen("Invalid address file");
+                                                        boot_display.draw_rejected_screen("Not a valid address");
                                                         delay.delay_millis(2000);
                                                     }
                                                 }
                                                 2 => {
-                                                    // Multisig descriptor — parse and show participant summary.
-                                                    // Note: buf is 512 bytes. Parse directly from buf — descriptor
-                                                    // data does not need to be stashed in kpub_data (which is only
-                                                    // 120 bytes and would overflow for N≥2 descriptors).
-                                                    if n > 0 && n <= 400 && n <= buf.len() {
+                                                    // Multisig descriptor — may be plain or encrypted.
+                                                    if n >= 4 && buf[0] == b'K' && buf[1] == b'A' && buf[2] == b'S' && buf[3] == 0x03 {
+                                                        // Encrypted — store raw and go to password prompt.
+                                                        // sd_txt_origin=2 signals "return to descriptor" after decrypt.
+                                                        ad.signed_qr_buf[..n].copy_from_slice(&buf[..n]);
+                                                        ad.signed_qr_len = n;
+                                                        ad.sd_txt_origin = 2;
+                                                        ad.pp_input.reset();
+                                                        ad.app.state = crate::app::input::AppState::SdKsptEncryptPass;
+                                                    } else if n > 0 && n <= 400 && n <= buf.len() {
                                                         let text = core::str::from_utf8(&buf[..n]).unwrap_or("?");
                                                         log!("[SD-DESC] Loaded: {}", text);
                                                         if let Some((m, nn, cosigner_pubkeys, cosigner_chain_codes)) = parse_descriptor(&buf[..n]) {
-                                                            // Populate ms_creating (view-only: .active stays false)
                                                             ad.ms_creating = wallet::transaction::MultisigConfig::new();
                                                             ad.ms_creating.m = m;
                                                             ad.ms_creating.n = nn;
                                                             ad.ms_creating.cosigner_pubkeys = cosigner_pubkeys;
                                                             ad.ms_creating.cosigner_chain_codes = cosigner_chain_codes;
-                                                            // Build script so "SHOW QR" and the derived
-                                                            // address (if ever computed from this view)
-                                                            // match the live flow.
                                                             ad.ms_creating.build_script();
                                                             boot_display.draw_success_screen("Descriptor loaded!");
                                                             sound::success(delay);
@@ -2093,10 +2174,109 @@ pub fn handle_sd_touch(
                                                         ad.tx_sigs_present = 0;
                                                         ad.tx_sigs_required = 0;
                                                         log!("[SD-KSPT] Decrypted {} bytes", data_len);
-                                                        boot_display.draw_success_screen("TX loaded!");
-                                                        sound::success(delay);
-                                                        delay.delay_millis(1000);
-                                                        ad.app.state = crate::app::input::AppState::ShowQrFrameChoice;
+
+                                                        // Detect content type after decryption
+                                                        let is_descriptor = data_len >= 9
+                                                            && &plain[..9] == b"multi_hd(";
+
+                                                        if ad.sd_txt_origin == 2 {
+                                                            // Descriptor import path — only accept descriptors
+                                                            if is_descriptor {
+                                                                if let Some((m, nn, cosigner_pubkeys, cosigner_chain_codes)) = parse_descriptor(&plain[..data_len]) {
+                                                                    ad.ms_creating = wallet::transaction::MultisigConfig::new();
+                                                                    ad.ms_creating.m = m;
+                                                                    ad.ms_creating.n = nn;
+                                                                    ad.ms_creating.cosigner_pubkeys = cosigner_pubkeys;
+                                                                    ad.ms_creating.cosigner_chain_codes = cosigner_chain_codes;
+                                                                    ad.ms_creating.build_script();
+                                                                    boot_display.draw_success_screen("Descriptor loaded!");
+                                                                    sound::success(delay);
+                                                                    delay.delay_millis(1000);
+                                                                    ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                                                                } else {
+                                                                    boot_display.draw_rejected_screen("Bad descriptor");
+                                                                    delay.delay_millis(2000);
+                                                                    ad.app.state = crate::app::input::AppState::SdImportMenu;
+                                                                }
+                                                            } else {
+                                                                boot_display.draw_rejected_screen("Not a descriptor");
+                                                                delay.delay_millis(2000);
+                                                                ad.app.state = crate::app::input::AppState::SdImportMenu;
+                                                            }
+                                                        } else if ad.sd_txt_origin == 1 {
+                                                            // Kpub import path — only accept kpub content
+                                                            let is_kpub_ascii = data_len >= 4 && &plain[..4] == b"kpub";
+                                                            let is_kpub_v1raw = data_len == 79 && plain[0] == 0x01;
+                                                            if (is_kpub_ascii || is_kpub_v1raw) && data_len <= wallet::xpub::KPUB_MAX_LEN {
+                                                                ad.kpub_data[..data_len].copy_from_slice(&plain[..data_len]);
+                                                                ad.kpub_len = data_len;
+                                                                ad.kpub_frame = 0;
+                                                                ad.kpub_nframes = 0;
+                                                                boot_display.draw_success_screen("Kpub loaded!");
+                                                                sound::success(delay);
+                                                                delay.delay_millis(1000);
+                                                                ad.app.state = crate::app::input::AppState::ExportKpub;
+                                                            } else {
+                                                                boot_display.draw_rejected_screen("Not a valid kpub");
+                                                                delay.delay_millis(2000);
+                                                                ad.app.state = crate::app::input::AppState::SdImportMenu;
+                                                            }
+                                                        } else if ad.sd_txt_origin == 0 {
+                                                            // Address import path — only accept kaspa addresses
+                                                            let is_addr = data_len >= 6
+                                                                && (&plain[..6] == b"kaspa:" || (data_len >= 10 && &plain[..10] == b"kaspatest:"));
+                                                            if is_addr && data_len <= wallet::xpub::KPUB_MAX_LEN {
+                                                                ad.kpub_data[..data_len].copy_from_slice(&plain[..data_len]);
+                                                                ad.kpub_len = data_len;
+                                                                ad.ms_creating.active = false;
+                                                                ad.signed_qr_buf[..data_len].copy_from_slice(&plain[..data_len]);
+                                                                ad.signed_qr_len = data_len;
+                                                                boot_display.draw_success_screen("Address loaded!");
+                                                                sound::success(delay);
+                                                                delay.delay_millis(1000);
+                                                                ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                                                            } else {
+                                                                boot_display.draw_rejected_screen("Not a valid address");
+                                                                delay.delay_millis(2000);
+                                                                ad.app.state = crate::app::input::AppState::SdImportMenu;
+                                                            }
+                                                        } else {
+                                                            // KSPT import path — route by content
+                                                            let is_address = data_len >= 6
+                                                                && (&plain[..6] == b"kaspa:" || (data_len >= 10 && &plain[..10] == b"kaspatest:"));
+
+                                                            if is_descriptor {
+                                                                if let Some((m, nn, cosigner_pubkeys, cosigner_chain_codes)) = parse_descriptor(&plain[..data_len]) {
+                                                                    ad.ms_creating = wallet::transaction::MultisigConfig::new();
+                                                                    ad.ms_creating.m = m;
+                                                                    ad.ms_creating.n = nn;
+                                                                    ad.ms_creating.cosigner_pubkeys = cosigner_pubkeys;
+                                                                    ad.ms_creating.cosigner_chain_codes = cosigner_chain_codes;
+                                                                    ad.ms_creating.build_script();
+                                                                    boot_display.draw_success_screen("Descriptor loaded!");
+                                                                    sound::success(delay);
+                                                                    delay.delay_millis(1000);
+                                                                    ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                                                                } else {
+                                                                    boot_display.draw_rejected_screen("Bad descriptor");
+                                                                    delay.delay_millis(2000);
+                                                                    ad.app.state = crate::app::input::AppState::SdKsptFileList;
+                                                                }
+                                                            } else if is_address {
+                                                                ad.kpub_data[..data_len].copy_from_slice(&plain[..data_len]);
+                                                                ad.kpub_len = data_len;
+                                                                ad.ms_creating.active = false;
+                                                                boot_display.draw_success_screen("Address loaded!");
+                                                                sound::success(delay);
+                                                                delay.delay_millis(1000);
+                                                                ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                                                            } else {
+                                                                boot_display.draw_success_screen("TX loaded!");
+                                                                sound::success(delay);
+                                                                delay.delay_millis(1000);
+                                                                ad.app.state = crate::app::input::AppState::ShowQrFrameChoice;
+                                                            }
+                                                        }
                                                     }
                                                     Err(_) => {
                                                         boot_display.draw_rejected_screen("Wrong password");
@@ -2133,10 +2313,11 @@ pub fn handle_sd_touch(
                     crate::app::input::AppState::ShowQrModeChoice => {
                         if is_back {
                             ad.signed_qr_nframes = 0;
-                            if ad.ms_creating.active {
-                                ad.app.state = crate::app::input::AppState::MultisigDescriptor;
-                            } else if ad.signed_qr_via_density {
+                            if ad.signed_qr_via_density {
                                 ad.app.state = crate::app::input::AppState::ShowQrDensityChoice;
+                            } else if ad.ms_creating.n > 0 {
+                                // Descriptor QR — back to descriptor view
+                                ad.app.state = crate::app::input::AppState::MultisigDescriptor;
                             } else {
                                 ad.app.go_main_menu();
                             }

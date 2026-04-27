@@ -338,7 +338,12 @@ pub fn handle_tx_touch(
                     }
                     crate::app::input::AppState::MultisigShowAddress => {
                         if is_back {
-                            ad.app.go_main_menu();
+                            if ad.ms_creating.active {
+                                ad.app.state = crate::app::input::AppState::MultisigDescriptor;
+                            } else {
+                                // SD-loaded: back to SD import
+                                ad.app.state = crate::app::input::AppState::SdImportMenu;
+                            }
                             needs_redraw = true;
                         } else if y >= 195 {
                             // Bottom nav band — split by x into [<] / [#N] / [>].
@@ -393,11 +398,12 @@ pub fn handle_tx_touch(
                         }
                     }
                     crate::app::input::AppState::MultisigShowAddressQR => {
-                        // Full-screen QR: any tap goes to save/back popup or address view
+                        // Full-screen QR: any tap goes to save/back popup or back
                         if ad.ms_creating.active {
                             ad.app.state = crate::app::input::AppState::MultisigSaveAddrAsk;
                         } else {
-                            ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                            // SD-loaded flow: return to SD import
+                            ad.app.state = crate::app::input::AppState::SdImportMenu;
                         }
                         needs_redraw = true;
                     }
@@ -441,8 +447,9 @@ pub fn handle_tx_touch(
                                 ad.app.state = crate::app::input::AppState::MultisigShowAddress;
                                 needs_redraw = true;
                             } else {
-                                // SD-loaded view-only flow: back to main menu
-                                ad.app.go_main_menu();
+                                // SD-loaded view-only flow: back to SD import
+                                ad.app.state = crate::app::input::AppState::SdImportMenu;
+                                needs_redraw = true;
                             }
                         } else if (190..=230).contains(&y) && (170..=310).contains(&x) {
                                 // SD CARD button — build HD descriptor text and go to filename keyboard.

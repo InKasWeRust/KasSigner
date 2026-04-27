@@ -28,6 +28,14 @@
 use crate::log;
 use crate::{wallet, ui::seed_manager, hw::display, hw::sound, app::data::AppData};
 use crate::features::verify::{FirmwareInfo, VerificationResult, FIRMWARE_START_ADDR, FIRMWARE_MAX_SIZE};
+
+/// Volatile-zero a seed byte array so the compiler cannot optimize it away.
+#[inline(always)]
+fn zeroize_seed(buf: &mut [u8]) {
+    for b in buf.iter_mut() {
+        unsafe { core::ptr::write_volatile(b, 0); }
+    }
+}
 use crate::hw::display::BootStatus;
 use crate::halt_forever;
 
@@ -248,6 +256,9 @@ pub fn sign_and_serialize_multisig(
     crate::log!("[sign_t] serialize: {} ms (KSPT {} B)", ser_ms, result);
     crate::log!("[sign_t] TOTAL: {} ms", total_ms);
 
+    // Wipe all seed material from stack
+    for (s, _) in seeds.iter_mut() { zeroize_seed(s); }
+
     result
 }
 
@@ -355,11 +366,15 @@ pub fn sign_and_serialize_pskt_multisig(
     if wallet::pskt::sign_transaction_multisig(
         tx, &seeds, wallet::transaction::SigHashType::All,
     ).is_err() {
+        for (s, _) in seeds.iter_mut() { zeroize_seed(s); }
         return 0;
     }
     let t_after_sign = Instant::now();
     crate::log!("[sign_t] multisig sign: {} ms ({} inputs)",
         (t_after_sign - t_after_seeds).as_millis(), tx.num_inputs);
+
+    // Wipe seed material immediately after signing — no longer needed
+    for (s, _) in seeds.iter_mut() { zeroize_seed(s); }
 
     wallet::std_pskt::move_ksp_sigs_to_pskt(tx);
 
@@ -616,7 +631,7 @@ pub fn handle_signing_step(
                                     }
                                 } else {
                                     let pp = slot.passphrase_str();
-                                    let seed = derive_seed(&ad.mnemonic_indices, ad.word_count, pp);
+                                    let mut seed = derive_seed(&ad.mnemonic_indices, ad.word_count, pp);
                                     ad.signed_qr_len = sign_and_serialize_pskt_multi(
                                         &mut ad.demo_tx, &seed.bytes,
                                         &ad.pskt_parsed,
@@ -624,6 +639,7 @@ pub fn handle_signing_step(
                                         format,
                                         &mut ad.signed_qr_buf,
                                     );
+                                    zeroize_seed(&mut seed.bytes);
                                     let (present, required) =
                                         wallet::std_pskt::pskt_signature_status(&ad.demo_tx);
                                     ad.tx_sigs_present = present;
@@ -664,8 +680,9 @@ pub fn handle_signing_step(
                                 ad.tx_sigs_present = 0;
                                 ad.tx_sigs_required = 0;
                                 let pp = slot.passphrase_str();
-                                let seed = derive_seed(&ad.mnemonic_indices, ad.word_count, pp);
+                                let mut seed = derive_seed(&ad.mnemonic_indices, ad.word_count, pp);
                                 ad.signed_qr_len = sign_and_serialize_multi(&mut ad.demo_tx, &seed.bytes, &mut ad.signed_qr_buf);
+                                zeroize_seed(&mut seed.bytes);
                             }
                         }
                     }

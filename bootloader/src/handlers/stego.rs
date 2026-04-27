@@ -814,41 +814,39 @@ pub fn handle_stego_touch(
                                                             }
                                                         }
 
-                                                        if let Some(slot_idx) = ad.seed_mgr.store(
-                                                            &import_indices, wc, &[], 0,
-                                                        ) {
-                                                            ad.seed_mgr.activate(slot_idx);
-                                                            ad.mnemonic_indices = import_indices;
-                                                            (ad.word_count) = wc;
-                                                            (ad.seed_loaded) = true;
-                                                            (ad.pubkeys_cached) = false;
-                                                            (ad.current_addr_index) = 0;
-                                                            (ad.extra_pubkey_index) = 0xFFFF;
-                                                            log!("   Stego import OK: {} words, slot {}", wc, slot_idx);
-                                                            ad.pp_input.reset();
-                                                            decrypt_ok = true;
+                                                        ad.mnemonic_indices = import_indices;
+                                                        (ad.word_count) = wc;
+                                                        log!("   Stego import OK: {} words, deferring store", wc);
+                                                        ad.pp_input.reset();
+                                                        decrypt_ok = true;
 
-                                                            if (ad.recovered_hint_len) > 0 {
-                                                                sound::success(delay);
-                                                                ad.app.state = crate::app::input::AppState::StegoHintReveal;
-                            needs_redraw = true;
-                                                            } else {
+                                                        if (ad.recovered_hint_len) > 0 {
+                                                            // Has hint → show it, then passphrase keyboard
+                                                            sound::success(delay);
+                                                            ad.app.state = crate::app::input::AppState::StegoHintReveal;
+                        needs_redraw = true;
+                                                        } else {
+                                                            // No hint → store now without passphrase
+                                                            if let Some(slot_idx) = ad.seed_mgr.store(
+                                                                &ad.mnemonic_indices, ad.word_count, &[], 0,
+                                                            ) {
+                                                                ad.seed_mgr.activate(slot_idx);
+                                                                (ad.seed_loaded) = true;
+                                                                (ad.pubkeys_cached) = false;
+                                                                (ad.current_addr_index) = 0;
+                                                                (ad.extra_pubkey_index) = 0xFFFF;
                                                                 boot_display.draw_success_screen("Seed Recovered!");
                                                                 sound::success(delay);
                                                                 delay.delay_millis(2000);
-                                                                ad.app.state = crate::app::input::AppState::SeedList;
-                            needs_redraw = true;
+                                                            } else {
+                                                                boot_display.draw_rejected_screen("All slots full!");
+                                                                sound::beep_error(delay);
+                                                                delay.delay_millis(2000);
                                                             }
-                                                            needs_redraw = true;
-                                                        } else {
-                                                            ad.pp_input.reset();
-                                                            boot_display.draw_rejected_screen("All slots full!");
-                                                            sound::beep_error(delay);
-                                                            delay.delay_millis(2000);
-                                                            ad.app.state = crate::app::input::AppState::ImportMenu;
-                                                            needs_redraw = true;
-                                                            decrypt_ok = true; // not a password error
+                                                            ad.app.state = crate::app::input::AppState::SeedList;
+                        needs_redraw = true;
                                                         }
+                                                        needs_redraw = true;
                                                     }
                                                 }
                                                 Err(_) => {}
@@ -870,8 +868,17 @@ pub fn handle_stego_touch(
                     }
                     crate::app::input::AppState::StegoHintReveal => {
                         if is_back {
-                            // Skip hint, go to seed list
+                            // Skip passphrase — store without it
                             (ad.recovered_hint_len) = 0;
+                            if let Some(slot_idx) = ad.seed_mgr.store(
+                                &ad.mnemonic_indices, ad.word_count, &[], 0,
+                            ) {
+                                ad.seed_mgr.activate(slot_idx);
+                                (ad.seed_loaded) = true;
+                                (ad.pubkeys_cached) = false;
+                                (ad.current_addr_index) = 0;
+                                (ad.extra_pubkey_index) = 0xFFFF;
+                            }
                             ad.app.state = crate::app::input::AppState::SeedList;
                             needs_redraw = true;
                         } else {
@@ -884,6 +891,16 @@ pub fn handle_stego_touch(
                     }
                     crate::app::input::AppState::StegoHintPassphrase => {
                         if is_back {
+                            // Back from passphrase — store without it
+                            if let Some(slot_idx) = ad.seed_mgr.store(
+                                &ad.mnemonic_indices, ad.word_count, &[], 0,
+                            ) {
+                                ad.seed_mgr.activate(slot_idx);
+                                (ad.seed_loaded) = true;
+                                (ad.pubkeys_cached) = false;
+                                (ad.current_addr_index) = 0;
+                                (ad.extra_pubkey_index) = 0xFFFF;
+                            }
                             ad.app.state = crate::app::input::AppState::SeedList;
                             needs_redraw = true;
                         } else {
@@ -895,15 +912,22 @@ pub fn handle_stego_touch(
                                 6 => {
                                     let pp_str = ad.pp_input.as_str();
                                     let pp_len = pp_str.len().min(64);
-                                    if pp_len > 0 {
-                                        if let Some(slot) = ad.seed_mgr.active_slot_mut() {
-                                            slot.passphrase[..pp_len].copy_from_slice(&pp_str.as_bytes()[..pp_len]);
-                                            slot.passphrase_len = pp_len as u8;
-                                            (ad.pubkeys_cached) = false;
-                                            (ad.current_addr_index) = 0;
-                                            (ad.extra_pubkey_index) = 0xFFFF;
-                                            log!("   Passphrase set from hint: {} chars", pp_len);
-                                        }
+                                    let pp_bytes = &ad.pp_input.buf[..pp_len];
+                                    // Store with passphrase (or empty if user hit OK without typing)
+                                    if let Some(slot_idx) = ad.seed_mgr.store(
+                                        &ad.mnemonic_indices, ad.word_count,
+                                        pp_bytes, pp_len as u8,
+                                    ) {
+                                        ad.seed_mgr.activate(slot_idx);
+                                        (ad.seed_loaded) = true;
+                                        (ad.pubkeys_cached) = false;
+                                        (ad.current_addr_index) = 0;
+                                        (ad.extra_pubkey_index) = 0xFFFF;
+                                        log!("   Stego seed stored with passphrase: {} chars, slot {}", pp_len, slot_idx);
+                                    } else {
+                                        boot_display.draw_rejected_screen("All slots full!");
+                                        sound::beep_error(delay);
+                                        delay.delay_millis(2000);
                                     }
                                     ad.pp_input.reset();
                                     (ad.recovered_hint_len) = 0;
