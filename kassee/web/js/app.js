@@ -443,9 +443,7 @@ function handleKpubScan(data) {
     // Single-frame: direct kpub text
     // Guard: only process once
     if (!scanCallback) return;
-    scanCallback = null;
-    if (scanAnimFrame) { cancelAnimationFrame(scanAnimFrame); scanAnimFrame = null; }
-    if (scanStream) { scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
+    stopScanner();
 
     const text = typeof data === 'string' ? data : new TextDecoder().decode(data);
     handleKpubImport(text.trim());
@@ -454,6 +452,7 @@ function handleKpubScan(data) {
 function handleKpubImport(kpubStr) {
     if (!kpubStr || !kpubStr.startsWith('kpub')) {
         toast('Invalid kpub — must start with "kpub"', 'error');
+        showScreen('welcome');
         return;
     }
     showLoading('Deriving addresses...');
@@ -466,6 +465,7 @@ function handleKpubImport(kpubStr) {
     } catch (e) {
         hideLoading();
         toast('Import failed: ' + e, 'error', 5000);
+        showScreen('welcome');
     }
 }
 
@@ -873,7 +873,10 @@ async function handleCreateTx() {
     }
 
     const amount = parseFloat(amountStr);
-    const fee = parseInt(feeStr) || 10000;
+    const fee = Math.max(10000, parseInt(feeStr) || 10000);
+    if (fee !== parseInt(feeStr)) {
+        el('input-fee').value = fee;
+    }
     const extras = getExtraRecipients();
 
     // Compound TX temporarily disabled — KasSigner QR display bug at 7+ frames
@@ -1020,18 +1023,7 @@ function showReceive() {
     if (!walletData) return;
     const wallet = JSON.parse(walletData);
 
-    // Find first unused receive address (not funded, not session-used, not API-used)
-    let addrIdx = 0;
-    const skipSet = new Set([...fundedReceiveIndices, ...usedReceiveIndices]);
-    if (skipSet.size > 0) {
-        let found = false;
-        for (let i = 0; i < wallet.receive_addresses.length; i++) {
-            if (!skipSet.has(i)) { addrIdx = i; found = true; break; }
-        }
-        if (!found) {
-            addrIdx = wallet.receive_addresses.length - 1;
-        }
-    }
+    const addrIdx = getNextReceiveIndex();
 
     const addr = wallet.receive_addresses[addrIdx];
     try {
