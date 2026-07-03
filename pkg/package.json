@@ -3,7 +3,11 @@
   "type": "module",
   "description": "KasSee Web — browser-based watch-only wallet for air-gapped KasSigner",
   "version": "1.0.3",
-  "license": "GPL-3.0",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/InKasWeRust/KasSigner"
+  },
   "files": [
     "kassee_web_bg.wasm",
     "kassee_web.js",
@@ -13,5 +17,12 @@
   "types": "kassee_web.d.ts",
   "sideEffects": [
     "./snippets/*"
+  ],
+  "keywords": [
+    "kaspa",
+    "wallet",
+    "wasm",
+    "covenant",
+    "watch-only"
   ]
 }
