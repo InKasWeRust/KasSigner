@@ -19,6 +19,8 @@
 // This module provides security primitives for the entire project:
 //   - Constant-time comparison (constant_time)
 //   - Flow integrity counters (flow)
+//   - Hardware entropy collection (entropy)
 
 pub mod constant_time;
+pub mod entropy;
 pub mod flow;

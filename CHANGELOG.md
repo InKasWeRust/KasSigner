@@ -1,6 +1,6 @@
 <!-- KasSigner — Air-gapped offline signing device for Kaspa -->
 <!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
-<!-- License: GPL-3.0 -->
+<!-- License: GPL-3.0-only -->
 
 # Changelog
 
@@ -9,77 +9,60 @@ All notable changes to KasSigner will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.0.3] — 2026-04-16
+## [1.0.4] — 2026-07-02
 
-### Added — Menu restructure & UX overhaul (2026-04-24)
-- **Tools menu restructured** into 4 top-level submenus: Seed Tools (New Seed, Dice, Import Words, Address, BIP85 Child, Calc Last Word), Import/Export (2-button choice → Import submenu + existing Export), Single Signature (Sign TX, Sign Message), Multisig (Create Multisig). Replaces the previous 11-item flat list.
-- **Export menu restructured** into 4 submenus: Seed Backup (Show Seed Words, QR Export, Backup to SD), Watch-Only (kpub as QR, kpub to SD), Signing Keys (xprv Account, Private Key), Steganography.
-- **Sign TX screen** now shows two buttons: "EXP. KPUB" (exports watch-only public key) and "SCAN PSKB" (scans Partially Signed Kaspa Binary). Step guide updated: "Show the PSKB QR code" replaces "Show the KSPT QR code".
-- **Sign message SD save** now prompts for a filename via keyboard (auto-incremented `SG00001.TXT`) instead of overwriting a fixed `SIGNATURE.SG` file. New `SdSigFilename` state handles the keyboard flow.
-- **QR encoder numeric mode** for SeedQR standard compliance. Standard SeedQR now encodes as V2 25×25 (12-word) and V3 29×29 (24-word), down from V4/V6 previously. CompactSeedQR unchanged.
-- **Distinct icons** for all menu items: `finance::Coin` for Transaction, `security::PasswordCursor` for Single Signature, `docs::Page` for Sign Message, `finance::AppleWallet` for Address. No two siblings share an icon.
-- **`get_entropy_bytes()`** in `cam_dma.rs` reads the DMA write buffer directly, where partial OV5640 frames contain real sensor noise. The previous `get_frame_any()` read the read buffer which was never swapped (partials < 98% threshold) — all PSRAM zeros.
-- **Entropy sources expanded**: SYSTIMER (latched 52-bit counter), eFuse MAC address (6 bytes unique per chip), eFuse OPTIONAL_UNIQUE_ID (128 bits), `idle_ticks` (user interaction timing). Camera sensor noise remains the primary source.
+The **Covenants++ (cov++)** release. KasSee builds covenant transactions; KasSigner
+reviews and signs them air-gapped; KasSee broadcasts — the same
+unsigned-build → sign-offline → broadcast flow, now for programmable covenants on
+**Kaspa Toccata** (script introspection, `OP_CAT`, `OP_ZK_PRECOMPILE`). Exercised on
+the TN10 test network.
 
-### Fixed — Navigation & UX (2026-04-24)
-- **Dead-space blink eliminated** across all menu and dialog screens. Root cause: blanket `needs_redraw = true` at the end of match arms in `menu.rs`, `tx.rs`, and other handlers fired on every touch regardless of whether state changed. Moved `needs_redraw` into state-changing branches only. Also fixed `menu.rs` returning `None` (leaving stale `ad.needs_redraw = true`) → now returns `Some(needs_redraw)`.
-- **SeedList screen blink** fixed by replacing `self.display.clear(COLOR_BG)` with `self.clear_keep_nav()` in `draw_seed_list_screen` — nav icons no longer flash during card redraws.
-- **Context-aware back buttons**: ShowAddress returns to SeedToolsMenu (from Tools) or SeedList (from Seeds) via `address_return` field. ExportKpubFrameCount returns to SignTxGuide or WatchOnlyMenu via `kpub_export_return`. BIP85 word display returns to SeedToolsMenu (was MainMenu). Seed generation word display: back → SeedToolsMenu, finish all words → SeedList.
-- **Delete active seed** now auto-activates the next available slot (scans for first non-empty slot, copies indices/word_count/xprv data). Previously left no seed active, requiring manual re-selection.
-- **Address derivation from Tools → Seed Tools → Address** now derives pubkeys if not cached (handles mnemonic, xprv, and raw key wallet types). Previously showed `kaspa:qqqqq...` (all-zero pubkeys).
-- **Sign message signing** is now instant — `needs_redraw = true` added after Schnorr sign completes. Previously the screen stayed on 100% progress bar until a tap triggered the home button handler.
-- **SignMsgResult dead-space tap** no longer exits to MainMenu. Removed `else { go_main_menu() }` catch-all.
-
-### Fixed — Entropy (2026-04-24)
-- **CRITICAL: Waveshare seed generation was deterministic.** All entropy sources returned zeros: TRNG register at wrong address (`0x6003_5110` → corrected to `0x6003_5144` WDEV_RND_REG, still returns zero without WiFi), camera `get_frame_any()` read stale PSRAM (never-swapped read buffer), SAR ADC uninitialized, SYSTIMER not latched. Pool was SHA-256 of all zeros = `3a2453c7` on every generation. Fixed by reading the DMA write buffer (`get_entropy_bytes`), latching SYSTIMER properly (`UNIT0_OP_REG` write then `VALUE_LO_REG` read), and mixing eFuse chip-unique data. TRNG remains dead without WiFi — documented as hardware limitation.
-- **`cam_dma::stop()`** now resets `last_captured = 0` to prevent stale frame reuse across entropy collections.
-- **`generate_trng_nonce()`** in `sd.rs` fixed: address corrected, reads full 32-bit values with proper pacing (was reading single bytes from wrong address).
-
-### Changed — Clippy (2026-04-24)
-- Zero clippy warnings. Auto-fixed 35 needless borrows, manually resolved unused variables, redundant guards, unnecessary casts, overindented doc comments. Added `#[allow(clippy::type_complexity)]` for `parse_descriptor` return type.
-
-### Added — HD multisig (v1.1.0 foundations)
-- **Step 3: address-index browser on `MultisigShowAddress`.** Users can navigate between the infinite series of HD multisig addresses produced by the shared cosigner xpubs. Bottom nav row with `[<]` `[#N]` `[>]` buttons mirrors the singlesig receive-address UX; the center `[#N]` button opens the existing numeric-keypad `AddrIndexPicker` (reused via a sentinel `ms_picking_key=255` so GO writes back into `ms_creating.addr_index` instead of the singlesig `current_addr_index`). Each navigation action calls `build_script()` which re-derives every cosigner's child at the new index, lex-sorts, emits a fresh script, and the redraw computes the new P2SH from the blake2b of that script. Addresses stay shared across cosigner devices — both devices browse in lockstep as long as they both land on the same index. Current index is mirrored into the matching `ms_store.configs[]` entry so leaving and re-entering the wallet returns to the last-viewed index (RAM-only; persists across navigations, not across reboots — stateless-by-design).
-
-### Fixed — Multisig SD workflow
-- **Two devices produced different multisig P2SH addresses even with "same pubkeys in same order"** (TODO 7). Root cause: when the device added ITS OWN key to a new multisig via the "Use Loaded Seed" flow, `handlers/tx.rs` stored the **address-level** x-only pubkey (`pubkey_cache[current_addr_index]` = m/44'/111111'/0'/0/N). Meanwhile, the OTHER cosigner's kpub imported via QR/SD went through `import_kpub()` which returns the **account-level** x-only pubkey (m/44'/111111'/0'). Two different 32-byte keys from the same seed → different lexicographic sort order in `build_script()` → different script bytes → different blake2b hash → different P2SH address on each device. Fix: own-key SELECT now derives the account-level x-only pubkey from the cached `acct_key_raw`, matching what `import_kpub()` produces. Both devices now supply account-level pubkeys; after sort, both produce byte-identical scripts → identical P2SH address. Signing path already accepts account-level pubkeys (existing `account_key.x_only()` fallback in `sign_transaction_multisig` from v1.0.2) so no signing regression. Note: the address-index picker UI on `MultisigPickAddr` is now informational — the browse/select actions still work but `current_addr_index` no longer affects the stored pubkey (it's always account-level). UI simplification deferred to a later polish pass.
-- **Red trash button on multisig SD file list was unresponsive.** The `SdKpubFileList` touch handler (used by Multisig Address, Multisig Descriptor, and kpub import file pickers) routed every tap on a file row — including the red trash icon area — to "load this file". Mirrored the existing `SdFileList` pattern: right ~40px of each card (`x > 236`) now triggers a delete intent. Added a new `sd_delete_return: AppState` field on `AppData` so `SdDeleteConfirm` can bounce back to the correct list after confirm or cancel (falls back to filename-extension sniffing for the legacy seed-backup/KSPT callers, so those continue to work unchanged).
-- **M5Stack: multi-frame QR scan progress dots invisible.** The dots render at `y=226..240`; the M5 camera viewfinder was sized `vf_h=192` starting at `vf_y=44`, extending to `y=236` — directly over the dots. Shrunk M5 `vf_h` from 192 to 180 (matching Waveshare) so the dot strip is preserved. Viewfinder still occupies the full chrome-adjusted region; no visible size change on the already-centered 240-wide preview.
-
-### Fixed — Multisig SD workflow
-- **Passphrase entry keyboards full-screen flashed on every keypress** — root cause: three handlers (`SdRestorePassphrase`, `SdXprvExportPassphrase`, `SdXprvImportPassphrase`) were missing the `1 =>` match arm that calls `draw_keyboard_screen` for valid character entry. Typed chars fell through to `_ => {}` → trailing `needs_redraw = true;` → full-screen redraw (header + keyboard layout + input strip). Fixed by adding the arm, adding partial redraws on backspace/space, and scoping `needs_redraw = true` to page change / OK / back only.
-- **Keyboard per-keypress flash reduced** across all keyboard input screens via opaque-glyph rendering. Added `draw_prop_text_opaque()` in `ui/prop_fonts.rs` — glyphs render with opaque background via one `fill_contiguous` SPI burst per glyph (BG + FG pixels in a single transaction). No pre-clear of the text strip needed; unchanged glyphs transition same-to-same (invisible). Keyboards using this path (SD filename keyboards, password, stego description/hint, seed-word import) also feel more responsive.
-  - Added `draw_lato_22_opaque()` wrappers in both `hw/display_ws.rs` and `hw/display_m5.rs`.
-  - `draw_keyboard_screen` and `draw_import_keyboard` in `ui/screens.rs` rewritten to use opaque paint + narrow tail clear only. Same visual fidelity (fonts, colors, layout, cursor all preserved).
-- **Password keyboard `needs_redraw` cleanup** (SdKsptEncryptPass): removed trailing unconditional `needs_redraw = true;` that was overriding the partial-redraw pattern. Matches the pattern used in address/descriptor filename keyboards.
-- **Multisig address/descriptor filename keyboard blink fix**. The trailing `needs_redraw = true;` at the end of the `SdMsAddrFilename` and `SdMsDescFilename` handlers unconditionally overwrote the `needs_redraw = false` set by char-entry and backspace arms, forcing a full redraw (→ visible BG flash) on every keypress instead of the partial input-strip redraw. Moved `needs_redraw = true` to only fire on page change, OK, and back-press. Miss-tap no longer triggers a wasteful redraw either.
-- **Multisig address loaded from SD** no longer routes through the signed-TX pipeline. Dedicated `MultisigShowAddressQR` dual-path renders the loaded address with the correct "MULTISIG QR" title; tap returns to main menu (no bogus "SIGNED TX" popup, no wrong TX/KSP filename, no multi-frame mode choice for single-frame data).
-- **Multisig descriptor loaded from SD** now parses the `multi(M,hex1,hex2,...)` text and populates `ms_creating` (view-only, `.active=false`), then routes to the existing `MultisigDescriptor` screen — same participant-summary view as the live flow. Back button in that state branches on `ms_creating.active` so the SD-loaded flow returns to main menu.
-- **CRITICAL: buffer overflow panic** on loading a 2-of-2+ descriptor from SD. Root cause: the descriptor bytes (up to 400) were being copied into `kpub_data` (120 bytes), causing `range end index 204 out of range for slice of length 120` and forcing a reboot. Fixed by parsing directly from the read buffer — no intermediate copy into the undersized `kpub_data`. Same defensive clamp added to the address load path.
-- **Descriptor save flow** now follows the same keyboard+encrypt+overwrite pattern as KSPT and multisig address saves. New `SdMsDescFilename` and `SdMsDescEncryptAsk` states. Auto-generated filename uses `MD` prefix (e.g., `MD000001.TXT`). Descriptor text is staged into `signed_qr_buf` (1024 bytes) instead of `kpub_data` to handle large N-of-M configurations. Encrypt path reuses `SdKsptEncryptPass` with `sd_txt_origin=2`. No more hardcoded `MSDESC.TXT` overwrite.
-- **Loading label** on SD file tap is now contextual: "Reading kpub...", "Reading address...", "Reading descriptor..." based on `txt_import_type` (no more misleading "Reading kpub..." for descriptors).
-- **Descriptor load error bailout**: parse failure or invalid file size now returns to main menu after the error screen (prevents re-tapping the same bad file on the list).
-- New helper: `parse_descriptor()` in `handlers/sd.rs` — validates prefix/suffix, single-digit M, exactly 64 hex chars per pubkey, comma separators, max keys per `MAX_MULTISIG_KEYS`.
-
-### Added — UX polish & label alignment
-- **SIGNER / FRAMES badges on multi-frame QR screens.** Labels renamed from MS→SIGNER and FR#→FRAMES on both Waveshare and M5Stack. Color logic: teal when `present >= required` (fully signed), orange when partial. SIGNER badge only renders when the tx is multisig; FRAMES badge always renders for multi-frame QR regardless of signature type.
-- **Multi-QR layout unified.** Rule: ANY multi-frame QR → left-aligned with FRAMES counter (right column). SIGNER badge added only on multisig. Single-frame QR → centered, no chrome. Fixes the descriptor multi-QR centered bug, kpub multi-QR snap-back on auto-cycle, and signed-KSPT auto-cycle skipping the signed_qr_large flag.
-- **Single-sig skips density picker.** After `advance_signing()`, if the transaction has no P2SH/Multisig inputs, the flow jumps directly to `ShowQR` with `mode=0` (legacy, wallet-compatible). Multisig still shows the picker → optional density sub-screen. Removes one unnecessary UI step for the common case.
-- **Change address view toggle on address browser.** Added `addr_view_is_change: bool` field on `AppData`. New Receive/Change button above the `#N` nav, H-centered x=90..230 y=176..204, full-word label, teal fill when toggled to change. Bottom nav restored to the original 3-button wide `[<] [#N] [>]`. Tap-for-QR area trimmed to y=40..176 to avoid collision.
-- **Change chain navigation now unlimited.** Mirrored the receive chain's on-demand derivation pattern for change addresses. Added `extra_change_pubkey: [u8; 32]` and `extra_change_pubkey_index: u16` fields on `AppData`. New helper `derive_change_pubkey_from_acct()` mirrors `derive_pubkey_from_acct()` but using `derive_change_key`. Both `[<]` and `[>]` handlers now derive on-demand for both chains beyond cache (receive: 20+, change: 5+). Removed the `max_change_idx` cap.
-- **`AddrIndexPicker` GO branches on chain.** Typing an index via the numeric picker on the change chain now correctly lands on an on-demand-derived address (was landing on empty slot `kaspa:qqqqq...` because only the nav buttons triggered derivation). GO now writes into `extra_change_pubkey` when `val ≥ 5 && addr_view_is_change`, or `extra_pubkey` when `val ≥ 20 && !addr_view_is_change`.
-
-### Fixed — Change address derivation
-- **CRITICAL: all change addresses rendered as `kaspa:qqqqqqqqq...`** Root cause: `View Address` menu handlers in `handlers/seed.rs` (both xprv and mnemonic paths) and the auto-derive path in `app/signing.rs` only called `derive_pubkeys()` for the receive chain, never `derive_change_pubkeys()`. Result: `change_pubkey_cache` stayed all-zero, and every change address was the bech32m of a 32-byte all-zero pubkey. Fix: all three paths now call `derive_change_pubkeys(&ad.acct_key_raw, &mut ad.change_pubkey_cache)` after receive derivation. Affected the change-chain view toggle that landed in this release, but also fixes latent incorrectness in any prior code that consulted `change_pubkey_cache` directly.
-
-### Changed — Labels
-- **"Phone" → "Wallet"** on kpub export screen and associated hints. KasSigner is a SIGNER, not a wallet; "Wallet" = role of receiving software (KasSee, phone wallet apps, desktop Kaspa wallets). Applies to: kpub screen ("Wallet" button), KSPT screen ("for wallet app" hint).
-- **Output header numbering 1-indexed.** QR display now shows "OUTPUT 1", "OUTPUT 2" instead of zero-indexed "OUTPUT 0". "To P2SH address:" tag is center-aligned.
+### Added
+- **Covenant suite (KasSee)** — build, fund, and spend a family of on-chain covenants:
+  - **Piggy Bank** — save toward a goal or deadline; break it open to withdraw.
+  - **Time-Locked Savings** — lock funds until a date; no early access, not even by you.
+  - **Dead Man's Switch** — heir inherits after inactivity; a heartbeat resets the timer.
+  - **Allowance** — a beneficiary withdraws up to a cap, with a cooldown between withdrawals.
+  - **Spending Limit** — a per-withdrawal cap with cooldown, across the whole balance.
+  - **Merkle Whitelist** — spend only to an approved set, proven with a Merkle proof (`OP_CAT`).
+  - **Direct Channel** — payment channel with arbiter dispute resolution.
+  - **Oracle** — release on an oracle attestation.
+  - **PayJoin** — anonymous payment covenant.
+  - **Commit-Reveal** — MEV-resistant inscriptions.
+  - **Private Swap** — atomic swap via adaptor signatures: no preimage, no on-chain link.
+  - **KIP-20 Vaults** — tagged and split covenant-id-aware vaults.
+  - **Crowdfunding** — ZK-gated goal-and-deadline pledge covenant.
+- **ZK Price Oracle (KasSee)** — live KAS/USD sourced from Pyth + Wormhole and proven on-chain with a zero-knowledge proof; ambient read plus pay-to-refresh.
+- **Stealth payments (KasSee)** — dual-key stealth addresses (ECDH with view tags) so anyone can pay you without linking payments to your public address; send, scan, and an optional stealth indexer for recovery.
+- **Covenant-aware PSKB signing (KasSigner)** — the KSPT format gains v3 (u16 redeem length for larger covenant scripts) and a covenant-binding flag (`0x04`): outputs carry a `covenant_id` and auth-input index, parsed and preserved through the sign round-trip. The signer recognizes the P2SH covenant redeem scripts and signs the matching input.
+- **On-device covenant review (KasSigner)** — covenant details are shown on the review screen before signing.
+- **ECIES (KasSigner, `wallet/ecies.rs`)** — encrypt-to-pubkey / decrypt-with-key via ECDH + BLAKE2B-256 + AES-256-GCM (33-byte ephemeral pubkey, 12-byte nonce, AEAD tag), for stealth / recovery payloads.
 
 ### Changed
-- Bootloader `Cargo.toml` version bumped to 1.0.3
-- `fw_update::CURRENT_VERSION` bumped to 10003
-- `kassee/Cargo.toml` version bumped to 1.0.3
+- **KasSee WASM refactor** — split `lib.rs` (7291 → ~1,190 lines) and `kspt.rs` into per-feature modules (adaptor / stealth / oracle-mb / vault / covenant / zk, plus the `kspt_*` covenant-builder modules). All `wasm-bindgen` export names and behaviour unchanged.
+- **KasSee tooling** — crate/module documentation, `rustfmt.toml`, a CI workflow, and SPDX / repository Cargo metadata; kassee crate version aligned to 1.0.4.
+
+## [1.0.3] — 2026-04-16
+
+### Added
+- **Menu & Export restructure** — Tools reorganized into Seed Tools / Import-Export / Single Signature / Multisig; Export into Seed Backup / Watch-Only / Signing Keys / Steganography, with a distinct icon per item.
+- **Sign TX screen** gains "EXP. KPUB" and "SCAN PSKB" buttons (PSKB replaces KSPT in the step guide).
+- **Sign-message SD save** prompts for a filename (auto-incremented `SG…TXT`) instead of overwriting a fixed file.
+- **SeedQR numeric mode** for standard compliance (12-word → V2 25×25, 24-word → V3 29×29).
+- **Expanded entropy sources** — SYSTIMER, eFuse MAC + unique ID, idle timing; camera sensor noise remains primary.
+- **HD multisig address browser** (v1.1.0 foundations) — navigate the shared cosigner address series on `MultisigShowAddress`; index is RAM-only.
+- **UX polish** — SIGNER/FRAMES badges on multi-frame QR, unified multi-QR layout, single-sig skips the density picker, unlimited change-chain address browsing (on-demand derivation).
+
+### Fixed
+- **CRITICAL: Waveshare seed generation was deterministic** — every entropy source returned zeros (TRNG at the wrong register, camera reading stale PSRAM, SYSTIMER unlatched); the pool was SHA-256 of zeros on every generation. Fixed by reading the DMA write buffer, latching SYSTIMER, and mixing eFuse chip-unique data. (TRNG stays dead without WiFi — a hardware limitation.)
+- **CRITICAL: all change addresses rendered as `kaspa:qqqqq…`** — the change chain was never derived; all three derive paths now populate `change_pubkey_cache`.
+- **Multisig P2SH mismatch across devices** — own-key select now uses the account-level x-only pubkey (matching `import_kpub()`), so both devices build byte-identical scripts and the same P2SH address.
+- **Multisig SD workflow** — descriptor buffer-overflow panic fixed (parse from the read buffer, no undersized copy); descriptor/address loads no longer route through the signed-TX pipeline; keyboard full-screen flashing removed (partial redraws); the trash button on file lists now deletes; M5 QR progress dots no longer hidden by the viewfinder.
+- **Navigation & UX** — dead-space blink eliminated across menus and dialogs (redraw only on state change); context-aware back buttons; delete-active-seed auto-activates the next slot; instant sign-message feedback.
+
+### Changed
+- Zero clippy warnings (auto + manual fixes; targeted `#[allow]`s for embedded patterns).
+- Labels: "Phone" → "Wallet" on kpub export; outputs are 1-indexed in the QR view.
 
 ## [1.0.2] — 2026-04-13
 

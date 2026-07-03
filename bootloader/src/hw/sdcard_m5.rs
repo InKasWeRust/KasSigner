@@ -1648,7 +1648,7 @@ pub fn create_file_progress(
             // How many full sectors can we write from the data?
             let full_sectors = (remaining / 512).min(spc as usize) as u32;
 
-            if full_sectors > 1 {
+            if full_sectors >= 1 {
                 // Multi-block write for full sectors
                 let write_bytes = full_sectors as usize * 512;
                 fast_write_multi_block(card_type, base_sector, &data[pos..pos + write_bytes], full_sectors)?;

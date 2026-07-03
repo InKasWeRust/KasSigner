@@ -234,6 +234,8 @@ pub struct AppData {
     pub signed_qr_len: usize,
     pub signed_qr_frame: u8,
     pub signed_qr_nframes: u8,
+    /// Covenant backup: bytes stored in signed_qr_buf[0..covb_len]. >0 triggers SD save.
+    pub covb_len: usize,
     pub signed_qr_large: bool, // true = multi-frame large QR for device-to-device
     /// Signed-KSPT QR frame-size mode (v1.0.3+).
     ///   0 = use signed_qr_large legacy picker (phone=106B or device=55B)
@@ -301,6 +303,19 @@ pub struct AppData {
 
     // ─── Message signing ───
     pub sign_msg_sig: [u8; 64],
+    pub sign_msg_hash: [u8; 32],
+    /// When true, ScanQR routes decoded QR to hash signing instead of KSPT/address
+    pub sign_msg_scan_hash: bool,
+
+    // ─── Commit-Reveal ECIES ───
+    /// BLAKE2B hash of the preimage (32 bytes) — the commitment
+    pub cr_hash: [u8; 32],
+    /// ECIES ciphertext of the preimage (variable length, stored in Vec on PSRAM)
+    pub cr_ciphertext: alloc::vec::Vec<u8>,
+    /// Split preimage part A (random, for heartbeat TX 1)
+    pub cr_part_a: alloc::vec::Vec<u8>,
+    /// Split preimage part B (remainder, for heartbeat TX 2)
+    pub cr_part_b: alloc::vec::Vec<u8>,
 
     // ─── Display settings ───
     pub brightness: u8,
@@ -344,10 +359,10 @@ pub fn new() -> Self {
                 &["New Seed", "Dice Seed", "Import Words", "Address", "BIP85 Child", "Calc Last Word"]
             ),
             import_menu: crate::app::input::Menu::from_items(
-                &["Import from SD", "Stego Import", "Import Raw Key"]
+                &["Import from SD", "Stego Import", "Import Raw Key", "Covenant Restore"]
             ),
             single_sig_menu: crate::app::input::Menu::from_items(
-                &["Sign TX", "Sign Message"]
+                &["Sign TX", "Sign Message", "Commit Secret", "Decrypt Secret"]
             ),
             multisig_menu: crate::app::input::Menu::from_items(
                 &["Create Multisig"]
@@ -381,7 +396,7 @@ pub fn new() -> Self {
             ),
             sd_import_menu: crate::app::input::Menu::from_items(
                 &["Seed Backup", "Transaction", "kpub (Watch-Only)",
-                  "Multisig Address", "Multisig Descriptor"]
+                  "Multisig Address", "Multisig Descriptor", "Covenant"]
             ),
 
             seed_mgr: seed_manager::SeedManager::new(),
@@ -454,6 +469,7 @@ pub fn new() -> Self {
             signed_qr_len: 0,
             signed_qr_frame: 0,
             signed_qr_nframes: 0,
+            covb_len: 0,
             signed_qr_large: false,
             signed_qr_mode: 0,
             signed_qr_via_density: false,
@@ -498,6 +514,12 @@ pub fn new() -> Self {
             fw_update_verified: false,
 
             sign_msg_sig: [0u8; 64],
+            sign_msg_hash: [0u8; 32],
+            sign_msg_scan_hash: false,
+            cr_hash: [0u8; 32],
+            cr_ciphertext: alloc::vec::Vec::new(),
+            cr_part_a: alloc::vec::Vec::new(),
+            cr_part_b: alloc::vec::Vec::new(),
 
             brightness: 102,
 

@@ -1,6 +1,6 @@
 <!-- KasSigner — Air-gapped offline signing device for Kaspa -->
 <!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
-<!-- License: GPL-3.0 -->
+<!-- License: GPL-3.0-only -->
 
 # KasSigner — eFuse Secure Boot Runbook
 
@@ -145,7 +145,7 @@ The second-stage bootloader and app must be signed with the RSA-3072 key. Since 
 python3 -m espsecure sign_data --version 2 --keyfile secure_boot_v2_key.pem \
     --output bootloader-signed.bin bootloader.bin
 
-# Sign the app binary  
+# Sign the app binary
 python3 -m espsecure sign_data --version 2 --keyfile secure_boot_v2_key.pem \
     --output kassigner-signed.bin kassigner-bootloader.bin
 
@@ -238,7 +238,7 @@ python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
 |--------|-------------|-----------------|------|
 | Malicious firmware flash | Protected | Not protected | Protected |
 | Firmware readout/cloning | Not protected | Protected | Protected |
-| JTAG debug attack | Needs DIS_JTAG eFuse separately | Needs DIS_JTAG eFuse | Needs DIS_JTAG eFuse |
+| JTAG debug attack | Needs DIS_PAD_JTAG + DIS_USB_JTAG (Step 8) | Needs DIS_PAD_JTAG + DIS_USB_JTAG | Needs DIS_PAD_JTAG + DIS_USB_JTAG |
 | Boot-time tampering | Protected | Not protected | Protected |
 
 **Recommendation for KasSigner:** Start with Secure Boot only. Flash encryption adds complexity (encrypted flashing workflow) and the primary threat model is firmware tampering, not firmware cloning.
@@ -287,7 +287,7 @@ The ESP32-S3 has 6 key blocks (BLOCK_KEY0 through BLOCK_KEY5). Plan allocation:
 
 1. **Two signing systems coexist.** Hardware secure boot (RSA-3072, verified by ROM) and software Schnorr verify (verified by our code in `features/verify.rs`). Both must pass for the app to run.
 
-2. **The `esp-bootloader-esp-idf` crate** provides a pre-built second-stage bootloader. For secure boot, this bootloader binary must also be signed. Check if the crate supports this or if we need to extract and sign it manually.
+2. **The `esp-bootloader-esp-idf` crate** provides a pre-built second-stage bootloader. For secure boot, this bootloader binary must also be signed.
 
 3. **No OTA.** KasSigner is air-gapped, so firmware updates require physical UART access. If `DIS_DOWNLOAD_MODE` is burned, the board cannot be updated at all. Consider leaving UART download enabled with `ENABLE_SECURITY_DOWNLOAD` (secure download mode) which still allows signed firmware flashing.
 

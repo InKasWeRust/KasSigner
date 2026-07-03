@@ -351,7 +351,7 @@ pub fn test_signing_pipeline(ad: &mut crate::app::data::AppData) -> bool {
     log!("[SIGN-TEST] Derived pubkey[0]: {:02x}{:02x}{:02x}{:02x}...",
         pk[0], pk[1], pk[2], pk[3]);
 
-    let mut tx = wallet::transaction::Transaction::new();
+    let mut tx = alloc::boxed::Box::new(wallet::transaction::Transaction::new());
     tx.version = 0;
     tx.num_inputs = 1;
     tx.num_outputs = 1;

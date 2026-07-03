@@ -292,6 +292,36 @@ pub fn handle_menu_touch(
                                         ad.hex_input_len = 0;
                                         ad.app.state = crate::app::input::AppState::ImportPrivKey;
                                     }
+                                    3 => { // Covenant Restore — scan SD for .COV files
+                                        boot_display.draw_loading_screen("Scanning SD...");
+                                        ad.sd_file_count = 0;
+                                        ad.sd_file_scroll = 0;
+                                        let _ = sdcard::with_sd_card(i2c, delay, |ct| {
+                                            let fat32 = sdcard::mount_fat32(ct)?;
+                                            sdcard::list_root_dir(ct, &fat32, |entry| {
+                                                let is_hidden = entry.name[0] == b'.' || entry.name[0] == 0xE5 || entry.name[0] == b'_';
+                                                let ext = [entry.name[8], entry.name[9], entry.name[10]];
+                                                if !entry.is_dir()
+                                                    && !is_hidden
+                                                    && entry.file_size > 0
+                                                    && entry.file_size <= 1024
+                                                    && (ad.sd_file_count as usize) < 8
+                                                    && ext == *b"COV"
+                                                {
+                                                    ad.sd_file_list[ad.sd_file_count as usize] = entry.name;
+                                                    ad.sd_file_count += 1;
+                                                }
+                                                true
+                                            })?;
+                                            Ok(())
+                                        });
+                                        if ad.sd_file_count > 0 {
+                                            ad.app.state = crate::app::input::AppState::SdFileList;
+                                        } else {
+                                            boot_display.draw_rejected_screen("No .COV files on SD");
+                                            delay.delay_millis(1500);
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
@@ -355,6 +385,32 @@ pub fn handle_menu_touch(
                                             ad.pp_input.reset();
                                             ad.jpeg_desc_len = 0;
                                             ad.app.state = crate::app::input::AppState::SignMsgChoice;
+                                        }
+                                    }
+                                    2 => { // Commit Secret
+                                        let has_seed = ad.seed_loaded;
+                                        if !has_seed {
+                                            boot_display.draw_rejected_screen("No seed loaded");
+                                            sound::beep_error(delay);
+                                            delay.delay_millis(1500);
+                                        } else {
+                                            ad.pp_input.reset();
+                                            ad.jpeg_desc_len = 0;
+                                            ad.cr_ciphertext.clear();
+                                            ad.cr_hash = [0u8; 32];
+                                            ad.app.state = crate::app::input::AppState::CommitRevealType;
+                                        }
+                                    }
+                                    3 => { // Decrypt Secret
+                                        let has_seed = ad.seed_loaded;
+                                        if !has_seed {
+                                            boot_display.draw_rejected_screen("No seed loaded");
+                                            sound::beep_error(delay);
+                                            delay.delay_millis(1500);
+                                        } else {
+                                            ad.cr_ciphertext.clear();
+                                            ad.jpeg_desc_len = 0;
+                                            ad.app.state = crate::app::input::AppState::DecryptSecretScan;
                                         }
                                     }
                                     _ => {}
@@ -834,6 +890,41 @@ pub fn handle_menu_touch(
                             ad.app.go_main_menu();
                         }
                         needs_redraw = true;
+                    }
+                    crate::app::input::AppState::CovBackupName => {
+                        if is_back {
+                            ad.pp_input.reset();
+                            ad.covb_len = 0;
+                            ad.app.go_main_menu();
+                            needs_redraw = true;
+                        } else {
+                            match crate::ui::helpers::pp_keyboard_hit(x, y, &mut ad.pp_input) {
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "COV NAME"); }
+                                5 => { /* no space in filenames */ }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "COV NAME"); }
+                                6 => {
+                                    // OK: build filename and trigger save
+                                    if ad.pp_input.len == 0 {
+                                        let hx = b"0123456789ABCDEF";
+                                        for i in 0..5usize {
+                                            if i + 4 < ad.covb_len {
+                                                ad.pp_input.buf[i] = hx[(ad.signed_qr_buf[4 + i] >> 4) as usize];
+                                            }
+                                        }
+                                        ad.pp_input.len = 5;
+                                    }
+                                    let name_83 = crate::handlers::sd::build_filename_83(
+                                        &ad.pp_input.buf, ad.pp_input.len, b"COV"
+                                    );
+                                    ad.sd_file_list[0] = name_83;
+                                    ad.pp_input.reset();
+                                    ad.app.go_main_menu();
+                                    ad.needs_redraw = true;
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                     crate::app::input::AppState::Rejected
                     | crate::app::input::AppState::ViewSeed => {

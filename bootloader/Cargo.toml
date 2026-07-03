@@ -7,7 +7,7 @@
 
 [package]
 name = "kassigner-bootloader"
-version = "1.0.3"
+version = "1.0.4"
 edition = "2021"
 authors = ["KasSigner Team"]
 
@@ -19,6 +19,10 @@ m5stack = []
 # OV5640 autofocus firmware loader — enable when the AF-capable module is installed.
 # Pulls in ov5640_af_fw.rs (3726-byte MCU blob) and activates load_af_firmware().
 af = []
+# OV5640-AF module: enables AF firmware + flips camera H/V for the AF module's
+# physical orientation. Use this instead of bare `af` when the AF module is
+# installed on a Waveshare board.
+ov5640-af = ["waveshare", "af"]
 production = ["silent"]
 silent = []
 verbose-boot = []

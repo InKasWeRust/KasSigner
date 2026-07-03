@@ -64,7 +64,10 @@ pub fn handle_tx_touch(
                         if x <= 48 && y <= 48 {
                             #[cfg(feature = "waveshare")]
                             { ad.cam_tune_active = false; }
-                            if ad.ms_creating.n > 0 && !ad.ms_creating.active {
+                            if ad.sign_msg_scan_hash {
+                                ad.sign_msg_scan_hash = false;
+                                ad.app.state = crate::app::input::AppState::SignMsgChoice;
+                            } else if ad.ms_creating.n > 0 && !ad.ms_creating.active {
                                 let mut key_idx: u8 = 0;
                                 for i in 0..ad.ms_creating.n {
                                     if ad.ms_creating.slot_empty(i as usize) {
@@ -283,6 +286,7 @@ pub fn handle_tx_touch(
                                     ad.extra_pubkey_index = ad.current_addr_index;
                                 }
                             }
+                            needs_redraw = true;
                         } else if (260..=310).contains(&x) && (205..=240).contains(&y) {
                             // [>] next address
                             ad.current_addr_index += 1;
@@ -291,11 +295,13 @@ pub fn handle_tx_touch(
                                     &ad.acct_key_raw, ad.current_addr_index, &mut ad.extra_pubkey);
                                 ad.extra_pubkey_index = ad.current_addr_index;
                             }
+                            needs_redraw = true;
                         } else if (110..=210).contains(&x) && (205..=240).contains(&y) {
                             // [#N] — open index picker, then return to MultisigPickAddr
                             ad.addr_input_len = 0;
                             ad.ms_picking_key = key_idx + 1; // +1 so 0 means "not picking"
                             ad.app.state = crate::app::input::AppState::AddrIndexPicker;
+                            needs_redraw = true;
                         } else if (90..=230).contains(&x) && (145..=185).contains(&y) {
                             // SELECT button — store device's own account-level x-only pubkey.
                             //
@@ -573,6 +579,18 @@ pub fn handle_tx_touch(
                                 ad.app.state = crate::app::input::AppState::SignMsgFile;
                                 needs_redraw = true;
                             }
+                        } else if (40..280).contains(&x) && (160..204).contains(&y) {
+                            // Scan hash QR — use standard ScanQR with hash flag
+                            ad.sign_msg_scan_hash = true;
+                            ad.app.state = crate::app::input::AppState::ScanQR;
+                            needs_redraw = true;
+                        }
+                    }
+                    crate::app::input::AppState::SignMsgScanQr => {
+                        if is_back {
+                            ad.sign_msg_scan_hash = false;
+                            ad.app.state = crate::app::input::AppState::SignMsgChoice;
+                            needs_redraw = true;
                         }
                     }
                     crate::app::input::AppState::SignMsgType => {
@@ -665,16 +683,21 @@ pub fn handle_tx_touch(
                             // SHA256 hash the message
                             let msg = &ad.jpeg_desc_buf[..ad.jpeg_desc_len];
                             let msg_hash = wallet::hmac::sha256(msg);
+                            ad.sign_msg_hash = msg_hash;
                             boot_display.update_progress_bar(40);
 
-                            // Derive private key for active address
+                            // Derive private key at account level (depth 3: m/44'/111111'/0')
+                            // This matches the kpub xonly pubkey, which is what users
+                            // enter as the oracle pubkey in covenant scripts.
                             let pp = ad.seed_mgr.active_slot()
                                 .map(|s| s.passphrase_str())
                                 .unwrap_or("");
                             let mut privkey = [0u8; 32];
-                            crate::app::signing::derive_privkey(
-                                &ad.mnemonic_indices, ad.word_count, pp,
-                                ad.current_addr_index, &mut privkey);
+                            let seed = crate::app::signing::derive_seed(
+                                &ad.mnemonic_indices, ad.word_count, pp);
+                            if let Ok(acct_key) = wallet::bip32::derive_account_key(&seed.bytes) {
+                                privkey.copy_from_slice(acct_key.private_key_bytes());
+                            }
                             boot_display.update_progress_bar(70);
 
                             // Schnorr sign
@@ -697,12 +720,54 @@ pub fn handle_tx_touch(
                             wallet::hmac::zeroize_buf(&mut privkey);
                         }
                     }
+                    crate::app::input::AppState::SignMsgHashPreview => {
+                        if is_back {
+                            ad.app.state = crate::app::input::AppState::SignMsgChoice;
+                            needs_redraw = true;
+                        } else if (185..=225).contains(&y) && (100..=220).contains(&x) {
+                            // SIGN button tapped — sign the raw hash (no SHA256)
+                            boot_display.draw_saving_screen("Signing...");
+                            boot_display.update_progress_bar(20);
+                            delay.delay_millis(50);
+
+                            // Hash is already in ad.sign_msg_hash (set by QR scan)
+                            boot_display.update_progress_bar(40);
+
+                            let pp = ad.seed_mgr.active_slot()
+                                .map(|s| s.passphrase_str())
+                                .unwrap_or("");
+                            let mut privkey = [0u8; 32];
+                            let seed = crate::app::signing::derive_seed(
+                                &ad.mnemonic_indices, ad.word_count, pp);
+                            if let Ok(acct_key) = wallet::bip32::derive_account_key(&seed.bytes) {
+                                privkey.copy_from_slice(acct_key.private_key_bytes());
+                            }
+                            boot_display.update_progress_bar(70);
+
+                            match wallet::schnorr::schnorr_sign(&privkey, &ad.sign_msg_hash) {
+                                Ok(sig) => {
+                                    ad.sign_msg_sig = sig.bytes;
+                                    boot_display.update_progress_bar(100);
+                                    sound::success(delay);
+                                    ad.app.state = crate::app::input::AppState::SignMsgResult;
+                                    needs_redraw = true;
+                                }
+                                Err(_) => {
+                                    boot_display.draw_rejected_screen("Signing failed");
+                                    sound::beep_error(delay);
+                                    delay.delay_millis(2000);
+                                    needs_redraw = true;
+                                }
+                            }
+                            wallet::hmac::zeroize_buf(&mut privkey);
+                        }
+                    }
                     crate::app::input::AppState::SignMsgResult => {
                         if is_back {
                             ad.app.state = crate::app::input::AppState::SingleSigMenu;
                             needs_redraw = true;
-                        } else if (155..=191).contains(&y) && (60..=260).contains(&x) {
-                            // SAVE button — ask for filename
+                        } else if (155..=191).contains(&y) && (20..=150).contains(&x) {
+                            // SAVE SD button (left)
                             if bb_card_type.is_some() {
                                 // Auto-increment: SG00001.TXT
                                 let next = crate::handlers::sd::scan_auto_increment(i2c, delay, b"SG", b"TXT");
@@ -722,8 +787,210 @@ pub fn handle_tx_touch(
                                 delay.delay_millis(1500);
                                 needs_redraw = true;
                             }
+                        } else if (155..=191).contains(&y) && (170..=300).contains(&x) {
+                            // SHOW QR button (right) — oracle attestation QR
+                            // Raw bytes: sig (64) + hash (32) = 96 bytes → fits V5 QR
+                            let mut qr_data = [0u8; 96];
+                            qr_data[..64].copy_from_slice(&ad.sign_msg_sig);
+                            qr_data[64..96].copy_from_slice(&ad.sign_msg_hash);
+                            boot_display.draw_qr_fullscreen(&qr_data, "ORACLE ATTESTATION");
+                            ad.app.state = crate::app::input::AppState::SignMsgResultQr;
+                            // Any touch in SignMsgResultQr returns to SignMsgResult
                         }
                     }
+                    crate::app::input::AppState::SignMsgResultQr => {
+                        // Any touch returns to the result screen
+                        ad.app.state = crate::app::input::AppState::SignMsgResult;
+                        needs_redraw = true;
+                    }
+
+                    // ─── Commit-Reveal Flow ────────────
+                    crate::app::input::AppState::CommitRevealType => {
+                        if is_back {
+                            ad.pp_input.reset();
+                            ad.app.state = crate::app::input::AppState::SingleSigMenu;
+                            needs_redraw = true;
+                        } else {
+                            match pp_keyboard_hit(x, y, &mut ad.pp_input) {
+                                2 => { ad.pp_input.next_page(); boot_display.draw_keyboard_keys_only(&ad.pp_input); }
+                                4 => { ad.pp_input.backspace(); boot_display.draw_keyboard_screen(&ad.pp_input, "SECRET"); }
+                                5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "SECRET"); }
+                                1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "SECRET"); }
+                                6 => {
+                                    // OK pressed
+                                    let len = ad.pp_input.len;
+                                    if len == 0 {
+                                        boot_display.draw_rejected_screen("Enter a message");
+                                        sound::beep_error(delay);
+                                        delay.delay_millis(1500);
+                                        needs_redraw = true;
+                                    } else if len > 41 {
+                                        boot_display.draw_rejected_screen("Max 41 characters");
+                                        sound::beep_error(delay);
+                                        delay.delay_millis(1500);
+                                        needs_redraw = true;
+                                    } else {
+                                        // Copy text to jpeg_desc_buf
+                                        let copy_len = len.min(ad.jpeg_desc_buf.len());
+                                        ad.jpeg_desc_buf[..copy_len].copy_from_slice(&ad.pp_input.buf[..copy_len]);
+                                        ad.jpeg_desc_len = copy_len;
+
+                                        // BLAKE2B hash the message
+                                        use blake2::{Blake2b, Digest};
+                                        use blake2::digest::consts::U32;
+                                        type B2b256 = Blake2b<U32>;
+                                        let mut hasher = B2b256::new();
+                                        hasher.update(&ad.jpeg_desc_buf[..ad.jpeg_desc_len]);
+                                        let hash_result: [u8; 32] = hasher.finalize().into();
+                                        ad.cr_hash = hash_result;
+
+                                        ad.app.state = crate::app::input::AppState::CommitRevealPreview;
+                                        needs_redraw = true;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    crate::app::input::AppState::CommitRevealPreview => {
+                        if is_back {
+                            ad.app.state = crate::app::input::AppState::CommitRevealType;
+                            needs_redraw = true;
+                        } else if (165..=201).contains(&y) && (60..=260).contains(&x) {
+                            // ENCRYPT & EXPORT button tapped
+                            boot_display.draw_saving_screen("Encrypting...");
+                            boot_display.update_progress_bar(20);
+                            delay.delay_millis(50);
+
+                            // Derive account-level xonly pubkey for ECIES encryption
+                            let pp = ad.seed_mgr.active_slot()
+                                .map(|s| s.passphrase_str())
+                                .unwrap_or("");
+                            let seed = crate::app::signing::derive_seed(
+                                &ad.mnemonic_indices, ad.word_count, pp);
+                            let mut xonly_pub = [0u8; 32];
+                            if let Ok(acct_key) = wallet::bip32::derive_account_key(&seed.bytes) {
+                                if let Ok(xo) = acct_key.public_key_x_only() {
+                                    xonly_pub = xo;
+                                }
+                            }
+                            boot_display.update_progress_bar(40);
+
+                            // Generate 44 bytes of randomness: 32 for ephemeral key + 12 for nonce.
+                            // Shared collector: enables RC_FAST (correct DIG_CLK8M_EN bit) and
+                            // mixes WDEV + SYSTIMER + eFuse + camera sensor noise. The previous
+                            // inline sampler set bit 8 (DIG_XTAL32K_EN) by mistake, so the WDEV
+                            // RNG ran without its jitter feed.
+                            let mut rng_bytes = [0u8; 44];
+                            crate::crypto::entropy::fill(&mut rng_bytes);
+                            boot_display.update_progress_bar(60);
+
+                            // ECIES encrypt the plaintext message
+                            let plaintext = &ad.jpeg_desc_buf[..ad.jpeg_desc_len];
+                            match wallet::ecies::encrypt(&xonly_pub, plaintext, &rng_bytes) {
+                                Ok(ct) => {
+                                    ad.cr_ciphertext = ct;
+
+                                    // Split plaintext into two parts for heartbeat TXs
+                                    // Split at midpoint (or random point for better obscurity)
+                                    let mid = if ad.jpeg_desc_len > 1 {
+                                        // Use a byte from RNG to pick split point (1..len-1)
+                                        let r = rng_bytes[0] as usize;
+                                        1 + (r % (ad.jpeg_desc_len - 1))
+                                    } else {
+                                        ad.jpeg_desc_len
+                                    };
+                                    ad.cr_part_a = alloc::vec::Vec::from(&plaintext[..mid]);
+                                    ad.cr_part_b = alloc::vec::Vec::from(&plaintext[mid..]);
+
+                                    boot_display.update_progress_bar(100);
+                                    sound::success(delay);
+                                    ad.app.state = crate::app::input::AppState::CommitRevealResult;
+                                    needs_redraw = true;
+                                }
+                                Err(e) => {
+                                    // Show which step failed
+                                    let msg = match e {
+                                        "bad ephemeral key" => "Bad RNG key",
+                                        "invalid recipient pubkey" => "Bad pubkey",
+                                        "encryption failed" => "AES encrypt err",
+                                        _ => "ECIES failed",
+                                    };
+                                    boot_display.draw_rejected_screen(msg);
+                                    sound::beep_error(delay);
+                                    delay.delay_millis(2000);
+                                    needs_redraw = true;
+                                }
+                            }
+
+                            // Zeroize plaintext from buffer
+                            for b in ad.jpeg_desc_buf[..ad.jpeg_desc_len].iter_mut() { *b = 0; }
+                            ad.jpeg_desc_len = 0;
+                            ad.pp_input.reset();
+                        }
+                    }
+                    crate::app::input::AppState::CommitRevealResult => {
+                        if is_back {
+                            ad.cr_ciphertext.clear();
+                            ad.cr_part_a.clear();
+                            ad.cr_part_b.clear();
+                            ad.cr_hash = [0u8; 32];
+                            ad.app.state = crate::app::input::AppState::SingleSigMenu;
+                            needs_redraw = true;
+                        } else if (150..=186).contains(&y) && (60..=260).contains(&x) {
+                            // SHOW QR — export: hash(32) + ciphertext
+                            let total = 32 + ad.cr_ciphertext.len();
+                            if total > 134 {
+                                boot_display.draw_rejected_screen("Message too long for QR");
+                                sound::beep_error(delay);
+                                delay.delay_millis(2000);
+                                needs_redraw = true;
+                            } else {
+                                let mut qr_data = alloc::vec![0u8; total];
+                                qr_data[..32].copy_from_slice(&ad.cr_hash);
+                                qr_data[32..].copy_from_slice(&ad.cr_ciphertext);
+                                boot_display.draw_qr_fullscreen(&qr_data, "COMMITMENT");
+                                ad.app.state = crate::app::input::AppState::CommitRevealResultQr;
+                            }
+                        }
+                    }
+                    crate::app::input::AppState::CommitRevealResultQr => {
+                        // Any touch returns to result screen
+                        ad.app.state = crate::app::input::AppState::CommitRevealResult;
+                        needs_redraw = true;
+                    }
+
+                    crate::app::input::AppState::DecryptSecretScan => {
+                        if is_back {
+                            ad.app.state = crate::app::input::AppState::SingleSigMenu;
+                            needs_redraw = true;
+                        }
+                        // Camera scan handled by camera_loop.rs
+                    }
+                    crate::app::input::AppState::DecryptSecretResult => {
+                        if is_back {
+                            for b in ad.jpeg_desc_buf[..ad.jpeg_desc_len].iter_mut() { *b = 0; }
+                            ad.jpeg_desc_len = 0;
+                            ad.app.state = crate::app::input::AppState::SingleSigMenu;
+                            needs_redraw = true;
+                        } else if (150..=186).contains(&y) && (70..=250).contains(&x) {
+                            // EXPORT PREIMAGE QR button
+                            let plain = &ad.jpeg_desc_buf[..ad.jpeg_desc_len];
+                            let hex_chars = b"0123456789abcdef";
+                            let mut hex_buf = alloc::vec![0u8; ad.jpeg_desc_len * 2];
+                            for (i, &b) in plain.iter().enumerate() {
+                                hex_buf[i * 2] = hex_chars[(b >> 4) as usize];
+                                hex_buf[i * 2 + 1] = hex_chars[(b & 0x0f) as usize];
+                            }
+                            boot_display.draw_qr_fullscreen(&hex_buf, "PREIMAGE");
+                            ad.app.state = crate::app::input::AppState::DecryptSecretResultQr;
+                        }
+                    }
+                    crate::app::input::AppState::DecryptSecretResultQr => {
+                        ad.app.state = crate::app::input::AppState::DecryptSecretResult;
+                        needs_redraw = true;
+                    }
+
                     _ => { return None; }
                 }
     Some(needs_redraw)

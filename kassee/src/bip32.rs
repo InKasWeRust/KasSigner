@@ -6,6 +6,8 @@
 // Pure Rust using k256 crate (no C, no ring).
 // Ported from KasSigner bootloader/wallet/bip32.rs + KasSee CLI wallet.rs
 
+//! BIP-32 hierarchical key derivation and the watch-only wallet descriptor model.
+
 use hmac::{Hmac, Mac};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::PublicKey;
@@ -69,13 +71,11 @@ impl ExtPubKey {
         }
 
         let depth = payload[4];
-        let chain_code: [u8; 32] = payload[13..45]
-            .try_into()
-            .map_err(|_| "Bad chain code")?;
+        let chain_code: [u8; 32] = payload[13..45].try_into().map_err(|_| "Bad chain code")?;
         let key_bytes = &payload[45..78];
 
-        let key = PublicKey::from_sec1_bytes(key_bytes)
-            .map_err(|e| format!("Invalid pubkey: {}", e))?;
+        let key =
+            PublicKey::from_sec1_bytes(key_bytes).map_err(|e| format!("Invalid pubkey: {}", e))?;
 
         Ok(Self {
             key,
@@ -93,8 +93,8 @@ impl ExtPubKey {
         let parent_point = self.key.to_encoded_point(true);
         let parent_bytes = parent_point.as_bytes(); // 33 bytes compressed
 
-        let mut mac = HmacSha512::new_from_slice(&self.chain_code)
-            .map_err(|_| "HMAC init failed")?;
+        let mut mac =
+            HmacSha512::new_from_slice(&self.chain_code).map_err(|_| "HMAC init failed")?;
         mac.update(parent_bytes);
         mac.update(&index.to_be_bytes());
         let result = mac.finalize().into_bytes();
@@ -146,7 +146,11 @@ pub fn import_kpub(kpub_str: &str, prefix: &str) -> Result<WalletData, String> {
     let xpub = ExtPubKey::from_kpub(kpub_str)?;
 
     web_sys::console::log_1(
-        &format!("[KasSee] Parsed kpub at depth {}, prefix={}", xpub.depth, prefix).into(),
+        &format!(
+            "[KasSee] Parsed kpub at depth {}, prefix={}",
+            xpub.depth, prefix
+        )
+        .into(),
     );
 
     // Derive receive chain /0, then /0/0 .. /0/19
@@ -158,10 +162,13 @@ pub fn import_kpub(kpub_str: &str, prefix: &str) -> Result<WalletData, String> {
         receive_addresses.push(addr);
     }
 
-    // Derive change chain /1, then /1/0 .. /1/4
+    // Derive change chain /1, then /1/0 .. /1/19. Matches receive depth
+    // so wallets that have accumulated change UTXOs (multiple TXs over
+    // time) show full balance on first load, not after a gap-expansion
+    // pass triggers a second fetch.
     let change_chain = xpub.derive_child(1)?;
-    let mut change_addresses = Vec::with_capacity(5);
-    for i in 0..5u32 {
+    let mut change_addresses = Vec::with_capacity(20);
+    for i in 0..20u32 {
         let child = change_chain.derive_child(i)?;
         let addr = crate::address::encode_p2pk_address(&child.x_only_bytes(), prefix);
         change_addresses.push(addr);
@@ -206,13 +213,14 @@ pub fn import_kpub_raw(raw_payload: &[u8], prefix: &str) -> Result<WalletData, S
 
     // Re-encode to base58check kpub string so downstream code
     // (WalletData.kpub field, UI, persistence) stays uniform.
-    let kpub_str = bs58::encode(raw_payload)
-        .with_check()
-        .into_string();
+    let kpub_str = bs58::encode(raw_payload).with_check().into_string();
 
     web_sys::console::log_1(
-        &format!("[KasSee] V1-raw kpub re-encoded to ASCII ({} chars)",
-            kpub_str.len()).into(),
+        &format!(
+            "[KasSee] V1-raw kpub re-encoded to ASCII ({} chars)",
+            kpub_str.len()
+        )
+        .into(),
     );
 
     import_kpub(&kpub_str, prefix)
@@ -262,8 +270,10 @@ pub fn extend_addresses(
     web_sys::console::log_1(
         &format!(
             "[KasSee] Extended: {} receive (+{}), {} change (+{})",
-            receive_addresses.len(), extra_receive,
-            change_addresses.len(), extra_change,
+            receive_addresses.len(),
+            extra_receive,
+            change_addresses.len(),
+            extra_change,
         )
         .into(),
     );

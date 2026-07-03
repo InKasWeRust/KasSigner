@@ -262,6 +262,8 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
         s if s.starts_with("Stego Imp")   => draw_icon!(size24px::actions::EyeOff),
         s if s.starts_with("Sign TX")     => draw_icon!(size24px::editor::EditPencil),
         s if s.starts_with("Sign Mess")   => draw_icon!(size24px::docs::Page),
+        s if s.starts_with("Commit Sec")  => draw_icon!(size24px::security::Lock),
+        s if s.starts_with("Decrypt Se")  => draw_icon!(size24px::actions::EyeEmpty),
         s if s.starts_with("Seed Tools")  => draw_icon!(size24px::git::GitFork),
         s if s.starts_with("Single Sig")  => draw_icon!(size24px::security::PasswordCursor),
         s if s.starts_with("Multisig")    => draw_icon!(size24px::users::Group),
@@ -295,6 +297,7 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
         s if s.starts_with("Camera")      => draw_icon!(size24px::photos_and_videos::Camera),
         s if s.starts_with("SD Card")     => draw_icon!(size24px::devices::SaveFloppyDisk),
         s if s.starts_with("About")       => draw_icon!(size24px::actions::HelpCircle),
+        s if s.starts_with("Covenant")    => draw_icon!(size24px::security::ShieldCheck),
         // Fallback — small teal circle
         _ => {
             Circle::new(pos + Point::new(4, 4), 16)
@@ -669,6 +672,15 @@ impl<'a> BootDisplay<'a> {
     /// Waveshare variant for layout rationale.
     pub fn draw_frame_counter(&mut self, text: &str) {
         let col_cx: i32 = 278;
+
+        // Clear the frame counter area (right column, y=150..210)
+        Rectangle::new(
+            Point::new(240, 150),
+            Size::new(80, 60),
+        )
+        .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
+        .draw(&mut self.display).ok();
+
         let label = "FRAMES";
         let lw = measure_hint(label);
         draw_lato_hint(&mut self.display, label, col_cx - lw / 2, 160, COLOR_TEXT_DIM);

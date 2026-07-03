@@ -1,12 +1,16 @@
 <!-- KasSigner — Air-gapped offline signing device for Kaspa -->
 <!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
-<!-- License: GPL-3.0 -->
+<!-- License: GPL-3.0-only -->
 
 # Security Policy
 
 KasSigner is an air-gapped offline signing device that handles cryptographic keys and transaction signing. It is NOT a hardware wallet — it has no secure element and no persistent key storage. All keys exist in RAM only and are destroyed on power-off. Security is the project's highest priority.
 
 ## Supported Versions
+
+Only the latest release receives security updates. The current release is **1.0.4**.
+
+Supported hardware:
 
 | Platform | Supported |
 |----------|-----------|
@@ -71,9 +75,11 @@ See [docs/REPRODUCIBLE_BUILD.md](docs/REPRODUCIBLE_BUILD.md) for details.
 
 KasSee is the browser-based watch-only companion wallet. It runs in an untrusted environment — the user's browser, OS, and network. It is **not a security boundary**.
 
-A phishing clone could show one address and put another in the QR. Browser malware could rewrite the transaction in memory. The WebAssembly binary is compiled from the same open Rust source and can be verified with a reproducible build — a phishing site would need to serve a different binary, and the hash would not match. That raises the bar. But it does not replace the final check: **verify on the KasSigner screen**. The device shows what is actually in the transaction data. Not what the browser claims.
+A phishing clone could show one address and put another in the QR. Browser malware could rewrite the transaction in memory. The WebAssembly binary is compiled from the same open Rust source and can be verified with a reproducible build — a phishing site would need to serve a different binary, and the hash would not match. That raises the bar. But it does not replace the final check: **verify on the KasSigner screen**. The device shows what is actually in the transaction data. Not what the browser claims. This extends to covenants — a covenant locks funds to a script, so the covenant parameters shown on the device (recipient, cap, timelock, heir) are the trust anchor, not what KasSee displays.
 
 By default KasSee connects to a public Kaspa node. The node operator can see which addresses belong to the same wallet, the total balance, and the user's IP address. For privacy, run your own node and point KasSee at it via Settings.
+
+Stealth payments add address-level privacy: a payer derives a one-time address from your stealth keys, so on-chain payments don't link to your public address. Scanning for incoming stealth payments uses a view key, separate from the spend key that authorizes spends.
 
 ## What KasSigner Does NOT Protect Against
 
@@ -98,6 +104,8 @@ Internal security review has identified areas for improvement. All findings are 
 | Transaction hashing | Keyed Blake2b-256 | Kaspa consensus |
 | Seed encryption (SD) | AES-256-GCM | NIST SP 800-38D |
 | Seed encryption (stego) | AES-256-GCM + PBKDF2 | NIST SP 800-38D / RFC 8018 |
+| Payload encryption (ECIES) | ECDH + BLAKE2B-256 + AES-256-GCM | SEC 1 / RFC 7693 / NIST SP 800-38D |
+| Shared-secret derivation | ECDH (secp256k1) | SEC 1 |
 | Hashing | SHA-256, HMAC-SHA512, BLAKE2b | FIPS 180-4, RFC 2104, RFC 7693 |
 | Firmware verification | SHA-256 + Schnorr | Custom |
 | Constant-time ops | Fixed-time compare, XOR masking | Side-channel mitigation |
@@ -121,10 +129,13 @@ Priority review targets:
 2. `crypto/` — constant-time operations, zeroization, secret containers
 3. `features/stego.rs` — encryption and EXIF embedding
 4. `hw/sd_backup.rs` — AES-256-GCM backup codec
+5. `wallet/ecies.rs` — ECDH + AES-256-GCM encrypt-to-pubkey
+6. `wallet/pskt.rs` — covenant redeem-script signing and covenant binding (KSPT v3)
+7. KasSee `kspt_*` covenant builders and `stealth.rs` — covenant scripts and ECDH stealth addresses
 
 ## Responsible Disclosure
 
-1. Reporter contacts us privately via **kassigner@proton.me** with subject `[SECURITY]`
+1. Reporter contacts us privately (see **Reporting a Vulnerability** above)
 2. We confirm and assess the vulnerability
 3. We develop and test a fix
 4. We release the fix and credit the reporter (unless anonymity is requested)

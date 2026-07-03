@@ -167,6 +167,17 @@ impl<'a> BootDisplay<'a> {
         Image::new(&sd_icon, Point::new(start_x + 6, r1_y + 9)).draw(&mut self.display).ok();
         draw_lato_title(&mut self.display, "Load .TXT from SD", start_x + 42, r1_y + 28, COLOR_TEXT);
 
+        let r2_y = r1_y + card_h + card_gap;
+        let r2 = Rectangle::new(Point::new(start_x, r2_y), Size::new(card_w, card_h as u32));
+        RoundedRectangle::new(r2, card_corner)
+            .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
+            .draw(&mut self.display).ok();
+        RoundedRectangle::new(r2, card_corner)
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+        let cam_icon = size24px::design_tools::Crop::new(KASPA_TEAL);
+        Image::new(&cam_icon, Point::new(start_x + 6, r2_y + 9)).draw(&mut self.display).ok();
+        draw_lato_title(&mut self.display, "Scan hash QR", start_x + 42, r2_y + 28, COLOR_TEXT);
     }
 
     /// Draw sign message preview — show message text + SIGN button
@@ -227,8 +238,49 @@ impl<'a> BootDisplay<'a> {
 
     }
 
+    /// Draw sign hash preview — show 32-byte hash hex + SIGN button (for QR-scanned hash)
+    pub fn draw_sign_hash_preview(&mut self, hash: &[u8; 32]) {
+        self.clear_keep_nav();
+        let tw = measure_header("SIGN HASH");
+        draw_oswald_header(&mut self.display, "SIGN HASH", (320 - tw) / 2, 28, KASPA_TEAL);
+        Line::new(Point::new(20, 38), Point::new(300, 38))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        let sw = measure_body("Sign this 32-byte hash:");
+        draw_lato_body(&mut self.display, "Sign this 32-byte hash:", (320 - sw) / 2, 58, COLOR_TEXT_DIM);
+
+        // Show hash as 4 lines of 16 hex chars
+        let hex_chars = b"0123456789abcdef";
+        for line in 0..4u8 {
+            let mut buf = [0u8; 16];
+            for i in 0..8 {
+                let b = hash[line as usize * 8 + i];
+                buf[i * 2] = hex_chars[(b >> 4) as usize];
+                buf[i * 2 + 1] = hex_chars[(b & 0x0f) as usize];
+            }
+            let s = core::str::from_utf8(&buf).unwrap_or("????????????????");
+            let row_y = 68 + line as i32 * 22;
+            let lw = measure_title(s);
+            draw_lato_title(&mut self.display, s, (320 - lw) / 2, row_y + 18, COLOR_ORANGE);
+        }
+
+        // SIGN button
+        let btn_w: u32 = 140;
+        let btn_h: u32 = 36;
+        let btn_x: i32 = (320 - btn_w as i32) / 2;
+        let btn_y: i32 = 185;
+        let btn_rect = Rectangle::new(Point::new(btn_x, btn_y), Size::new(btn_w, btn_h));
+        let btn_corner = CornerRadii::new(Size::new(8, 8));
+        RoundedRectangle::new(btn_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let lw = measure_title("SIGN");
+        draw_lato_title(&mut self.display, "SIGN", btn_x + (btn_w as i32 - lw) / 2, btn_y + 26, COLOR_BG);
+    }
+
     /// Draw sign message result — signature hex + save option
-    pub fn draw_sign_msg_result(&mut self, sig: &[u8; 64]) {
+    pub fn draw_sign_msg_result(&mut self, sig: &[u8; 64], msg_hash: &[u8; 32]) {
         self.clear_keep_nav();
         let tw = measure_header("SIGNATURE");
         draw_oswald_header(&mut self.display, "SIGNATURE", (320 - tw) / 2, 25, KASPA_TEAL);
@@ -276,23 +328,82 @@ impl<'a> BootDisplay<'a> {
             .into_styled(PrimitiveStyle::with_stroke(COLOR_CARD_BORDER, 1))
             .draw(&mut self.display).ok();
 
-        // SAVE TO SD button (centered, teal)
-        let btn_w: u32 = 200;
+        // SAVE TO SD button (left half)
+        let btn_w: u32 = 130;
         let btn_h: u32 = 36;
-        let btn_x: i32 = (320 - btn_w as i32) / 2;
+        let btn_x: i32 = 20;
         let btn_y: i32 = 155;
         let btn_corner = CornerRadii::new(Size::new(6, 6));
         let save_rect = Rectangle::new(Point::new(btn_x, btn_y), Size::new(btn_w, btn_h));
         RoundedRectangle::new(save_rect, btn_corner)
             .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
             .draw(&mut self.display).ok();
-        let sw = measure_title("SAVE TO SD");
-        draw_lato_title(&mut self.display, "SAVE TO SD", btn_x + (btn_w as i32 - sw) / 2, btn_y + 26, COLOR_BG);
+        let sw = measure_title("SAVE SD");
+        draw_lato_title(&mut self.display, "SAVE SD", btn_x + (btn_w as i32 - sw) / 2, btn_y + 26, COLOR_BG);
 
-        // Tap hint
-        let cw = measure_hint("Tap anywhere to continue");
-        draw_lato_hint(&mut self.display, "Tap anywhere to continue", (320 - cw) / 2, 210, COLOR_HINT);
+        // SHOW QR button (right half) — oracle attestation QR
+        let qr_btn_x: i32 = 170;
+        let qr_rect = Rectangle::new(Point::new(qr_btn_x, btn_y), Size::new(btn_w, btn_h));
+        RoundedRectangle::new(qr_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_ACCENT))
+            .draw(&mut self.display).ok();
+        let qw = measure_title("SHOW QR");
+        draw_lato_title(&mut self.display, "SHOW QR", qr_btn_x + (btn_w as i32 - qw) / 2, btn_y + 26, COLOR_BG);
 
+        // Show msg_hash (1 row, truncated)
+        let hw = measure_hint("MSG HASH:");
+        draw_lato_hint(&mut self.display, "MSG HASH:", (320 - hw) / 2, 200, COLOR_TEXT_DIM);
+        let mut hash_hex = [0u8; 64];
+        for i in 0..32 {
+            hash_hex[i * 2] = hex_chars[(msg_hash[i] >> 4) as usize];
+            hash_hex[i * 2 + 1] = hex_chars[(msg_hash[i] & 0x0f) as usize];
+        }
+        // Show first 32 chars on row 1, next 32 on row 2
+        let h1 = core::str::from_utf8(&hash_hex[..32]).unwrap_or("?");
+        let h2 = core::str::from_utf8(&hash_hex[32..]).unwrap_or("?");
+        let hw1 = measure_hint(h1);
+        draw_lato_hint(&mut self.display, h1, (320 - hw1) / 2, 218, KASPA_ACCENT);
+        let hw2 = measure_hint(h2);
+        draw_lato_hint(&mut self.display, h2, (320 - hw2) / 2, 234, KASPA_ACCENT);
+
+    }
+
+    /// Draw one line of a destination address with the verification
+    /// zones emphasized in brand teal: the network prefix plus the
+    /// first 8 payload characters, and the last 8 characters. These
+    /// are the segments the user compares against KasSee's review
+    /// screen, which highlights the same zones.
+    ///
+    /// `line_start` is this line's byte offset within the full address;
+    /// `hl_a_end` / `hl_b_start` are absolute offsets of the two zones.
+    /// Segment drawing chains on draw_lato_title's returned cursor, so
+    /// glyph advance is identical to a single call and the caller's
+    /// measure_title centering stays exact.
+    fn draw_addr_line_emph(&mut self, line: &str, line_start: usize,
+        hl_a_start: usize, hl_a_end: usize, hl_b_start: usize, x: i32, y: i32) {
+        let bytes = line.as_bytes();
+        if bytes.is_empty() {
+            return;
+        }
+        let in_hl = |g: usize| (g >= hl_a_start && g < hl_a_end) || g >= hl_b_start;
+        let mut cx = x;
+        let mut seg_start = 0usize;
+        let mut cur = in_hl(line_start);
+        for i in 1..=bytes.len() {
+            let next = if i < bytes.len() { in_hl(line_start + i) } else { !cur };
+            if next != cur {
+                if let Ok(seg) = core::str::from_utf8(&bytes[seg_start..i]) {
+                    let color = if cur { KASPA_TEAL } else { COLOR_TEXT };
+                    // draw_lato_title returns the WIDTH drawn, not the end x.
+                    // Accumulate it onto the cursor; overwriting (cx = ...)
+                    // would reset every later segment to x≈width and pile
+                    // the glyphs on top of each other.
+                    cx += draw_lato_title(&mut self.display, seg, cx, y, color);
+                }
+                seg_start = i;
+                cur = next;
+            }
+        }
     }
 
         /// Draw a transaction review page (amount, fee, addresses).
@@ -312,34 +423,37 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                 .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
                 .draw(&mut self.display).ok();
 
-            // Total amount
+            // Output total (sum of outputs), input total (sum of inputs being
+            // spent), and fee = in - out, each on its own labelled line. The input
+            // total is the security-relevant figure for covenant withdrawals: the
+            // on-chain rule is continuation >= input - max, so the signer can read
+            // the input here and check input - continuation <= max by eye. It used
+            // to be implicit in the fee only.
             let total: u64 = (0..tx.num_outputs)
                 .map(|i| tx.outputs[i].value)
                 .sum();
-            let kas = total / 100_000_000;
-            let sompi = total % 100_000_000;
-            let mut amount_text = heapless::String::<32>::new();
-            write!(&mut amount_text, "{kas}.{sompi:08} KAS").ok();
-
-            draw_lato_body(&mut self.display, "Total:", 30, 75, COLOR_TEXT);
-            draw_lato_title(&mut self.display, amount_text.as_str(), 30, 100, COLOR_ORANGE);
-
-            // Fee
             let total_in: u64 = (0..tx.num_inputs)
                 .map(|i| tx.inputs[i].utxo_entry.amount)
                 .sum();
             let fee = total_in.saturating_sub(total);
-            let fee_kas = fee / 100_000_000;
-            let fee_sompi = fee % 100_000_000;
+
+            let mut out_text = heapless::String::<32>::new();
+            write!(&mut out_text, "Out: {}.{:08} KAS", total / 100_000_000, total % 100_000_000).ok();
+            draw_lato_body(&mut self.display, out_text.as_str(), 30, 72, COLOR_TEXT);
+
+            let mut in_text = heapless::String::<32>::new();
+            write!(&mut in_text, "In:  {}.{:08} KAS", total_in / 100_000_000, total_in % 100_000_000).ok();
+            draw_lato_body(&mut self.display, in_text.as_str(), 30, 98, COLOR_ORANGE);
+
             let mut fee_text = heapless::String::<32>::new();
-            write!(&mut fee_text, "Fee: {fee_kas}.{fee_sompi:08} KAS").ok();
-            draw_lato_body(&mut self.display, fee_text.as_str(), 30, 135, COLOR_TEXT);
+            write!(&mut fee_text, "Fee: {}.{:08} KAS", fee / 100_000_000, fee % 100_000_000).ok();
+            draw_lato_body(&mut self.display, fee_text.as_str(), 30, 124, COLOR_TEXT);
 
             // Inputs/outputs count
             let mut info_text = heapless::String::<48>::new();
             write!(&mut info_text, "{} input(s) -> {} output(s)",
                 tx.num_inputs, tx.num_outputs).ok();
-            draw_lato_body(&mut self.display, info_text.as_str(), 30, 160, COLOR_TEXT);
+            draw_lato_body(&mut self.display, info_text.as_str(), 30, 156, COLOR_TEXT);
 
             // KRC-20 token detection
             let krc20 = crate::features::krc20::detect_krc20(tx);
@@ -372,6 +486,28 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                         draw_lato_body(&mut self.display, sig_text.as_str(), 30, 210, COLOR_ORANGE);
                     }
                 }
+            } else if st == ScriptType::P2SH {
+                // Covenant P2SH -- check redeem script starts with OP_IF
+                let rs = tx.redeem_bytes(0);
+                if !rs.is_empty() && rs[0] == 0x63 {
+                    draw_lato_title(&mut self.display, "COVENANT P2SH", 30, 190, KASPA_ACCENT);
+                }
+            }
+
+            // Payload verification hash: SHA-256(payload)[..4] as "PL xxxxxxxx"
+            // User compares with KasSee's review screen to verify backup integrity.
+            if tx.payload_len > 0 {
+                use sha2::{Sha256, Digest};
+                let hash = Sha256::digest(&tx.payload[..tx.payload_len]);
+                let hx = b"0123456789abcdef";
+                let mut h: heapless::String<16> = heapless::String::new();
+                let _ = core::fmt::Write::write_str(&mut h, "PL ");
+                for i in 0..4usize {
+                    let _ = h.push(hx[(hash[i] >> 4) as usize] as char);
+                    let _ = h.push(hx[(hash[i] & 0x0F) as usize] as char);
+                }
+                let hw = measure_body(h.as_str());
+                draw_lato_body(&mut self.display, h.as_str(), 320 - hw - 10, 210, COLOR_HINT);
             }
         } else {
             // Output page
@@ -507,6 +643,16 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                     let total_len = bytes.len();
                     let line_h: i32 = 26;
 
+                    // Emphasis zones for visual verification against
+                    // KasSee: zone A = first 8 payload chars (after the
+                    // prefix, which stays standard color for legibility);
+                    // zone B = last 8 chars.
+                    let colon = bytes.iter().position(|&b| b == b':')
+                        .map(|p| p + 1).unwrap_or(0);
+                    let hl_a_start = colon;
+                    let hl_a_end = core::cmp::min(colon + 8, total_len);
+                    let hl_b_start = total_len.saturating_sub(8);
+
                     if is_p2sh {
                         // P2SH tag drawn at y=95 above. Address block
                         // starts just below the tag and is centred in the
@@ -519,8 +665,8 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                             if let Ok(line) = core::str::from_utf8(bytes) {
                                 let lw = measure_title(line);
                                 let y = avail_top + (avail_bot - avail_top) / 2;
-                                draw_lato_title(&mut self.display, line,
-                                    (320 - lw) / 2, y, COLOR_TEXT);
+                                self.draw_addr_line_emph(line, 0,
+                                    hl_a_start, hl_a_end, hl_b_start, (320 - lw) / 2, y);
                             }
                         } else {
                             // 3-way balanced split
@@ -531,18 +677,18 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                             let y0 = avail_top + (avail_bot - avail_top - block_h) / 2 + line_h;
                             if let Ok(l1) = core::str::from_utf8(&bytes[..p1]) {
                                 let lw = measure_title(l1);
-                                draw_lato_title(&mut self.display, l1,
-                                    (320 - lw) / 2, y0, COLOR_TEXT);
+                                self.draw_addr_line_emph(l1, 0,
+                                    hl_a_start, hl_a_end, hl_b_start, (320 - lw) / 2, y0);
                             }
                             if let Ok(l2) = core::str::from_utf8(&bytes[p1..p2]) {
                                 let lw = measure_title(l2);
-                                draw_lato_title(&mut self.display, l2,
-                                    (320 - lw) / 2, y0 + line_h, COLOR_TEXT);
+                                self.draw_addr_line_emph(l2, p1,
+                                    hl_a_start, hl_a_end, hl_b_start, (320 - lw) / 2, y0 + line_h);
                             }
                             if let Ok(l3) = core::str::from_utf8(&bytes[p2..]) {
                                 let lw = measure_title(l3);
-                                draw_lato_title(&mut self.display, l3,
-                                    (320 - lw) / 2, y0 + 2 * line_h, COLOR_TEXT);
+                                self.draw_addr_line_emph(l3, p2,
+                                    hl_a_start, hl_a_end, hl_b_start, (320 - lw) / 2, y0 + 2 * line_h);
                             }
                         }
                     } else {
@@ -554,8 +700,8 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                             if let Ok(line) = core::str::from_utf8(bytes) {
                                 let lw = measure_title(line);
                                 let y = avail_top + (avail_bot - avail_top) / 2;
-                                draw_lato_title(&mut self.display, line,
-                                    (320 - lw) / 2, y, COLOR_TEXT);
+                                self.draw_addr_line_emph(line, 0,
+                                    hl_a_start, hl_a_end, hl_b_start, (320 - lw) / 2, y);
                             }
                         } else {
                             let third = (total_len + 2) / 3;
@@ -565,18 +711,18 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                             let y0 = avail_top + (avail_bot - avail_top - block_h) / 2 + line_h;
                             if let Ok(l1) = core::str::from_utf8(&bytes[..p1]) {
                                 let lw = measure_title(l1);
-                                draw_lato_title(&mut self.display, l1,
-                                    (320 - lw) / 2, y0, COLOR_TEXT);
+                                self.draw_addr_line_emph(l1, 0,
+                                    hl_a_start, hl_a_end, hl_b_start, (320 - lw) / 2, y0);
                             }
                             if let Ok(l2) = core::str::from_utf8(&bytes[p1..p2]) {
                                 let lw = measure_title(l2);
-                                draw_lato_title(&mut self.display, l2,
-                                    (320 - lw) / 2, y0 + line_h, COLOR_TEXT);
+                                self.draw_addr_line_emph(l2, p1,
+                                    hl_a_start, hl_a_end, hl_b_start, (320 - lw) / 2, y0 + line_h);
                             }
                             if let Ok(l3) = core::str::from_utf8(&bytes[p2..]) {
                                 let lw = measure_title(l3);
-                                draw_lato_title(&mut self.display, l3,
-                                    (320 - lw) / 2, y0 + 2 * line_h, COLOR_TEXT);
+                                self.draw_addr_line_emph(l3, p2,
+                                    hl_a_start, hl_a_end, hl_b_start, (320 - lw) / 2, y0 + 2 * line_h);
                             }
                         }
                     }
@@ -690,7 +836,7 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
     /// render into this reserved column — they target the same x range
     /// when the layout intent is "info column" rather than "corner badge".
     pub fn draw_qr_screen_left(&mut self, data: &[u8]) {
-        self.display.clear(COLOR_BG).ok();
+        // No full screen clear. Only redraw the QR zone to avoid blink.
 
         if let Ok(qr) = crate::qr::encoder::encode(data) {
             let qr_size = qr.size as i32;
@@ -701,10 +847,11 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
             let offset_x: i32 = 4 + ((232 - total) / 2); // centre within left zone
             let offset_y = (DISPLAY_H as i32 - total) / 2;
 
-            // White QR quiet-zone background
+            // Clear the QR zone + quiet zone (covers old QR without full screen clear)
+            let qz = 6i32; // quiet zone padding
             Rectangle::new(
-                Point::new(offset_x - 4, offset_y - 4),
-                Size::new((total + 8) as u32, (total + 8) as u32),
+                Point::new(offset_x - qz, offset_y - qz),
+                Size::new((total + qz * 2) as u32, (total + qz * 2) as u32),
             )
             .into_styled(PrimitiveStyle::with_fill(COLOR_TEXT))
             .draw(&mut self.display).ok();
@@ -1639,6 +1786,57 @@ pub fn draw_home_grid(&mut self) {
 
     }
 
+    /// Draw confirm send screen for covenant P2SH transactions.
+    /// Same layout as the standard confirm screen but with a
+    /// "CONFIRM COVENANT?" header so the user knows they are
+    /// spending from a covenant address.
+    pub fn draw_confirm_send_covenant(&mut self, amount_str: &str, fee_str: &str) {
+        self.clear_keep_nav();
+
+        let tw = measure_header("CONFIRM COVENANT?");
+        draw_oswald_header(&mut self.display, "CONFIRM COVENANT?", (320 - tw) / 2, 30, COLOR_TEXT);
+        Line::new(Point::new(20, 40), Point::new(300, 40))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        // Amount + Fee summary
+        let mut line_buf: heapless::String<40> = heapless::String::new();
+        core::fmt::Write::write_fmt(&mut line_buf, format_args!("Send: {amount_str}")).ok();
+        draw_lato_body(&mut self.display, &line_buf, 40, 68, COLOR_TEXT);
+
+        let mut fee_buf: heapless::String<40> = heapless::String::new();
+        core::fmt::Write::write_fmt(&mut fee_buf, format_args!("Fee:  {fee_str}")).ok();
+        draw_lato_body(&mut self.display, &fee_buf, 40, 90, COLOR_TEXT);
+
+        // Covenant P2SH label
+        draw_lato_body(&mut self.display, "Covenant P2SH", 40, 108, KASPA_ACCENT);
+
+        // CONFIRM button (green) — y=120..170
+        let confirm_green = COLOR_GREEN_BTN;
+        let btn_corner = CornerRadii::new(Size::new(8, 8));
+        let confirm_rect = Rectangle::new(Point::new(30, 120), Size::new(260, 50));
+        RoundedRectangle::new(confirm_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(confirm_green))
+            .draw(&mut self.display).ok();
+        RoundedRectangle::new(confirm_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 2))
+            .draw(&mut self.display).ok();
+        let cw = measure_title("CONFIRM");
+        draw_lato_title(&mut self.display, "CONFIRM", 30 + (260 - cw) / 2, 152, COLOR_TEXT);
+
+        // CANCEL button (red) — y=182..227
+        let cancel_red = COLOR_RED_BTN;
+        let cancel_rect = Rectangle::new(Point::new(30, 182), Size::new(260, 45));
+        RoundedRectangle::new(cancel_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(cancel_red))
+            .draw(&mut self.display).ok();
+        RoundedRectangle::new(cancel_rect, btn_corner)
+            .into_styled(PrimitiveStyle::with_stroke(COLOR_RED_BTN, 2))
+            .draw(&mut self.display).ok();
+        let cw2 = measure_title("CANCEL");
+        draw_lato_title(&mut self.display, "CANCEL", 30 + (260 - cw2) / 2, 212, COLOR_TEXT);
+    }
+
     // ═══════════════════════════════════════════════════════════════
     /// Draw mnemonic word display (one word at a time for secure backup)
     pub fn draw_word_screen(&mut self, word_num: u8, total_words: u8, word: &str) {
@@ -2352,6 +2550,7 @@ pub fn draw_home_grid(&mut self) {
     /// Draw SeedQR export screen (QR with title)
     /// Draw a full-screen QR code with title. Reusable for any data.
     pub fn draw_qr_fullscreen(&mut self, data: &[u8], _title: &str) {
+        sound::stop_ticking(); // result QR means work is done: halt the busy tick (M5 buzzer; no-op on WS)
         self.display.clear(COLOR_BG).ok();
 
         // Guard: QR encoder supports V1-V6 (max 134 bytes).
@@ -4882,6 +5081,152 @@ pub fn draw_home_grid(&mut self) {
         let h1 = measure_hint("V3, works anywhere");
         draw_lato_hint(&mut self.display, "V3, works anywhere", x1 + (bw - h1) / 2, by + bh + 14, COLOR_HINT);
 
+    }
+
+    // ─── Commit-Reveal Screens ───
+
+    pub fn draw_commit_reveal_preview(&mut self, message: &str, hash: &[u8; 32]) {
+        self.clear_keep_nav();
+        let tw = measure_header("COMMIT SECRET");
+        draw_oswald_header(&mut self.display, "COMMIT SECRET", (320 - tw) / 2, 28, KASPA_TEAL);
+        Line::new(Point::new(20, 38), Point::new(300, 38))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        // Message text (up to 3 lines)
+        let msg_bytes = message.as_bytes();
+        let chars_per_line: usize = 20;
+        for line_idx in 0..3u8 {
+            let start = line_idx as usize * chars_per_line;
+            if start >= msg_bytes.len() { break; }
+            let end = (start + chars_per_line).min(msg_bytes.len());
+            let line = &message[start..end];
+            let row_y = 48 + line_idx as i32 * 22;
+            let lw = measure_title(line);
+            draw_lato_title(&mut self.display, line, (320 - lw) / 2, row_y + 18, COLOR_TEXT);
+        }
+        if msg_bytes.len() > chars_per_line * 3 {
+            let tw2 = measure_body("...");
+            draw_lato_body(&mut self.display, "...", (320 - tw2) / 2, 118, COLOR_TEXT_DIM);
+        }
+
+        // BLAKE2B hash (teal)
+        let hex_chars = b"0123456789abcdef";
+        let mut hash_label = [0u8; 20]; // "BLAKE2B: xxxxxxxx..."
+        hash_label[0..9].copy_from_slice(b"BLAKE2B: ");
+        for i in 0..4 {
+            hash_label[9 + i * 2] = hex_chars[(hash[i] >> 4) as usize];
+            hash_label[9 + i * 2 + 1] = hex_chars[(hash[i] & 0x0f) as usize];
+        }
+        hash_label[17] = b'.';
+        hash_label[18] = b'.';
+        hash_label[19] = b'.';
+        let hash_str = core::str::from_utf8(&hash_label).unwrap_or("???");
+        let hw = measure_body(hash_str);
+        draw_lato_body(&mut self.display, hash_str, (320 - hw) / 2, 140, COLOR_ORANGE);
+
+        // ENCRYPT & EXPORT button
+        let btn_w: u32 = 200;
+        let btn_h: u32 = 36;
+        let btn_x: i32 = (320 - btn_w as i32) / 2;
+        let btn_y: i32 = 165;
+        let btn_corner = CornerRadii::new(Size::new(6, 6));
+        RoundedRectangle::new(
+            Rectangle::new(Point::new(btn_x, btn_y), Size::new(btn_w, btn_h)), btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let bw = measure_title("ENCRYPT & EXPORT");
+        draw_lato_title(&mut self.display, "ENCRYPT & EXPORT", btn_x + (btn_w as i32 - bw) / 2, btn_y + 26, COLOR_BG);
+    }
+
+    pub fn draw_commit_reveal_result(&mut self, hash: &[u8; 32], ct_len: usize) {
+        self.clear_keep_nav();
+        let tw = measure_header("COMMITTED");
+        draw_oswald_header(&mut self.display, "COMMITTED", (320 - tw) / 2, 25, KASPA_TEAL);
+        Line::new(Point::new(20, 35), Point::new(300, 35))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        // BLAKE2B label
+        let lw = measure_body("BLAKE2B Hash:");
+        draw_lato_body(&mut self.display, "BLAKE2B Hash:", (320 - lw) / 2, 55, COLOR_TEXT_DIM);
+
+        // Hash in orange, body font, 2 rows of 32 hex chars
+        let hex_chars = b"0123456789abcdef";
+        for row in 0..2u8 {
+            let mut hex_line = [0u8; 32];
+            for i in 0..16 {
+                let byte_idx = row as usize * 16 + i;
+                hex_line[i * 2] = hex_chars[(hash[byte_idx] >> 4) as usize];
+                hex_line[i * 2 + 1] = hex_chars[(hash[byte_idx] & 0x0f) as usize];
+            }
+            let line_str = core::str::from_utf8(&hex_line).unwrap_or("?");
+            let row_y = 62 + row as i32 * 20;
+            let lw2 = measure_body(line_str);
+            draw_lato_body(&mut self.display, line_str, (320 - lw2) / 2, row_y + 16, COLOR_ORANGE);
+        }
+
+        // Encryption status
+        let info_str = if ct_len > 0 { "Secret encrypted (ECIES)" } else { "Encryption failed" };
+        let sw = measure_body(info_str);
+        draw_lato_body(&mut self.display, info_str, (320 - sw) / 2, 118, COLOR_TEXT_DIM);
+
+        // Separator
+        Line::new(Point::new(30, 132), Point::new(290, 132))
+            .into_styled(PrimitiveStyle::with_stroke(COLOR_CARD_BORDER, 1))
+            .draw(&mut self.display).ok();
+
+        // SHOW QR button at bottom
+        let btn_w: u32 = 200;
+        let btn_h: u32 = 36;
+        let btn_x: i32 = (320 - btn_w as i32) / 2;
+        let btn_y: i32 = 150;
+        let btn_corner = CornerRadii::new(Size::new(6, 6));
+        RoundedRectangle::new(
+            Rectangle::new(Point::new(btn_x, btn_y), Size::new(btn_w, btn_h)), btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_ACCENT))
+            .draw(&mut self.display).ok();
+        let qw = measure_title("SHOW QR");
+        draw_lato_title(&mut self.display, "SHOW QR", btn_x + (btn_w as i32 - qw) / 2, btn_y + 26, COLOR_BG);
+    }
+
+    pub fn draw_decrypt_scan_screen(&mut self) {
+        // No-op: camera loop draws its own chrome
+    }
+
+    pub fn draw_decrypt_secret_result(&mut self, plaintext: &str) {
+        self.clear_keep_nav();
+        let tw = measure_header("DECRYPTED");
+        draw_oswald_header(&mut self.display, "DECRYPTED", (320 - tw) / 2, 25, KASPA_TEAL);
+        Line::new(Point::new(20, 35), Point::new(300, 35))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        // Plaintext in title font (bigger), up to 4 lines
+        let chars_per_line: usize = 18;
+        let pt_bytes = plaintext.as_bytes();
+        for line_idx in 0..4u8 {
+            let start = line_idx as usize * chars_per_line;
+            if start >= pt_bytes.len() { break; }
+            let end = (start + chars_per_line).min(pt_bytes.len());
+            let line = &plaintext[start..end];
+            let row_y = 44 + line_idx as i32 * 24;
+            let lw = measure_title(line);
+            draw_lato_title(&mut self.display, line, (320 - lw) / 2, row_y + 20, COLOR_TEXT);
+        }
+
+        // Export as QR button at bottom
+        let btn_w: u32 = 180;
+        let btn_h: u32 = 36;
+        let btn_x: i32 = (320 - btn_w as i32) / 2;
+        let btn_y: i32 = 150;
+        let btn_corner = CornerRadii::new(Size::new(6, 6));
+        RoundedRectangle::new(
+            Rectangle::new(Point::new(btn_x, btn_y), Size::new(btn_w, btn_h)), btn_corner)
+            .into_styled(PrimitiveStyle::with_fill(KASPA_ACCENT))
+            .draw(&mut self.display).ok();
+        let qw = measure_title("Export as QR");
+        draw_lato_title(&mut self.display, "Export as QR", btn_x + (btn_w as i32 - qw) / 2, btn_y + 26, COLOR_BG);
     }
 }
 

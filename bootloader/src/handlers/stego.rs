@@ -923,7 +923,10 @@ pub fn handle_stego_touch(
                                         (ad.pubkeys_cached) = false;
                                         (ad.current_addr_index) = 0;
                                         (ad.extra_pubkey_index) = 0xFFFF;
-                                        log!("   Stego seed stored with passphrase: {} chars, slot {}", pp_len, slot_idx);
+                                        // Log only whether a passphrase was used, never its
+                                        // length (length narrows brute-force space).
+                                        log!("   Stego seed stored in slot {} (pp={})", slot_idx,
+                                            if pp_len > 0 { "yes" } else { "no" });
                                     } else {
                                         boot_display.draw_rejected_screen("All slots full!");
                                         sound::beep_error(delay);

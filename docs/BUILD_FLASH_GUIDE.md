@@ -1,6 +1,6 @@
 <!-- KasSigner — Air-gapped offline signing device for Kaspa -->
 <!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
-<!-- License: GPL-3.0 -->
+<!-- License: GPL-3.0-only -->
 
 # KasSigner — Build, Sign & Flash Guide
 
@@ -19,7 +19,7 @@
 
 ## 1. Docker Reproducible Build (Both Targets)
 
-This produces binaries with converged self-verifying hashes. No signing keys needed.
+This produces binaries with converged self-verifying hashes. No signing keys needed. See [REPRODUCIBLE_BUILD.md](REPRODUCIBLE_BUILD.md) for why reproducibility matters and how to verify a release.
 
 ```bash
 cd /path/to/KasSigner
@@ -120,78 +120,58 @@ Boot log will show:
 
 ### Option B: Local build + Schnorr + RSA (full signature stack)
 
+`tools/build_with_hash.sh` runs the 3-pass hash convergence and Schnorr signing for you:
+
 ```bash
-# 1. Build with hash convergence + Schnorr signature (3 manual passes)
 export ESP_HAL_CONFIG_PSRAM_MODE=octal
+./tools/build_with_hash.sh --key <your_signing_key>.bin
+```
 
-cd bootloader
-cargo build --release --features skip-tests
-cd ..
+Then generate the flashable image, sign it with your RSA Secure Boot key, flash, and monitor:
 
-espflash save-image --chip esp32s3 \
-  bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-  bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader.bin
-
-cargo run --manifest-path tools/Cargo.toml --bin gen-hash -- \
-  bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader.bin \
-  <your_signing_key>.bin
-
-cd bootloader
-cargo build --release --features skip-tests
-cd ..
-
-espflash save-image --chip esp32s3 \
-  bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-  bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader.bin
-
-cargo run --manifest-path tools/Cargo.toml --bin gen-hash -- \
-  bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader.bin \
-  <your_signing_key>.bin
-
-cd bootloader
-cargo build --release --features skip-tests
-cd ..
-
-# 2. Verify convergence — run gen-hash one more time, hash should match previous
-espflash save-image --chip esp32s3 \
-  bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-  bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader.bin
-
-cargo run --manifest-path tools/Cargo.toml --bin gen-hash -- \
-  bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader.bin \
-  <your_signing_key>.bin
-# Hash should be identical to previous pass — CONVERGED
-
-# 3. Generate flashable image
+```bash
 cd bootloader
 espflash save-image --chip esp32s3 \
   target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
   kassigner-app.bin
 
-# 4. Sign with RSA key for Secure Boot
+# Sign with RSA key for Secure Boot
 python3 -m espsecure sign_data --version 2 \
   --keyfile <your_secure_boot_key>.pem \
   --output kassigner-app-signed.bin \
   kassigner-app.bin
 
-# 5. Flash
+# Flash + monitor (eFuse devices require --no-stub)
 python3 -m esptool --port /dev/cu.usbmodem21201 --baud 460800 \
   write_flash 0x10000 kassigner-app-signed.bin
-
-# 6. Monitor
 espflash monitor --port /dev/cu.usbmodem21201 --no-stub
 ```
 
-Boot log will show:
-- `secure boot verification succeeded` ✅
-- `Code segment hash: OK` ✅
-- `Signature present` ✅ (Schnorr verified)
+Boot log will show `secure boot verification succeeded`, `Code segment hash: OK`, and `Signature present` (Schnorr verified).
+
+<details>
+<summary>Manual 3-pass convergence (what build_with_hash.sh automates)</summary>
+
+Build, save-image, and gen-hash in a loop until the hash is stable:
+
+```bash
+export ESP_HAL_CONFIG_PSRAM_MODE=octal
+cd bootloader && cargo build --release --features skip-tests && cd ..
+espflash save-image --chip esp32s3 \
+  bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
+  bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader.bin
+cargo run --manifest-path tools/Cargo.toml --bin gen-hash -- \
+  bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader.bin \
+  <your_signing_key>.bin
+# Repeat build -> save-image -> gen-hash until gen-hash reports the same hash twice (CONVERGED).
+```
+</details>
 
 ## 4. Flash — M5Stack CoreS3 / CoreS3 Lite
 
 ```bash
 cd bootloader
-cargo run --release --no-default-features --features m5stack
+cargo run --release --no-default-features --features m5stack,skip-tests
 ```
 
 Or from Docker binary:
@@ -207,25 +187,7 @@ espflash monitor
 
 ## 5. Build KasSee Web (Companion Wallet)
 
-KasSee ships with pre-built WASM in `kassee/web/pkg/` — it works out of the box.
-Open `kassee/web/index.html` in any modern browser.
-
-To rebuild from source:
-
-```bash
-cd kassee
-
-# Prerequisites (once)
-cargo install wasm-pack
-rustup target add wasm32-unknown-unknown --toolchain stable
-
-# Build
-RUSTUP_TOOLCHAIN=stable ./build.sh
-
-# Serve locally
-cd web && python3 -m http.server 8080
-# Open http://localhost:8080
-```
+KasSee ships with pre-built WASM in `kassee/web/pkg/` and works out of the box — open `kassee/web/index.html` in any modern browser. To rebuild from source, see **Building KasSee from source** in the README.
 
 ## Troubleshooting
 
@@ -254,7 +216,7 @@ without hash convergence will always show hash mismatch.
 
 ### `cargo build` doesn't recompile after changing constants
 ```bash
-touch src/wallet.rs  # or the changed file
+touch bootloader/src/main.rs  # or any file in the changed module
 cargo build --release
 ```
 

@@ -576,7 +576,21 @@ pub fn derive_path_for_index(
 /// fast path).
 pub const ADDR_SCAN_DEPTH: u16 = 20;
 
-/// Search m/44'/111111'/0'/0..1/0..ADDR_SCAN_DEPTH-1 for an x-only
+/// Depth for on-the-fly key MATCHING during signing (P2PK funding +
+/// per-address multisig). Decoupled from ADDR_SCAN_DEPTH on purpose:
+/// matching derives one key per index on the fly with no table, so a
+/// deeper bound costs nothing on a hit (the loop exits at the funding
+/// index, normally <= 29) and only scans further on a genuine miss.
+/// KasSee grows receive addresses in +10 steps and a used wallet can
+/// sit past index 20, so the funding UTXO's index must be reachable
+/// here or signing returns 0 sigs. The AddrPubkeyTable below stays at
+/// ADDR_SCAN_DEPTH: it is a fixed [_; ADDR_SCAN_DEPTH*2] array held
+/// [_; 8] deep on the signing stack in pskt.rs, so growing it would
+/// blow the stack. Raise this further only if a wallet ever exceeds
+/// 100 receive addresses (or consolidate it instead).
+pub const SIGN_MATCH_DEPTH: u16 = 100;
+
+/// Search m/44'/111111'/0'/0..1/0..SIGN_MATCH_DEPTH-1 for an x-only
 /// pubkey matching target_pubkey. Returns Some((index, is_change))
 /// or None if no match.
 /// Used for per-address multisig signing and P2PK single-key signing
@@ -586,7 +600,7 @@ pub fn find_address_index_for_pubkey(
     target_pubkey: &[u8; 32],
 ) -> Option<(u16, bool)> {
     // Search receive chain first (m/44'/111111'/0'/0/idx)
-    for idx in 0..ADDR_SCAN_DEPTH {
+    for idx in 0..SIGN_MATCH_DEPTH {
         if let Ok(key) = derive_address_key(account_key, idx) {
             if let Ok(pk) = key.public_key_x_only() {
                 if pk == *target_pubkey {
@@ -596,7 +610,7 @@ pub fn find_address_index_for_pubkey(
         }
     }
     // Search change chain (m/44'/111111'/0'/1/idx)
-    for idx in 0..ADDR_SCAN_DEPTH {
+    for idx in 0..SIGN_MATCH_DEPTH {
         if let Ok(key) = derive_change_key(account_key, idx) {
             if let Ok(pk) = key.public_key_x_only() {
                 if pk == *target_pubkey {

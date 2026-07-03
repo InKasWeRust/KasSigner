@@ -1,6 +1,6 @@
 <!-- KasSigner — Air-gapped offline signing device for Kaspa -->
 <!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
-<!-- License: GPL-3.0 -->
+<!-- License: GPL-3.0-only -->
 
 # KasSigner
 
@@ -8,11 +8,9 @@
 
 > ⚠️ **IMPORTANT: KasSigner is an EXPERIMENTAL offline signing device. It is NOT a hardware wallet. It has NO secure element and NO persistent storage — all keys are wiped on power-off. This software has NOT been professionally audited. Do NOT use KasSigner to manage funds you cannot afford to lose.**
 
-KasSigner is an open-source signing device built on ESP32-S3. It generates private keys offline, signs transactions via QR code exchange, and never connects to any network. All key material lives in RAM only and is destroyed when the device powers off.
+KasSigner is an open-source signing device built on ESP32-S3. It generates private keys offline, signs transactions via QR code exchange, and never connects to any network. All key material lives in RAM only and is destroyed when the device powers off. If you have not run the eFuse runbook, treat the USB port as a debug port, not a power port. Power only from sources you own, never import a seed while connected to a computer, and consider a data-blocker.
 
 100% Rust. Bare-metal `no_std`. No operating system. No vendor libraries in the signing path.
-
-> **This project is under active development.** It has not yet undergone a formal security audit. Do not store significant funds until the codebase has been independently reviewed.
 
 ## Features
 
@@ -33,6 +31,7 @@ KasSigner is an open-source signing device built on ESP32-S3. It generates priva
 - **QR scanner** — built-in camera with rqrr V1–V40 decoder (Reed-Solomon verified, single-pass) for PSKBs, SeedQR import, and pubkey exchange
 - **CompactSeedQR** — SeedSigner-compatible compact seed backup with grid view for manual card filling
 - **KRC-20 token detection** — recognizes KRC-20 token transactions during review
+- **Covenant signing** — reviews and signs covenant-bound transactions (KSPT v3 + a covenant-binding flag carrying `covenant_id`); covenant details shown on the review screen before signing
 - **kpub/xprv export** — account-level public key export for watch-only wallets, encrypted xprv via SD
 - **Reproducible builds** — Docker-based, bit-identical binaries on any platform
 
@@ -55,7 +54,6 @@ docker run --rm kassigner-build
 
 See [docs/REPRODUCIBLE_BUILD.md](docs/REPRODUCIBLE_BUILD.md) for details.
 
-
 ## Steganographic Backup — A beautiful way
 
 KasSigner's steganographic backup hides your seed inside an ordinary JPEG photograph. Three layers of protection make this fundamentally different from a plaintext backup:
@@ -69,6 +67,28 @@ KasSigner's steganographic backup hides your seed inside an ordinary JPEG photog
 The password (ImageDescription) is the key. The 25th word is the lock. Neither is stored on the device.
 
 See [docs/STEGANOGRAPHY.md](docs/STEGANOGRAPHY.md) for the complete steganographic backup system design.
+
+## Covenants++
+
+KasSee builds programmable covenant transactions; KasSigner reviews and signs them air-gapped; KasSee broadcasts. The same build → sign-offline → broadcast flow, now for covenants on **Kaspa Toccata** (script introspection, `OP_CAT`, `OP_ZK_PRECOMPILE`). Working on main network
+
+- **Piggy Bank** — save toward a goal or deadline; break it open to withdraw
+- **Time-Locked Savings** — lock funds until a date; no early access, not even by you
+- **Dead Man's Switch** — heir inherits after inactivity; a heartbeat resets the timer
+- **Allowance** — a beneficiary withdraws up to a cap, with a cooldown between withdrawals
+- **Spending Limit** — a per-withdrawal cap with cooldown, across the whole balance
+- **Merkle Whitelist** — spend only to an approved set, proven with a Merkle proof (`OP_CAT`)
+- **Direct Channel** — payment channel with arbiter dispute resolution
+- **Oracle** — release on an oracle attestation
+- **PayJoin** — anonymous payment covenant
+- **Commit-Reveal** — MEV-resistant inscriptions
+- **Private Swap** — atomic swap via adaptor signatures: no preimage, no on-chain link
+- **KIP-20 Vaults** — tagged and split covenant-id-aware vaults
+- **Crowdfunding** — ZK-gated goal-and-deadline pledge covenant
+- **ZK Price Oracle** — live KAS/USD from Pyth + Wormhole, proven on-chain with a zero-knowledge proof
+- **Stealth payments** — dual-key stealth addresses (ECDH) so anyone can pay you without linking payments to your public address
+
+The signer recognizes the covenant redeem scripts and signs the matching input; covenant details are shown on-device before you approve.
 
 ## Wallet Slot Types
 
@@ -97,29 +117,6 @@ KasSigner runs on two ESP32-S3 platforms:
 | **PMU** | — | AXP2101 + AW9523B |
 | **PSRAM** | 8MB octal | 8MB octal |
 
-### Pin Map (Waveshare)
-
-```
-Camera DVP:  XCLK=8  PCLK=9  VSYNC=6  HREF=4  D0-D7=12,13,15,11,14,10,7,2
-Camera I2C1: SDA=21  SCL=16  PWDN=17
-Display SPI: MOSI=38 SCLK=39 CS=45    DC=42   RST=0  BL=1 (LEDC PWM)
-Touch I2C0:  SDA=48  SCL=47  INT=46
-SD SDHOST:   CLK=39  CMD=38  D0=40
-Battery:     ADC=GPIO5
-```
-
-### Pin Map (M5Stack CoreS3)
-
-```
-Camera DVP:  XCLK=2 (LEDC)  PCLK=45  VSYNC=46  HREF=38
-             D0=39  D1=40  D2=41  D3=42  D4=15  D5=16  D6=48  D7=47
-Camera I2C:  SDA=12  SCL=11  (shared bus with touch + PMU)
-Display SPI: MOSI=37 SCLK=36 CS=3   DC/MISO=35  (shared bus with SD)
-Touch I2C:   SDA=12  SCL=11  (shared bus)
-SD bitbang:  SCK=36  MOSI=37  MISO=35  CS=4  (shared SPI with LCD)
-PMU:         AXP2101 (0x34) + AW9523B (0x58) on I2C0
-Speaker:     AW88298 via I2S1 (DMA)
-```
 
 ## Building
 
@@ -142,14 +139,14 @@ cargo run --bin kassigner-setup
 git clone https://github.com/InKasWeRust/KasSigner.git
 cd KasSigner/bootloader
 
-# Waveshare ESP32-S3-Touch-LCD-2 (default, OV5640)
+# Waveshare ESP32-S3-Touch-LCD-2 (default — auto-detects OV2640/OV5640)
 ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release --features skip-tests
 
 # Waveshare (OV2640 wide-angle camera)
 ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release --features skip-tests,ov2640-wide
 
 # M5Stack CoreS3 / CoreS3 Lite
-cargo run --release --no-default-features --features m5stack
+cargo run --release --no-default-features --features m5stack,skip-tests
 ```
 
 ### Flash a pre-built release binary
@@ -182,20 +179,10 @@ The script asks permission at every step (Y/N). It detects your environment, ins
 | `production` | Silent boot + strict firmware verification |
 | `verbose-boot` | Extra boot diagnostics on UART |
 | `mirror` | Live display mirror — streams screen to Mac/PC via serial |
+| `ov5640-af` | OV5640 with autofocus (Waveshare) |
+| `ov2640-wide` | OV2640 wide-angle camera (Waveshare) |
+| `af` | Load the OV5640 autofocus firmware |
 
-### Live display mirror (for presentations)
-
-Stream the device screen to a Mac/PC window in real-time. Requires two terminals.
-
-```bash
-# Terminal 1: Build and flash firmware with mirror enabled
-cd bootloader
-ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release --features waveshare,mirror,skip-tests
-
-# Terminal 2: Run the mirror viewer
-cd tools
-cargo run --release --bin kassigner-mirror -- /dev/cu.usbmodem21201
-```
 
 ## KasSee — Watch-Only Companion Wallet
 
@@ -225,6 +212,9 @@ KasSee connects to a public Kaspa node automatically. To use your own node, open
 - **Address list** — all derived addresses with funded/used badges, explorer links, tap-to-verify and long-press-to-copy
 - **Address verification** — display address QR + derivation path for on-device verification
 - **Multisig** — create P2SH multisig addresses, build multisig spend transactions (PSKT/PSKB), relay between co-signers, broadcast fully signed transactions
+- **Covenants** — build, fund, and spend the covenant suite (see Covenants++ above)
+- **Stealth payments** — receive without linking payments to your public address (dual-key ECDH stealth addresses)
+- **ZK price oracle** — on-chain KAS/USD (Pyth + Wormhole), zero-knowledge proven
 - **Token display** — KRC-20 token balances, KRC-721 NFT listings, KNS domain names
 - **Custom node** — connect to your own Kaspa node via Settings
 - **Camera scanner** — scan QR codes directly from the browser (kpub, signed TX, descriptors)
@@ -255,40 +245,12 @@ cd web && python3 -m http.server 8080
 # Open http://localhost:8080
 ```
 
-### Air-gapped signing flow
-
-```
-KasSee (browser)                KasSigner (device)
-────────────────                ──────────────────
-1. Build unsigned TX (KSPT)
-2. Display as animated QR ─────→ 3. Scan QR
-                                  4. Review TX on screen
-                                  5. Sign with private key
-6. Scan signed QR ←────────────── 7. Display signed QR
-8. Broadcast to network
-```
-
-### Multisig co-signing flow
-
-```
-KasSee (browser)          Device A              Device B
-────────────────          ────────              ────────
-1. Build PSKT/PSKB
-2. Display QR ──────────→ 3. Scan, review
-                          4. Sign (1/2)
-                          5. Show partial QR ──→ 6. Scan from A's screen
-                                                 7. Sign (2/2)
-                                                 8. Show fully signed QR
-9. Scan signed QR
-10. Broadcast to network
-```
-
 ### Safety features
 
 - **Custom node connection** — connect to your own Kaspa node via Settings
 - **Public node resolver** — auto-discovers healthy public nodes when no custom node is set
 - **Fee estimation** — queries node for current feerate with low / normal / priority levels
-- **Storage mass awareness** — warns for outputs below 0.2 KAS (KIP-9/Crescendo)
+- **Storage mass awareness** — warns for outputs below 0.2 KAS (KIP-9)
 - **WebSocket retry** — automatic reconnection on connection drops
 - **Animated QR frames** — balanced frame splitting with indicator for reliable scanning
 - **Sorted multisig keys** — deterministic P2SH addresses regardless of kpub input order
@@ -377,8 +339,8 @@ A tampered binary fails verification and halts boot.
 
 ## Documentation
 
-- [docs/KasSigner_User_Guide.pdf](docs/KasSigner_User_Guide.pdf) — complete user guide (38 pages)
-- [docs/KasSigner_Quick_Start_Guide.pdf](docs/KasSigner_Quick_Start_Guide.pdf) — quick start (5 pages)
+- [docs/KasSigner_User_Guide.pdf](docs/KasSigner_User_Guide.pdf) — complete user guide 
+- [docs/KasSigner_Quick_Start_Guide.pdf](docs/KasSigner_Quick_Start_Guide.pdf) — quick start 
 - [docs/KasSigner_Security_Architecture.pdf](docs/KasSigner_Security_Architecture.pdf) — security architecture
 - [docs/KasSee_User_Guide.pdf](docs/KasSee_User_Guide.pdf) — KasSee Web companion wallet guide
 - [docs/KasSigner_Seed_Cards.pdf](docs/KasSigner_Seed_Cards.pdf) — printable seed backup cards
@@ -422,4 +384,4 @@ Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [SECURITY.md](
 
 ## Disclaimer
 
-**KasSigner is experimental software running on consumer hardware with no secure element. It has not been audited by a professional security firm.** The authors are not responsible for any loss of funds. KasSigner is an offline signing device, not a hardware wallet — all keys exist in RAM only and are destroyed on power-off. Always verify transactions on a trusted watch-only wallet before signing. Never use KasSigner to manage more cryptocurrency than you can afford to lose.
+**KasSigner is experimental software on consumer hardware with no secure element, and has not been audited by a professional security firm.** The authors are not responsible for any loss of funds. Always verify transactions on a trusted watch-only wallet before signing, and never use KasSigner to manage more than you can afford to lose.

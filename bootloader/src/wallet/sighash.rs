@@ -41,6 +41,19 @@ use blake2::digest::consts::U32;
 type Blake2b256 = Blake2b<U32>;
 use super::transaction::*;
 
+/// Format first 8 bytes of a hash as hex for debug (no alloc needed).
+/// Only used by the verbose-boot sighash debug dump below.
+#[cfg(feature = "verbose-boot")]
+fn hex8(h: &[u8; 32]) -> [u8; 16] {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = [0u8; 16];
+    for i in 0..8 {
+        out[i * 2] = HEX[(h[i] >> 4) as usize];
+        out[i * 2 + 1] = HEX[(h[i] & 0xf) as usize];
+    }
+    out
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Keyed Blake2b-256 for Kaspa consensus sighash
 // ═══════════════════════════════════════════════════════════════════
@@ -389,14 +402,14 @@ fn outputs_hash(
         // Only the output with the same index
         let output = &tx.outputs[input_index];
         let mut hasher = KaspaBlake2b::new(KEY_SIGNING_HASH);
-        hash_output(&mut hasher, output);
+        hash_output(&mut hasher, output, tx.version);
         return hasher.finalize();
     }
 
     // SigHashAll: hash of all outputs
     let mut hasher = KaspaBlake2b::new(KEY_SIGNING_HASH);
     for output in tx.outputs() {
-        hash_output(&mut hasher, output);
+        hash_output(&mut hasher, output, tx.version);
     }
     hasher.finalize()
 }
@@ -404,12 +417,24 @@ fn outputs_hash(
 /// Serialize an output for hashing.
 /// Matches Rusty Kaspa's `hash_output` which calls `hash_script_public_key`,
 /// which uses `write_var_bytes` (u64 LE length prefix + raw bytes).
-fn hash_output(hasher: &mut KaspaBlake2b, output: &TransactionOutput) {
+/// For tx version >= 1, also includes covenant binding data.
+fn hash_output(hasher: &mut KaspaBlake2b, output: &TransactionOutput, tx_version: u16) {
     hasher.update(&output.value.to_le_bytes());
     // hash_script_public_key: version(u16 LE) + write_var_bytes(script)
     hasher.update(&output.script_public_key.version.to_le_bytes());
     hasher.update(&(output.script_public_key.script_len as u64).to_le_bytes());
     hasher.update(output.script_public_key.script_bytes());
+
+    // Covenant binding (tx version >= 1)
+    if tx_version >= 1 {
+        if output.has_covenant {
+            hasher.update(&[1u8]); // write_bool(true)
+            hasher.update(&output.covenant_auth_input.to_le_bytes()); // write_u16
+            hasher.update(&output.covenant_id); // update(Hash)
+        } else {
+            hasher.update(&[0u8]); // write_bool(false)
+        }
+    }
 }
 
 // ─── payloadHash ──────────────────────────────────────────────────────
@@ -449,7 +474,6 @@ pub fn calculate_sighash(
 
     let prev_outputs = previous_outputs_hash(tx, sighash_type);
     let sequences = sequences_hash(tx, sighash_type);
-    let sig_op_counts = sig_op_counts_hash(tx, sighash_type);
     let outputs = outputs_hash(tx, sighash_type, input_index);
     let payload = payload_hash(tx);
 
@@ -465,8 +489,11 @@ pub fn calculate_sighash(
     // 3. sequencesHash (32 bytes)
     h.update_hash(&sequences);
 
-    // 4. sigOpCountsHash (32 bytes)
-    h.update_hash(&sig_op_counts);
+    // 4. sigOpCountsHash (32 bytes) — only for version 0
+    if tx.version < 1 {
+        let sig_op_counts = sig_op_counts_hash(tx, sighash_type);
+        h.update_hash(&sig_op_counts);
+    }
 
     // 5. txIn.PreviousOutpoint.TransactionID (32 bytes)
     h.update_hash(&input.previous_outpoint.transaction_id);
@@ -489,8 +516,10 @@ pub fn calculate_sighash(
     // 11. txIn.Sequence (8 bytes LE)
     h.update_u64_le(input.sequence);
 
-    // 12. txIn.SigOpCount (1 byte)
-    h.update_u8(input.sig_op_count);
+    // 12. txIn.SigOpCount (1 byte) — only for version 0
+    if tx.version < 1 {
+        h.update_u8(input.sig_op_count);
+    }
 
     // 13. outputsHash (32 bytes)
     h.update_hash(&outputs);
@@ -510,7 +539,30 @@ pub fn calculate_sighash(
     // 18. SigHash type (1 byte)
     h.update_u8(sighash_type.to_byte());
 
-    h.finalize()
+    let result = h.finalize();
+
+    // Debug: dump intermediate hashes for sighash comparison.
+    // Gated behind verbose-boot: this ran on EVERY signing in any
+    // non-silent build, revealing tx contents (covenant ids, output
+    // structure, final sighash) to a USB host before broadcast.
+    #[cfg(feature = "verbose-boot")]
+    {
+        crate::log!("[SIGHASH-DBG] tx_version={} input_idx={}", tx.version, input_index);
+        crate::log!("[SIGHASH-DBG] prev_outputs={}", core::str::from_utf8(&hex8(&prev_outputs)).unwrap_or("?"));
+        crate::log!("[SIGHASH-DBG] sequences={}", core::str::from_utf8(&hex8(&sequences)).unwrap_or("?"));
+        crate::log!("[SIGHASH-DBG] outputs={}", core::str::from_utf8(&hex8(&outputs)).unwrap_or("?"));
+        crate::log!("[SIGHASH-DBG] payload={}", core::str::from_utf8(&hex8(&payload)).unwrap_or("?"));
+        if tx.num_outputs > 0 {
+            crate::log!("[SIGHASH-DBG] out[0] has_cov={} auth={}", tx.outputs[0].has_covenant, tx.outputs[0].covenant_auth_input);
+            crate::log!("[SIGHASH-DBG] out[0] cov_id={}", core::str::from_utf8(&hex8(&tx.outputs[0].covenant_id)).unwrap_or("?"));
+        }
+        if tx.num_outputs > 1 {
+            crate::log!("[SIGHASH-DBG] out[1] has_cov={}", tx.outputs[1].has_covenant);
+        }
+        crate::log!("[SIGHASH-DBG] FINAL={}", core::str::from_utf8(&hex8(&result)).unwrap_or("?"));
+    }
+
+    result
 }
 
 // ═══════════════════════════════════════════════════════════════════════

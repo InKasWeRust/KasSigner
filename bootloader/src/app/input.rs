@@ -356,7 +356,7 @@ pub enum AppState {
     ConfirmTx,
     /// Sign TX guide — step-by-step instructions before scanning KSPT
     SignTxGuide,
-    /// Sign Message — choose how to enter message (type / load TXT)
+    /// Sign Message — choose how to enter message (type / load TXT / scan QR)
     SignMsgChoice,
     /// Sign Message — type message via keyboard
     SignMsgType,
@@ -364,8 +364,28 @@ pub enum AppState {
     SignMsgFile,
     /// Sign Message — preview message + confirm sign
     SignMsgPreview,
+    /// Sign Message — scanning QR for hash to sign
+    SignMsgScanQr,
+    /// Sign Message — preview hash (from QR scan) + confirm sign
+    SignMsgHashPreview,
     /// Sign Message — show signature result (hex + QR)
     SignMsgResult,
+    /// Sign Message — fullscreen QR of attestation (any touch returns to SignMsgResult)
+    SignMsgResultQr,
+    /// Commit-Reveal — type secret message via keyboard
+    CommitRevealType,
+    /// Commit-Reveal — preview message, show BLAKE2B hash, confirm encrypt
+    CommitRevealPreview,
+    /// Commit-Reveal — show result (hash + encrypted ciphertext QR)
+    CommitRevealResult,
+    /// Commit-Reveal — fullscreen QR of hash + ciphertext
+    CommitRevealResultQr,
+    /// Decrypt Secret — scanning ciphertext QR from KasSee
+    DecryptSecretScan,
+    /// Decrypt Secret — show decrypted plaintext + export preimage hex QR
+    DecryptSecretResult,
+    /// Decrypt Secret — fullscreen QR of preimage hex
+    DecryptSecretResultQr,
     /// Icon browser test screen (feature: icon-browser)
     #[cfg(feature = "icon-browser")]
     IconBrowser { page: u16 },
@@ -556,6 +576,8 @@ pub enum AppState {
     SdKsptEncryptPass,
     /// QR display mode choice: Auto Cycle / Manual (tap to advance)
     ShowQrModeChoice,
+    /// Covenant backup: keyboard for naming the .COV file before SD save
+    CovBackupName,
 }
 
 /// Result of handling a button event
@@ -626,7 +648,13 @@ pub fn new() -> Self {
 
             AppState::ReviewTx { page } => {
                 match event {
-                    ButtonEvent::ShortPress => {
+                    // Both short and long press advance one page. ConfirmTx is reachable
+                    // ONLY by paging past the last output, so the signer cannot reach the
+                    // SIGN screen without every output having been displayed. Previously a
+                    // LongPress jumped straight to ConfirmTx, which would let outputs be
+                    // skipped while SigHashAll still committed them; that bypass is removed
+                    // so the must-view-all-outputs property is enforced structurally.
+                    ButtonEvent::ShortPress | ButtonEvent::LongPress => {
                         let next = page + 1;
                         if next < self.review_pages {
                             self.state = AppState::ReviewTx { page: next };
@@ -634,11 +662,6 @@ pub fn new() -> Self {
                             self.menu = Menu::from_items(CONFIRM_MENU_ITEMS);
                             self.state = AppState::ConfirmTx;
                         }
-                        Action::Redraw
-                    }
-                    ButtonEvent::LongPress => {
-                        self.menu = Menu::from_items(CONFIRM_MENU_ITEMS);
-                        self.state = AppState::ConfirmTx;
                         Action::Redraw
                     }
                     _ => Action::None,
@@ -695,7 +718,9 @@ pub fn new() -> Self {
             | AppState::AudioSettings | AppState::SdCardSettings
             | AppState::SignTxGuide
             | AppState::SignMsgChoice | AppState::SignMsgType | AppState::SignMsgFile
-            | AppState::SignMsgPreview | AppState::SignMsgResult
+            | AppState::SignMsgPreview | AppState::SignMsgScanQr | AppState::SignMsgHashPreview | AppState::SignMsgResult | AppState::SignMsgResultQr
+            | AppState::CommitRevealType | AppState::CommitRevealPreview | AppState::CommitRevealResult | AppState::CommitRevealResultQr
+            | AppState::DecryptSecretScan | AppState::DecryptSecretResult | AppState::DecryptSecretResultQr
             | AppState::QrExportMenu | AppState::XprvExportMenu | AppState::SeedBackupMenu | AppState::WatchOnlyMenu | AppState::SigningKeysMenu | AppState::ExportPlainWordsQR => {
                 if event == ButtonEvent::ShortPress || event == ButtonEvent::LongPress {
                     self.go_main_menu();
@@ -741,6 +766,7 @@ pub fn new() -> Self {
             | AppState::StegoImportDescFile | AppState::StegoImportPass
             | AppState::StegoHintReveal | AppState::StegoHintPassphrase
             | AppState::FwUpdateResult
+            | AppState::CovBackupName
             => {
                 Action::None
             }
@@ -908,6 +934,7 @@ pub fn handler_group(&self) -> HandlerGroup {
             MainMenu | SeedsMenu | ToolsMenu | SeedToolsMenu | ImportExportChoice
             | ImportMenu | SingleSigMenu | MultisigMenu | DiceRoll
             | ChooseWordCount { .. } | ShowQR | ShowQrFrameChoice | ShowQrDensityChoice | Rejected | ViewSeed
+            | CovBackupName
                 => HandlerGroup::Menu,
 
             // Steganography flow
@@ -961,7 +988,9 @@ pub fn handler_group(&self) -> HandlerGroup {
             | MultisigChooseMN | MultisigPickSeed { .. } | MultisigPickAddr { .. }
             | MultisigAddKey { .. } | MultisigShowAddress | MultisigShowAddressQR
             | MultisigSaveAddrAsk | MultisigDescriptor
-            | SignMsgChoice | SignMsgType | SignMsgFile | SignMsgPreview | SignMsgResult
+            | SignMsgChoice | SignMsgType | SignMsgFile | SignMsgPreview | SignMsgScanQr | SignMsgHashPreview | SignMsgResult | SignMsgResultQr
+            | CommitRevealType | CommitRevealPreview | CommitRevealResult | CommitRevealResultQr
+            | DecryptSecretScan | DecryptSecretResult | DecryptSecretResultQr
                 => HandlerGroup::Tx,
 
             // Transient states handled by signing pipeline, not touch

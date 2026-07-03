@@ -204,10 +204,15 @@ pub fn sign_and_serialize_multisig(
     const MAX_SIGN_SLOTS: usize = 8;
     let mut seeds = [([0u8; 64], false); MAX_SIGN_SLOTS];
     let mut seed_idx = 0usize;
+    let mut active_seed_idx: Option<usize> = None;
+    let active_mgr_slot = seed_mgr.active as usize;
     for s in 0..seed_manager::MAX_SLOTS {
         if seed_idx >= MAX_SIGN_SLOTS { break; }
         let slot = &seed_mgr.slots[s];
         if slot.is_empty() || slot.is_raw_key() || slot.word_count == 2 { continue; }
+        if s == active_mgr_slot {
+            active_seed_idx = Some(seed_idx);
+        }
         let pp = slot.passphrase_str();
         let wc = slot.word_count;
         let seed = if wc == 12 {
@@ -226,10 +231,11 @@ pub fn sign_and_serialize_multisig(
     }
     let t_after_seeds = Instant::now();
     let seed_ms = (t_after_seeds - t_start).as_millis();
-    crate::log!("[sign_t] seed derivation: {} ms ({} slots)", seed_ms, seed_idx);
+    crate::log!("[sign_t] seed derivation: {} ms ({} slots, active={})", seed_ms, seed_idx,
+        active_seed_idx.map(|i| i as i32).unwrap_or(-1));
 
     let signed = wallet::pskt::sign_transaction_multisig(
-        tx, &seeds, wallet::transaction::SigHashType::All,
+        tx, &seeds, wallet::transaction::SigHashType::All, active_seed_idx,
     );
     let t_after_sign = Instant::now();
     let sign_ms = (t_after_sign - t_after_seeds).as_millis();
@@ -339,10 +345,15 @@ pub fn sign_and_serialize_pskt_multisig(
     const MAX_SIGN_SLOTS: usize = 8;
     let mut seeds = [([0u8; 64], false); MAX_SIGN_SLOTS];
     let mut seed_idx = 0usize;
+    let mut active_seed_idx: Option<usize> = None;
+    let active_mgr_slot = seed_mgr.active as usize;
     for s in 0..seed_manager::MAX_SLOTS {
         if seed_idx >= MAX_SIGN_SLOTS { break; }
         let slot = &seed_mgr.slots[s];
         if slot.is_empty() || slot.is_raw_key() || slot.word_count == 2 { continue; }
+        if s == active_mgr_slot {
+            active_seed_idx = Some(seed_idx);
+        }
         let pp = slot.passphrase_str();
         let wc = slot.word_count;
         let seed = if wc == 12 {
@@ -360,11 +371,12 @@ pub fn sign_and_serialize_pskt_multisig(
         seed_idx += 1;
     }
     let t_after_seeds = Instant::now();
-    crate::log!("[sign_t] seed derivation: {} ms ({} slots)",
-        (t_after_seeds - t_start).as_millis(), seed_idx);
+    crate::log!("[sign_t] seed derivation: {} ms ({} slots, active={})",
+        (t_after_seeds - t_start).as_millis(), seed_idx,
+        active_seed_idx.map(|i| i as i32).unwrap_or(-1));
 
     if wallet::pskt::sign_transaction_multisig(
-        tx, &seeds, wallet::transaction::SigHashType::All,
+        tx, &seeds, wallet::transaction::SigHashType::All, active_seed_idx,
     ).is_err() {
         for (s, _) in seeds.iter_mut() { zeroize_seed(s); }
         return 0;
@@ -753,8 +765,9 @@ pub fn cycle_signed_qr(
 ) {
         if let crate::app::input::AppState::ShowQR = ad.app.state {
             if ad.signed_qr_nframes > 1 && !ad.qr_manual_frames {
-                // Non-blocking: only advance frame every ~2000 ticks
-                if ad.idle_ticks % 2000 != 0 {
+                // Auto-cycle: Phone/KasSee = ~400ms, KasSigner = ~2s
+                let cycle_interval = if ad.signed_qr_via_density { 2000u32 } else { 400u32 };
+                if ad.idle_ticks % cycle_interval != 0 {
                     return;
                 }
                 ad.signed_qr_frame = (ad.signed_qr_frame + 1) % ad.signed_qr_nframes;

@@ -20,6 +20,7 @@
 // Called from main loop when needs_redraw is true.
 
 use crate::{hw::battery, hw::display, hw::sound, features::fw_update, hw::sdcard, ui::seed_manager, wallet};
+use embedded_graphics::prelude::DrawTarget;
 /// Redraw the current screen based on AppState. Called when needs_redraw is set.
 pub fn redraw_screen(
     ad: &mut crate::app::data::AppData,
@@ -44,7 +45,7 @@ pub fn redraw_screen(
                     // The camera blit loop handles continuous display + back button overlay.
                     boot_display.draw_camera_screen("", "");
                     // Signal camera loop to reset QR decode state
-                    unsafe { crate::QR_RESET_FLAG = true; }
+                    crate::QR_RESET_FLAG.store(true, core::sync::atomic::Ordering::Relaxed);
                 }
                 #[cfg(feature = "waveshare")]
                 crate::app::input::AppState::CameraSettings => {
@@ -60,7 +61,7 @@ pub fn redraw_screen(
                     boot_display.draw_cam_tune_overlay(
                         ad.cam_tune_param, &ad.cam_tune_vals);
                     // Signal camera loop to reset QR decode state (harmless)
-                    unsafe { crate::QR_RESET_FLAG = true; }
+                    crate::QR_RESET_FLAG.store(true, core::sync::atomic::Ordering::Relaxed);
                 }
                 crate::app::input::AppState::SeedsMenu => {
                     // SeedsMenu now just shows SeedList
@@ -192,6 +193,9 @@ pub fn redraw_screen(
                 crate::app::input::AppState::SdBackupWriting
                 | crate::app::input::AppState::SdRestoreReading => {
                     // Transient — progress screen drawn inline before operation
+                }
+                crate::app::input::AppState::CovBackupName => {
+                    boot_display.draw_keyboard_screen_full(&ad.pp_input, "COV NAME");
                 }
                 crate::app::input::AppState::ExportSeedQR => {
                     if let Some(slot) = ad.seed_mgr.active_slot() {
@@ -391,8 +395,43 @@ pub fn redraw_screen(
                     let msg = core::str::from_utf8(&ad.jpeg_desc_buf[..ad.jpeg_desc_len]).unwrap_or("");
                     boot_display.draw_sign_msg_preview(msg);
                 }
+                crate::app::input::AppState::SignMsgScanQr => {
+                    boot_display.draw_loading_screen("Point at hash QR...");
+                }
+                crate::app::input::AppState::SignMsgHashPreview => {
+                    boot_display.draw_sign_hash_preview(&ad.sign_msg_hash);
+                }
                 crate::app::input::AppState::SignMsgResult => {
-                    boot_display.draw_sign_msg_result(&ad.sign_msg_sig);
+                    boot_display.draw_sign_msg_result(&ad.sign_msg_sig, &ad.sign_msg_hash);
+                }
+                crate::app::input::AppState::SignMsgResultQr => {
+                    // QR already drawn by draw_qr_fullscreen before state transition.
+                    // Redraw only if forced (e.g. home button press), show result screen.
+                    boot_display.draw_sign_msg_result(&ad.sign_msg_sig, &ad.sign_msg_hash);
+                }
+                crate::app::input::AppState::CommitRevealType => {
+                    boot_display.draw_keyboard_screen_full(&ad.pp_input, "SECRET");
+                }
+                crate::app::input::AppState::CommitRevealPreview => {
+                    let msg = core::str::from_utf8(&ad.jpeg_desc_buf[..ad.jpeg_desc_len]).unwrap_or("");
+                    boot_display.draw_commit_reveal_preview(msg, &ad.cr_hash);
+                }
+                crate::app::input::AppState::CommitRevealResult => {
+                    boot_display.draw_commit_reveal_result(&ad.cr_hash, ad.cr_ciphertext.len());
+                }
+                crate::app::input::AppState::CommitRevealResultQr => {
+                    boot_display.draw_commit_reveal_result(&ad.cr_hash, ad.cr_ciphertext.len());
+                }
+                crate::app::input::AppState::DecryptSecretScan => {
+                    // Camera loop handles all drawing for scan states
+                }
+                crate::app::input::AppState::DecryptSecretResult => {
+                    let msg = core::str::from_utf8(&ad.jpeg_desc_buf[..ad.jpeg_desc_len]).unwrap_or("");
+                    boot_display.draw_decrypt_secret_result(msg);
+                }
+                crate::app::input::AppState::DecryptSecretResultQr => {
+                    let msg = core::str::from_utf8(&ad.jpeg_desc_buf[..ad.jpeg_desc_len]).unwrap_or("");
+                    boot_display.draw_decrypt_secret_result(msg);
                 }
                 #[cfg(feature = "icon-browser")]
                 crate::app::input::AppState::IconBrowser { page } => {
@@ -419,14 +458,20 @@ pub fn redraw_screen(
                     let mut fee_kas: heapless::String<24> = heapless::String::new();
                     core::fmt::Write::write_fmt(&mut fee_kas, format_args!("{fee_str} KAS")).ok();
 
-                    // Detect multisig
+                    // Detect multisig or covenant P2SH
                     let has_multisig = (0..ad.demo_tx.num_inputs).any(|i| {
                         let (st, _) = wallet::pskt::analyze_input_script(&ad.demo_tx, i);
                         st == wallet::transaction::ScriptType::Multisig
                     });
+                    let has_covenant = !has_multisig && (0..ad.demo_tx.num_inputs).any(|i| {
+                        let (st, ms) = wallet::pskt::analyze_input_script(&ad.demo_tx, i);
+                        st == wallet::transaction::ScriptType::P2SH && ms.is_none()
+                    });
                     if has_multisig {
                         let (present, required) = wallet::pskt::signature_status(&ad.demo_tx);
                         boot_display.draw_confirm_send_multisig(&amt_kas, &fee_kas, present, required);
+                    } else if has_covenant {
+                        boot_display.draw_confirm_send_covenant(&amt_kas, &fee_kas);
                     } else {
                         boot_display.draw_confirm_send_screen(&amt_kas, &fee_kas);
                     }
@@ -525,6 +570,10 @@ pub fn redraw_screen(
                             frame_buf[3..3 + frag_len].copy_from_slice(&ad.signed_qr_buf[offset..offset + frag_len]);
                             let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
                             // Multi-frame: always left-aligned
+                            // Clear screen on first frame (transition from mode choice)
+                            if frame == 0 {
+                                boot_display.display.clear(crate::hw::display::COLOR_BG).ok();
+                            }
                             boot_display.draw_qr_screen_left(&frame_buf[..qr_len]);
                             // FRAMES counter always (right column bottom)
                             let mut fc_buf: heapless::String<8> = heapless::String::new();

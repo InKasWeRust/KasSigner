@@ -33,11 +33,22 @@ use esp_hal::dma::DmaRxBuf;
 extern crate alloc;
 use alloc::vec::Vec;
 
+/// Convert a hex ASCII byte to a nibble (0-15). Returns 0xFF on invalid input.
+#[inline]
+fn hex_nibble(b: u8) -> u8 {
+    match b {
+        b'0'..=b'9' => b - b'0',
+        b'a'..=b'f' => b - b'a' + 10,
+        b'A'..=b'F' => b - b'A' + 10,
+        _ => 0xFF,
+    }
+}
+
 #[cfg(not(feature = "silent"))]
 // Static buffers for QR state (persist across calls)
 static mut FN: u32 = 0;
-// DB in SRAM for 320×240 QR decode buffer (76KB) — DvpCamera path only
-static mut DB: [u8; 320*240] = [0u8; 320*240];
+// DB decode buffer: heap-allocated (PSRAM) to free ~76KB SRAM for stack.
+static mut DB_PTR: *mut u8 = core::ptr::null_mut();
 // CROP buffer in SRAM for fast display blit
 static mut CROP_BUF: [u8; 240*180] = [0u8; 240*180];
 static mut QR_LAST: [u8; 256] = [0u8; 256];
@@ -164,9 +175,13 @@ fn check_immediate_tap(
                         } else if ad.app.state
                             == crate::app::input::AppState::CameraSettings
                         {
-                            // From Camera Settings, back goes to parent Settings menu
                             ad.app.state =
                                 crate::app::input::AppState::SettingsMenu;
+                        } else if ad.app.state
+                            == crate::app::input::AppState::DecryptSecretScan
+                        {
+                            ad.app.state =
+                                crate::app::input::AppState::SingleSigMenu;
                         } else {
                             ad.app.go_main_menu();
                         }
@@ -244,8 +259,116 @@ fn process_confirmed_qr(
     ad: &mut AppData,
     boot_display: &mut display::BootDisplay<'_>,
     delay: &mut esp_hal::delay::Delay,
+    i2c: &mut esp_hal::i2c::master::I2c<'_, esp_hal::Blocking>,
 ) {
     sound::qr_decoded(delay);
+
+    // Sign Message: Scan hash QR — extract 32-byte hash and go to preview
+    if ad.sign_msg_scan_hash {
+        ad.sign_msg_scan_hash = false;
+        let mut hash = [0u8; 32];
+        let ok = if len == 32 {
+            // Raw 32 bytes
+            hash.copy_from_slice(&data[..32]);
+            true
+        } else if len == 64 {
+            // 64 hex chars
+            let mut valid = true;
+            for i in 0..32 {
+                let hi = hex_nibble(data[i * 2]);
+                let lo = hex_nibble(data[i * 2 + 1]);
+                if hi == 0xFF || lo == 0xFF { valid = false; break; }
+                hash[i] = (hi << 4) | lo;
+            }
+            valid
+        } else {
+            false
+        };
+        if ok {
+            ad.sign_msg_hash = hash;
+            ad.app.state = crate::app::input::AppState::SignMsgHashPreview;
+            ad.needs_redraw = true;
+        } else {
+            boot_display.draw_rejected_screen("Not a 32-byte hash");
+            sound::beep_error(delay);
+            delay.delay_millis(1500);
+            ad.needs_redraw = true;
+        }
+        return;
+    }
+
+    // Decrypt Secret: scan ciphertext, ECIES decrypt, show result
+    if matches!(ad.app.state, crate::app::input::AppState::DecryptSecretScan) {
+        // QR contains hex-encoded ciphertext as ASCII text.
+        let hex_str = core::str::from_utf8(&data[..len]).unwrap_or("");
+        let hex_clean = hex_str.trim();
+        if hex_clean.len() < 122 || hex_clean.len() % 2 != 0 {
+            boot_display.draw_rejected_screen("Invalid ciphertext hex");
+            sound::beep_error(delay);
+            delay.delay_millis(1500);
+            ad.needs_redraw = true;
+            return;
+        }
+        // Hex decode
+        let mut ct_bytes = alloc::vec![0u8; hex_clean.len() / 2];
+        let mut ok = true;
+        for (i, chunk) in hex_clean.as_bytes().chunks(2).enumerate() {
+            let hi = match chunk[0] {
+                b'0'..=b'9' => chunk[0] - b'0',
+                b'a'..=b'f' => chunk[0] - b'a' + 10,
+                b'A'..=b'F' => chunk[0] - b'A' + 10,
+                _ => { ok = false; break; }
+            };
+            let lo = match chunk[1] {
+                b'0'..=b'9' => chunk[1] - b'0',
+                b'a'..=b'f' => chunk[1] - b'a' + 10,
+                b'A'..=b'F' => chunk[1] - b'A' + 10,
+                _ => { ok = false; break; }
+            };
+            ct_bytes[i] = (hi << 4) | lo;
+        }
+        if !ok || ct_bytes.len() < 61 {
+            boot_display.draw_rejected_screen("Bad hex data");
+            sound::beep_error(delay);
+            delay.delay_millis(1500);
+            ad.needs_redraw = true;
+            return;
+        }
+        let pp = ad.seed_mgr.active_slot()
+            .map(|s| s.passphrase_str())
+            .unwrap_or("");
+        let seed = crate::app::signing::derive_seed(
+            &ad.mnemonic_indices, ad.word_count, pp);
+        let decrypt_result = if let Ok(acct_key) = wallet::bip32::derive_account_key(&seed.bytes) {
+            wallet::ecies::decrypt(acct_key.private_key_bytes(), &ct_bytes)
+        } else {
+            Err("key derivation failed")
+        };
+        match decrypt_result {
+            Ok(plaintext) => {
+                let copy_len = plaintext.len().min(ad.jpeg_desc_buf.len());
+                ad.jpeg_desc_buf[..copy_len].copy_from_slice(&plaintext[..copy_len]);
+                ad.jpeg_desc_len = copy_len;
+                sound::success(delay);
+                ad.app.state = crate::app::input::AppState::DecryptSecretResult;
+                ad.needs_redraw = true;
+            }
+            Err(e) => {
+                let msg = match e {
+                    "ciphertext too short" => "Data too short",
+                    "bad ephemeral pubkey" | "invalid ephemeral point" => "Bad ciphertext",
+                    "bad private key" => "Key error",
+                    "decryption failed" => "Wrong key or corrupt",
+                    _ => "Decrypt failed",
+                };
+                boot_display.draw_rejected_screen(msg);
+                sound::beep_error(delay);
+                delay.delay_millis(2000);
+                ad.needs_redraw = true;
+            }
+        }
+        return;
+    }
 
     // Route based on content type
     if len >= 6 && (&data[..6] == b"kaspa:" || &data[..6] == b"KASPA:") {
@@ -275,23 +398,23 @@ fn process_confirmed_qr(
     } else if len >= 4 && &data[..4] == b"KSPT" {
         // KSPT transaction — check version
         let pskt_version = if len >= 5 { data[4] } else { 0x01 };
-        if pskt_version == 0x02 {
-            // v2 KSPT: partially signed (from another signer)
+        if pskt_version == 0x02 || pskt_version == 0x03 {
+            // v2/v3 KSPT: partially signed (from another signer)
             match wallet::pskt::parse_signed_pskt_v2(data, &mut ad.demo_tx) {
                 Ok(()) => {
                     ad.tx_input_format = crate::app::data::TxInputFormat::KsptV2;
                     let (present, required) = wallet::pskt::signature_status(&ad.demo_tx);
                     ad.tx_sigs_present = present;
                     ad.tx_sigs_required = required;
-                    log!("   → KSPT v2: {} in, {} out, sigs {}/{}",
-                        ad.demo_tx.num_inputs, ad.demo_tx.num_outputs, present, required);
+                    log!("   → KSPT v{}: {} in, {} out, sigs {}/{}",
+                        pskt_version, ad.demo_tx.num_inputs, ad.demo_tx.num_outputs, present, required);
                     ad.app.start_review(
                         ad.demo_tx.num_outputs as u8,
                         ad.demo_tx.num_inputs as u8);
                     ad.needs_redraw = true;
                 }
                 Err(e) => {
-                    log!("   → KSPT v2 parse error: {:?}", e);
+                    log!("   → KSPT v{} parse error: {:?}", pskt_version, e);
                     boot_display.draw_tx_error_screen("Too many UTXOs", "Consolidate first");
                     sound::beep_error(delay);
                     ad.app.state = crate::app::input::AppState::Rejected;
@@ -413,6 +536,227 @@ fn process_confirmed_qr(
             log!("   → CompactSeedQR: invalid checksum");
             sound::beep_error(delay);
         }
+    } else if len >= 37 && &data[..4] == b"STLH" {
+        // Stealth scan request: STLH + count(1) + R1(32) + R2(32) + ...
+        // Device derives scan privkey /2/0, computes ECDH for each R,
+        // returns one-time pubkeys: STLR + count(1) + P1(32) + P2(32) + ...
+        let count = data[4] as usize;
+        let expected_len = 5 + count * 32;
+        // <=2 results (133B) show as one static QR; more is returned as an
+        // auto-cycling multi-frame STLR. Cap at 64; KasSee sends the candidate
+        // set as a multi-frame STLH that process_multiframe reassembles here.
+        if count == 0 || count > 64 || len < expected_len {
+            log!("   → STLH: bad count {} or len {}", count, len);
+            sound::beep_error(delay);
+        } else if ad.word_count == 0 {
+            log!("   → STLH: no seed loaded");
+            boot_display.draw_rejected_screen("Load seed first");
+            sound::beep_error(delay);
+            delay.delay_millis(1500);
+            ad.needs_redraw = true;
+        } else {
+            log!("   → STLH: {} R values to scan", count);
+            #[cfg(feature = "waveshare")]
+            crate::hw::cam_dma::stop();
+
+            boot_display.draw_loading_screen("Stealth scanning...");
+
+            // Derive scan private key: m/44'/111111'/0'/2/0
+            let pp = ad.seed_mgr.active_slot()
+                .map(|s| s.passphrase_str())
+                .unwrap_or("");
+            let seed = crate::app::signing::derive_seed(
+                &ad.mnemonic_indices, ad.word_count, pp);
+
+            let scan_path: [u32; 5] = [
+                44 | 0x80000000,
+                111_111 | 0x80000000,
+                0 | 0x80000000,
+                2,
+                0,
+            ];
+            let scan_key = match wallet::bip32::derive_path(&seed.bytes, &scan_path) {
+                Ok(k) => k,
+                Err(_) => {
+                    boot_display.draw_rejected_screen("Key derivation failed");
+                    sound::beep_error(delay);
+                    delay.delay_millis(1500);
+                    ad.needs_redraw = true;
+                    return;
+                }
+            };
+            let scan_priv = scan_key.private_key_bytes();
+
+            // Also derive spend pubkey (account level m/44'/111111'/0')
+            let account_key = match wallet::bip32::derive_account_key(&seed.bytes) {
+                Ok(k) => k,
+                Err(_) => {
+                    boot_display.draw_rejected_screen("Account key failed");
+                    sound::beep_error(delay);
+                    delay.delay_millis(1500);
+                    ad.needs_redraw = true;
+                    return;
+                }
+            };
+            // Derive x-only pubkey from account privkey
+            use k256::elliptic_curve::ScalarPrimitive;
+            use k256::elliptic_curve::ops::Add;
+            use k256::elliptic_curve::sec1::ToEncodedPoint;
+            use k256::{ProjectivePoint, Scalar, PublicKey};
+            use sha2::{Sha256, Digest};
+
+            let spend_pub = {
+                let prim = ScalarPrimitive::<k256::Secp256k1>::from_slice(
+                    account_key.private_key_bytes()).unwrap();
+                let scalar = Scalar::from(prim);
+                let point = (ProjectivePoint::GENERATOR * scalar).to_affine();
+                let encoded = point.to_encoded_point(true);
+                let mut xonly = [0u8; 32];
+                xonly.copy_from_slice(&encoded.as_bytes()[1..33]);
+                xonly
+            };
+
+            boot_display.update_progress_bar(30);
+
+            // Build response: STLR + count + (P1(32) + tweak1(32)) + ...
+            // 64 bytes per result. Heap (PSRAM) so a large multi-frame response
+            // does not sit on the ~8KB main stack; count<=64 => up to 4101 bytes.
+            let mut response = alloc::vec![0u8; 5 + count * 64];
+            response[..4].copy_from_slice(b"STLR");
+            response[4] = count as u8;
+
+            let v_scalar = {
+                let prim = ScalarPrimitive::<k256::Secp256k1>::from_slice(scan_priv)
+                    .unwrap();
+                Scalar::from(prim)
+            };
+
+            for i in 0..count {
+                let r_offset = 5 + i * 32;
+                let r_bytes = &data[r_offset..r_offset + 32];
+
+                // Parse R (x-only → compressed with 0x02 prefix)
+                let mut r_compressed = [0u8; 33];
+                r_compressed[0] = 0x02;
+                r_compressed[1..].copy_from_slice(r_bytes);
+                let r_pub = match PublicKey::from_sec1_bytes(&r_compressed) {
+                    Ok(p) => p,
+                    Err(_) => {
+                        // Invalid R — fill with zeros
+                        let out_offset = 5 + i * 64;
+                        response[out_offset..out_offset + 64].fill(0);
+                        continue;
+                    }
+                };
+
+                // ECDH: S = v * R
+                let s_point = r_pub.to_projective() * v_scalar;
+                let s_affine = s_point.to_affine();
+                let s_encoded = s_affine.to_encoded_point(true);
+                let s_x = &s_encoded.as_bytes()[1..33];
+
+                // Tweak: t = SHA256("KasStealth" || S.x || 0u32)
+                let mut hasher = Sha256::new();
+                hasher.update(b"KasStealth");
+                hasher.update(s_x);
+                hasher.update(0u32.to_be_bytes());
+                let tweak_hash = hasher.finalize();
+                let tweak_prim = ScalarPrimitive::<k256::Secp256k1>::from_slice(&tweak_hash)
+                    .unwrap_or_else(|_| {
+                        let mut adj = [0u8; 32];
+                        adj[1..].copy_from_slice(&tweak_hash[..31]);
+                        ScalarPrimitive::<k256::Secp256k1>::from_slice(&adj).unwrap()
+                    });
+                let tweak_scalar = Scalar::from(tweak_prim);
+
+                // One-time pubkey: P = B + t*G
+                let mut b_compressed = [0u8; 33];
+                b_compressed[0] = 0x02;
+                b_compressed[1..].copy_from_slice(&spend_pub);
+                let b_pub = PublicKey::from_sec1_bytes(&b_compressed).unwrap();
+                let p_point = b_pub.to_projective()
+                    .add(&(ProjectivePoint::GENERATOR * tweak_scalar));
+                let p_affine = p_point.to_affine();
+                let p_encoded = p_affine.to_encoded_point(true);
+                let p_x = &p_encoded.as_bytes()[1..33];
+
+                // Write P (32 bytes) + tweak (32 bytes)
+                let out_offset = 5 + i * 64;
+                response[out_offset..out_offset + 32].copy_from_slice(p_x);
+                response[out_offset + 32..out_offset + 64].copy_from_slice(&tweak_hash);
+
+                boot_display.update_progress_bar(30 + ((i + 1) * 60 / count) as u8);
+            }
+
+            boot_display.update_progress_bar(100);
+
+            // Display result. response_len <= 134 (count <= 2): one static QR,
+            // returns on next touch as before. Larger: chunk into
+            // [idx][total][frag_len][payload] frames (the wire format KasSee
+            // accumulates) and auto-cycle a few passes. process_confirmed_qr has
+            // no i2c here, so there is no touch-to-exit yet; KasSee collects every
+            // frame across the passes.
+            let response_len = 5 + count * 64;
+            if response_len <= 134 {
+                boot_display.draw_qr_fullscreen(&response[..response_len], "STEALTH SCAN");
+                delay.delay_millis(300);
+                ad.app.state = crate::app::input::AppState::MainMenu;
+                ad.needs_redraw = false; // QR is on screen, next touch redraws
+            } else {
+                // Halt the busy tick from draw_loading_screen; the single-frame
+                // branch stops it via draw_qr_fullscreen, but draw_qr_screen_left
+                // does not, so without this it beeps through the whole cycle.
+                sound::stop_ticking();
+                let max_frag: usize = 100;
+                let n_frames = (response_len + max_frag - 1) / max_frag;
+                let balanced = (response_len + n_frames - 1) / n_frames;
+                boot_display.clear_screen();
+                // Cycle the frames indefinitely so KasSee can capture every one;
+                // leave only when the user taps the screen. A single stop_ticking()
+                // before the loop does not hold across the redraw window on M5, so
+                // re-silence on every touch poll (no-op on waveshare). Require one
+                // no-touch sample before arming exit so a stray contact from the
+                // scan does not bail out immediately.
+                let mut frame = 0usize;
+                let mut touch_armed = false;
+                'stlr_show: loop {
+                    let offset = frame * balanced;
+                    let remaining = response_len.saturating_sub(offset);
+                    let frag_len = remaining.min(balanced);
+                    let mut fb = [0u8; 134];
+                    fb[0] = frame as u8;
+                    fb[1] = n_frames as u8;
+                    fb[2] = frag_len as u8;
+                    fb[3..3 + frag_len].copy_from_slice(&response[offset..offset + frag_len]);
+                    let qr_len = if frag_len < 20 { 3 + 20 } else { 3 + frag_len };
+                    boot_display.draw_qr_screen_left(&fb[..qr_len]);
+                    // Hold ~400ms per frame, polling touch every 20ms.
+                    let mut held = 0u32;
+                    while held < 400 {
+                        sound::stop_ticking();
+                        match touch::read_touch(i2c) {
+                            touch::TouchState::NoTouch => { touch_armed = true; }
+                            _ => { if touch_armed { break 'stlr_show; } }
+                        }
+                        delay.delay_millis(20);
+                        held += 20;
+                    }
+                    frame = (frame + 1) % n_frames;
+                }
+                // Consume the exit tap fully (wait for release) before returning,
+                // so the main loop's tracker never sees this press as a Tap and
+                // routes it onto a main-menu tile. Then clear the screen so the
+                // menu loads with no leftover QR artifacts.
+                while !matches!(touch::read_touch(i2c), touch::TouchState::NoTouch) {
+                    sound::stop_ticking();
+                    delay.delay_millis(20);
+                }
+                sound::stop_ticking();
+                boot_display.clear_screen();
+                ad.app.state = crate::app::input::AppState::MainMenu;
+                ad.needs_redraw = true;
+            }
+        }
     } else if len == 104 && &data[..4] == b"KSFU" {
         // Firmware update QR — verify signature
         if let Some(update) = fw_update::parse_update_qr(data) {
@@ -486,6 +830,38 @@ fn process_confirmed_qr(
                 sound::beep_error(delay);
             }
         }
+    } else if len >= 5 && data[0] == b'C' && data[1] == b'O' && data[2] == b'V'
+        && (data[3] == b'B' || data[3] == b'I')
+    {
+        // Raw binary COVB/COVI (from multi-frame assembly). Store directly.
+        let n = len.min(4096);
+        ad.signed_qr_buf[..n].copy_from_slice(&data[..n]);
+        ad.covb_len = n;
+        ad.pp_input.reset();
+        boot_display.clear_screen();
+        ad.app.state = crate::app::input::AppState::CovBackupName;
+        ad.needs_redraw = true;
+        log!("   → COVB raw: {} bytes", n);
+    } else if len >= 10 && len <= 1024
+        && data[0] == b'4' && data[1] == b'3' && data[2] == b'4' && data[3] == b'f'
+        && data[4] == b'5' && data[5] == b'6' && data[6] == b'4'
+        && (data[7] == b'2' || data[7] == b'9')
+    {
+        // Hex-encoded COVB/COVI (from single-frame KasSee export QR). Hex-decode.
+        let n = len / 2;
+        for i in 0..n {
+            let h = data[i * 2];
+            let l = data[i * 2 + 1];
+            let hi = if h >= b'a' { h - b'a' + 10 } else { h - b'0' };
+            let lo = if l >= b'a' { l - b'a' + 10 } else { l - b'0' };
+            ad.signed_qr_buf[i] = (hi << 4) | lo;
+        }
+        ad.covb_len = n;
+        ad.pp_input.reset();
+        boot_display.clear_screen();
+        ad.app.state = crate::app::input::AppState::CovBackupName;
+        ad.needs_redraw = true;
+        log!("   → COVB: {} hex → {} bytes", len, n);
     } else {
         log!("   → Unknown QR format ({} bytes)", len);
     }
@@ -499,6 +875,7 @@ fn process_multiframe(
     ad: &mut AppData,
     boot_display: &mut display::BootDisplay<'_>,
     delay: &mut esp_hal::delay::Delay,
+    i2c: &mut esp_hal::i2c::master::I2c<'_, esp_hal::Blocking>,
 ) {
     unsafe {
         let frame_num = d[0] as usize;
@@ -562,7 +939,7 @@ fn process_multiframe(
                 }
                 log!("   → All {} frames, {} bytes", total, pos);
                 MF_TOTAL = 0;
-                process_confirmed_qr(&assembled[..pos], pos, ad, boot_display, delay);
+                process_confirmed_qr(&assembled[..pos], pos, ad, boot_display, delay, i2c);
             }
         }
     }
@@ -631,6 +1008,9 @@ fn is_multiframe(d: &[u8], len: usize) -> bool {
                 &d[3..7] == b"KSPT"
                 || &d[3..7] == b"kpub"
                 || &d[3..7] == b"PSKB"
+                || &d[3..7] == b"COVB"
+                || &d[3..7] == b"COVI"
+                || &d[3..7] == b"STLH"
                 || d[3] == crate::qr::payload::PAYLOAD_V1_RAW
             )))
 }
@@ -645,6 +1025,7 @@ fn handle_decode_result(
     ad: &mut AppData,
     boot_display: &mut display::BootDisplay<'_>,
     delay: &mut esp_hal::delay::Delay,
+    i2c: &mut esp_hal::i2c::master::I2c<'_, esp_hal::Blocking>,
 ) {
     unsafe {
         if !QR_FINDERS_BEEPED {
@@ -668,7 +1049,7 @@ fn handle_decode_result(
 
         // Multi-frame: accept immediately (no 3-match filter)
         if is_multiframe(decoded, len) {
-            process_multiframe(decoded, len, ad, boot_display, delay);
+            process_multiframe(decoded, len, ad, boot_display, delay, i2c);
             return;
         }
 
@@ -679,7 +1060,7 @@ fn handle_decode_result(
         QR_COOLDOWN = 90;
         QR_FINDERS_BEEPED = false;
         log!("   rqrr QR OK: {} bytes (V{})", len, ver);
-        process_confirmed_qr(decoded, len, ad, boot_display, delay);
+        process_confirmed_qr(decoded, len, ad, boot_display, delay, i2c);
     }
 }
 
@@ -697,16 +1078,25 @@ pub fn run_camera_cycle(
     tracker: &mut touch::TouchTracker,
 ) {
             unsafe {
-                let db_ptr = core::ptr::addr_of_mut!(DB) as *mut u8;
+                // Allocate DB on heap (PSRAM) at first frame — frees 76KB SRAM for stack
+                if DB_PTR.is_null() {
+                    let layout = core::alloc::Layout::from_size_align(320 * 240, 4).unwrap();
+                    DB_PTR = alloc::alloc::alloc_zeroed(layout);
+                    if DB_PTR.is_null() {
+                        log!("   FATAL: DB heap alloc failed");
+                        return;
+                    }
+                }
+                let db_ptr = DB_PTR;
                 let crop_ptr = core::ptr::addr_of_mut!(CROP_BUF) as *mut u8;
 
                 if FN == 0 {
-                    log!("   DB(76KB) + CROP(43KB) SRAM — rqrr V1-V40 decoder");
+                    log!("   DB(76KB heap) + CROP(43KB) — rqrr V1-V40 decoder");
                 }
 
                 // Reset QR state when re-entering ScanQR
-                if crate::QR_RESET_FLAG {
-                    crate::QR_RESET_FLAG = false;
+                // (atomic swap = test-and-clear in one operation)
+                if crate::QR_RESET_FLAG.swap(false, core::sync::atomic::Ordering::Relaxed) {
                     QR_CONSEC = 0;
                     QR_COOLDOWN = 0;
                     QR_LAST_LEN = 0;
@@ -834,10 +1224,17 @@ pub fn run_camera_cycle(
                         let act = tracker.update(ts, gest);
                         match act {
                             touch::TouchAction::Tap { x, y } => {
-                                ad.cam_tap_x = x;
-                                ad.cam_tap_y = y;
-                                ad.cam_tap_ready = true;
-                                return;
+                                // On ScanQR: only process back-button taps (top-left).
+                                // Ignore all other taps to prevent phantom fires.
+                                let is_scan = matches!(ad.app.state,
+                                    crate::app::input::AppState::ScanQR
+                                    | crate::app::input::AppState::SignMsgScanQr | crate::app::input::AppState::DecryptSecretScan);
+                                if !is_scan || (x <= 48 && y <= 48) {
+                                    ad.cam_tap_x = x;
+                                    ad.cam_tap_y = y;
+                                    ad.cam_tap_ready = true;
+                                    return;
+                                }
                             }
                             touch::TouchAction::Drag { x, y, .. } if ad.cam_tune_active && y >= 198 && (52..=268).contains(&x) => {
                                 let clamped = (x as i32 - 56).max(0).min(208) as u32;
@@ -905,6 +1302,11 @@ pub fn run_camera_cycle(
                                 {
                                     ad.app.state =
                                         crate::app::input::AppState::SettingsMenu;
+                                } else if ad.app.state
+                                    == crate::app::input::AppState::DecryptSecretScan
+                                {
+                                    ad.app.state =
+                                        crate::app::input::AppState::SingleSigMenu;
                                 } else {
                                     ad.app.go_main_menu();
                                 }
@@ -1017,7 +1419,7 @@ pub fn run_camera_cycle(
                                 db_ptr as *const u8, dw * dh);
                             let results = rqrr_decode(db_slice, dw, dh);
                             if let Some((ver, ref decoded)) = results.first() {
-                                handle_decode_result(*ver, decoded, decoded.len(), ad, boot_display, delay);
+                                handle_decode_result(*ver, decoded, decoded.len(), ad, boot_display, delay, i2c);
                             } else {
                                 QR_CONSEC = 0;
                                 QR_FINDERS_BEEPED = false;
@@ -1047,12 +1449,17 @@ pub fn run_camera_cycle(
                             let act = tracker.update(ts, gest);
                             match act {
                                 touch::TouchAction::Tap { x, y } => {
-                                    ad.cam_tap_x = x;
-                                    ad.cam_tap_y = y;
-                                    ad.cam_tap_ready = true;
-                                    *cam_dma_buf_opt = Some(cam_dma_buf);
-                                    *dvp_camera_opt = Some(cam);
-                                    return;
+                                    let is_scan = matches!(ad.app.state,
+                                        crate::app::input::AppState::ScanQR
+                                        | crate::app::input::AppState::SignMsgScanQr | crate::app::input::AppState::DecryptSecretScan);
+                                    if !is_scan || (x <= 48 && y <= 48) {
+                                        ad.cam_tap_x = x;
+                                        ad.cam_tap_y = y;
+                                        ad.cam_tap_ready = true;
+                                        *cam_dma_buf_opt = Some(cam_dma_buf);
+                                        *dvp_camera_opt = Some(cam);
+                                        return;
+                                    }
                                 }
                                 touch::TouchAction::Drag { x, y, .. } if ad.cam_tune_active && y >= 198 && (52..=268).contains(&x) => {
                                     let clamped = (x as i32 - 56).max(0).min(208) as u32;
@@ -1078,6 +1485,8 @@ pub fn run_camera_cycle(
                                             if ad.ms_creating.slot_empty(i as usize) { ki = i; break; }
                                         }
                                         ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: ki };
+                                    } else if ad.app.state == crate::app::input::AppState::DecryptSecretScan {
+                                        ad.app.state = crate::app::input::AppState::SingleSigMenu;
                                     } else {
                                         ad.app.go_main_menu();
                                     }
@@ -1101,9 +1510,14 @@ pub fn run_camera_cycle(
                                     let act = tracker.update(ts, gest);
                                     match act {
                                         touch::TouchAction::Tap { x, y } => {
-                                            ad.cam_tap_x = x;
-                                            ad.cam_tap_y = y;
-                                            ad.cam_tap_ready = true;
+                                            let is_scan = matches!(ad.app.state,
+                                                crate::app::input::AppState::ScanQR
+                                                | crate::app::input::AppState::SignMsgScanQr | crate::app::input::AppState::DecryptSecretScan);
+                                            if !is_scan || (x <= 48 && y <= 48) {
+                                                ad.cam_tap_x = x;
+                                                ad.cam_tap_y = y;
+                                                ad.cam_tap_ready = true;
+                                            }
                                         }
                                         touch::TouchAction::Drag { x, y, .. } if ad.cam_tune_active && y >= 198 && (52..=268).contains(&x) => {
                                             let clamped = (x as i32 - 56).max(0).min(208) as u32;
@@ -1130,7 +1544,7 @@ pub fn run_camera_cycle(
                                                 }
                                                 ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: ki };
                                             } else {
-                                                ad.app.go_main_menu();
+                                                if ad.app.state == crate::app::input::AppState::DecryptSecretScan { ad.app.state = crate::app::input::AppState::SingleSigMenu; } else { ad.app.go_main_menu(); }
                                             }
                                             ad.needs_redraw = true;
                                             return;
@@ -1246,9 +1660,14 @@ pub fn run_camera_cycle(
                                     let act = tracker.update(ts, gest);
                                     match act {
                                         touch::TouchAction::Tap { x, y } => {
-                                            ad.cam_tap_x = x;
-                                            ad.cam_tap_y = y;
-                                            ad.cam_tap_ready = true;
+                                            let is_scan = matches!(ad.app.state,
+                                                crate::app::input::AppState::ScanQR
+                                                | crate::app::input::AppState::SignMsgScanQr | crate::app::input::AppState::DecryptSecretScan);
+                                            if !is_scan || (x <= 48 && y <= 48) {
+                                                ad.cam_tap_x = x;
+                                                ad.cam_tap_y = y;
+                                                ad.cam_tap_ready = true;
+                                            }
                                         }
                                         touch::TouchAction::Drag { x, y, .. } if ad.cam_tune_active && y >= 198 && (52..=268).contains(&x) => {
                                             let clamped = (x as i32 - 56).max(0).min(208) as u32;
@@ -1273,7 +1692,7 @@ pub fn run_camera_cycle(
                                                 }
                                                 ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: ki };
                                             } else {
-                                                ad.app.go_main_menu();
+                                                if ad.app.state == crate::app::input::AppState::DecryptSecretScan { ad.app.state = crate::app::input::AppState::SingleSigMenu; } else { ad.app.go_main_menu(); }
                                             }
                                             ad.needs_redraw = true;
                                             return;
@@ -1288,11 +1707,22 @@ pub fn run_camera_cycle(
                             if QR_COOLDOWN > 0 {
                                 QR_COOLDOWN -= 1;
                             } else {
-                                let db_slice = core::slice::from_raw_parts(db_ptr as *const u8, fs);
-
-                                let results = rqrr_decode(db_slice, cam_w, full_h);
+                                // m5stack: crop center 240x240 from 320x240 for rqrr.
+                                // Compact rows in-place in DB buffer.
+                                let rqw: usize = 240;
+                                let rqh: usize = full_h.min(240);
+                                let x0: usize = 40; // (320 - 240) / 2
+                                for ry in 0..rqh {
+                                    let src = ry * 320 + x0;
+                                    let dst = ry * rqw;
+                                    if src != dst {
+                                        core::ptr::copy(db_ptr.add(src) as *const u8, db_ptr.add(dst), rqw);
+                                    }
+                                }
+                                let crop_slice = core::slice::from_raw_parts(db_ptr as *const u8, rqw * rqh);
+                                let results = rqrr_decode(crop_slice, rqw, rqh);
                                 if let Some((ver, ref decoded)) = results.first() {
-                                    handle_decode_result(*ver, decoded, decoded.len(), ad, boot_display, delay);
+                                    handle_decode_result(*ver, decoded, decoded.len(), ad, boot_display, delay, i2c);
                                 } else {
                                     QR_CONSEC = 0;
                                     QR_FINDERS_BEEPED = false;

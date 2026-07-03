@@ -42,3 +42,4 @@ pub mod transaction;
 pub mod xpub;
 pub mod storage;
 pub mod bip39_wordlist;
+pub mod ecies;

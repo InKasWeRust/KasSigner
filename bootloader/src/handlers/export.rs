@@ -950,8 +950,8 @@ pub fn cycle_kpub_qr(
 ) {
     if let crate::app::input::AppState::ExportKpub = ad.app.state {
         if ad.kpub_nframes > 1 && !ad.kpub_manual_frames {
-            // Only advance frame every ~2000 idle ticks
-            if ad.idle_ticks % 2000 != 0 {
+            // Auto-cycle: ~400ms per frame for phone camera scanning
+            if ad.idle_ticks % 400 != 0 {
                 return;
             }
             ad.kpub_frame = (ad.kpub_frame + 1) % ad.kpub_nframes;

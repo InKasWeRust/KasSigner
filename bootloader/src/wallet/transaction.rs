@@ -24,19 +24,27 @@
 //
 // Note: we use fixed arrays and maximum limits because we have no allocator.
 // A typical Kaspa transaction has 1-5 inputs and 1-2 outputs.
-// We support up to MAX_INPUTS=8 and MAX_OUTPUTS=4 (enough for a signing device).
+// We support up to MAX_INPUTS=8 and MAX_OUTPUTS=8 (enough for a signing device).
 
 /// Maximum supported inputs
 pub const MAX_INPUTS: usize = 8;
 
-/// Maximum supported outputs
-pub const MAX_OUTPUTS: usize = 4;
+/// Maximum supported outputs (bumped from 4 to 8 for beacon-style multi-output TXs).
+/// RAM cost: +1.2 KB in Transaction struct (heap-allocated via Box).
+/// The signed TX size check (1024-byte buffer) uses actual counts,
+/// so normal TXs are unaffected.
+pub const MAX_OUTPUTS: usize = 8;
 
 /// Maximum script size (P2PK=34, 2-of-3 multisig=102, 5-of-5=168)
-pub const MAX_SCRIPT_SIZE: usize = 170;
+pub const MAX_SCRIPT_SIZE: usize = 512;
 
-/// Maximum payload size
-pub const MAX_PAYLOAD_SIZE: usize = 128;
+/// Maximum redeem script size (covenant scripts can exceed 255 bytes).
+/// SPK arrays stay at MAX_SCRIPT_SIZE. Only the P2SH redeem buffer
+/// uses this larger ceiling. RAM cost: +6 KB (8 inputs x 768 extra).
+pub const MAX_REDEEM_SIZE: usize = 1024;
+
+/// Maximum payload size (768 bytes supports adaptor-swap full recovery data)
+pub const MAX_PAYLOAD_SIZE: usize = 768;
 
 /// Hash de 32 bytes (Blake2b / transaction ID)
 pub type Hash256 = [u8; 32];
@@ -325,9 +333,16 @@ pub struct TransactionInput {
     pub signature: [u8; 64],
     pub sig_len: u8,
     pub sighash_type: u8,
-    /// P2SH redeem script (the actual multisig script inside the P2SH wrapper)
+    /// P2SH redeem script (the actual multisig script inside the P2SH wrapper).
+    /// For scripts <= 256 bytes, stored inline here.
+    /// For scripts > 256 bytes (covenants), stored in Transaction::redeem_pool
+    /// and redeem_script_offset points into that pool.
     pub redeem_script: [u8; MAX_SCRIPT_SIZE],
     pub redeem_script_len: usize,
+    /// If true, this input's redeem script lives in Transaction::redeem_pool
+    /// at byte offset redeem_script_offset, not in the inline redeem_script array.
+    pub redeem_in_pool: bool,
+    pub redeem_script_offset: u16,
     /// Partial signatures carried in an incoming PSKT, keyed by full pubkey.
     /// Preserved byte-for-byte on re-serialization so counterparty signers
     /// see the same PSKT they sent, plus our additions. Empty for KSPT flow.
@@ -343,9 +358,18 @@ pub struct TransactionInput {
 pub struct TransactionOutput {
     pub value: u64,                    // sompi
     pub script_public_key: ScriptPublicKey,
+    /// Covenant binding (KIP-20, tx version >= 1)
+    pub has_covenant: bool,
+    pub covenant_auth_input: u16,
+    pub covenant_id: [u8; 32],
 }
 
 // ─── Transaction ──────────────────────────────────────────────────────
+
+/// Shared pool size for redeem scripts that exceed MAX_SCRIPT_SIZE.
+/// Covers worst case: one 1024-byte covenant + margin, or several
+/// smaller scripts. Total RAM cost: 2048 bytes (in Box on heap).
+pub const REDEEM_POOL_SIZE: usize = 2048;
 
 /// Complete Kaspa transaction (for signing)
 #[derive(Debug)]
@@ -361,47 +385,101 @@ pub struct Transaction {
     pub gas: u64,
     pub payload: [u8; MAX_PAYLOAD_SIZE],
     pub payload_len: usize,
+    /// Stealth address tweak: if non-zero, the signing key is
+    /// account_privkey + stealth_tweak (scalar addition mod n).
+    /// Set by KasSee when spending a stealth UTXO.
+    pub stealth_tweak: [u8; 32],
+    pub has_stealth_tweak: bool,
+    /// Shared pool for redeem scripts > MAX_SCRIPT_SIZE bytes.
+    /// Inputs with `redeem_in_pool == true` store their redeem data here
+    /// at `redeem_script_offset..redeem_script_offset + redeem_script_len`.
+    pub redeem_pool: [u8; REDEEM_POOL_SIZE],
+    /// Next free byte in redeem_pool.
+    pub redeem_pool_used: usize,
 }
 
 impl Transaction {
-    /// Create an empty transaction
+    /// Create an empty transaction.
+    ///
+    /// Uses `zeroed()` instead of field-by-field init to avoid a 20KB+
+    /// stack temporary. All fields default to zero/false except
+    /// `sig_op_count` which defaults to 1 per input.
+    ///
+    /// SAFETY: Transaction is composed entirely of primitive types
+    /// (integers, booleans, fixed-size byte arrays) with no pointers,
+    /// references, enums with non-zero discriminants, or types where
+    /// all-zeros is invalid. Zero is a valid bit pattern for every field.
     pub fn new() -> Self {
-        Self {
-            version: 0,
-            inputs: core::array::from_fn(|_| TransactionInput {
-                previous_outpoint: Outpoint {
-                    transaction_id: [0u8; 32],
-                    index: 0,
-                },
-                sequence: 0,
-                sig_op_count: 1,
-                utxo_entry: UtxoEntry {
-                    amount: 0,
-                    script_public_key: ScriptPublicKey::new(),
-                },
-                sigs: [InputSig::empty(), InputSig::empty(), InputSig::empty(),
-                       InputSig::empty(), InputSig::empty()],
-                sig_count: 0,
-                signature: [0u8; 64],
-                sig_len: 0,
-                sighash_type: 0,
-                redeem_script: [0u8; MAX_SCRIPT_SIZE],
-                redeem_script_len: 0,
-                incoming_partial_sigs: [IncomingPartialSig::empty(); MAX_SIGS_PER_INPUT],
-                incoming_partial_sigs_count: 0,
-            }),
-            num_inputs: 0,
-            outputs: core::array::from_fn(|_| TransactionOutput {
-                value: 0,
-                script_public_key: ScriptPublicKey::new(),
-            }),
-            num_outputs: 0,
-            locktime: 0,
-            subnetwork_id: SUBNETWORK_ID_NATIVE,
-            gas: 0,
-            payload: [0u8; MAX_PAYLOAD_SIZE],
-            payload_len: 0,
+        let mut tx: Self = unsafe { core::mem::zeroed() };
+        // sig_op_count defaults to 1 (standard P2PK/P2SH)
+        for i in 0..MAX_INPUTS {
+            tx.inputs[i].sig_op_count = 1;
         }
+        tx
+    }
+
+    /// Reset this transaction to its empty state, in place.
+    ///
+    /// Avoids the 20KB+ stack temporary that `*self = Transaction::new()`
+    /// would create on Xtensa (LLVM does not elide the by-value return
+    /// into the destination). Instead, zeroes the memory through a raw
+    /// pointer write and patches up the non-zero defaults.
+    ///
+    /// SAFETY: same as `new()` -- all-zeros is a valid bit pattern.
+    pub fn clear(&mut self) {
+        unsafe {
+            core::ptr::write_bytes(self as *mut Self, 0, 1);
+        }
+        for i in 0..MAX_INPUTS {
+            self.inputs[i].sig_op_count = 1;
+        }
+    }
+
+    /// Get the redeem script bytes for input `idx`.
+    /// Returns the inline buffer if the script fits, or the pool slice
+    /// if `redeem_in_pool` is set.
+    pub fn redeem_bytes(&self, idx: usize) -> &[u8] {
+        let inp = &self.inputs[idx];
+        if inp.redeem_script_len == 0 {
+            return &[];
+        }
+        if inp.redeem_in_pool {
+            let off = inp.redeem_script_offset as usize;
+            &self.redeem_pool[off..off + inp.redeem_script_len]
+        } else {
+            &inp.redeem_script[..inp.redeem_script_len]
+        }
+    }
+
+    /// Store a redeem script for input `idx`. Scripts <= MAX_SCRIPT_SIZE
+    /// go inline; larger ones go into the shared pool.
+    /// Returns Ok(()) or Err(()) if the pool is full.
+    pub fn store_redeem(&mut self, idx: usize, data: &[u8]) -> Result<(), ()> {
+        let len = data.len();
+        if len == 0 {
+            self.inputs[idx].redeem_script_len = 0;
+            self.inputs[idx].redeem_in_pool = false;
+            return Ok(());
+        }
+        if len <= MAX_SCRIPT_SIZE {
+            self.inputs[idx].redeem_script[..len].copy_from_slice(data);
+            self.inputs[idx].redeem_script_len = len;
+            self.inputs[idx].redeem_in_pool = false;
+        } else {
+            if len > MAX_REDEEM_SIZE {
+                return Err(());
+            }
+            let off = self.redeem_pool_used;
+            if off + len > REDEEM_POOL_SIZE {
+                return Err(());
+            }
+            self.redeem_pool[off..off + len].copy_from_slice(data);
+            self.inputs[idx].redeem_script_offset = off as u16;
+            self.inputs[idx].redeem_script_len = len;
+            self.inputs[idx].redeem_in_pool = true;
+            self.redeem_pool_used = off + len;
+        }
+        Ok(())
     }
 
     /// Get the transaction inputs slice.

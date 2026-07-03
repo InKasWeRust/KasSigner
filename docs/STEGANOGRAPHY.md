@@ -1,6 +1,6 @@
 <!-- KasSigner — Air-gapped offline signing device for Kaspa -->
 <!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
-<!-- License: GPL-3.0 -->
+<!-- License: GPL-3.0-only -->
 
 # The Invisible Vault
 
@@ -20,7 +20,7 @@ KasSigner embeds encrypted seeds into JPEG photographs using EXIF metadata. EXIF
 
 KasSigner uses two EXIF fields:
 
-**`ImageDescription`** — This is your password. Not a cover story for the password. Not a hint toward the password. It *is* the password, typed into the photo's metadata where any viewer can see it. It looks like a caption: *"Sunset at Playa Blanca, Aug 2024"*. Anyone inspecting the EXIF sees a normal description. What they cannot know is that this exact string of characters — every letter, every space, every comma — was fed through PBKDF2 with 100,000 iterations of HMAC-SHA512 to derive a 256-bit AES key.
+**`ImageDescription`** — This is your password. Not a cover story for the password. Not a hint toward the password. It *is* the password, typed into the photo's metadata where any viewer can see it. It looks like a caption: *"Sunset at Playa Blanca, Aug 2024"*. Anyone inspecting the EXIF sees a normal description. What they cannot know is that this exact string of characters — every letter, every space, every comma — was fed through PBKDF2 with 100,000 iterations of HMAC-SHA256 to derive a 256-bit AES key.
 
 **`UserComment`** — This holds the encrypted seed. Base64-encoded, it looks like garbled metadata — the kind of string a camera firmware might write, the kind nobody questions. Inside it: a 12-byte random nonce, the seed word indices encrypted with AES-256-GCM, and a 16-byte authentication tag that ensures even a single bit flip is detected.
 
@@ -56,9 +56,9 @@ The attacker's problem is not decryption. It is identification. They are searchi
 
 Say the attacker somehow identifies the correct photo. They extract the EXIF and find the `UserComment`. They recognize the base64 encoding. They even figure out it's an AES-256-GCM encrypted blob. Now they need the key.
 
-The key was derived from the `ImageDescription` field: *"Me at the age of 20 with my family"*. It's right there. They can read it. But they don't know it's the key. And even if they suspect EXIF-based steganography, the `ImageDescription` looks like what it says it is — a description of the image. The attacker must make the conceptual leap that this visible, ordinary text string is the cryptographic passphrase. There is nothing in the data to suggest this. It is not labeled. It is not formatted like a password. It does not look like a key because it was never designed to look like a key.
+The key was derived from the `ImageDescription` field: *"Me at the age of 20 with my family"*. It's right there. They can read it. But they don't know it's the key. And even if they suspect EXIF-based steganography, the `ImageDescription` looks like what it says it is — a description of the image. The attacker must make the conceptual leap that this visible, ordinary text string is the cryptographic password. There is nothing in the data to suggest this. It is not labeled. It is not formatted like a password. It does not look like a key because it was never designed to look like a key.
 
-And if they do make that leap — if they try every EXIF field as a potential passphrase — then AES-256-GCM gives them exactly one answer: right or wrong. No partial decryption. No gradual convergence. The GCM authentication tag either validates or it doesn't.
+And if they do make that leap — if they try every EXIF field as a potential password — then AES-256-GCM gives them exactly one answer: right or wrong. No partial decryption. No gradual convergence. The GCM authentication tag either validates or it doesn't.
 
 ### Layer 3 — What Word?
 
@@ -83,7 +83,7 @@ KasSigner addresses this with an encrypted recovery hint embedded alongside the 
 - *"Song I can't stop humming?"*
 - Or any custom text you write.
 
-The hint is encrypted with the same `ImageDescription` passphrase and appended to the `UserComment` after a `|` separator. During import, after the seed is decrypted, the hint is decrypted and displayed on screen — a private reminder, visible only to someone who already proved they know the descriptor text.
+The hint is encrypted with the same `ImageDescription` password and appended to the `UserComment` after a `|` separator. During import, after the seed is decrypted, the hint is decrypted and displayed on screen — a private reminder, visible only to someone who already proved they know the descriptor text.
 
 The hint is not the answer. It is a question designed to trigger a memory. The answer — the 25th word — is never stored. It travels from your memory to the device's keypad and back to your memory, touching nothing permanent along the way.
 
@@ -115,7 +115,7 @@ This blob is base64-encoded (76–108 characters) before storage in EXIF.
 ImageDescription text (UTF-8 bytes)
     │
     ▼
-PBKDF2-HMAC-SHA512
+PBKDF2-HMAC-SHA256
     Salt: "KasSigner-SD-v1" (15 bytes, fixed)
     Iterations: 100,000
     │
@@ -124,14 +124,14 @@ PBKDF2-HMAC-SHA512
     │
     ▼
 AES-256-GCM encrypt/decrypt
-    Nonce: 12 bytes (random, stored in blob)
+    Nonce: 12 bytes (entropy-derived, stored in the blob)
     AAD: [0x4B, 0x41, 0x53, 0x01, word_count]
     │
     ▼
 Ciphertext + 16-byte GCM tag
 ```
 
-The GCM authentication tag provides tamper detection. Any modification to the ciphertext, nonce, or associated data (including the word count) causes decryption to fail with "Wrong passphrase" — there is no silent corruption.
+The GCM authentication tag provides tamper detection. Any modification to the ciphertext, nonce, or associated data (including the word count) causes decryption to fail with "Wrong password" — there is no silent corruption.
 
 ### EXIF APP1 Structure
 
@@ -141,7 +141,7 @@ FF E1 [length]              JPEG APP1 marker
 "II" 0x2A00 0x08000000      TIFF header (little-endian, IFD at offset 8)
 
 IFD0 (2 entries):
-  Tag 0x010E  ImageDescription  ASCII   → The passphrase (visible caption)
+  Tag 0x010E  ImageDescription  ASCII   → The password (visible caption)
   Tag 0x9286  UserComment       UNDEF   → "ASCII\0\0\0" + base64(encrypted_seed)
                                            Optional: "|" + base64(encrypted_hint)
 

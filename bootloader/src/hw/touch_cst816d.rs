@@ -194,6 +194,69 @@ impl TouchTracker {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// I2C bus recovery
+// ═══════════════════════════════════════════════════════════════
+
+use core::sync::atomic::{AtomicU8, Ordering};
+
+/// Consecutive I2C error counter. When this reaches BUS_RECOVERY_THRESHOLD,
+/// we attempt bus recovery by toggling SCL 9 times to unstick a slave
+/// holding SDA LOW (e.g. CST816D clock-stretching after idle wakeup).
+static TOUCH_I2C_ERRORS: AtomicU8 = AtomicU8::new(0);
+const BUS_RECOVERY_THRESHOLD: u8 = 5;
+
+// GPIO register addresses (same as sdcard_ws.rs)
+const GPIO_OUT_W1TS: u32    = 0x6000_4008;
+const GPIO_OUT_W1TC: u32    = 0x6000_400C;
+const GPIO_OUT1_W1TS: u32   = 0x6000_4014;
+const GPIO_OUT1_W1TC: u32   = 0x6000_4018;
+const GPIO_ENABLE1_W1TS: u32 = 0x6000_4030;
+const GPIO_ENABLE1_W1TC: u32 = 0x6000_4034;
+
+// Touch I2C pins (Waveshare)
+const PIN_TP_SCL: u8 = 47; // GPIO47 = bit 15 in OUT1 (47-32=15)
+const PIN_TP_SDA: u8 = 48; // GPIO48 = bit 16 in OUT1 (48-32=16)
+
+/// Toggle SCL 9 times with SDA held HIGH to unstick a slave holding SDA LOW.
+/// Then issue a STOP condition (SDA LOW while SCL HIGH, then SDA HIGH).
+/// Uses direct GPIO register writes, bypassing esp-hal's I2C peripheral.
+/// After recovery, the I2C peripheral re-takes control on the next
+/// i2c.write_read() call because the bus is back in idle state.
+fn recover_i2c_bus() {
+    #[cfg(not(feature = "silent"))]
+    crate::log!("[CST816D] I2C bus recovery: 9 SCL toggles");
+
+    unsafe {
+        let scl_bit = 1u32 << (PIN_TP_SCL - 32); // bit 15
+        let sda_bit = 1u32 << (PIN_TP_SDA - 32); // bit 16
+
+        // Temporarily take over SCL and SDA as GPIO outputs
+        core::ptr::write_volatile(GPIO_ENABLE1_W1TS as *mut u32, scl_bit | sda_bit);
+
+        // Hold SDA HIGH
+        core::ptr::write_volatile(GPIO_OUT1_W1TS as *mut u32, sda_bit);
+
+        // 9 SCL toggles at ~100 kHz (5us per half-cycle)
+        for _ in 0..9 {
+            core::ptr::write_volatile(GPIO_OUT1_W1TC as *mut u32, scl_bit); // SCL LOW
+            for _ in 0..400u32 { core::hint::spin_loop(); } // ~5us
+            core::ptr::write_volatile(GPIO_OUT1_W1TS as *mut u32, scl_bit); // SCL HIGH
+            for _ in 0..400u32 { core::hint::spin_loop(); } // ~5us
+        }
+
+        // Generate STOP: SDA LOW while SCL HIGH, then SDA HIGH
+        core::ptr::write_volatile(GPIO_OUT1_W1TC as *mut u32, sda_bit); // SDA LOW
+        for _ in 0..400u32 { core::hint::spin_loop(); }
+        core::ptr::write_volatile(GPIO_OUT1_W1TS as *mut u32, sda_bit); // SDA HIGH (STOP)
+        for _ in 0..400u32 { core::hint::spin_loop(); }
+
+        // Release GPIO outputs back to I2C peripheral
+        // (I2C peripheral re-configures them on next operation)
+        core::ptr::write_volatile(GPIO_ENABLE1_W1TC as *mut u32, scl_bit | sda_bit);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // I2C read
 // ═══════════════════════════════════════════════════════════════
 
@@ -203,8 +266,18 @@ pub fn read_touch_full(
 ) -> (TouchState, HwGesture) {
     let mut buf = [0u8; 6];
     if i2c.write_read(CST816D_ADDR, &[REG_GESTURE_ID], &mut buf).is_err() {
+        let errs = TOUCH_I2C_ERRORS.fetch_add(1, Ordering::Relaxed) + 1;
+        if errs >= BUS_RECOVERY_THRESHOLD {
+            recover_i2c_bus();
+            TOUCH_I2C_ERRORS.store(0, Ordering::Relaxed);
+            // Force re-configuration on next successful read
+            *configured = false;
+        }
         return (TouchState::NoTouch, HwGesture::None);
     }
+
+    // Successful read: reset error counter
+    TOUCH_I2C_ERRORS.store(0, Ordering::Relaxed);
 
     if !*configured {
         *configured = true;

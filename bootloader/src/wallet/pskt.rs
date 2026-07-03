@@ -89,6 +89,9 @@ const SIGNED_MAGIC: [u8; 4] = [0x4B, 0x53, 0x53, 0x4E]; // "KSSN"
 /// Current format version
 const FORMAT_VERSION: u8 = 0x01;
 
+/// KSPT v3: identical to v2 but redeem_len is u16 LE instead of u8.
+const FORMAT_VERSION_V3: u8 = 0x03;
+
 /// Maximum signatures in response
 pub const MAX_SIGNATURES: usize = MAX_INPUTS;
 
@@ -136,6 +139,10 @@ impl<'a> ByteReader<'a> {
         self.data.len().saturating_sub(self.pos)
     }
 
+    fn peek_u8(&self) -> Option<u8> {
+        if self.pos < self.data.len() { Some(self.data[self.pos]) } else { None }
+    }
+
     fn read_u8(&mut self) -> Result<u8, PsktError> {
         if self.pos >= self.data.len() {
             return Err(PsktError::BufferTooShort);
@@ -152,6 +159,17 @@ impl<'a> ByteReader<'a> {
         let v = u16::from_le_bytes([self.data[self.pos], self.data[self.pos + 1]]);
         self.pos += 2;
         Ok(v)
+    }
+
+    /// SPK length, extended encoding: 1 byte, or 0xFF sentinel + u16 LE.
+    /// Mirrors KasSee push_spk_len. Backward compatible with 1-byte lengths.
+    fn read_spk_len(&mut self) -> Result<usize, PsktError> {
+        let b = self.read_u8()?;
+        if b == 0xFF {
+            Ok(self.read_u16_le()? as usize)
+        } else {
+            Ok(b as usize)
+        }
     }
 
     fn read_u32_le(&mut self) -> Result<u32, PsktError> {
@@ -228,6 +246,16 @@ impl<'a> ByteWriter<'a> {
         self.write_bytes(&val.to_le_bytes())
     }
 
+    /// SPK length, extended encoding mirroring read_spk_len / KasSee push_spk_len.
+    fn write_spk_len(&mut self, len: usize) -> Result<(), PsktError> {
+        if len <= 254 {
+            self.write_u8(len as u8)
+        } else {
+            self.write_u8(0xFF)?;
+            self.write_u16_le(len as u16)
+        }
+    }
+
     fn write_u64_le(&mut self, val: u64) -> Result<(), PsktError> {
         self.write_bytes(&val.to_le_bytes())
     }
@@ -244,6 +272,7 @@ impl<'a> ByteWriter<'a> {
 ///
 /// Returns Ok(()) on successful parse.
 pub fn parse_pskt(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
+    tx.clear();
     let mut r = ByteReader::new(data);
 
     // Header
@@ -257,8 +286,9 @@ pub fn parse_pskt(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
         return Err(PsktError::UnsupportedVersion);
     }
 
-    let flags = r.read_u8()?; // bit 0x02 = has redeem scripts
+    let flags = r.read_u8()?; // bit 0x02 = has redeem scripts, bit 0x04 = has covenant bindings
     let has_redeem = (flags & 0x02) != 0;
+    let has_covenant_data = (flags & 0x04) != 0;
 
     // Global
     tx.version = r.read_u16_le()?;
@@ -306,7 +336,7 @@ pub fn parse_pskt(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
         tx.inputs[i].sig_op_count = r.read_u8()?;
 
         let spk_version = r.read_u16_le()?;
-        let spk_len = r.read_u8()? as usize;
+        let spk_len = r.read_spk_len()?;
         if spk_len > MAX_SCRIPT_SIZE {
             return Err(PsktError::ScriptTooLong);
         }
@@ -322,12 +352,11 @@ pub fn parse_pskt(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
         if has_redeem {
             let rs_len = r.read_u8()? as usize;
             if rs_len > 0 {
-                if rs_len > MAX_SCRIPT_SIZE {
+                if rs_len > MAX_REDEEM_SIZE {
                     return Err(PsktError::ScriptTooLong);
                 }
                 let rs_bytes = r.read_bytes(rs_len)?;
-                tx.inputs[i].redeem_script[..rs_len].copy_from_slice(rs_bytes);
-                tx.inputs[i].redeem_script_len = rs_len;
+                tx.store_redeem(i, rs_bytes).map_err(|_| PsktError::ScriptTooLong)?;
             }
         }
     }
@@ -337,7 +366,7 @@ pub fn parse_pskt(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
         tx.outputs[i].value = r.read_u64_le()?;
 
         let spk_version = r.read_u16_le()?;
-        let spk_len = r.read_u8()? as usize;
+        let spk_len = r.read_spk_len()?;
         if spk_len > MAX_SCRIPT_SIZE {
             return Err(PsktError::ScriptTooLong);
         }
@@ -347,6 +376,19 @@ pub fn parse_pskt(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
         let spk_bytes = r.read_bytes(spk_len)?;
         tx.outputs[i].script_public_key.script[..spk_len]
             .copy_from_slice(spk_bytes);
+
+        // Covenant binding (flag 0x04)
+        if has_covenant_data {
+            let has_cov = r.read_u8()?;
+            if has_cov == 1 {
+                tx.outputs[i].has_covenant = true;
+                tx.outputs[i].covenant_auth_input = r.read_u16_le()?;
+                let cov_id_bytes = r.read_bytes(32)?;
+                tx.outputs[i].covenant_id.copy_from_slice(cov_id_bytes);
+            } else {
+                tx.outputs[i].has_covenant = false;
+            }
+        }
     }
 
     Ok(())
@@ -364,10 +406,14 @@ pub fn parse_pskt(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
 pub fn serialize_pskt(tx: &Transaction, output: &mut [u8]) -> Result<usize, PsktError> {
     let mut w = ByteWriter::new(output);
 
+    // Check if any output has covenant data
+    let has_covenant_data = (0..tx.num_outputs).any(|i| tx.outputs[i].has_covenant);
+    let flags: u8 = if has_covenant_data { 0x04 } else { 0x00 };
+
     // Header
     w.write_bytes(&PSKT_MAGIC)?;
     w.write_u8(FORMAT_VERSION)?;
-    w.write_u8(0x00)?; // flags
+    w.write_u8(flags)?;
 
     // Global
     w.write_u16_le(tx.version)?;
@@ -390,7 +436,7 @@ pub fn serialize_pskt(tx: &Transaction, output: &mut [u8]) -> Result<usize, Pskt
         w.write_u64_le(input.sequence)?;
         w.write_u8(input.sig_op_count)?;
         w.write_u16_le(input.utxo_entry.script_public_key.version)?;
-        w.write_u8(input.utxo_entry.script_public_key.script_len as u8)?;
+        w.write_spk_len(input.utxo_entry.script_public_key.script_len)?;
         w.write_bytes(input.utxo_entry.script_public_key.script_bytes())?;
     }
 
@@ -399,8 +445,18 @@ pub fn serialize_pskt(tx: &Transaction, output: &mut [u8]) -> Result<usize, Pskt
         let output_tx = &tx.outputs[i];
         w.write_u64_le(output_tx.value)?;
         w.write_u16_le(output_tx.script_public_key.version)?;
-        w.write_u8(output_tx.script_public_key.script_len as u8)?;
+        w.write_spk_len(output_tx.script_public_key.script_len)?;
         w.write_bytes(output_tx.script_public_key.script_bytes())?;
+
+        if has_covenant_data {
+            if output_tx.has_covenant {
+                w.write_u8(1)?;
+                w.write_u16_le(output_tx.covenant_auth_input)?;
+                w.write_bytes(&output_tx.covenant_id)?;
+            } else {
+                w.write_u8(0)?;
+            }
+        }
     }
 
     Ok(w.written())
@@ -412,10 +468,13 @@ pub fn serialize_pskt(tx: &Transaction, output: &mut [u8]) -> Result<usize, Pskt
 pub fn serialize_signed_pskt(tx: &Transaction, output: &mut [u8]) -> Result<usize, PsktError> {
     let mut w = ByteWriter::new(output);
 
-    // Header (flags = 0x01 for signed)
+    let has_covenant_data = (0..tx.num_outputs).any(|i| tx.outputs[i].has_covenant);
+    let flags: u8 = 0x01 | if has_covenant_data { 0x04 } else { 0x00 }; // signed + optional covenant
+
+    // Header
     w.write_bytes(&PSKT_MAGIC)?;
     w.write_u8(FORMAT_VERSION)?;
-    w.write_u8(0x01)?; // flags: signed
+    w.write_u8(flags)?;
 
     // Global
     w.write_u16_le(tx.version)?;
@@ -438,7 +497,7 @@ pub fn serialize_signed_pskt(tx: &Transaction, output: &mut [u8]) -> Result<usiz
         w.write_u64_le(input.sequence)?;
         w.write_u8(input.sig_op_count)?;
         w.write_u16_le(input.utxo_entry.script_public_key.version)?;
-        w.write_u8(input.utxo_entry.script_public_key.script_len as u8)?;
+        w.write_spk_len(input.utxo_entry.script_public_key.script_len)?;
         w.write_bytes(input.utxo_entry.script_public_key.script_bytes())?;
         // Signature (0 = unsigned, 64 = Schnorr)
         w.write_u8(input.sig_len)?;
@@ -453,8 +512,18 @@ pub fn serialize_signed_pskt(tx: &Transaction, output: &mut [u8]) -> Result<usiz
         let output_tx = &tx.outputs[i];
         w.write_u64_le(output_tx.value)?;
         w.write_u16_le(output_tx.script_public_key.version)?;
-        w.write_u8(output_tx.script_public_key.script_len as u8)?;
+        w.write_spk_len(output_tx.script_public_key.script_len)?;
         w.write_bytes(output_tx.script_public_key.script_bytes())?;
+
+        if has_covenant_data {
+            if output_tx.has_covenant {
+                w.write_u8(1)?;
+                w.write_u16_le(output_tx.covenant_auth_input)?;
+                w.write_bytes(&output_tx.covenant_id)?;
+            } else {
+                w.write_u8(0)?;
+            }
+        }
     }
 
     Ok(w.written())
@@ -658,10 +727,6 @@ pub fn sign_transaction_multi_addr(
                 tx.inputs[i].signature = sig.bytes;
                 tx.inputs[i].sig_len = 64;
                 tx.inputs[i].sighash_type = sighash_type.to_byte();
-                // Mirror into the InputSig slot so PSKT emission can
-                // find both the signature and the compressed pubkey.
-                // KSPT emission reads from the legacy fields and ignores
-                // this — no change to the KSPT wire.
                 tx.inputs[i].sigs[0].signature = sig.bytes;
                 tx.inputs[i].sigs[0].sighash_type = sighash_type.to_byte();
                 tx.inputs[i].sigs[0].pubkey_pos = 0;
@@ -669,6 +734,68 @@ pub fn sign_transaction_multi_addr(
                 if let Ok(pk_c) = addr_key.public_key_compressed() {
                     tx.inputs[i].sigs[0].pubkey_compressed = pk_c;
                 }
+                tx.inputs[i].sig_count = 1;
+                signed_count += 1;
+            }
+        } else if tx.has_stealth_tweak {
+            // Stealth spend: signing key = account_privkey + tweak
+            use k256::elliptic_curve::ScalarPrimitive;
+            use k256::elliptic_curve::ops::Add;
+            use k256::elliptic_curve::sec1::ToEncodedPoint;
+            use k256::{ProjectivePoint, Scalar, SecretKey};
+
+            let acct_priv = account_key.private_key_bytes();
+            let acct_prim = ScalarPrimitive::<k256::Secp256k1>::from_slice(acct_priv)
+                .map_err(|_| PsktError::NoInputs)?;
+            // DKSAP: the stealth address is derived from the EVEN-Y form of the
+            // account spend pubkey B. Both the sender (pubkey_from_xonly) and the
+            // device scan (0x02 prefix) lift_x B as even-Y, so the address is
+            // P = B_even + t*G. If the real account pubkey has odd Y we must
+            // negate the scalar so acct_scalar*G == B_even; otherwise
+            // (acct + tweak)*G lands on the wrong x, the combined_x == target_pk
+            // guard below fails, the input is never signed, and the stealth UTXO
+            // is permanently unspendable (~50% of wallets).
+            let acct_scalar = {
+                let s = Scalar::from(acct_prim);
+                let s_pt = (ProjectivePoint::GENERATOR * s).to_affine();
+                let s_enc = s_pt.to_encoded_point(true);
+                if s_enc.as_bytes()[0] == 0x03 { -s } else { s }
+            };
+
+            let tweak_prim = ScalarPrimitive::<k256::Secp256k1>::from_slice(&tx.stealth_tweak)
+                .map_err(|_| PsktError::NoInputs)?;
+            let tweak_scalar = Scalar::from(tweak_prim);
+
+            // Combined key: even-Y account base + tweak
+            let combined_scalar = acct_scalar.add(&tweak_scalar);
+
+            // Verify the combined pubkey matches the target
+            let combined_point = (ProjectivePoint::GENERATOR * combined_scalar).to_affine();
+            let combined_encoded = combined_point.to_encoded_point(true);
+            let combined_x = &combined_encoded.as_bytes()[1..33];
+
+            if combined_x == target_pk {
+                // Sign with the combined key
+                let mut combined_privkey = [0u8; 32];
+                combined_privkey.copy_from_slice(&combined_scalar.to_bytes());
+
+                let sig = sighash::sign_input(tx, i, &combined_privkey, sighash_type)
+                    .map_err(|_| PsktError::NoInputs)?;
+
+                // Zeroize the combined privkey
+                combined_privkey.fill(0);
+
+                tx.inputs[i].signature = sig.bytes;
+                tx.inputs[i].sig_len = 64;
+                tx.inputs[i].sighash_type = sighash_type.to_byte();
+                tx.inputs[i].sigs[0].signature = sig.bytes;
+                tx.inputs[i].sigs[0].sighash_type = sighash_type.to_byte();
+                tx.inputs[i].sigs[0].pubkey_pos = 0;
+                tx.inputs[i].sigs[0].present = true;
+                // Use combined pubkey compressed
+                let mut pk_c = [0u8; 33];
+                pk_c.copy_from_slice(combined_encoded.as_bytes());
+                tx.inputs[i].sigs[0].pubkey_compressed = pk_c;
                 tx.inputs[i].sig_count = 1;
                 signed_count += 1;
             }
@@ -694,8 +821,8 @@ pub fn analyze_input_script(tx: &Transaction, input_idx: usize) -> (ScriptType, 
 
     // P2SH: use the redeem script for pubkey analysis
     if st == ScriptType::P2SH && tx.inputs[input_idx].redeem_script_len > 0 {
-        let rs = &tx.inputs[input_idx].redeem_script;
-        let rs_len = tx.inputs[input_idx].redeem_script_len;
+        let rs = tx.redeem_bytes(input_idx);
+        let rs_len = rs.len();
         let rs_type = detect_script_type(rs, rs_len);
         let ms = if rs_type == ScriptType::Multisig {
             parse_multisig_script(rs, rs_len)
@@ -728,6 +855,7 @@ pub fn sign_transaction_multisig(
     tx: &mut Transaction,
     seeds: &[([u8; 64], bool)],
     sighash_type: SigHashType,
+    active_seed_idx: Option<usize>,
 ) -> Result<usize, PsktError> {
     use super::sighash;
     use super::bip32;
@@ -936,6 +1064,204 @@ pub fn sign_transaction_multisig(
                         tx.inputs[i].sig_len = 64;
                         tx.inputs[i].sighash_type = tx.inputs[i].sigs[0].sighash_type;
                     }
+                } else {
+                    // P2SH without multisig info — check for covenant script.
+                    // Scan the redeem script for 32-byte pubkey pushes (0x20 <32 bytes>).
+                    // Supports: IF/ELSE covenants, state machines, and any script with
+                    // embedded pubkeys followed by CHECKSIG/CHECKSIGVERIFY.
+                    let rs = tx.redeem_bytes(i);
+                    let rs_len = rs.len();
+
+                    // Collect up to 4 candidate pubkeys from anywhere in the script
+                    let mut candidates: [([u8; 32], bool); 8] = [([0u8; 32], false); 8];
+                    let mut num_candidates = 0usize;
+
+                    // Scan for OP_DATA_32 (0x20) followed by 32 bytes and then
+                    // CHECKSIG (0xac) or CHECKSIGVERIFY (0xad) within a few bytes.
+                    //
+                    // IMPORTANT: this walk is opcode-aware. A naive byte scan
+                    // breaks on any push whose DATA contains a 0x20 byte (e.g.
+                    // an 8-byte salt, or a 4-byte amount). Such a 0x20 would be
+                    // misread as OP_DATA_32, the scanner would jump +33, and a
+                    // real pubkey push could be skipped entirely. By honoring
+                    // each push's declared length we skip data bytes correctly
+                    // and never confuse data for an opcode.
+                    let mut off = 0usize;
+                    while off < rs_len && num_candidates < 8 {
+                        let op = rs[off];
+                        if op == 0x20 && off + 33 <= rs_len {
+                            // OP_DATA_32: candidate pubkey if followed by
+                            // CHECKSIG/CHECKSIGVERIFY within 2 bytes.
+                            let after = off + 33;
+                            let has_checksig = (after < rs_len && (rs[after] == 0xac || rs[after] == 0xad))
+                                || (after + 1 < rs_len && (rs[after + 1] == 0xac || rs[after + 1] == 0xad));
+                            if has_checksig {
+                                candidates[num_candidates].0.copy_from_slice(&rs[off + 1..off + 33]);
+                                candidates[num_candidates].1 = true;
+                                num_candidates += 1;
+                            }
+                            off += 33; // opcode + 32 data bytes
+                        } else if (0x01..=0x4b).contains(&op) {
+                            // Direct push of `op` bytes: skip opcode + data.
+                            off += 1 + op as usize;
+                        } else if op == 0x4c {
+                            // OP_PUSHDATA1: 1-byte length follows.
+                            if off + 1 < rs_len { off += 2 + rs[off + 1] as usize; } else { off += 1; }
+                        } else if op == 0x4d {
+                            // OP_PUSHDATA2: 2-byte LE length follows.
+                            if off + 2 < rs_len {
+                                let n = rs[off + 1] as usize | ((rs[off + 2] as usize) << 8);
+                                off += 3 + n;
+                            } else { off += 1; }
+                        } else if op == 0x4e {
+                            // OP_PUSHDATA4: 4-byte LE length follows.
+                            if off + 4 < rs_len {
+                                let n = rs[off + 1] as usize
+                                    | ((rs[off + 2] as usize) << 8)
+                                    | ((rs[off + 3] as usize) << 16)
+                                    | ((rs[off + 4] as usize) << 24);
+                                off += 5 + n;
+                            } else { off += 1; }
+                        } else {
+                            // Non-push opcode: advance by one.
+                            off += 1;
+                        }
+                    }
+
+                    if num_candidates > 0 {
+
+                    if tx.inputs[i].sig_count > 0 { /* skip */ }
+                        else {
+                            'cov_done: for c in 0..num_candidates {
+                                if !candidates[c].1 { continue; }
+                                let target_pk = candidates[c].0;
+                                for s in 0..num_seeds {
+                                    // For covenant inputs, only sign with the active seed.
+                                    // This prevents the owner's seed from matching candidate 0
+                                    // when the beneficiary intended to sign.
+                                    if let Some(active) = active_seed_idx {
+                                        if s != active { continue; }
+                                    }
+                                    if let Some(ref acct) = acct_keys[s] {
+                                        // Check account-level xonly match first
+                                        if let Some(pk) = acct_xonly_cache[s] {
+                                            if pk == target_pk {
+                                                let privkey = acct.private_key_bytes();
+                                                if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
+                                                    tx.inputs[i].sigs[0].signature = sig.bytes;
+                                                    tx.inputs[i].sigs[0].sighash_type = sighash_type.to_byte();
+                                                    tx.inputs[i].sigs[0].pubkey_pos = c as u8;
+                                                    tx.inputs[i].sigs[0].present = true;
+                                                    if let Ok(pk_c) = acct.public_key_compressed() {
+                                                        tx.inputs[i].sigs[0].pubkey_compressed = pk_c;
+                                                    }
+                                                    tx.inputs[i].sig_count = 1;
+                                                    tx.inputs[i].signature = sig.bytes;
+                                                    tx.inputs[i].sig_len = 64;
+                                                    tx.inputs[i].sighash_type = sighash_type.to_byte();
+                                                    total_new_sigs += 1;
+                                                    break 'cov_done;
+                                                }
+                                            }
+                                        }
+
+                                        // Address-level fallback
+                                        if addr_tables[s].is_none() {
+                                            addr_tables[s] =
+                                                Some(bip32::AddrPubkeyTable::build(acct));
+                                        }
+                                        let tbl = addr_tables[s].as_ref().unwrap();
+                                        if let Some((idx, is_chg)) = tbl.find_by_pubkey(&target_pk) {
+                                            let key_result = if is_chg {
+                                                bip32::derive_change_key(acct, idx)
+                                            } else {
+                                                bip32::derive_address_key(acct, idx)
+                                            };
+                                            if let Ok(addr_key) = key_result {
+                                                let privkey = addr_key.private_key_bytes();
+                                                if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
+                                                    tx.inputs[i].sigs[0].signature = sig.bytes;
+                                                    tx.inputs[i].sigs[0].sighash_type = sighash_type.to_byte();
+                                                    tx.inputs[i].sigs[0].pubkey_pos = c as u8;
+                                                    tx.inputs[i].sigs[0].present = true;
+                                                    if let Ok(pk_c) = addr_key.public_key_compressed() {
+                                                        tx.inputs[i].sigs[0].pubkey_compressed = pk_c;
+                                                    }
+                                                    tx.inputs[i].sig_count = 1;
+                                                    tx.inputs[i].signature = sig.bytes;
+                                                    tx.inputs[i].sig_len = 64;
+                                                    tx.inputs[i].sighash_type = sighash_type.to_byte();
+                                                    total_new_sigs += 1;
+                                                    break 'cov_done;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Treasury script: starts with PUSH_32 <pubkey> CHECKSIGVERIFY (0x20 <32> 0xad)
+                    // Single candidate — the owner pubkey at bytes 1..33
+                    else if rs_len >= 35 && rs[0] == 0x20 && rs[33] == 0xad
+                        && tx.inputs[i].sig_count == 0 {
+                            let mut target_pk = [0u8; 32];
+                            target_pk.copy_from_slice(&rs[1..33]);
+                            'treas_done: for s in 0..num_seeds {
+                                if let Some(active) = active_seed_idx {
+                                    if s != active { continue; }
+                                }
+                                if let Some(ref acct) = acct_keys[s] {
+                                    // Account-level xonly match
+                                    if let Some(pk) = acct_xonly_cache[s] {
+                                        if pk == target_pk {
+                                            let privkey = acct.private_key_bytes();
+                                            if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
+                                                tx.inputs[i].sigs[0].signature = sig.bytes;
+                                                tx.inputs[i].sigs[0].sighash_type = sighash_type.to_byte();
+                                                tx.inputs[i].sigs[0].pubkey_pos = 0;
+                                                tx.inputs[i].sigs[0].present = true;
+                                                if let Ok(pk_c) = acct.public_key_compressed() {
+                                                    tx.inputs[i].sigs[0].pubkey_compressed = pk_c;
+                                                }
+                                                tx.inputs[i].sig_count = 1;
+                                                tx.inputs[i].sighash_type = sighash_type.to_byte();
+                                                total_new_sigs += 1;
+                                                break 'treas_done;
+                                            }
+                                        }
+                                    }
+                                    // Address-level fallback (derived child keys)
+                                    if addr_tables[s].is_none() {
+                                        addr_tables[s] = Some(bip32::AddrPubkeyTable::build(acct));
+                                    }
+                                    let tbl = addr_tables[s].as_ref().unwrap();
+                                    if let Some((idx, is_chg)) = tbl.find_by_pubkey(&target_pk) {
+                                        let key_result = if is_chg {
+                                            bip32::derive_change_key(acct, idx)
+                                        } else {
+                                            bip32::derive_address_key(acct, idx)
+                                        };
+                                        if let Ok(addr_key) = key_result {
+                                            let privkey = addr_key.private_key_bytes();
+                                            if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
+                                                tx.inputs[i].sigs[0].signature = sig.bytes;
+                                                tx.inputs[i].sigs[0].sighash_type = sighash_type.to_byte();
+                                                tx.inputs[i].sigs[0].pubkey_pos = 0;
+                                                tx.inputs[i].sigs[0].present = true;
+                                                if let Ok(pk_c) = addr_key.public_key_compressed() {
+                                                    tx.inputs[i].sigs[0].pubkey_compressed = pk_c;
+                                                }
+                                                tx.inputs[i].sig_count = 1;
+                                                tx.inputs[i].sighash_type = sighash_type.to_byte();
+                                                total_new_sigs += 1;
+                                                break 'treas_done;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                 }
             }
 
@@ -958,7 +1284,12 @@ pub fn is_fully_signed(tx: &Transaction) -> bool {
                 if let Some(ref ms) = ms_info {
                     if tx.inputs[i].sig_count < ms.m { return false; }
                 } else {
-                    return false;
+                    // Covenant P2SH (any shape: IF/ELSE, treasury, or a
+                    // salt-prefixed state machine). Every covenant spend path
+                    // in this system is satisfied by exactly one signature, so
+                    // a fixed-offset script-shape check is unnecessary and was
+                    // fragile against a leading salt push. Require 1 sig.
+                    if tx.inputs[i].sig_count == 0 { return false; }
                 }
             }
             ScriptType::Unknown => { return false; }
@@ -983,6 +1314,12 @@ pub fn signature_status(tx: &Transaction) -> (u8, u8) {
                 if let Some(ref ms) = ms_info {
                     required += ms.m;
                     present += tx.inputs[i].sig_count.min(ms.m);
+                } else {
+                    // Covenant P2SH (IF/ELSE, treasury, or salt-prefixed state
+                    // machine): exactly 1 signature required. See is_fully_signed
+                    // for why we no longer pattern-match the script shape here.
+                    required += 1;
+                    if tx.inputs[i].sig_count > 0 { present += 1; }
                 }
             }
             ScriptType::Unknown => { required += 1; }
@@ -1001,9 +1338,9 @@ pub fn signature_status(tx: &Transaction) -> (u8, u8) {
 pub fn serialize_signed_pskt_v2(tx: &Transaction, output: &mut [u8]) -> Result<usize, PsktError> {
     let mut w = ByteWriter::new(output);
 
-    // Header: "KSPT" + version 0x02 + flags
+    // Header: "KSPT" + version 0x03 + flags
     w.write_bytes(&PSKT_MAGIC)?;
-    w.write_u8(0x02)?; // v2 format with multisig
+    w.write_u8(FORMAT_VERSION_V3)?; // v3: u16 LE redeem_len
     let fully = if is_fully_signed(tx) { 0x01u8 } else { 0x00u8 };
     w.write_u8(fully)?; // flags: 0x01 = fully signed, 0x00 = partial
 
@@ -1028,7 +1365,7 @@ pub fn serialize_signed_pskt_v2(tx: &Transaction, output: &mut [u8]) -> Result<u
         w.write_u64_le(input.sequence)?;
         w.write_u8(input.sig_op_count)?;
         w.write_u16_le(input.utxo_entry.script_public_key.version)?;
-        w.write_u8(input.utxo_entry.script_public_key.script_len as u8)?;
+        w.write_spk_len(input.utxo_entry.script_public_key.script_len)?;
         w.write_bytes(input.utxo_entry.script_public_key.script_bytes())?;
 
         // Signatures: count + per-sig (pubkey_pos, sighash_type, 64 bytes)
@@ -1041,10 +1378,10 @@ pub fn serialize_signed_pskt_v2(tx: &Transaction, output: &mut [u8]) -> Result<u
             }
         }
 
-        // Redeem script for P2SH round-trip
-        w.write_u8(input.redeem_script_len as u8)?;
+        // Redeem script for P2SH round-trip (v3: u16 LE length)
+        w.write_u16_le(input.redeem_script_len as u16)?;
         if input.redeem_script_len > 0 {
-            w.write_bytes(&input.redeem_script[..input.redeem_script_len])?;
+            w.write_bytes(tx.redeem_bytes(i))?;
         }
     }
 
@@ -1053,7 +1390,7 @@ pub fn serialize_signed_pskt_v2(tx: &Transaction, output: &mut [u8]) -> Result<u
         let out = &tx.outputs[i];
         w.write_u64_le(out.value)?;
         w.write_u16_le(out.script_public_key.version)?;
-        w.write_u8(out.script_public_key.script_len as u8)?;
+        w.write_spk_len(out.script_public_key.script_len)?;
         w.write_bytes(out.script_public_key.script_bytes())?;
     }
 
@@ -1063,6 +1400,10 @@ pub fn serialize_signed_pskt_v2(tx: &Transaction, output: &mut [u8]) -> Result<u
 /// Parse a v2 signed KSPT (with multisig signatures) back into a Transaction.
 /// Reads the sig_count + per-sig fields written by the v2 serializer.
 pub fn parse_signed_pskt_v2(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
+    // Clear stale state from previous scans -- the caller may reuse
+    // the same Transaction struct across consecutive QR sessions.
+    tx.clear();
+
     let mut r = ByteReader::new(data);
 
     let magic = r.read_bytes(4)?;
@@ -1070,7 +1411,7 @@ pub fn parse_signed_pskt_v2(data: &[u8], tx: &mut Transaction) -> Result<(), Psk
         return Err(PsktError::InvalidMagic);
     }
     let version = r.read_u8()?;
-    if version != 0x02 {
+    if version != 0x02 && version != FORMAT_VERSION_V3 {
         return Err(PsktError::UnsupportedVersion);
     }
     let _flags = r.read_u8()?; // 0x00=partial, 0x01=fully signed
@@ -1104,7 +1445,7 @@ pub fn parse_signed_pskt_v2(data: &[u8], tx: &mut Transaction) -> Result<(), Psk
         tx.inputs[i].sequence = r.read_u64_le()?;
         tx.inputs[i].sig_op_count = r.read_u8()?;
         tx.inputs[i].utxo_entry.script_public_key.version = r.read_u16_le()?;
-        let sl = r.read_u8()? as usize;
+        let sl = r.read_spk_len()?;
         if sl > MAX_SCRIPT_SIZE { return Err(PsktError::ScriptTooLong); }
         tx.inputs[i].utxo_entry.script_public_key.script_len = sl;
         let sb = r.read_bytes(sl)?;
@@ -1128,13 +1469,16 @@ pub fn parse_signed_pskt_v2(data: &[u8], tx: &mut Transaction) -> Result<(), Psk
             tx.inputs[i].sighash_type = tx.inputs[i].sigs[0].sighash_type;
         }
 
-        // Redeem script for P2SH round-trip
-        let rs_len = r.read_u8()? as usize;
-        tx.inputs[i].redeem_script_len = rs_len;
+        // Redeem script for P2SH round-trip (v3: u16 LE, v2: u8)
+        let rs_len = if version == FORMAT_VERSION_V3 {
+            r.read_u16_le()? as usize
+        } else {
+            r.read_u8()? as usize
+        };
         if rs_len > 0 {
-            if rs_len > MAX_SCRIPT_SIZE { return Err(PsktError::ScriptTooLong); }
+            if rs_len > MAX_REDEEM_SIZE { return Err(PsktError::ScriptTooLong); }
             let rs = r.read_bytes(rs_len)?;
-            tx.inputs[i].redeem_script[..rs_len].copy_from_slice(rs);
+            tx.store_redeem(i, rs).map_err(|_| PsktError::ScriptTooLong)?;
         }
     }
 
@@ -1142,11 +1486,34 @@ pub fn parse_signed_pskt_v2(data: &[u8], tx: &mut Transaction) -> Result<(), Psk
     for i in 0..no {
         tx.outputs[i].value = r.read_u64_le()?;
         tx.outputs[i].script_public_key.version = r.read_u16_le()?;
-        let sl = r.read_u8()? as usize;
+        let sl = r.read_spk_len()?;
         if sl > MAX_SCRIPT_SIZE { return Err(PsktError::ScriptTooLong); }
         tx.outputs[i].script_public_key.script_len = sl;
         let sb = r.read_bytes(sl)?;
         tx.outputs[i].script_public_key.script[..sl].copy_from_slice(sb);
+    }
+
+    // Stealth tweak trailer: if remaining bytes start with 0x53 ('S') + 32 bytes,
+    // read the stealth tweak. Backwards compatible with older KSPT v2 payloads.
+    if r.remaining() >= 33 && r.peek_u8() == Some(0x53) {
+        let _ = r.read_u8(); // consume marker
+        let tweak = r.read_bytes(32)?;
+        tx.stealth_tweak.copy_from_slice(tweak);
+        tx.has_stealth_tweak = true;
+    }
+
+    // Covenant trailer: 0x43 ('C') + output_index(u8) + auth_input(u16 LE) + covenant_id(32)
+    // May appear multiple times (one per covenanted output). Backwards compatible.
+    while r.remaining() >= 36 && r.peek_u8() == Some(0x43) {
+        let _ = r.read_u8(); // consume 'C' marker
+        let out_idx = r.read_u8()? as usize;
+        let auth_input = r.read_u16_le()?;
+        let cov_id = r.read_bytes(32)?;
+        if out_idx < tx.num_outputs {
+            tx.outputs[out_idx].has_covenant = true;
+            tx.outputs[out_idx].covenant_auth_input = auth_input;
+            tx.outputs[out_idx].covenant_id.copy_from_slice(cov_id);
+        }
     }
 
     Ok(())

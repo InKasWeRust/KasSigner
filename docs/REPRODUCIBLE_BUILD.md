@@ -1,6 +1,6 @@
 <!-- KasSigner — Air-gapped offline signing device for Kaspa -->
 <!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
-<!-- License: GPL-3.0 -->
+<!-- License: GPL-3.0-only -->
 
 # KasSigner — Reproducible Build Verification
 
@@ -22,7 +22,7 @@ was built from the public source code — no trust required.
 ```bash
 git clone https://github.com/InKasWeRust/KasSigner.git
 cd KasSigner
-git checkout <release-tag>  # e.g. v1.0.3 — use the tag you're verifying
+git checkout <release-tag>  # e.g. v1.0.4 — use the tag you're verifying
 ```
 
 ### 2. Build in Docker
@@ -77,6 +77,8 @@ The Dockerfile pins every component of the build environment:
 
 Because every input is frozen, the output is deterministic.
 Same source + same tools = same binary, every time.
+
+The same build also compile-verifies the KasSee WASM as a project-integrity check. This confirms the WASM compiles from source, but it is **not** a hash-reproducibility check — KasSee's `web/pkg/` bundle is served via gh-pages, not hash-pinned here.
 
 ## Re-running
 

@@ -184,51 +184,13 @@ pub(crate) fn write_file_to_sd(
     })
 }
 
-/// Generate a 12-byte nonce for AES-GCM from multiple entropy sources.
-/// Uses SYSTIMER (timing jitter), eFuse (chip-unique), WDEV RNG, and
-/// camera DMA write buffer (sensor noise) — hashed via SHA-256 and truncated.
+/// Generate a 12-byte nonce for AES-GCM.
+/// Thin wrapper over the shared collector in crypto::entropy, which
+/// enables RC_FAST (correct DIG_CLK8M_EN bit) and mixes SYSTIMER,
+/// eFuse, WDEV RNG, and camera sensor noise via SHA-256.
 pub(crate) fn generate_trng_nonce() -> [u8; 12] {
-    use sha2::{Sha256, Digest};
-    let mut hasher = Sha256::new();
-
-    // SYSTIMER — latch and read 52-bit free-running counter
-    unsafe {
-        core::ptr::write_volatile(0x6002_3004u32 as *mut u32, 1 << 30);
-        for _ in 0..20u32 { core::hint::spin_loop(); }
-        let lo = core::ptr::read_volatile(0x6002_3044u32 as *const u32);
-        let hi = core::ptr::read_volatile(0x6002_3040u32 as *const u32);
-        hasher.update(lo.to_le_bytes());
-        hasher.update(hi.to_le_bytes());
-    }
-
-    // eFuse MAC address (unique per chip)
-    unsafe {
-        let mac0 = core::ptr::read_volatile(0x6000_7044u32 as *const u32);
-        let mac1 = core::ptr::read_volatile(0x6000_7048u32 as *const u32);
-        hasher.update(mac0.to_le_bytes());
-        hasher.update(mac1.to_le_bytes());
-    }
-
-    // WDEV RNG (may return zeros without WiFi — harmless extra input)
-    for _ in 0..4u32 {
-        let rng_val = unsafe { core::ptr::read_volatile(0x6003_5144u32 as *const u32) };
-        hasher.update(rng_val.to_le_bytes());
-        for _ in 0..160u32 { core::hint::spin_loop(); }
-    }
-
-    // Camera DMA write buffer — first 64 bytes of sensor noise (Waveshare only)
-    #[cfg(feature = "waveshare")]
-    if let Some(pixels) = crate::hw::cam_dma::get_entropy_bytes() {
-        let len = pixels.len().min(64);
-        hasher.update(&pixels[..len]);
-    }
-
-    // Domain separator
-    hasher.update([0xAE, 0x5C]);
-
-    let hash = hasher.finalize();
     let mut nonce = [0u8; 12];
-    nonce.copy_from_slice(&hash[..12]);
+    crate::crypto::entropy::fill(&mut nonce);
     nonce
 }
 
@@ -351,6 +313,7 @@ pub fn handle_sd_touch(
                                     } else {
                                         ad.pp_input.reset();
                                         ad.app.state = crate::app::input::AppState::SdBackupPassphrase;
+                                        needs_redraw = true;
                                     }
                                 }
                                 _ => {}
@@ -536,7 +499,107 @@ pub fn handle_sd_touch(
                                                 len -= 1;
                                             }
 
-                                            if len >= 4 && buf[0] == b'K' && buf[1] == b'A' && buf[2] == b'S' && buf[3] == 0x01 {
+                                            if len >= 4 && buf[0] == b'C' && buf[1] == b'O' && buf[2] == b'V' && (buf[3] == b'B' || buf[3] == b'I') {
+                                                // Covenant backup/invite — display as QR
+                                                ad.signed_qr_buf[..len].copy_from_slice(&buf[..len]);
+                                                ad.signed_qr_len = len;
+
+                                                if len <= 134 {
+                                                    // Single frame: fits in V6
+                                                    boot_display.draw_qr_fullscreen(&ad.signed_qr_buf[..len], "Cov");
+                                                    delay.delay_millis(500);
+                                                    loop {
+                                                        delay.delay_millis(50);
+                                                        #[cfg(feature = "waveshare")]
+                                                        {
+                                                            let mut _tc = true;
+                                                            let (ts, _) = crate::hw::touch::read_touch_full(i2c, &mut _tc);
+                                                            if !matches!(ts, crate::hw::touch::TouchState::NoTouch) { break; }
+                                                        }
+                                                        #[cfg(feature = "m5stack")]
+                                                        {
+                                                            let ts = crate::hw::touch::read_touch(i2c);
+                                                            if !matches!(ts, crate::hw::touch::TouchState::NoTouch) { break; }
+                                                        }
+                                                    }
+                                                } else {
+                                                    // Multi-frame: split into chunks of 100 bytes max
+                                                    // Wire: [frame_idx:1][total:1][frag_len:1][payload]
+                                                    let max_frag: usize = 100;
+                                                    let n_frames = (len + max_frag - 1) / max_frag;
+                                                    let balanced = (len + n_frames - 1) / n_frames;
+                                                    let mut frame: usize = 0;
+                                                    let mut _tick: u32 = 0;
+                                                    boot_display.clear_screen();
+                                                    loop {
+                                                        // Draw current frame
+                                                        let offset = frame * balanced;
+                                                        let remaining = len.saturating_sub(offset);
+                                                        let frag_len = remaining.min(balanced);
+                                                        let mut fb = [0u8; 134];
+                                                        fb[0] = frame as u8;
+                                                        fb[1] = n_frames as u8;
+                                                        fb[2] = frag_len as u8;
+                                                        fb[3..3 + frag_len].copy_from_slice(&ad.signed_qr_buf[offset..offset + frag_len]);
+                                                        let qr_len = 3 + frag_len.max(20);
+
+                                                        // Blink-free: draw white quiet-zone over old QR, then dark modules
+                                                        if let Ok(qr) = crate::qr::encoder::encode(&fb[..qr_len]) {
+                                                            use embedded_graphics::prelude::*;
+                                                            use embedded_graphics::primitives::*;
+                                                            use crate::hw::display::*;
+
+                                                            let qr_size = qr.size as i32;
+                                                            let max_px = 232i32;
+                                                            let scale = (max_px / qr_size).max(1);
+                                                            let total_qr = qr_size * scale;
+                                                            let ox = (320i32 - total_qr) / 2;
+                                                            let oy = (240i32 - total_qr) / 2;
+
+                                                            // White background over QR area
+                                                            Rectangle::new(
+                                                                Point::new(ox - 4, oy - 4),
+                                                                Size::new((total_qr + 8) as u32, (total_qr + 8) as u32),
+                                                            ).into_styled(PrimitiveStyle::with_fill(COLOR_TEXT))
+                                                                .draw(&mut boot_display.display).ok();
+
+                                                            // Dark modules
+                                                            for my in 0..qr_size {
+                                                                for mx in 0..qr_size {
+                                                                    if qr.get(mx as u8, my as u8) {
+                                                                        Rectangle::new(
+                                                                            Point::new(ox + mx * scale, oy + my * scale),
+                                                                            Size::new(scale as u32, scale as u32),
+                                                                        ).into_styled(PrimitiveStyle::with_fill(COLOR_BG))
+                                                                            .draw(&mut boot_display.display).ok();
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+
+                                                        // Wait ~3s per frame, check for touch to exit
+                                                        let mut exit = false;
+                                                        for _ in 0..6u16 { // 6 * 50ms = 300ms
+                                                            delay.delay_millis(50);
+                                                            #[cfg(feature = "waveshare")]
+                                                            {
+                                                                let mut _tc = true;
+                                                                let (ts, _) = crate::hw::touch::read_touch_full(i2c, &mut _tc);
+                                                                if !matches!(ts, crate::hw::touch::TouchState::NoTouch) { exit = true; break; }
+                                                            }
+                                                            #[cfg(feature = "m5stack")]
+                                                            {
+                                                                let ts = crate::hw::touch::read_touch(i2c);
+                                                                if !matches!(ts, crate::hw::touch::TouchState::NoTouch) { exit = true; break; }
+                                                            }
+                                                        }
+                                                        if exit { break; }
+                                                        frame = (frame + 1) % n_frames;
+                                                        _tick += 1;
+                                                    }
+                                                }
+                                                needs_redraw = true;
+                                            } else if len >= 4 && buf[0] == b'K' && buf[1] == b'A' && buf[2] == b'S' && buf[3] == 0x01 {
                                                 // Encrypted seed backup (KAS\x01) — use original n, not trimmed
                                                 ad.pp_input.reset();
                                                 ad.app.state = crate::app::input::AppState::SdRestorePassphrase;
@@ -1318,7 +1381,7 @@ pub fn handle_sd_touch(
                                                 sdcard::list_root_dir(ct, &fat32, |entry| {
                                                     if !entry.is_dir()
                                                         && entry.file_size > 0
-                                                        && entry.file_size <= 256
+                                                        && entry.file_size <= 1024
                                                         && (ad.sd_file_count as usize) < 8
                                                         && entry.name[8] == b'T'
                                                         && entry.name[9] == b'X'
@@ -1362,7 +1425,7 @@ pub fn handle_sd_touch(
                                                 sdcard::list_root_dir(ct, &fat32, |entry| {
                                                     if !entry.is_dir()
                                                         && entry.file_size > 0
-                                                        && entry.file_size <= 256
+                                                        && entry.file_size <= 1024
                                                         && (ad.sd_file_count as usize) < 8
                                                         && entry.name[8] == b'T'
                                                         && entry.name[9] == b'X'
@@ -2325,6 +2388,9 @@ pub fn handle_sd_touch(
                             // "Auto Cycle" button: left
                             if (30..=155).contains(&x) && (140..=185).contains(&y) {
                                 ad.qr_manual_frames = false;
+                                ad.signed_qr_frame = 0; // start at frame 0 so the
+                                // frame-0 screen clear in redraw fires and wipes the
+                                // mode-choice text (Manual already resets this).
                                 ad.app.state = crate::app::input::AppState::ShowQR;
                             }
                             // "Manual" button: right
@@ -2346,6 +2412,7 @@ pub fn handle_sd_touch(
                             if (30..=155).contains(&x) && (140..=185).contains(&y) {
                                 ad.pp_input.reset();
                                 ad.app.state = ad.sd_overwrite_next;
+                                needs_redraw = true;
                             }
                             // "No" button — right: return to filename keyboard
                             else if (165..=290).contains(&x) && (140..=185).contains(&y) {

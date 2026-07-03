@@ -7,17 +7,18 @@
 // Checksum matches rusty-kaspa/crypto/addresses/src/bech32.rs exactly.
 // Supports: kaspa (mainnet), kaspatest (testnet), kaspasim, kaspadev
 
+//! Kaspa address encoding and decoding (Bech32m P2PK / P2SH).
+
 const CHARSET: &[u8] = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 
 const REV_CHARSET: [u8; 123] = [
-    100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-    100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-    100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-     15, 100,  10,  17,  21,  20,  26,  30,   7,   5, 100, 100, 100, 100, 100, 100,
-    100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-    100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-    100,  29, 100,  24,  13,  25,   9,   8,  23, 100,  18,  22,  31,  27,  19, 100,
-      1,   0,   3,  16,  11,  28,  12,  14,   6,   4,   2,
+    100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+    100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+    100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 15, 100, 10, 17, 21, 20, 26, 30, 7, 5, 100,
+    100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+    100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+    29, 100, 24, 13, 25, 9, 8, 23, 100, 18, 22, 31, 27, 19, 100, 1, 0, 3, 16, 11, 28, 12, 14, 6, 4,
+    2,
 ];
 
 /// Encode a 32-byte x-only public key as a Kaspa P2PK address with given prefix
@@ -32,11 +33,17 @@ pub fn encode_p2sh_address(script_hash: &[u8; 32], prefix: &str) -> String {
 
 /// Decode a Kaspa address → (version_byte, 32-byte payload)
 pub fn decode_address(addr: &str) -> Result<(u8, [u8; 32]), String> {
-    let prefix = if addr.starts_with("kaspa:") { "kaspa" }
-        else if addr.starts_with("kaspatest:") { "kaspatest" }
-        else if addr.starts_with("kaspasim:") { "kaspasim" }
-        else if addr.starts_with("kaspadev:") { "kaspadev" }
-        else { return Err("Unknown address prefix".into()); };
+    let prefix = if addr.starts_with("kaspa:") {
+        "kaspa"
+    } else if addr.starts_with("kaspatest:") {
+        "kaspatest"
+    } else if addr.starts_with("kaspasim:") {
+        "kaspasim"
+    } else if addr.starts_with("kaspadev:") {
+        "kaspadev"
+    } else {
+        return Err("Unknown address prefix".into());
+    };
 
     let data_part = &addr[prefix.len() + 1..]; // skip "prefix:"
     if data_part.len() < 9 {
@@ -66,7 +73,10 @@ pub fn decode_address(addr: &str) -> Result<(u8, [u8; 32]), String> {
     };
 
     if computed != expected {
-        return Err(format!("Checksum mismatch: computed {:#x}, expected {:#x}", computed, expected));
+        return Err(format!(
+            "Checksum mismatch: computed {:#x}, expected {:#x}",
+            computed, expected
+        ));
     }
 
     // Convert 5-bit → 8-bit
@@ -142,17 +152,32 @@ fn polymod(values: impl Iterator<Item = u8>) -> u64 {
     for d in values {
         let c0 = c >> 35;
         c = ((c & 0x07ffffffff) << 5) ^ (d as u64);
-        if c0 & 0x01 != 0 { c ^= 0x98f2bc8e61; }
-        if c0 & 0x02 != 0 { c ^= 0x79b76d99e2; }
-        if c0 & 0x04 != 0 { c ^= 0xf33e5fb3c4; }
-        if c0 & 0x08 != 0 { c ^= 0xae2eabe2a8; }
-        if c0 & 0x10 != 0 { c ^= 0x1e4f43e470; }
+        if c0 & 0x01 != 0 {
+            c ^= 0x98f2bc8e61;
+        }
+        if c0 & 0x02 != 0 {
+            c ^= 0x79b76d99e2;
+        }
+        if c0 & 0x04 != 0 {
+            c ^= 0xf33e5fb3c4;
+        }
+        if c0 & 0x08 != 0 {
+            c ^= 0xae2eabe2a8;
+        }
+        if c0 & 0x10 != 0 {
+            c ^= 0x1e4f43e470;
+        }
     }
     c ^ 1
 }
 
 fn checksum_value(payload: &[u8], prefix: impl Iterator<Item = u8>) -> u64 {
-    polymod(prefix.chain([0u8]).chain(payload.iter().copied()).chain([0u8; 8]))
+    polymod(
+        prefix
+            .chain([0u8])
+            .chain(payload.iter().copied())
+            .chain([0u8; 8]),
+    )
 }
 
 // Convert 8-bit array to 5-bit array with right padding

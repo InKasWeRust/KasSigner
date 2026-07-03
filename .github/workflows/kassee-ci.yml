@@ -1,0 +1,49 @@
+# kassee (KasSee Web) CI — lint + audit for the wasm crate.
+# Place at repo root: .github/workflows/kassee-ci.yml
+# The repo-root rust-toolchain.toml pins the `esp` channel for the firmware,
+# so this overrides RUSTUP_TOOLCHAIN=stable (matching kassee/build.sh).
+name: kassee CI
+
+on:
+  push:
+    paths: ["kassee/**"]
+  pull_request:
+    paths: ["kassee/**"]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTUP_TOOLCHAIN: stable
+
+jobs:
+  lint:
+    name: fmt + clippy (wasm)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kassee
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: kassee
+      - name: Format check
+        run: cargo fmt --all -- --check
+      - name: Clippy (wasm target, deny warnings)
+        run: cargo clippy --lib --target wasm32-unknown-unknown -- -D warnings
+
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: kassee
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit

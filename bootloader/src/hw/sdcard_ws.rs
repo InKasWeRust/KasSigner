@@ -995,16 +995,24 @@ pub fn init_sdhost(delay: &mut Delay) -> Result<SdCardType, &'static str> {
 
     let saved = save_display_state();
 
-    // Enable SDHOST peripheral (configures clock source in CLK_DIV_EDGE)
     sdhost_enable_peripheral();
-
-    // Route GPIOs to SDHOST BEFORE reset/init — CIU needs clock path
     route_pins_to_sdhost();
 
-    // Initialize card
     let result = sdhost_init_card(delay);
 
-    // Restore display GPIO routing
+    // After CMD7 SELECT_CARD, the card drives D0 (GPIO40) for busy signaling.
+    // On the eFuse board, the card holding D0 during restore_display_state
+    // corrupts the ST7789T3 MADCTL register.
+    // Fix: deselect card so it releases D0, disconnect SDHOST D0 input signal.
+    if result.is_ok() {
+        let _ = sdhost_send_cmd(7, 0, CMD_RESP_EXPECT); // deselect
+        unsafe { CARD_RCA = 0; }
+        // Disconnect SDHOST data input from GPIO40 so card can't drive it
+        unsafe {
+            reg_write(func_in_sel_addr(SDHOST_CDATA_IN_10), 0xBC); // constant LOW
+        }
+    }
+
     restore_display_state(&saved);
 
     match result {
@@ -1099,9 +1107,13 @@ where
     crate::hw::sound::stop_ticking();
 
     // After any SD operation, deselect card and force full re-init next time.
-    // This prevents stale card state after writes (programming not yet flushed).
     let _ = sdhost_send_cmd(7, 0, CMD_RESP_EXPECT); // CMD7 with RCA=0 → deselect
     unsafe { CARD_RCA = 0; }
+
+    // Disconnect SDHOST D0 input before restoring display
+    unsafe {
+        reg_write(func_in_sel_addr(SDHOST_CDATA_IN_10), 0xBC);
+    }
 
     // Restore display
     restore_display_state(&saved);
@@ -1512,7 +1524,7 @@ pub fn create_file_progress(
             // How many full sectors can we write from the data?
             let full_sectors = (remaining / 512).min(spc as usize) as u32;
 
-            if full_sectors > 1 {
+            if full_sectors >= 1 {
                 // Multi-block write for full sectors
                 let write_bytes = full_sectors as usize * 512;
                 fast_write_multi_block(card_type, base_sector, &data[pos..pos + write_bytes], full_sectors)?;

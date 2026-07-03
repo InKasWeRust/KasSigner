@@ -638,7 +638,7 @@ pub fn parse_pskt(
     parsed.json_start = 0;
     parsed.json_len = json_len as u16;
 
-    *tx = Transaction::new();
+    tx.clear();
 
     let mut tok = Tokenizer::new(json);
     parse_bundle_array(&mut tok, tx, parsed)?;
@@ -1415,6 +1415,41 @@ fn parse_output(
                 // carry signer-relevant redeem scripts in our flow).
                 skip_value(tok)?;
             }
+            b"covenantBinding" => {
+                // KIP-20 covenant binding: null or { "authorizingInput": N, "covenantId": "hex" }
+                match tok.peek()? {
+                    Tok::Null => {
+                        tok.next()?;
+                        out.has_covenant = false;
+                    }
+                    Tok::LBrace => {
+                        tok.next()?;
+                        out.has_covenant = true;
+                        loop {
+                            let cb_key = expect_string(tok)?;
+                            expect(tok, Tok::Colon)?;
+                            match cb_key {
+                                b"authorizingInput" => {
+                                    out.covenant_auth_input = expect_u64(tok)? as u16;
+                                }
+                                b"covenantId" => {
+                                    let hex_str = expect_string(tok)?;
+                                    if hex_str.len() == 64 {
+                                        let _ = hex_decode_strict(hex_str, &mut out.covenant_id);
+                                    }
+                                }
+                                _ => { skip_value(tok)?; }
+                            }
+                            match tok.next()? {
+                                Tok::Comma => continue,
+                                Tok::RBrace => break,
+                                _ => return Err(PskError::UnexpectedToken),
+                            }
+                        }
+                    }
+                    _ => { skip_value(tok)?; }
+                }
+            }
             b"bip32Derivations" | b"proprietaries" => {
                 // Opaque maps. Capture only if non-empty so the 16-slot
                 // budget survives realistic 2-of-3 multisig shapes.
@@ -1789,7 +1824,7 @@ fn emit_input(
     if inp.redeem_script_len == 0 {
         w.lit(b"null")?;
     } else {
-        w.hex_string_field(&inp.redeem_script[..inp.redeem_script_len])?;
+        w.hex_string_field(tx.redeem_bytes(idx))?;
     }
 
     w.lit(b",\"sigOpCount\":")?;

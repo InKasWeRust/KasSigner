@@ -164,7 +164,11 @@ use features::verify::{FirmwareInfo, VerificationResult, FIRMWARE_START_ADDR, FI
 esp_bootloader_esp_idf::esp_app_desc!();
 
 /// Global flag: redraw sets this to reset QR decoder state on screen change.
-pub static mut QR_RESET_FLAG: bool = false;
+/// AtomicBool (Relaxed): same single instruction on Xtensa as the old
+/// `static mut bool`, but sound if ever touched from an interrupt, and
+/// clean under the 2024-edition `static_mut_refs` rules.
+pub static QR_RESET_FLAG: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
 
 /// Active sensor type on Waveshare (runtime auto-detect).
 /// false = OV5640 (default), true = OV2640.
@@ -987,6 +991,39 @@ fn main() -> ! {
         // ─── Signing, redraw, camera ─────────────────────────────
         app::signing::handle_signing_step(ad, &mut boot_display, &mut delay);
 
+        // COVB: if camera detected covenant backup, save to SD
+        if ad.covb_len > 0
+            && !matches!(ad.app.state, app::input::AppState::CovBackupName)
+        {
+            let n = ad.covb_len;
+            // Use filename from sd_file_list[0] (set by keyboard OK), or auto-generate
+            let fname = if ad.sd_file_list[0][0] != b' ' && ad.sd_file_list[0][0] != 0 {
+                ad.sd_file_list[0]
+            } else {
+                let hx = b"0123456789ABCDEF";
+                let mut f = *b"COV00000COV";
+                for i in 0..5usize {
+                    if i + 4 < n { f[3 + i] = hx[(ad.signed_qr_buf[4 + i] >> 4) as usize]; }
+                }
+                f
+            };
+            boot_display.draw_saving_screen("Saving covenant...");
+            match handlers::sd::write_file_to_sd(&mut i2c, &mut delay, &fname, &ad.signed_qr_buf[..n]) {
+                Ok(()) => {
+                    log!("   COVB saved ({} bytes)", n);
+                    boot_display.draw_success_screen("Covenant saved to SD");
+                }
+                Err(e) => {
+                    log!("   COVB save failed: {}", e);
+                    boot_display.draw_rejected_screen("SD write failed");
+                }
+            }
+            ad.covb_len = 0;
+            ad.sd_file_list[0] = [b' '; 11]; // clear filename
+            delay.delay_millis(1500);
+            ad.needs_redraw = true;
+        }
+
         if ad.needs_redraw {
             ad.idle_ticks = 0;
             ad.needs_redraw = false;
@@ -1029,11 +1066,13 @@ fn main() -> ! {
         let camera_active = matches!(
             ad.app.state,
             app::input::AppState::ScanQR | app::input::AppState::CameraSettings
+            | app::input::AppState::SignMsgScanQr | app::input::AppState::DecryptSecretScan
         );
         #[cfg(feature = "m5stack")]
         let camera_active = matches!(
             ad.app.state,
             app::input::AppState::ScanQR
+            | app::input::AppState::SignMsgScanQr | app::input::AppState::DecryptSecretScan
         );
 
         if camera_active

@@ -6,6 +6,9 @@
 // Matches KasSigner's multi-frame QR format:
 //   [frame_num(1)] [total_frames(1)] [frag_len(1)] [data(frag_len)]
 
+//! Animated-QR frame encoding and decoding for air-gapped transfer between
+//! KasSee and KasSigner.
+
 use serde::Serialize;
 use std::cell::RefCell;
 use std::fmt::Write;
@@ -27,8 +30,7 @@ pub struct QrFrame {
 }
 
 pub fn generate_frames(kspt_hex: &str) -> Result<Vec<QrFrame>, String> {
-    let data = hex::decode(kspt_hex)
-        .map_err(|e| format!("Invalid hex: {}", e))?;
+    let data = hex::decode(kspt_hex).map_err(|e| format!("Invalid hex: {}", e))?;
 
     if data.is_empty() {
         return Err("Empty data".into());
@@ -47,7 +49,12 @@ pub fn generate_frames(kspt_hex: &str) -> Result<Vec<QrFrame>, String> {
     // Multi-frame
     let total_frames = data.len().div_ceil(MAX_FRAME_DATA);
     if total_frames > MAX_FRAMES {
-        return Err(format!("Too large: {} bytes ({} frames, max {})", data.len(), total_frames, MAX_FRAMES));
+        return Err(format!(
+            "Too large: {} bytes ({} frames, max {})",
+            data.len(),
+            total_frames,
+            MAX_FRAMES
+        ));
     }
 
     let balanced_size = data.len().div_ceil(total_frames);
@@ -84,8 +91,7 @@ pub fn generate_frames(kspt_hex: &str) -> Result<Vec<QrFrame>, String> {
 fn qr_to_svg(data: &[u8]) -> Result<String, String> {
     use qrcode::QrCode;
 
-    let code = QrCode::new(data)
-        .map_err(|e| format!("QR failed: {:?}", e))?;
+    let code = QrCode::new(data).map_err(|e| format!("QR failed: {:?}", e))?;
 
     let modules = code.to_colors();
     let size = code.width();
@@ -99,7 +105,11 @@ fn qr_to_svg(data: &[u8]) -> Result<String, String> {
         if *color == qrcode::types::Color::Dark {
             let x = (i % size) + border;
             let y = (i / size) + border;
-            let _ = write!(svg, "<rect x=\"{}\" y=\"{}\" width=\"1\" height=\"1\" fill=\"black\"/>", x, y);
+            let _ = write!(
+                svg,
+                "<rect x=\"{}\" y=\"{}\" width=\"1\" height=\"1\" fill=\"black\"/>",
+                x, y
+            );
         }
     }
 
@@ -138,8 +148,7 @@ impl DecoderState {
 }
 
 pub fn decode_frame(frame_hex: &str) -> Result<Option<String>, String> {
-    let payload = hex::decode(frame_hex)
-        .map_err(|e| format!("Invalid hex: {}", e))?;
+    let payload = hex::decode(frame_hex).map_err(|e| format!("Invalid hex: {}", e))?;
 
     if payload.len() < 3 {
         return Err("Frame too short".into());
@@ -196,10 +205,30 @@ pub fn decoder_progress() -> String {
     DECODER.with(|cell| {
         let state = cell.borrow();
         let total = state.total_frames as usize;
-        if total == 0 { return "0/0".into(); }
+        if total == 0 {
+            return "0/0".into();
+        }
         let received = (0..total).filter(|&i| state.received[i]).count();
-        // Return JSON: {"received": [true,false,true,...], "total": 6, "count": 3}
-        let bits: Vec<String> = (0..total).map(|i| if state.received[i] { "1".into() } else { "0".into() }).collect();
-        format!("{{\"total\":{},\"count\":{},\"bits\":[{}]}}", total, received, bits.join(","))
+        let bits: Vec<String> = (0..total)
+            .map(|i| {
+                if state.received[i] {
+                    "1".into()
+                } else {
+                    "0".into()
+                }
+            })
+            .collect();
+        format!(
+            "{{\"total\":{},\"count\":{},\"bits\":[{}]}}",
+            total,
+            received,
+            bits.join(",")
+        )
     })
+}
+
+/// Generate a single QR code SVG from a plain UTF-8 string (no framing, no hex encoding).
+/// Used for swap invites and other non-KSPT data exchange.
+pub fn generate_svg_from_text(text: &str) -> Result<String, String> {
+    qr_to_svg(text.as_bytes())
 }

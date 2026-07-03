@@ -285,8 +285,10 @@ pub fn handle_seed_touch(
                                 }
                                 KeyAction::Ok => {
                                     if let Some(idx) = ad.word_input.matched_index {
-                                        log!("   Word {}: {} (idx {})", word_idx + 1,
-                                            wallet::bip39::index_to_word(idx), idx);
+                                        // Never log the word text or its BIP39 index:
+                                        // the index IS the word (public wordlist), and
+                                        // non-silent builds emit this over USB serial.
+                                        log!("   Word {}/{} accepted", word_idx + 1, wc);
                                         ad.mnemonic_indices[word_idx as usize] = idx;
                                         ad.word_input.reset();
                                         let next = word_idx + 1;
@@ -336,7 +338,7 @@ pub fn handle_seed_touch(
                                 ad.mnemonic_indices[(wc - 1) as usize] = last_idx;
                                 ad.word_count = wc;
                                 let last_word = wallet::bip39::index_to_word(last_idx);
-                                log!("   Last word: #{} = {}", wc, last_word);
+                                log!("   Last word #{} computed", wc);
                                 boot_display.draw_word_screen(wc - 1, wc, last_word);
                                 delay.delay_millis(3000);
                                 ad.pp_input.reset();
@@ -369,7 +371,7 @@ pub fn handle_seed_touch(
                                             ad.mnemonic_indices[(wc - 1) as usize] = last_idx;
                                             ad.word_count = wc;
                                             let last_word = wallet::bip39::index_to_word(last_idx);
-                                            log!("   Last word: #{} = {}", wc, last_word);
+                                            log!("   Last word #{} computed", wc);
                                             boot_display.draw_word_screen(wc - 1, wc, last_word);
                                             delay.delay_millis(3000);
                                             ad.pp_input.reset();
@@ -414,7 +416,10 @@ pub fn handle_seed_touch(
                                         ad.pubkeys_cached = false;
                                         ad.current_addr_index = 0;
                                         ad.extra_pubkey_index = 0xFFFF;
-                                        log!("   Seed stored in slot {} (pp={})", slot_idx, ad.pp_input.len);
+                                        // Log only whether a passphrase was used, never its
+                                        // length (length narrows brute-force space).
+                                        log!("   Seed stored in slot {} (pp={})", slot_idx,
+                                            if ad.pp_input.len > 0 { "yes" } else { "no" });
                                         sound::success(delay);
                                         ad.pp_input.reset();
                                         // If mid-multisig creation, return to seed picker

@@ -295,38 +295,43 @@ fn load_af_firmware<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, delay: &mut Dela
     crate::log!("   OV5640 AF continuous: status={:?}", af_sta2);
 }
 
-/// Initialize OV5640 for 480×480 YUV422 output (for PSRAM DMA pipeline).
+/// Initialize OV5640 for 480x480 YUV422 output (for PSRAM DMA pipeline).
 ///
-/// Uses 960×960 center crop from the 2592×1944 sensor array (~2× zoom),
-/// then DCW 2× downscale → 480×480 DVP output. Same PLL and ISP settings
-/// as the 320×240 mode.
+/// Uses 960x960 center crop from the 2592x1944 sensor array (~2x zoom),
+/// then DCW 2x downscale -> 480x480 DVP output. Same PLL and ISP settings
+/// as the 320x240 mode.
 ///
-/// 960×960 center crop geometry:
+/// 960x960 center crop geometry:
 ///   X start = (2592-960)/2 = 816 = 0x0330
 ///   X end   = 816+960-1     = 1775 = 0x06EF
 ///   Y start = (1944-960)/2 = 492 = 0x01EC
 ///   Y end   = 492+960-1     = 1451 = 0x05AB
-///   Sub-sampling: 0x11 (none — required for clean image)
-///   DCW: 2× (960→480)
+///   Sub-sampling: 0x11 (none - required for clean image)
+///   DCW: 2x (960->480)
 pub fn init_480<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, delay: &mut Delay) -> Result<(), &'static str> {
     // First do normal init (sets PLL, analog, ISP, AF firmware)
     init(i2c, delay)?;
 
     crate::log!("   OV5640: upgrading to 480x480 YUV422...");
 
-    // Override window + output + DCW for 480×480
+    // Override window + output + DCW for 480x480
     for &(reg, val) in OV5640_480_OVERRIDES {
         if !write_reg(i2c, reg, val) {
-            return Err("OV5640: 480×480 override SCCB write failed");
+            return Err("OV5640: 480x480 override SCCB write failed");
         }
     }
     delay.delay_millis(100);
 
-    // ── Close-range LCD QR tuning ──
-    // Applied on top of the 480×480 window. These are sensor-level defaults
-    // biased toward the hard case: fixed-focus OV5640 pointed at a close
-    // LCD screen (M5Stack CoreS3 at ~5cm). Paper decode still works because
-    // the rqrr adaptive binarizer handles the sharper input either way.
+    // OV5640-AF module: flip both axes to compensate for 180-degree
+    // physical rotation of the AF module vs the fixed-focus module.
+    #[cfg(feature = "ov5640-af")]
+    {
+        write_reg(i2c, 0x3820, 0x47); // vertical flip ON (bit6 + bit2:1)
+        write_reg(i2c, 0x3821, 0x06); // horizontal mirror ON (bit2:1)
+        crate::log!("   OV5640-AF: orientation flipped (H+V) for AF module");
+    }
+
+    // Close-range LCD QR tuning
     for &(reg, val) in OV5640_LCD_QR_TUNING {
         if !write_reg(i2c, reg, val) {
             return Err("OV5640: LCD QR tuning SCCB write failed");
@@ -377,7 +382,7 @@ static OV5640_480_OVERRIDES: &[(u16, u8)] = &[
     (0x5600, 0x10), // DCW enable
     (0x5601, 0x11), // 2× in both H and V (was 0x22 for 4×)
 
-    // ── Flip/mirror: same as 320×240 ──
+    // ── Flip/mirror: default orientation, overridden by apply_af_orientation() ──
     (0x3820, 0x41), (0x3821, 0x00),
 ];
 
@@ -445,6 +450,48 @@ static OV5640_LCD_QR_TUNING: &[(u16, u8)] = &[
     // 0x5586/0x5587. Enable both bits so slider adjustments take effect.
     (0x5580, 0x06),
 ];
+
+/// Trigger a single-shot autofocus and wait for completion.
+/// Returns true if focus was achieved, false on timeout.
+/// Only functional when the `af` feature is enabled and AF firmware is loaded.
+#[cfg(feature = "af")]
+pub fn trigger_autofocus<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, delay: &mut Delay) -> bool {
+    // Release any previous focus hold
+    write_reg(i2c, 0x3022, 0x08);
+    delay.delay_millis(10);
+    // Trigger single-shot AF
+    write_reg(i2c, 0x3022, 0x03);
+    // Wait up to 2 seconds for focus
+    for _ in 0..40 {
+        delay.delay_millis(50);
+        if let Some(status) = read_reg(i2c, 0x3029) {
+            if status == 0x10 {
+                crate::log!("   OV5640 AF: focused (0x10)");
+                return true;
+            }
+        }
+    }
+    let final_status = read_reg(i2c, 0x3029);
+    crate::log!("   OV5640 AF: timeout, status={:?}", final_status);
+    false
+}
+
+/// Start continuous autofocus. The VCM motor continuously adjusts.
+/// Call once after init, before entering the camera loop.
+#[cfg(feature = "af")]
+pub fn start_continuous_af<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C) {
+    write_reg(i2c, 0x3022, 0x04);
+    write_reg(i2c, 0x3023, 0x01);
+}
+
+/// No-op stubs when AF is not compiled in.
+#[cfg(not(feature = "af"))]
+pub fn trigger_autofocus<I2C: embedded_hal::i2c::I2c>(_i2c: &mut I2C, _delay: &mut Delay) -> bool {
+    false
+}
+
+#[cfg(not(feature = "af"))]
+pub fn start_continuous_af<I2C: embedded_hal::i2c::I2c>(_i2c: &mut I2C) {}
 
 #[cfg(feature = "af")]
 include!("ov5640_af_fw.rs");

@@ -10,7 +10,10 @@ name = "kassee-web"
 version = "1.0.3"
 edition = "2021"
 description = "KasSee Web — browser-based watch-only wallet for air-gapped KasSigner"
-license = "GPL-3.0"
+license = "GPL-3.0-only"
+repository = "https://github.com/InKasWeRust/KasSigner"
+keywords = ["kaspa", "wallet", "wasm", "covenant", "watch-only"]
+categories = ["cryptography::cryptocurrencies", "wasm"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -49,6 +52,9 @@ bs58 = { version = "0.5", features = ["check"] }
 # Blake2b for Kaspa hashing
 blake2b_simd = "1"
 
+# Blake3 for KCC20 oracle message hashing (matches engine OpBlake3). Pure Rust for wasm.
+blake3 = { version = "1", default-features = false }
+
 # QR generation (pure Rust)
 qrcode = "0.14"
 
@@ -60,6 +66,20 @@ console_error_panic_hook = "0.1"
 
 # getrandom for WASM
 getrandom = { version = "0.2", features = ["js"] }
+
+# Arkworks ZK — Groth16 prover over BN254 (same curve as Kaspa node verifier)
+# Must match node's arkworks version for byte-compatible proof/VK serialization.
+# std enabled: KasSee runs in browser WASM (cdylib), not no_std.
+ark-ff = { version = "0.5", default-features = false, features = ["std"] }
+ark-ec = { version = "0.5", default-features = false, features = ["std"] }
+ark-bn254 = { version = "0.5", default-features = false, features = ["curve"] }
+ark-groth16 = { version = "0.5", default-features = false, features = ["std"] }
+ark-relations = { version = "0.5", default-features = false, features = ["std"] }
+ark-serialize = { version = "0.5", default-features = false, features = ["std"] }
+ark-std = { version = "0.5", default-features = false, features = ["std"] }
+ark-snark = { version = "0.5", default-features = false }
+ark-r1cs-std = { version = "0.5", default-features = false }
+ark-crypto-primitives = { version = "0.5", default-features = false, features = ["snark", "crh"] }
 
 [profile.release]
 opt-level = "s"
