@@ -1,7 +1,9 @@
 # kassee (KasSee Web) CI — lint + audit for the wasm crate.
 # Place at repo root: .github/workflows/kassee-ci.yml
-# The repo-root rust-toolchain.toml pins the `esp` channel for the firmware,
-# so this overrides RUSTUP_TOOLCHAIN=stable (matching kassee/build.sh).
+# Toolchain pinned to 1.94.1 — the stable that formats this codebase —
+# so rustfmt/clippy results agree between CI and the dev machine. The
+# firmware's reproducible Docker build stays pinned separately (1.85.0
+# in Dockerfile.base); this lint job does not need to match it.
 name: kassee CI
 
 on:
@@ -12,7 +14,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTUP_TOOLCHAIN: stable
+  RUSTUP_TOOLCHAIN: "1.94.1"
 
 jobs:
   lint:
@@ -23,7 +25,7 @@ jobs:
         working-directory: kassee
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.94.1
         with:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
@@ -44,6 +46,6 @@ jobs:
         working-directory: kassee
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.94.1
       - run: cargo install cargo-audit --locked
       - run: cargo audit
