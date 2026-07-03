@@ -636,12 +636,16 @@ fn rd_u16(b: &[u8], pos: &mut usize) -> Result<u16, String> {
 
 fn rd_u32(b: &[u8], pos: &mut usize) -> Result<u32, String> {
     let s = rd_take(b, pos, 4)?;
-    Ok(u32::from_le_bytes(s.try_into().expect("rd_take returned 4 bytes")))
+    Ok(u32::from_le_bytes(
+        s.try_into().expect("rd_take returned 4 bytes"),
+    ))
 }
 
 fn rd_u64(b: &[u8], pos: &mut usize) -> Result<u64, String> {
     let s = rd_take(b, pos, 8)?;
-    Ok(u64::from_le_bytes(s.try_into().expect("rd_take returned 8 bytes")))
+    Ok(u64::from_le_bytes(
+        s.try_into().expect("rd_take returned 8 bytes"),
+    ))
 }
 
 pub async fn broadcast_signed(ws_url: &str, signed_hex: &str) -> Result<String, String> {
@@ -717,8 +721,8 @@ pub async fn broadcast_signed(ws_url: &str, signed_hex: &str) -> Result<String, 
 
         if version == 0x01 {
             // v1: sig_len(1) + sig(sig_len) + sighash_type(1)
-            let sig_len = rd_u8(&bytes, &mut pos)
-                .map_err(|_| "KSPT truncated at sig".to_string())? as usize;
+            let sig_len =
+                rd_u8(&bytes, &mut pos).map_err(|_| "KSPT truncated at sig".to_string())? as usize;
             if sig_len > 0 {
                 let sig_bytes = rd_take(&bytes, &mut pos, sig_len)
                     .map_err(|_| "KSPT truncated at sig data".to_string())?
@@ -732,7 +736,8 @@ pub async fn broadcast_signed(ws_url: &str, signed_hex: &str) -> Result<String, 
         } else {
             // v2: sig_count(1) + [pubkey_pos(1) + sighash_type(1) + sig(64)] × sig_count + redeem_script
             let sig_count = rd_u8(&bytes, &mut pos)
-                .map_err(|_| "KSPT truncated at v2 sig".to_string())? as usize;
+                .map_err(|_| "KSPT truncated at v2 sig".to_string())?
+                as usize;
             if sig_count == 0 {
                 return Err("Input has no signatures".into());
             }
@@ -765,7 +770,8 @@ pub async fn broadcast_signed(ws_url: &str, signed_hex: &str) -> Result<String, 
 
                 // Redeem script — read it first to get M
                 let rs_len = rd_u8(&bytes, &mut pos)
-                    .map_err(|_| "KSPT truncated at redeem script".to_string())? as usize;
+                    .map_err(|_| "KSPT truncated at redeem script".to_string())?
+                    as usize;
                 let redeem_script = if rs_len > 0 {
                     let rs = rd_take(&bytes, &mut pos, rs_len)
                         .map_err(|_| "KSPT truncated at redeem data".to_string())?;
@@ -844,12 +850,11 @@ pub async fn broadcast_signed(ws_url: &str, signed_hex: &str) -> Result<String, 
 
     let mut outputs = Vec::new();
     for _o in 0..num_outputs {
-        let value = rd_u64(&bytes, &mut pos)
-            .map_err(|_| "KSPT truncated at output".to_string())?;
-        let spk_version = rd_u16(&bytes, &mut pos)
-            .map_err(|_| "KSPT truncated at output".to_string())?;
-        let spk_len = rd_u8(&bytes, &mut pos)
-            .map_err(|_| "KSPT truncated at output".to_string())? as usize;
+        let value = rd_u64(&bytes, &mut pos).map_err(|_| "KSPT truncated at output".to_string())?;
+        let spk_version =
+            rd_u16(&bytes, &mut pos).map_err(|_| "KSPT truncated at output".to_string())?;
+        let spk_len =
+            rd_u8(&bytes, &mut pos).map_err(|_| "KSPT truncated at output".to_string())? as usize;
         let spk_script = rd_take(&bytes, &mut pos, spk_len)
             .map_err(|_| "KSPT truncated at output spk".to_string())?
             .to_vec();

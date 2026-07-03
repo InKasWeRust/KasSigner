@@ -4399,7 +4399,6 @@ impl<'a> KsptReader<'a> {
     }
 }
 
-
 /// Assemble the RISC0 ZK-bridge withdrawal sig_script.
 /// The bridge redeem COMMITS journal/image_id/control_id/hashfn, so only the
 /// bottom four fields + owner sig + ELSE selector are supplied here:

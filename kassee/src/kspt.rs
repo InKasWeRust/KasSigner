@@ -70,9 +70,8 @@ pub(crate) fn storage_mass_estimate(ins: &[(u64, u64)], outs: &[(u64, u64)]) -> 
     }
 
     let ins_plurality: u64 = ins.iter().map(|&(_, p)| p).sum();
-    let relaxed = outs_plurality == 1
-        || ins_plurality == 1
-        || (outs_plurality == 2 && ins_plurality == 2);
+    let relaxed =
+        outs_plurality == 1 || ins_plurality == 1 || (outs_plurality == 2 && ins_plurality == 2);
 
     if relaxed {
         let harmonic_ins = ins.iter().fold(0u64, |acc, &(amount, p)| {
