@@ -49,4 +49,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.94.1
       - run: cargo install cargo-audit --locked
-      - run: cargo audit
+      # RUSTSEC-2025-0055 (tracing-subscriber 0.2.x, ANSI escapes in logs):
+      # transitive dep of the arkworks ZK stack; not used for untrusted
+      # input logging in KasSee. Reviewed and accepted 2026-07-03.
+      - run: cargo audit --ignore RUSTSEC-2025-0055
