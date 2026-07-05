@@ -125,14 +125,14 @@ pub fn handle_export_touch(
                     }
                     crate::app::input::AppState::AddrIndexPicker => {
                         if is_back {
+                            // ms_picking_key: 255 = multisig wallet index picker,
+                            // 0 = plain address picking. (Former per-key values
+                            // 1..254 died with the MultisigPickAddr screen.)
                             if ad.ms_picking_key == 255 {
                                 ad.ms_picking_key = 0;
                                 ad.app.state = crate::app::input::AppState::MultisigShowAddress;
-                            } else if ad.ms_picking_key > 0 {
-                                let ki = ad.ms_picking_key - 1;
-                                ad.ms_picking_key = 0;
-                                ad.app.state = crate::app::input::AppState::MultisigPickAddr { key_idx: ki };
                             } else {
+                                ad.ms_picking_key = 0;
                                 ad.app.state = crate::app::input::AppState::ShowAddress;
                             }
                             needs_redraw = true;
@@ -208,13 +208,8 @@ pub fn handle_export_touch(
                                                         ad.current_addr_index, &mut ad.extra_pubkey);
                                                     ad.extra_pubkey_index = ad.current_addr_index;
                                                 }
-                                                if ad.ms_picking_key > 0 {
-                                                    let ki = ad.ms_picking_key - 1;
-                                                    ad.ms_picking_key = 0;
-                                                    ad.app.state = crate::app::input::AppState::MultisigPickAddr { key_idx: ki };
-                                                } else {
-                                                    ad.app.state = crate::app::input::AppState::ShowAddress;
-                                                }
+                                                ad.ms_picking_key = 0;
+                                                ad.app.state = crate::app::input::AppState::ShowAddress;
                                             }
                                             needs_redraw = true;
                                         }
@@ -400,11 +395,16 @@ pub fn handle_export_touch(
                             // Left button: Auto Cycle
                             ad.kpub_manual_frames = false;
                             ad.kpub_frame = 0;
+                            // Black background for the frame display —
+                            // draw_qr_screen_left never clears (anti-blink),
+                            // so clear once on entry.
+                            boot_display.clear_screen();
                             ad.app.state = crate::app::input::AppState::ExportKpub;
                         } else {
                             // Right button: Manual
                             ad.kpub_manual_frames = true;
                             ad.kpub_frame = 0;
+                            boot_display.clear_screen();
                             ad.app.state = crate::app::input::AppState::ExportKpub;
                         }
                         needs_redraw = true;
@@ -450,6 +450,9 @@ pub fn handle_export_touch(
                             // "Back to QR" button — right
                             else if (165..=290).contains(&x) && (140..=185).contains(&y) {
                                 ad.kpub_frame = 0;
+                                // Popup remnants would otherwise stay as
+                                // background (frame renderer never clears).
+                                boot_display.clear_screen();
                                 ad.app.state = crate::app::input::AppState::ExportKpub;
                                 needs_redraw = true;
                             }

@@ -439,32 +439,38 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
 
             let mut out_text = heapless::String::<32>::new();
             write!(&mut out_text, "Out: {}.{:08} KAS", total / 100_000_000, total % 100_000_000).ok();
-            draw_lato_body(&mut self.display, out_text.as_str(), 30, 72, COLOR_TEXT);
+            let w = measure_body(out_text.as_str());
+            draw_lato_body(&mut self.display, out_text.as_str(), (320 - w) / 2, 72, COLOR_TEXT);
 
             let mut in_text = heapless::String::<32>::new();
             write!(&mut in_text, "In:  {}.{:08} KAS", total_in / 100_000_000, total_in % 100_000_000).ok();
-            draw_lato_body(&mut self.display, in_text.as_str(), 30, 98, COLOR_ORANGE);
+            let w = measure_body(in_text.as_str());
+            draw_lato_body(&mut self.display, in_text.as_str(), (320 - w) / 2, 98, COLOR_ORANGE);
 
             let mut fee_text = heapless::String::<32>::new();
             write!(&mut fee_text, "Fee: {}.{:08} KAS", fee / 100_000_000, fee % 100_000_000).ok();
-            draw_lato_body(&mut self.display, fee_text.as_str(), 30, 124, COLOR_TEXT);
+            let w = measure_body(fee_text.as_str());
+            draw_lato_body(&mut self.display, fee_text.as_str(), (320 - w) / 2, 124, COLOR_TEXT);
 
             // Inputs/outputs count
             let mut info_text = heapless::String::<48>::new();
             write!(&mut info_text, "{} input(s) -> {} output(s)",
                 tx.num_inputs, tx.num_outputs).ok();
-            draw_lato_body(&mut self.display, info_text.as_str(), 30, 156, COLOR_TEXT);
+            let w = measure_body(info_text.as_str());
+            draw_lato_body(&mut self.display, info_text.as_str(), (320 - w) / 2, 156, COLOR_TEXT);
 
             // KRC-20 token detection
             let krc20 = crate::features::krc20::detect_krc20(tx);
             if krc20.detected {
                 let mut token_text = heapless::String::<48>::new();
                 write!(&mut token_text, "KRC-20 {} {}", krc20.op_str(), krc20.ticker_str()).ok();
-                draw_lato_title(&mut self.display, token_text.as_str(), 30, 182, COLOR_ORANGE);
+                let w = measure_title(token_text.as_str());
+                draw_lato_title(&mut self.display, token_text.as_str(), (320 - w) / 2, 182, COLOR_ORANGE);
                 if krc20.amount_len > 0 {
                     let mut amt_text = heapless::String::<40>::new();
                     write!(&mut amt_text, "Amount: {}", krc20.amount_str()).ok();
-                    draw_lato_body(&mut self.display, amt_text.as_str(), 30, 200, KASPA_ACCENT);
+                    let w = measure_body(amt_text.as_str());
+                    draw_lato_body(&mut self.display, amt_text.as_str(), (320 - w) / 2, 200, KASPA_ACCENT);
                 }
             }
 
@@ -476,21 +482,24 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                 if let Some(ms) = parse_multisig_script(&script.script, script.script_len) {
                     let mut ms_text = heapless::String::<32>::new();
                     write!(&mut ms_text, "{}-of-{} MULTISIG", ms.m, ms.n).ok();
-                    draw_lato_title(&mut self.display, ms_text.as_str(), 30, 190, KASPA_ACCENT);
+                    let w = measure_title(ms_text.as_str());
+                    draw_lato_title(&mut self.display, ms_text.as_str(), (320 - w) / 2, 190, KASPA_ACCENT);
 
                     // Show existing signature count
                     let sig_count = tx.inputs[0].sig_count;
                     if sig_count > 0 {
                         let mut sig_text = heapless::String::<24>::new();
                         write!(&mut sig_text, "Sigs: {}/{}", sig_count, ms.m).ok();
-                        draw_lato_body(&mut self.display, sig_text.as_str(), 30, 210, COLOR_ORANGE);
+                        let w = measure_body(sig_text.as_str());
+                        draw_lato_body(&mut self.display, sig_text.as_str(), (320 - w) / 2, 210, COLOR_ORANGE);
                     }
                 }
             } else if st == ScriptType::P2SH {
                 // Covenant P2SH -- check redeem script starts with OP_IF
                 let rs = tx.redeem_bytes(0);
                 if !rs.is_empty() && rs[0] == 0x63 {
-                    draw_lato_title(&mut self.display, "COVENANT P2SH", 30, 190, KASPA_ACCENT);
+                    let w = measure_title("COVENANT P2SH");
+                    draw_lato_title(&mut self.display, "COVENANT P2SH", (320 - w) / 2, 190, KASPA_ACCENT);
                 }
             }
 
@@ -3868,7 +3877,8 @@ pub fn draw_home_grid(&mut self) {
             .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
             .draw(&mut self.display).ok();
 
-        draw_lato_body(&mut self.display, "Add a public key (kpub or x-only):", 20, 65, COLOR_TEXT);
+        let bw = measure_body("Add a cosigner kpub:");
+        draw_lato_body(&mut self.display, "Add a cosigner kpub:", (320 - bw) / 2, 65, COLOR_TEXT);
         let hw = measure_hint("Scan a kpub QR or use a loaded seed");
         draw_lato_hint(&mut self.display, "Scan a kpub QR or use a loaded seed", (320 - hw) / 2, 80, COLOR_TEXT_DIM);
 

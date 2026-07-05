@@ -263,81 +263,36 @@ pub fn handle_tx_touch(
                                                 &ad.acct_key_raw, &mut ad.change_pubkey_cache);
                                             ad.pubkeys_cached = true;
                                         }
-                                        ad.current_addr_index = 0;
-                                        ad.app.state = crate::app::input::AppState::MultisigPickAddr { key_idx };
+                                        // Store the account-level xpub directly.
+                                        // The account path is fixed (m/44'/111111'/0'),
+                                        // so tapping the seed fully determines the
+                                        // cosigner key. The former address-browse
+                                        // screen implied a per-key index choice that
+                                        // build_script() never used; it has been
+                                        // removed entirely.
+                                        if key_idx < ad.ms_creating.n {
+                                            let acct = wallet::bip32::ExtendedPrivKey::from_raw(&ad.acct_key_raw);
+                                            // Export own account xpub (pubkey + chain code) —
+                                            // both needed for HD derivation of per-address children.
+                                            if let Ok(own_xpub) = acct.to_xpub() {
+                                                ad.ms_creating.cosigner_pubkeys[key_idx as usize] = own_xpub.pubkey;
+                                                ad.ms_creating.cosigner_chain_codes[key_idx as usize] = own_xpub.chain_code;
+                                                let next = key_idx + 1;
+                                                if next >= ad.ms_creating.n {
+                                                    ad.ms_creating.build_script();
+                                                    ad.ms_creating.active = true;
+                                                    if let Some(ms_slot) = ad.ms_store.find_free() {
+                                                        ad.ms_store.configs[ms_slot] = ad.ms_creating.clone();
+                                                    }
+                                                    ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                                                } else {
+                                                    ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: next };
+                                                }
+                                            }
+                                        }
                                         needs_redraw = true;
                                         break;
                                     }
-                                }
-                            }
-                        }
-                    }
-                    crate::app::input::AppState::MultisigPickAddr { key_idx } => {
-                        if is_back {
-                            ad.app.state = crate::app::input::AppState::MultisigPickSeed { key_idx };
-                            needs_redraw = true;
-                        } else if (10..=60).contains(&x) && (205..=240).contains(&y) {
-                            // [<] previous address
-                            if ad.current_addr_index > 0 {
-                                ad.current_addr_index -= 1;
-                                if ad.current_addr_index >= 20 && ad.extra_pubkey_index != ad.current_addr_index {
-                                    crate::app::signing::derive_pubkey_from_acct(
-                                        &ad.acct_key_raw, ad.current_addr_index, &mut ad.extra_pubkey);
-                                    ad.extra_pubkey_index = ad.current_addr_index;
-                                }
-                            }
-                            needs_redraw = true;
-                        } else if (260..=310).contains(&x) && (205..=240).contains(&y) {
-                            // [>] next address
-                            ad.current_addr_index += 1;
-                            if ad.current_addr_index >= 20 && ad.extra_pubkey_index != ad.current_addr_index {
-                                crate::app::signing::derive_pubkey_from_acct(
-                                    &ad.acct_key_raw, ad.current_addr_index, &mut ad.extra_pubkey);
-                                ad.extra_pubkey_index = ad.current_addr_index;
-                            }
-                            needs_redraw = true;
-                        } else if (110..=210).contains(&x) && (205..=240).contains(&y) {
-                            // [#N] — open index picker, then return to MultisigPickAddr
-                            ad.addr_input_len = 0;
-                            ad.ms_picking_key = key_idx + 1; // +1 so 0 means "not picking"
-                            ad.app.state = crate::app::input::AppState::AddrIndexPicker;
-                            needs_redraw = true;
-                        } else if (90..=230).contains(&x) && (145..=185).contains(&y) {
-                            // SELECT button — store device's own account-level x-only pubkey.
-                            //
-                            // BUG FIX (TODO 7): we were previously storing an ADDRESS-level
-                            // key (pubkey_cache[current_addr_index] = m/44'/111111'/0'/0/N).
-                            // Meanwhile, the OTHER cosigner's kpub comes in through
-                            // import_kpub() which returns the ACCOUNT-level x-only key
-                            // (m/44'/111111'/0'). Two different 32-byte keys sort
-                            // differently, produce different multisig scripts, and
-                            // therefore different P2SH addresses on each device — even
-                            // with the same pubkeys "in the same order".
-                            //
-                            // Fix: both devices now supply their account-level x-only
-                            // pubkey. After lexicographic sort in build_script(), both
-                            // devices produce byte-identical scripts → identical P2SH
-                            // address. The account key is already cached in acct_key_raw
-                            // when the seed was loaded.
-                            if key_idx < ad.ms_creating.n {
-                                let acct = wallet::bip32::ExtendedPrivKey::from_raw(&ad.acct_key_raw);
-                                // Export own account xpub (pubkey + chain code) —
-                                // both needed for HD derivation of per-address children.
-                                if let Ok(own_xpub) = acct.to_xpub() {
-                                    ad.ms_creating.cosigner_pubkeys[key_idx as usize] = own_xpub.pubkey;
-                                    ad.ms_creating.cosigner_chain_codes[key_idx as usize] = own_xpub.chain_code;
-                                    let next = key_idx + 1;
-                                    if next >= ad.ms_creating.n {
-                                        ad.ms_creating.build_script();
-                                        ad.ms_creating.active = true;
-                                        if let Some(ms_slot) = ad.ms_store.find_free() {
-                                            ad.ms_store.configs[ms_slot] = ad.ms_creating.clone();
-                                        }
-                                        ad.app.state = crate::app::input::AppState::MultisigShowAddress;
-                                    } else {
-                                        ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: next };
-                                    }
-                                    needs_redraw = true;
                                 }
                             }
                         }
@@ -824,18 +779,33 @@ pub fn handle_tx_touch(
                                         sound::beep_error(delay);
                                         delay.delay_millis(1500);
                                         needs_redraw = true;
-                                    } else if len > 41 {
-                                        boot_display.draw_rejected_screen("Max 41 characters");
+                                    } else if len > 33 {
+                                        // Preimage budget is 41 bytes (ECIES ct + hash
+                                        // must fit one V6 QR): 8-byte salt + 33 secret.
+                                        boot_display.draw_rejected_screen("Max 33 characters");
                                         sound::beep_error(delay);
                                         delay.delay_millis(1500);
                                         needs_redraw = true;
                                     } else {
-                                        // Copy text to jpeg_desc_buf
-                                        let copy_len = len.min(ad.jpeg_desc_buf.len());
-                                        ad.jpeg_desc_buf[..copy_len].copy_from_slice(&ad.pp_input.buf[..copy_len]);
-                                        ad.jpeg_desc_len = copy_len;
+                                        // Salted preimage: salt(8) || secret. Without the
+                                        // salt the commitment is BLAKE2B(secret) alone, so
+                                        // the same secret always yields the same hash and
+                                        // therefore the same covenant address, and a short
+                                        // human secret is dictionary-attackable against the
+                                        // on-chain commitment. The salt lives inside the
+                                        // preimage, never in the script — script layout is
+                                        // byte-identical, so type detection is unaffected.
+                                        let mut salt = [0u8; 8];
+                                        crate::crypto::entropy::fill(&mut salt);
+                                        let copy_len = len.min(ad.jpeg_desc_buf.len() - 8);
+                                        // Write secret after the salt slot, then the salt.
+                                        for i in (0..copy_len).rev() {
+                                            ad.jpeg_desc_buf[8 + i] = ad.pp_input.buf[i];
+                                        }
+                                        ad.jpeg_desc_buf[..8].copy_from_slice(&salt);
+                                        ad.jpeg_desc_len = 8 + copy_len;
 
-                                        // BLAKE2B hash the message
+                                        // BLAKE2B hash the salted preimage
                                         use blake2::{Blake2b, Digest};
                                         use blake2::digest::consts::U32;
                                         type B2b256 = Blake2b<U32>;

@@ -1476,11 +1476,10 @@ h2 {
 }
 
 /* Address verification zones (prefix + first 8, last 8) — matches the
-   teal emphasis on KasSigner's TX review screen for eye comparison. */
+   teal emphasis on KasSigner's TX review screen for eye comparison.
+   Normal weight/size: color alone carries the emphasis. */
 .addr-hl {
     color: var(--teal);
-    font-weight: 700;
-    font-size: 1.15em;
 }
 
 .pskt-section-title {

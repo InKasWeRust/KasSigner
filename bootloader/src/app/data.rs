@@ -219,7 +219,8 @@ pub struct AppData {
     pub ms_m: u8,
     pub ms_n: u8,
     pub ms_scroll: u8,
-    /// When >0, AddrIndexPicker returns to MultisigPickAddr with this key_idx
+    /// AddrIndexPicker routing: 255 = multisig wallet index (returns to
+    /// MultisigShowAddress), 0 = plain address picking (ShowAddress).
     pub ms_picking_key: u8,
     /// Buffer for pending signed-tx QR payload (KSPT or PSKB).
     /// Sized for the PSKB wire format of a fully-signed 2-of-3 multisig
@@ -396,7 +397,7 @@ pub fn new() -> Self {
             ),
             sd_import_menu: crate::app::input::Menu::from_items(
                 &["Seed Backup", "Transaction", "kpub (Watch-Only)",
-                  "Multisig Address", "Multisig Descriptor", "Covenant"]
+                  "Multisig Address", "Multisig Descriptor", "Covenant Restore"]
             ),
 
             seed_mgr: seed_manager::SeedManager::new(),

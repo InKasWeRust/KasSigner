@@ -16,6 +16,8 @@
 #   kassigner-m5stack.bin         — app-only image (for developers, hash verification)
 #   kassigner-waveshare-full.bin  — merged full-flash image (bootloader + partition table + app)
 #   kassigner-m5stack-full.bin    — merged full-flash image (bootloader + partition table + app)
+#   kassigner-waveshare-af.bin      — app-only image, OV5640-AF camera module (AF firmware + H/V flip)
+#   kassigner-waveshare-af-full.bin — merged full-flash image, OV5640-AF camera module
 #
 # Flashing:
 #   Full image (new users):  python3 -m esptool --port <PORT> --baud 460800 write_flash 0x0 kassigner-waveshare-full.bin
@@ -202,8 +204,85 @@ RUN source /root/esp-env.sh && \
     ls -la /build/kassigner-m5stack-full.bin && \
     echo "============================================"
 
+# ════════════════════════════════════════════════════
+#  Waveshare OV5640-AF build with hash convergence
+#  (AF camera module: AF firmware loader + H/V flip for
+#   the AF module's 180-degree physical orientation)
+# ════════════════════════════════════════════════════
+
+# Pass 1: Initial compilation
+RUN source /root/esp-env.sh && \
+    cd bootloader && \
+    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features skip-tests,ov5640-af
+
+# Pass 1: Generate .bin, compute hash, write firmware_hash.rs
+RUN --mount=type=secret,id=signkey,required=false \
+    source /root/esp-env.sh && \
+    espflash save-image --chip esp32s3 \
+        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
+        /build/ws-af-pass1.bin 2>&1 | grep -v INFO && \
+    if [ -f /run/secrets/signkey ]; then \
+        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-af-pass1.bin /run/secrets/signkey 2>&1; \
+    else \
+        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-af-pass1.bin 2>&1; \
+    fi && \
+    echo "=== AF Pass 1 hash ===" && \
+    grep FIRMWARE_HASH_HEX bootloader/src/firmware_hash.rs
+
+# Pass 2: Recompile with embedded hash
+RUN source /root/esp-env.sh && \
+    cd bootloader && \
+    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features skip-tests,ov5640-af
+
+# Pass 2: Recompute hash — should converge
+RUN --mount=type=secret,id=signkey,required=false \
+    source /root/esp-env.sh && \
+    espflash save-image --chip esp32s3 \
+        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
+        /build/ws-af-pass2.bin 2>&1 | grep -v INFO && \
+    if [ -f /run/secrets/signkey ]; then \
+        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-af-pass2.bin /run/secrets/signkey 2>&1; \
+    else \
+        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-af-pass2.bin 2>&1; \
+    fi && \
+    echo "=== AF Pass 2 hash ===" && \
+    grep FIRMWARE_HASH_HEX bootloader/src/firmware_hash.rs
+
+# Pass 3: Final recompile + verify convergence
+RUN source /root/esp-env.sh && \
+    cd bootloader && \
+    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features skip-tests,ov5640-af
+
+# Final app-only image (unchanged — preserves existing hash)
+RUN source /root/esp-env.sh && \
+    espflash save-image --chip esp32s3 \
+        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
+        /build/kassigner-waveshare-af.bin 2>&1 | grep -v INFO && \
+    echo "" && \
+    echo "============================================" && \
+    echo "  KasSigner Waveshare AF Build Complete" && \
+    echo "============================================" && \
+    sha256sum /build/kassigner-waveshare-af.bin && \
+    ls -la /build/kassigner-waveshare-af.bin && \
+    echo "============================================"
+
+# Merged full-flash image (bootloader + partition table + app)
+RUN source /root/esp-env.sh && \
+    espflash save-image --chip esp32s3 --merge --flash-size 16mb \
+        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
+        /build/kassigner-waveshare-af-full.bin 2>&1 | grep -v INFO && \
+    echo "" && \
+    echo "============================================" && \
+    echo "  KasSigner Waveshare AF Full Image" && \
+    echo "============================================" && \
+    sha256sum /build/kassigner-waveshare-af-full.bin && \
+    ls -la /build/kassigner-waveshare-af-full.bin && \
+    echo "============================================"
+
 CMD ["bash", "-c", "\
     echo '=== Waveshare (app-only) ===' && sha256sum /build/kassigner-waveshare.bin && \
     echo '=== Waveshare (full flash) ===' && sha256sum /build/kassigner-waveshare-full.bin && \
+    echo '=== Waveshare AF (app-only) ===' && sha256sum /build/kassigner-waveshare-af.bin && \
+    echo '=== Waveshare AF (full flash) ===' && sha256sum /build/kassigner-waveshare-af-full.bin && \
     echo '=== M5Stack (app-only) ===' && sha256sum /build/kassigner-m5stack.bin && \
     echo '=== M5Stack (full flash) ===' && sha256sum /build/kassigner-m5stack-full.bin"]

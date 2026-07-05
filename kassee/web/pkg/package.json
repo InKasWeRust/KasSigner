@@ -2,7 +2,7 @@
   "name": "kassee-web",
   "type": "module",
   "description": "KasSee Web — browser-based watch-only wallet for air-gapped KasSigner",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "license": "GPL-3.0-only",
   "repository": {
     "type": "git",

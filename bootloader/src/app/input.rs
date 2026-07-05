@@ -489,8 +489,6 @@ pub enum AppState {
     MultisigChooseMN,
     /// Multisig: pick which seed to use for this key
     MultisigPickSeed { key_idx: u8 },
-    /// Multisig: pick which address index from the selected seed
-    MultisigPickAddr { key_idx: u8 },
     /// Multisig: scan/add pubkey (which key index 0..N-1 we're collecting)
     MultisigAddKey { key_idx: u8 },
     /// Multisig: show the created multisig address as QR
@@ -753,7 +751,6 @@ pub fn new() -> Self {
             | AppState::SdOverwriteWarning | AppState::SdKpubEncryptAsk
             | AppState::ShowQrModeChoice
             | AppState::MultisigChooseMN | AppState::MultisigPickSeed { .. }
-            | AppState::MultisigPickAddr { .. }
             | AppState::MultisigAddKey { .. } | AppState::MultisigShowAddress
             | AppState::MultisigShowAddressQR
             | AppState::MultisigSaveAddrAsk
@@ -985,7 +982,7 @@ pub fn handler_group(&self) -> HandlerGroup {
             CameraSettings => HandlerGroup::Settings,
             // Transaction / multisig / camera / message signing
             ScanQR | ReviewTx { .. } | ConfirmTx | SignTxGuide
-            | MultisigChooseMN | MultisigPickSeed { .. } | MultisigPickAddr { .. }
+            | MultisigChooseMN | MultisigPickSeed { .. }
             | MultisigAddKey { .. } | MultisigShowAddress | MultisigShowAddressQR
             | MultisigSaveAddrAsk | MultisigDescriptor
             | SignMsgChoice | SignMsgType | SignMsgFile | SignMsgPreview | SignMsgScanQr | SignMsgHashPreview | SignMsgResult | SignMsgResultQr

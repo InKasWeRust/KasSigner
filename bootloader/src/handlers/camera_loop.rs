@@ -1315,8 +1315,15 @@ pub fn run_camera_cycle(
                             }
                         }
                         if poll_count > 10_000_000 {
-                            log!("   cam_dma: timeout");
-                            if FN < 3 { cam_dma::log_status(); }
+                            // Stalled DMA (descriptor error / VSYNC loss).
+                            // Without stop(), STARTED stays true, the next
+                            // start_capture() early-returns, and the stall
+                            // is permanent — frozen viewfinder. stop() here
+                            // makes the next cycle reinit the GDMA channel
+                            // and restart capture cleanly.
+                            log!("   cam_dma: timeout — reinit");
+                            cam_dma::log_status();
+                            cam_dma::stop();
                             return;
                         }
                     }
@@ -1499,7 +1506,38 @@ pub fn run_camera_cycle(
 
                     match cam.receive(cam_dma_buf) {
                         Ok(transfer) => {
-                            let (_result, cam_back, buf_back) = transfer.wait();
+                            // Bounded wait. transfer.wait() is a bare spin on
+                            // is_done(); if the sensor stops clocking pixels
+                            // the buffer never fills, is_done() never turns
+                            // true, and the whole device freezes (touch
+                            // included). Poll with a timeout instead and
+                            // escape via stop(), which halts LCD_CAM + DMA on
+                            // the spot. ~50µs/poll × 60_000 ≈ 3s worst case,
+                            // far above any legit frame time.
+                            let mut wait_polls: u32 = 0;
+                            let mut dvp_timed_out = false;
+                            let (cam_back, buf_back) = loop {
+                                if transfer.is_done() {
+                                    // is_done() == true → wait() cannot block.
+                                    let (_result, c, b) = transfer.wait();
+                                    break (c, b);
+                                }
+                                wait_polls += 1;
+                                if wait_polls > 60_000 {
+                                    log!("   dvp: transfer timeout — stop + re-arm");
+                                    dvp_timed_out = true;
+                                    break transfer.stop();
+                                }
+                                delay.delay_micros(50);
+                            };
+                            if dvp_timed_out {
+                                // Partial frame — don't render or decode it.
+                                // Hand the peripherals back; the next cycle
+                                // starts a fresh receive().
+                                *cam_dma_buf_opt = Some(buf_back);
+                                *dvp_camera_opt = Some(cam_back);
+                                return;
+                            }
 
                             // Touch check during wait()
                             {

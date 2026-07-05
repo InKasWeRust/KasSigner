@@ -413,7 +413,9 @@ pub fn redraw_screen(
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "SECRET");
                 }
                 crate::app::input::AppState::CommitRevealPreview => {
-                    let msg = core::str::from_utf8(&ad.jpeg_desc_buf[..ad.jpeg_desc_len]).unwrap_or("");
+                    // Buffer holds salt(8) || secret — show only the secret text.
+                    let start = if ad.jpeg_desc_len >= 8 { 8 } else { 0 };
+                    let msg = core::str::from_utf8(&ad.jpeg_desc_buf[start..ad.jpeg_desc_len]).unwrap_or("");
                     boot_display.draw_commit_reveal_preview(msg, &ad.cr_hash);
                 }
                 crate::app::input::AppState::CommitRevealResult => {
@@ -426,11 +428,20 @@ pub fn redraw_screen(
                     // Camera loop handles all drawing for scan states
                 }
                 crate::app::input::AppState::DecryptSecretResult => {
-                    let msg = core::str::from_utf8(&ad.jpeg_desc_buf[..ad.jpeg_desc_len]).unwrap_or("");
+                    // Salted (v2) preimages start with 8 entropy bytes; legacy
+                    // ones are pure text. Skip the salt for display only — the
+                    // PREIMAGE QR export always carries the full buffer.
+                    let start = if ad.jpeg_desc_len > 8
+                        && ad.jpeg_desc_buf[..8].iter().any(|&b| b < 0x20 || b > 0x7e)
+                        { 8 } else { 0 };
+                    let msg = core::str::from_utf8(&ad.jpeg_desc_buf[start..ad.jpeg_desc_len]).unwrap_or("");
                     boot_display.draw_decrypt_secret_result(msg);
                 }
                 crate::app::input::AppState::DecryptSecretResultQr => {
-                    let msg = core::str::from_utf8(&ad.jpeg_desc_buf[..ad.jpeg_desc_len]).unwrap_or("");
+                    let start = if ad.jpeg_desc_len > 8
+                        && ad.jpeg_desc_buf[..8].iter().any(|&b| b < 0x20 || b > 0x7e)
+                        { 8 } else { 0 };
+                    let msg = core::str::from_utf8(&ad.jpeg_desc_buf[start..ad.jpeg_desc_len]).unwrap_or("");
                     boot_display.draw_decrypt_secret_result(msg);
                 }
                 #[cfg(feature = "icon-browser")]
@@ -602,20 +613,6 @@ pub fn redraw_screen(
                 }
                 crate::app::input::AppState::MultisigPickSeed { key_idx } => {
                     boot_display.draw_multisig_pick_seed(key_idx, ad.ms_creating.n, &ad.seed_mgr, ad.ms_scroll);
-                }
-                crate::app::input::AppState::MultisigPickAddr { key_idx: _ } => {
-                    let pk = if (ad.current_addr_index as usize) < 20 {
-                        ad.pubkey_cache[ad.current_addr_index as usize]
-                    } else if ad.extra_pubkey_index == ad.current_addr_index {
-                        ad.extra_pubkey
-                    } else {
-                        [0u8; 32]
-                    };
-                    let mut addr_buf = [0u8; wallet::address::MAX_ADDR_LEN];
-                    let addr = wallet::address::encode_address_str(
-                        &pk, wallet::address::AddressType::P2PK, &mut addr_buf);
-                    boot_display.draw_address_screen(addr, true,
-                        Some(ad.current_addr_index), Some("SELECT"), false);
                 }
                 crate::app::input::AppState::MultisigShowAddress => {
                     let mut label_buf = [0u8; 8];

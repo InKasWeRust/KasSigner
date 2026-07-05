@@ -783,7 +783,13 @@ fn main() -> ! {
                 hw::pmu::set_brightness(&mut i2c, ad.brightness);
                 dim_active = false;
                 #[cfg(feature = "m5stack")]
-                hw::sound::click(&mut delay);
+                if !matches!(ad.app.state,
+                    app::input::AppState::ScanQR
+                    | app::input::AppState::SignMsgScanQr
+                    | app::input::AppState::DecryptSecretScan)
+                {
+                    hw::sound::click(&mut delay);
+                }
                 tracker = hw::touch::TouchTracker::new();
                 wake_debounce = 100;
                 continue;
@@ -799,8 +805,22 @@ fn main() -> ! {
         if wake_debounce > 0 {
             wake_debounce -= 1;
         } else if let hw::touch::TouchAction::Tap { x, y } = action {
-            hw::sound::click(&mut delay);
             let is_back = x <= 48 && y <= 48;
+            // Camera scan screens are silent: only the back button
+            // clicks. All other taps there are ignored, so no sound.
+            let is_scan_cam = matches!(ad.app.state,
+                app::input::AppState::ScanQR
+                | app::input::AppState::SignMsgScanQr
+                | app::input::AppState::DecryptSecretScan);
+            if !is_scan_cam || is_back {
+                hw::sound::click(&mut delay);
+            }
+            if is_scan_cam && !is_back {
+                // Camera scan screens: taps anywhere except the back
+                // button must do NOTHING. Never route them to handlers —
+                // zone hits there mutate state under the running camera.
+                continue;
+            }
             let is_home = x >= 268 && y <= 52;
 
             // Home button — go to main menu

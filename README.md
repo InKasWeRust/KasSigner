@@ -117,6 +117,9 @@ KasSigner runs on two ESP32-S3 platforms:
 | **PMU** | — | AXP2101 + AW9523B |
 | **PSRAM** | 8MB octal | 8MB octal |
 
+A community 3D-printable case for the Waveshare board (snap-fit, LiPo 602030
+cradle, USB-C access) is included under [`hardware/case-waveshare/`](hardware/case-waveshare/)
+— design by Sandmann21 (GPL), see the folder README for attribution.
 
 ## Building
 

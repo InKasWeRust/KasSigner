@@ -897,35 +897,22 @@ pub fn handle_sd_touch(
                                                 },
                                             ) {
                                                 Ok(wc) => {
-                                                    boot_display.update_progress_bar(90);
+                                                    boot_display.update_progress_bar(100);
                                                     ad.mnemonic_indices = [0u16; 24];
                                                     for i in 0..wc as usize {
                                                         ad.mnemonic_indices[i] = restored_indices[i];
                                                     }
                                                     ad.word_count = wc;
-                                                    if let Some(slot_idx) = ad.seed_mgr.store(
-                                                        &ad.mnemonic_indices, ad.word_count, b"", 0,
-                                                    ) {
-                                                        ad.seed_mgr.activate(slot_idx);
-                                                        (ad.seed_loaded) = true;
-                                                        (ad.pubkeys_cached) = false;
-                                                        (ad.current_addr_index) = 0;
-                                                        (ad.extra_pubkey_index) = 0xFFFF;
-                                                        boot_display.update_progress_bar(100);
-                                                        log!("[SD-RESTORE] Restored {}-word seed to slot {}", wc, slot_idx);
-                                                        boot_display.draw_success_screen("Seed restored!");
-                                                        sound::success(delay);
-                                                        delay.delay_millis(1500);
-                                                        // Prompt for BIP39 passphrase — creates a
-                                                        // second slot if passphrase entered, or Back
-                                                        // to skip (no-passphrase slot stays).
-                                                        ad.pp_input.reset();
-                                                        ad.app.state = crate::app::input::AppState::PassphraseEntry;
-                                                        needs_redraw = true;
-                                                    } else {
-                                                        boot_display.draw_rejected_screen("All 4 slots full!");
-                                                        delay.delay_millis(2000);
-                                                    }
+                                                    log!("[SD-RESTORE] Decrypted {}-word seed, deferring store", wc);
+                                                    boot_display.draw_success_screen("Seed restored!");
+                                                    sound::success(delay);
+                                                    delay.delay_millis(1500);
+                                                    // Single-store model: the seed is stored exactly
+                                                    // once, on the PassphraseEntry OK. Empty field =
+                                                    // base wallet; typed passphrase = that wallet.
+                                                    ad.pp_input.reset();
+                                                    ad.app.state = crate::app::input::AppState::PassphraseEntry;
+                                                    needs_redraw = true;
                                                 }
                                                 Err(_) => {
                                                     log!("[SD-RESTORE] Decrypt failed (wrong password?)");
@@ -1496,6 +1483,45 @@ pub fn handle_sd_touch(
                                                     boot_display.draw_rejected_screen("SD read error");
                                                     delay.delay_millis(2000);
                                                 }
+                                            }
+                                        } else {
+                                            boot_display.draw_rejected_screen("No SD card detected");
+                                            delay.delay_millis(2000);
+                                        }
+                                    }
+                                    5 => {
+                                        // Covenant Restore — scan SD for .COV files
+                                        // (same logic as Import menu item 3 in
+                                        // menu.rs; SdFileList auto-detects the
+                                        // COVB/COVI payload and shows the QR).
+                                        if _bb_card_type.is_some() {
+                                            boot_display.draw_loading_screen("Scanning SD...");
+                                            ad.sd_file_count = 0;
+                                            ad.sd_file_scroll = 0;
+                                            let _ = sdcard::with_sd_card(i2c, delay, |ct| {
+                                                let fat32 = sdcard::mount_fat32(ct)?;
+                                                sdcard::list_root_dir(ct, &fat32, |entry| {
+                                                    let is_hidden = entry.name[0] == b'.' || entry.name[0] == 0xE5 || entry.name[0] == b'_';
+                                                    let ext = [entry.name[8], entry.name[9], entry.name[10]];
+                                                    if !entry.is_dir()
+                                                        && !is_hidden
+                                                        && entry.file_size > 0
+                                                        && entry.file_size <= 1024
+                                                        && (ad.sd_file_count as usize) < 8
+                                                        && ext == *b"COV"
+                                                    {
+                                                        ad.sd_file_list[ad.sd_file_count as usize] = entry.name;
+                                                        ad.sd_file_count += 1;
+                                                    }
+                                                    true
+                                                })?;
+                                                Ok(())
+                                            });
+                                            if ad.sd_file_count > 0 {
+                                                ad.app.state = crate::app::input::AppState::SdFileList;
+                                            } else {
+                                                boot_display.draw_rejected_screen("No .COV files on SD");
+                                                delay.delay_millis(1500);
                                             }
                                         } else {
                                             boot_display.draw_rejected_screen("No SD card detected");
