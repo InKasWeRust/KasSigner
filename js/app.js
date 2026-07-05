@@ -1397,7 +1397,7 @@ function covRenderActive() {
                 const myAcctPk = getAccountPubkeyHex() || '';
                 const myDerivedPk = getOwnerPubkeyHex() || '';
                 // console.log('[KasSee] Escrow role detect: acct=' + myAcctPk.substring(0,16) + '... derived=' + myDerivedPk.substring(0,16) + '... alice=' + (lastCovenantResult.alice_pk||'').substring(0,16) + '... bob=' + (lastCovenantResult.bob_pk||'').substring(0,16) + '... arbiter=' + (lastCovenantResult.arbiter_pk||'').substring(0,16) + '...');
-                const matchesPk = (target) => target && ((myAcctPk && myAcctPk === target) || (myDerivedPk && myDerivedPk === target));
+                const matchesPk = (target) => walletMatchesPk(target);
                 if (matchesPk(lastCovenantResult.alice_pk)) {
                     lastCovenantResult.role = 'owner'; c.role = 'owner';
                 } else if (matchesPk(lastCovenantResult.bob_pk)) {
@@ -1413,7 +1413,7 @@ function covRenderActive() {
             if (c.type === 'oracle' && c.oracle_pubkey_hex) {
                 const myAcctPk = getAccountPubkeyHex() || '';
                 const myAddrPk = getOwnerPubkeyHex() || '';
-                const matchesPkO = (target) => target && ((myAcctPk && myAcctPk === target) || (myAddrPk && myAddrPk === target));
+                const matchesPkO = (target) => walletMatchesPk(target);
                 if (matchesPkO(c.oracle_pubkey_hex)) {
                     lastCovenantResult.role = 'oracle'; c.role = 'oracle';
                 } else if (matchesPkO(c.beneficiary_pubkey_hex)) {
@@ -1942,8 +1942,8 @@ async function processCovbHex(hex) {
                     entry.owner_pubkey_hex = invite.own;
                     const myAcctPk = getAccountPubkeyHex();
                     const myAddrPk = getOwnerPubkeyHex(); // /0/0 address-level
-                    const matchOracle = (myAcctPk && myAcctPk === invite.opk) || (myAddrPk && myAddrPk === invite.opk);
-                    const matchBene = (myAcctPk && myAcctPk === invite.bpk) || (myAddrPk && myAddrPk === invite.bpk);
+                    const matchOracle = walletMatchesPk(invite.opk);
+                    const matchBene = walletMatchesPk(invite.bpk);
                     if (matchOracle) {
                         entry.role = 'oracle';
                     } else if (matchBene) {
@@ -1977,7 +1977,7 @@ async function processCovbHex(hex) {
                     ensureEscrowParams(entry);
                     const myAcctPk = getAccountPubkeyHex() || '';
                     const myDerivedPk = getOwnerPubkeyHex() || '';
-                    const matchesPk = (target) => target && ((myAcctPk && myAcctPk === target) || (myDerivedPk && myDerivedPk === target));
+                    const matchesPk = (target) => walletMatchesPk(target);
                     if (matchesPk(entry.alice_pk)) {
                         entry.role = 'owner';
                     } else if (matchesPk(entry.bob_pk)) {
@@ -2208,7 +2208,7 @@ async function rebuildCovenant(decrypted, ownerPk, tx) {
                 const ownerPkFromRedeem = redeemHex.substring(24, 88);
                 const myAcctPkO = getAccountPubkeyHex() || '';
                 const myAddrPkO = getOwnerPubkeyHex() || '';
-                const matchOraclePk = (t) => t && ((myAcctPkO && myAcctPkO === t) || (myAddrPkO && myAddrPkO === t));
+                const matchOraclePk = (t) => walletMatchesPk(t);
                 let oracleRole = 'owner';
                 if (matchOraclePk(oraclePk)) oracleRole = 'oracle';
                 else if (matchOraclePk(benePk)) oracleRole = 'beneficiary';
@@ -2673,7 +2673,7 @@ function bindEvents() {
     el('btn-sf-normal').onclick = () => stealthFeeSetLevel('sf', 'send', 'normal');
     el('btn-sf-priority').onclick = () => stealthFeeSetLevel('sf', 'send', 'priority');
     el('btn-stealth-scan').onclick = () => stealthShowPanel('scan');
-    el('btn-stealth-scan-back').onclick = () => { stealthScanStop(); stealthShowPanel('menu'); };
+    el('btn-stealth-scan-back').onclick = () => stealthShowPanel('menu');
     el('btn-stealth-fetch-announcements').onclick = () => handleStealthFetchAnnouncements();
     el('btn-stealth-show-scan-qr').onclick = () => handleStealthShowScanQR();
     el('btn-stealth-scan-result-qr').onclick = () => handleStealthScanResultQR();
@@ -3489,6 +3489,14 @@ function bindEvents() {
                         el('cov-owner-addr').value = lastCovenantResult.address || '';
                         el('cov-owner-script').value = lastCovenantResult.redeem_script_hex || '';
                         if (el('cov-owner-panel')) el('cov-owner-panel').dataset.covOwnerType = t;
+                        // Live break-status banner: green if breakable now, red
+                        // with the concrete reason(s) if neither condition holds.
+                        try {
+                            const _tot = utxos.reduce((s, u) => s + BigInt(u.amount), 0n);
+                            const _f = getCovFee(utxos.length || 1);
+                            const _st = await window.piggyBreakStatus(_tot, _f);
+                            window.piggyStatusBanner(_st);
+                        } catch (_) {}
                         const ownerHelpP = el('cov-owner-help');
                         if (ownerHelpP) {
                             const hasGoal = lastCovenantResult.threshold_sompi > 0;
@@ -3526,6 +3534,36 @@ function bindEvents() {
         const ownerHelp = el('cov-owner-help');
         const createBtn = el('btn-cov-owner-create');
         if (ownerHelp) {
+            const _cltvBannerTypes = { 'merkle-whitelist': 'only whitelisted spends are valid',
+                                       'commit-reveal': 'only the reveal path is valid',
+                                       'oracle': 'only the oracle-attested claim is valid',
+                                       'payjoin': 'only the joint-spend path is valid',
+                                       'adaptor-swap': 'only the counterparty claim is valid' };
+            if (_cltvBannerTypes[t] && lastCovenantResult && lastCovenantResult.locktime_daa > 0) {
+                // Owner reclaim on these types is CLTV-gated. Show the live
+                // state up front so the user never builds a doomed TX.
+                (async () => {
+                    try {
+                        let d = 0;
+                        try { d = await fetchCurrentDaa(); } catch (_) {}
+                        if (!d && typeof _lastKnownDaa !== 'undefined' && _lastKnownDaa > 0) d = _lastKnownDaa;
+                        const lt = Number(lastCovenantResult.locktime_daa);
+                        if (d > 0 && d < lt) {
+                            window.piggyStatusBanner({
+                                text: 'Owner reclaim NOT available yet: timelock matures in ~' +
+                                      formatDuration(Math.floor((lt - d) / 10)) +
+                                      '. Until then ' + _cltvBannerTypes[t] + '.',
+                                color: 'var(--error, #f44336)'
+                            });
+                        } else if (d > 0) {
+                            window.piggyStatusBanner({
+                                text: 'Timelock matured — owner reclaim available now.',
+                                color: 'var(--accent, #4caf50)'
+                            });
+                        }
+                    } catch (_) {}
+                })();
+            }
             if (t === 'global-allowance') {
                 ownerHelp.textContent = 'Owner reclaim. Sweeps the whole thread back to your address via the free owner path (uncapped). To add funds, use Deposit and pick the wallet UTXOs to fold into the thread. Requires owner signature from your KasSigner.';
                 ownerHelp.style.display = '';
@@ -3767,7 +3805,58 @@ function bindEvents() {
             }
         }
     };
-    el('btn-cov-owner-create').onclick = () => handleCovOwnerSpend();
+// Evaluate whether a piggy (additive) can be broken RIGHT NOW.
+// totalSompi/feeSompi as BigInt. Returns {canBreak, goalMet, deadlinePassed,
+// text, color}: goalMet checks output[0] (total - fee) >= threshold; the
+// deadline path needs current DAA >= deadline. No conditions set = breakable.
+window.piggyBreakStatus = async function (totalSompi, feeSompi) {
+    const thr = lastCovenantResult.threshold_sompi ? BigInt(lastCovenantResult.threshold_sompi) : 0n;
+    const dl = lastCovenantResult.deadline_daa ? BigInt(lastCovenantResult.deadline_daa) : 0n;
+    if (thr === 0n && dl === 0n) {
+        return { canBreak: true, goalMet: true, deadlinePassed: true,
+                 text: 'No conditions set — breakable anytime.', color: 'var(--accent, #4caf50)' };
+    }
+    let curDaa = 0;
+    try { curDaa = await fetchCurrentDaa(); } catch (_) {}
+    if (!curDaa && typeof _lastKnownDaa !== 'undefined' && _lastKnownDaa > 0) curDaa = _lastKnownDaa;
+    const goalMet = thr > 0n && (totalSompi - feeSompi) >= thr;
+    const deadlinePassed = dl > 0n && curDaa > 0 && BigInt(curDaa) >= dl;
+    if (goalMet || deadlinePassed) {
+        const why = goalMet ? 'goal reached' : 'deadline passed';
+        return { canBreak: true, goalMet, deadlinePassed,
+                 text: 'Breakable now (' + why + ').', color: 'var(--accent, #4caf50)' };
+    }
+    const parts = [];
+    if (thr > 0n) parts.push('goal ' + (Number(thr) / 1e8) + ' KAS not reached (have ' +
+        (Number(totalSompi) / 1e8).toFixed(4) + ')');
+    if (dl > 0n) {
+        const eta = (curDaa > 0 && dl > BigInt(curDaa))
+            ? '~' + formatDuration(Math.floor((Number(dl) - curDaa) / 10)) : 'unknown';
+        parts.push('deadline not passed (' + eta + ' left)');
+    }
+    return { canBreak: false, goalMet, deadlinePassed,
+             text: 'NOT breakable yet: ' + parts.join(' and ') + '. A break TX would be rejected on-chain.',
+             color: 'var(--error, #f44336)' };
+};
+
+// Insert/update the piggy status banner above the owner help text.
+window.piggyStatusBanner = function (status) {
+    let b = el('cov-piggy-status-banner');
+    if (!b) {
+        b = document.createElement('div');
+        b.id = 'cov-piggy-status-banner';
+        b.style.cssText = 'font-size:13px;padding:8px 10px;border:1px solid;border-radius:6px;margin:6px 0';
+        const help = el('cov-owner-help');
+        if (help && help.parentNode) help.parentNode.insertBefore(b, help);
+    }
+    b.style.color = status.color;
+    b.style.borderColor = status.color;
+    b.textContent = status.text;
+    b.classList.remove('hidden');
+    return b;
+};
+
+el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handleCovOwnerSpend());
     if (el('btn-cov-owner-consolidate')) {
         el('btn-cov-owner-consolidate').onclick = () => {
             // The advanced picker inherits the screen's current destination so it
@@ -4320,6 +4409,22 @@ function bindEvents() {
             toast('Commitment scanned. Hash: ' + hashHex.slice(0, 8) + '...', 'ok', 2000);
         });
     };
+    // Datetime → locktime staleness fix: the create flows compute the DAA
+    // locktime from the datetime only when the locktime field is EMPTY, and
+    // then write the computed value back into it. On a second create with a
+    // changed datetime the stale DAA silently won — same script, same
+    // covenant address ("changing the time doesn't change the address").
+    // Editing a datetime now clears its paired auto-filled locktime field.
+    [['cov-cr-datetime', 'cov-cr-locktime'],
+     ['cov-mw-datetime', 'cov-mw-locktime'],
+     ['cov-payjoin-datetime', 'cov-payjoin-locktime'],
+     ['cov-oracle-datetime', 'cov-oracle-locktime'],
+     ['cov-savings-datetime', 'cov-savings-locktime'],
+     ['cov-swap-datetime', 'cov-swap-locktime'],
+     ['cov-crowdfund-datetime', 'cov-crowdfund-locktime']].forEach(([dt, lt]) => {
+        const d = el(dt);
+        if (d) d.addEventListener('input', () => { const l = el(lt); if (l) l.value = ''; });
+    });
     if (el('btn-cov-cr-reveal')) el('btn-cov-cr-reveal').onclick = () => covShowPanel('cr-reveal');
     el('btn-cov-cr-reveal-back').onclick = () => { window._crDecryptCtBytes = null; covShowPanel('result'); };
     el('btn-cov-cr-reveal-create').onclick = () => handleCovCrReveal();
@@ -4448,10 +4553,19 @@ function bindEvents() {
 
             // Full preimage = part_a + part_b
             const fullPreimageHex = partAHex + partBHex;
-            // Decode preimage to text
+            // Decode preimage to text. Salted (v2) preimages are
+            // salt(8) || secret — the salt is entropy, not text, so strip it
+            // for display when the first 8 bytes contain non-printables.
+            // Legacy unsalted preimages are pure text and pass through whole.
+            // The hash below is always computed over the FULL preimage.
             const preimageBytes = new Uint8Array(fullPreimageHex.match(/.{2}/g).map(b => parseInt(b, 16)));
+            let displayBytes = preimageBytes;
+            if (preimageBytes.length > 8 &&
+                Array.from(preimageBytes.slice(0, 8)).some(b => b < 0x20 || b > 0x7e)) {
+                displayBytes = preimageBytes.slice(8);
+            }
             let preimageText;
-            try { preimageText = new TextDecoder().decode(preimageBytes); } catch (_) { preimageText = fullPreimageHex; }
+            try { preimageText = new TextDecoder().decode(displayBytes); } catch (_) { preimageText = fullPreimageHex; }
 
             // Extract committed hash from redeem script
             // The script has OP_CAT(7e) OP_BLAKE2B(aa) then 20-byte push of the hash
@@ -5050,6 +5164,7 @@ function bindEvents() {
                 el('qr-container').innerHTML = svg;
                 el('qr-frame-info').innerHTML = '';
                 el('qr-display-title').textContent = 'Private Swap Invite \u2014 counterparty scans this';
+                window._adaptorQrReturn = true;
                 el('btn-scan-next-sig').style.display = 'none';
                 el('btn-copy-kspt').style.display = 'none';
                 if (el('btn-qr-scan-signed')) el('btn-qr-scan-signed').style.display = 'none'; // pure publish screen: counterparty scans this, nothing to scan back here (scan happens via btn-adaptor-scan-response)
@@ -5184,6 +5299,7 @@ function bindEvents() {
                 el('qr-container').innerHTML = svg;
                 el('qr-frame-info').innerHTML = '';
                 el('qr-display-title').textContent = 'Response QR \u2014 counterparty scans this';
+                window._adaptorQrReturn = true;
                 el('btn-scan-next-sig').style.display = 'none';
                 el('btn-copy-kspt').style.display = 'none';
                 if (el('btn-qr-scan-signed')) el('btn-qr-scan-signed').style.display = 'none'; // pure publish screen: counterparty scans this, nothing to scan back here
@@ -5494,11 +5610,39 @@ function bindEvents() {
                 address: _adaptorState.myAddr,
                 redeem_script_hex: _adaptorState.myRedeem,
                 type: 'adaptor-swap',
+                // Without this the CLTV gate/banner see 0 and silently skip —
+                // the refund rode all the way to a node rejection.
+                locktime_daa: _adaptorState.myTimeoutDaa || 0,
             };
             covShowPanel('owner');
             if (el('cov-owner-panel')) el('cov-owner-panel').dataset.covOwnerType = 'adaptor-swap';
             el('cov-owner-addr').value = _adaptorState.myAddr;
             el('cov-owner-script').value = _adaptorState.myRedeem;
+            // This entry bypasses the generic owner-panel code path where the
+            // CLTV banner is shown, so render it here.
+            if (lastCovenantResult.locktime_daa > 0) {
+                (async () => {
+                    try {
+                        let d = 0;
+                        try { d = await fetchCurrentDaa(); } catch (_) {}
+                        if (!d && typeof _lastKnownDaa !== 'undefined' && _lastKnownDaa > 0) d = _lastKnownDaa;
+                        const lt = Number(lastCovenantResult.locktime_daa);
+                        if (d > 0 && d < lt) {
+                            window.piggyStatusBanner({
+                                text: 'Owner refund NOT available yet: timelock matures in ~' +
+                                      formatDuration(Math.floor((lt - d) / 10)) +
+                                      '. Until then only the counterparty claim is valid.',
+                                color: 'var(--error, #f44336)'
+                            });
+                        } else if (d > 0) {
+                            window.piggyStatusBanner({
+                                text: 'Timelock matured — owner refund available now.',
+                                color: 'var(--accent, #4caf50)'
+                            });
+                        }
+                    } catch (_) {}
+                })();
+            }
         };
     }
     // Hub Resume: navigate to adaptor-result
@@ -5665,7 +5809,7 @@ function bindEvents() {
             ensureEscrowParams(result);
             const myAcctPk = getAccountPubkeyHex() || '';
             const myDerivedPk = getOwnerPubkeyHex() || '';
-            const matchesPk = (target) => target && ((myAcctPk && myAcctPk === target) || (myDerivedPk && myDerivedPk === target));
+            const matchesPk = (target) => walletMatchesPk(target);
             if (matchesPk(result.arbiter_pk)) {
                 result.role = 'arbiter';
             } else if (matchesPk(result.alice_pk)) {
@@ -5681,7 +5825,7 @@ function bindEvents() {
             if (oi.ldi) result.locktime_date_iso = oi.ldi;
             const myAcctPk = getAccountPubkeyHex() || '';
             const myAddrPk = getOwnerPubkeyHex() || '';
-            const matchesPkO = (target) => target && ((myAcctPk && myAcctPk === target) || (myAddrPk && myAddrPk === target));
+            const matchesPkO = (target) => walletMatchesPk(target);
             if (matchesPkO(oi.opk)) {
                 result.role = 'oracle';
             } else if (matchesPkO(oi.bpk)) {
@@ -5869,12 +6013,17 @@ function bindEvents() {
         // Restore QR screen buttons (may have been hidden by piggy share)
         if (el('btn-qr-scan-signed')) el('btn-qr-scan-signed').style.display = '';
         if (el('btn-scan-next-sig')) el('btn-scan-next-sig').style.display = '';
+        // Adaptor routing must be keyed on the QR actually shown, not on the
+        // mere existence of _adaptorState (it persists across sessions): a
+        // stale swap was hijacking Back from every other covenant's QR.
+        const _wasAdaptorQr = window._adaptorQrReturn === true;
+        window._adaptorQrReturn = false;
         if (window._oracleAttestQrReturn) {
             window._oracleAttestQrReturn = false;
             _broadcastReturnScreen = null;
             showScreen('covenant');
             covShowPanel('oracle-attest');
-        } else if (_adaptorState && _broadcastReturnScreen === 'covenant') {
+        } else if (_wasAdaptorQr && _adaptorState && _broadcastReturnScreen === 'covenant') {
             _broadcastReturnScreen = null;
             showScreen('covenant');
             if (_adaptorState.role === 'alice') covShowPanel('adaptor-result');
@@ -5986,7 +6135,13 @@ function bindEvents() {
     el('btn-history-back').onclick = () => showScreen('dashboard');
     el('btn-history-back-top').onclick = () => showScreen('dashboard');
     el('btn-clear-history').onclick = () => clearHistory();
-    el('btn-donate-skip').onclick = () => exitSettings();
+    el('btn-donate-skip').onclick = () => {
+        // Never route through exitSettings()/settingsReturnScreen here:
+        // that can hold a stale 'welcome' and lock the user out (kpub
+        // rescan). Wallet loaded → dashboard, otherwise welcome.
+        showScreen(walletData ? 'dashboard' : 'welcome');
+        if (walletData) refreshBalance();
+    };
     el('btn-copy-donate').onclick = () => {
         navigator.clipboard.writeText(DONATE_ADDRESS);
         toast('Address copied', 'ok', 1500);
@@ -10174,6 +10329,10 @@ function covUpdateResultButtons(type) {
 }
 
 function covShowPanel(panel) {
+    // Stale-state guard: the piggy break-status banner belongs to the additive
+    // owner flow only; hide on every panel switch, the additive entry re-shows it.
+    const pb = el('cov-piggy-status-banner');
+    if (pb) pb.classList.add('hidden');
     ['cov-menu', 'cov-create-panel', 'cov-result-panel', 'cov-owner-panel', 'cov-borrower-panel', 'cov-beneficiary-panel', 'cov-timeout-panel', 'cov-balance-panel', 'cov-atomic-claim-panel', 'cov-oracle-claim-panel', 'cov-oracle-attest-panel', 'cov-payjoin-claim-panel', 'cov-cr-reveal-panel', 'cov-cr-verify-panel', 'cov-mw-spend-panel', 'cov-load-panel', 'cov-consolidate-panel', 'cov-adaptor-panel', 'cov-adaptor-create-panel', 'cov-adaptor-result-panel', 'cov-adaptor-join-panel', 'cov-tagged-vault-panel', 'cov-ship-panel', 'cov-oracle-mb-panel'].forEach(id => {
         const e = el(id);
         if (e) e.classList.add('hidden');
@@ -10345,6 +10504,28 @@ function covTypeChanged() {
     el('cov-fields-commit-reveal').classList.toggle('hidden', !isCommitReveal);
     el('cov-fields-merkle-whitelist').classList.toggle('hidden', !isMerkleWhitelist);
     if (el('cov-fields-crowdfund')) el('cov-fields-crowdfund').classList.toggle('hidden', !isCrowdfund);
+}
+
+// Does the loaded wallet own this x-only pubkey? Checks the account-level
+// key plus EVERY receive and change address payload — a counterparty may
+// have shared any index from their device, not just /0/0. Matching only
+// /0/0 made escrow role detection fail whenever the shared address was at
+// a browsed index (arbiter got seller tabs).
+function walletMatchesPk(target) {
+    if (!target || !walletData) return false;
+    const acct = getAccountPubkeyHex();
+    if (acct && acct === target) return true;
+    try {
+        const w = JSON.parse(walletData);
+        const all = [...(w.receive_addresses || []), ...(w.change_addresses || [])];
+        for (const a of all) {
+            try {
+                const d = JSON.parse(decode_address(a));
+                if (d.payload && d.payload === target) return true;
+            } catch (_) {}
+        }
+    } catch (_) {}
+    return false;
 }
 
 function getOwnerPubkeyHex() {
@@ -11253,7 +11434,11 @@ async function handleShipEscrowSpend(branch) {
 
         const inputs = [{
             previousOutpoint: { transactionId: u.tx_id, index: u.index },
-            sequence: 0, sigOpCount: 0,
+            // sigOpCount buys script compute budget on tx v1 (1 sigop = 10
+            // budget units = 100K script units on top of the 9,999 free).
+            // 0 here made every signed branch blow the free allowance:
+            // "script units exceeded ... used=100763, limit=9999".
+            sequence: 0, sigOpCount: minSig,
             utxoEntry: { amount: Number(inAmt), scriptPublicKey: covSpkHex, blockDaaScore: 0, isCoinbase: false },
             redeemScript: redeemHex, partialSigs: {}, minimumSignatures: minSig,
             bip32Derivations: [], proprietaries: {}, finalScriptSig: null, minTime: 0
@@ -11331,7 +11516,10 @@ async function handleEscrowSpend(branch) {
 
         const inputs = utxos.map(u => ({
             previousOutpoint: { transactionId: u.tx_id, index: u.index },
-            sequence: 0, sigOpCount: 0,
+            // Every escrow branch verifies exactly one signature; sigOpCount 1
+            // commits compute_budget 10 (109,999 units) on tx v1. 0 capped the
+            // input at the 9,999 free units and the node rejected the spend.
+            sequence: 0, sigOpCount: 1,
             utxoEntry: { amount: Number(BigInt(u.amount)), scriptPublicKey: covSpkHex, blockDaaScore: 0, isCoinbase: false },
             redeemScript: redeemHex, partialSigs: {}, minimumSignatures: 1,
             bip32Derivations: [],
@@ -11527,18 +11715,52 @@ async function handleCovOwnerSpend() {
             // and stamps the CLTV locktime; otherwise tx.locktime stays 0 and the
             // node rejects with "locktime requirement not satisfied".
             if (covType === 'oracle' || covType === 'adaptor-swap' || covType === 'payjoin' || covType === 'merkle-whitelist' || covType === 'commit-reveal') branch = 'owner-time';
+            // CLTV-only owner reclaim gate: for these types the owner path IS
+            // the timelock branch — before it matures the node rejects the TX
+            // as not finalized. Block the doomed TX with a banner instead.
+            const _cltvOwnerTypes = { 'merkle-whitelist': 'only whitelisted spends are valid',
+                                      'commit-reveal': 'only the reveal path is valid',
+                                      'oracle': 'only the oracle-attested claim is valid',
+                                      'payjoin': 'only the joint-spend path is valid',
+                                      'adaptor-swap': 'only the counterparty claim is valid' };
+            if (_cltvOwnerTypes[covType] && lastCovenantResult && lastCovenantResult.locktime_daa > 0) {
+                let _mwDaa = 0;
+                try { _mwDaa = await fetchCurrentDaa(); } catch (_) {}
+                if (!_mwDaa && typeof _lastKnownDaa !== 'undefined' && _lastKnownDaa > 0) _mwDaa = _lastKnownDaa;
+                const _mwLt = Number(lastCovenantResult.locktime_daa);
+                if (_mwDaa > 0 && _mwDaa < _mwLt) {
+                    const _mwEta = formatDuration(Math.floor((_mwLt - _mwDaa) / 10));
+                    try {
+                        window.piggyStatusBanner({
+                            text: 'Owner reclaim NOT available yet: timelock matures in ~' + _mwEta +
+                                  '. Until then ' + _cltvOwnerTypes[covType] + ' — a reclaim TX would be rejected on-chain.',
+                            color: 'var(--error, #f44336)'
+                        });
+                    } catch (_) {}
+                    hideLoading();
+                    toast('Owner reclaim is timelocked for ~' + _mwEta + ' more. The node would reject this TX.', 'error', 7500);
+                    return;
+                }
+            }
             let sweepFee = fee;
             try {
                 const wsCheck = await resolveNodeUrl();
                 const utxosCheck = JSON.parse(await fetch_utxos_for_address_js(covAddr, wsCheck));
                 sweepFee = getCovFee(utxosCheck.length || 1);
-                // Piggy with a deadline: if balance < goal the amount branch is
-                // unusable, so sweep via the deadline (time) path. CLTV requires the
-                // deadline to have passed.
-                if (covType === 'additive' && lastCovenantResult && lastCovenantResult.deadline_daa) {
+                // Piggy break gate: refuse to build a TX that cannot pass
+                // on-chain. Goal path needs (total - fee) >= threshold;
+                // deadline path needs the CLTV to have matured. If neither
+                // holds, a broadcast is guaranteed to fail — block it here.
+                if (covType === 'additive' && lastCovenantResult) {
                     const totalCheck = utxosCheck.reduce((s, u) => s + BigInt(u.amount), 0n);
-                    const threshold = lastCovenantResult.threshold_sompi ? BigInt(lastCovenantResult.threshold_sompi) : 0n;
-                    if (threshold === 0n || totalCheck - sweepFee < threshold) {
+                    const st = await window.piggyBreakStatus(totalCheck, sweepFee);
+                    try { window.piggyStatusBanner(st); } catch (_) {}
+                    if (!st.canBreak) {
+                        hideLoading();
+                        toast(st.text, 'error', 7500);
+                        return;
+                    }
+                    if (!st.goalMet && st.deadlinePassed) {
                         branch = 'owner-time';
                         console.log('[KasSee] Piggy break: using deadline (time) path');
                     }
@@ -12212,9 +12434,13 @@ async function stealthFeePrepare(prefix, ctx) {
 }
 
 function stealthShowPanel(panel) {
-    // Leaving the scan panel fully tears down the scan (QR, timer, scanner, results),
-    // so a stale QR or stale results never survive navigating away or a reload.
-    if (panel !== 'scan') stealthScanStop();
+    // Leaving the scan panel pauses only the panel-local visuals (device-QR
+    // cycler + inserted QR box). The live BlockAdded watcher and the
+    // accumulated R list stay alive across panel switches so payments made
+    // from the send panel (or received while browsing) are still caught.
+    // Full teardown happens only on leaving the stealth screen or on a
+    // fresh Fetch (both call stealthScanStop()).
+    if (panel !== 'scan') stealthScanPause();
     ['stealth-menu', 'stealth-meta-panel', 'stealth-send-panel', 'stealth-scan-panel'].forEach(id => {
         el(id).classList.add('hidden');
     });
@@ -12340,6 +12566,10 @@ async function handleStealthSendPay() {
 
 // ─── Stealth REST catch-up (indexer-backed, survives pruning) ───
 const KSTL_SUBNET_HEX = '4b53544c00000000000000000000000000000000'; // "KSTL" + 16 zeros (lane subnetwork id)
+const STEALTH_MAX_R = 512;          // sanity bound on the candidate R list. The device
+                                    // handoff pages in batches, so this only guards
+                                    // against pathological growth; hitting it is
+                                    // surfaced in the status, never a silent drop.
 const STEALTH_LOOKBACK_BS = 9000;   // 90 windows of 100 blue score (~15 min at 10 BPS).
                                     // Kept well under the public API per-IP limit where
                                     // 429s begin (~window 149), so a direct scan (no proxy)
@@ -12495,17 +12725,46 @@ async function handleStealthFetchAnnouncements() {
     try {
         const wsUrl = await resolveNodeUrl();
         const blockAddedReq = new Uint8Array(build_vcc_subscribe_request(44n)); // BlockAdded scope
-        const ws = new WebSocket(wsUrl);
-        ws.binaryType = 'arraybuffer';
-        window._stealthScanWs = ws;
+
+        // Live-WS lifecycle: visible state + auto-reconnect. The old code
+        // connected once; onerror wrote one status line that the catch-up
+        // immediately overwrote, and onclose said nothing — a dead socket
+        // was indistinguishable from a running one, so "live also running"
+        // could be a lie. _stealthLiveUp feeds the status suffix and the
+        // connector retries every 3s while this scan session is open.
+        window._stealthLiveUp = false;
+        window._stealthScanActive = true;
+        // Dedicated live-status line: only the socket callbacks write it, so
+        // catch-up status messages can never overwrite the live-scan state.
+        const stealthLiveStatusEl = () => {
+            let d = el('stealth-live-status');
+            if (!d) {
+                d = document.createElement('div');
+                d.id = 'stealth-live-status';
+                d.style.cssText = 'font-size:12px;margin-top:4px';
+                const st = el('stealth-scan-status');
+                if (st && st.parentNode) st.parentNode.insertBefore(d, st.nextSibling);
+            }
+            return d;
+        };
+
+        const stealthConnectLiveWs = () => {
+            const ws = new WebSocket(wsUrl);
+            ws.binaryType = 'arraybuffer';
+            window._stealthScanWs = ws;
 
         // Lane discovery anchors on the 20-byte KSTL subnetwork id (see scan below).
 
-        ws.onopen = () => {
-            ws.send(blockAddedReq);
-            el('stealth-scan-status').textContent =
-                'Live scan running. Watching new blocks for stealth payments... (0 R found)';
-        };
+            ws.onopen = () => {
+                ws.send(blockAddedReq);
+                window._stealthLiveUp = true;
+                const d = stealthLiveStatusEl();
+                d.style.color = 'var(--accent, #4caf50)';
+                d.textContent = 'LIVE scan: connected — watching new blocks.';
+                el('stealth-scan-status').textContent =
+                    'Live scan running. Watching new blocks for stealth payments... (' +
+                    stealthAnnouncementsR.length + ' R found)';
+            };
 
         ws.onmessage = (evt) => {
             const data = new Uint8Array(evt.data);
@@ -12529,7 +12788,11 @@ async function handleStealthFetchAnnouncements() {
                 for (let j = 0; j < 32; j++) rHex += data[k + 33 + j].toString(16).padStart(2, '0');
                 if (/^0+$/.test(rHex)) continue;                     // skip all-zero
                 if (stealthAnnouncementsR.includes(rHex)) continue;  // dedupe
-                if (stealthAnnouncementsR.length >= 64) break;       // sane cap
+                if (stealthAnnouncementsR.length >= STEALTH_MAX_R) { // never drop silently
+                    el('stealth-scan-status').textContent =
+                        'R list full (' + STEALTH_MAX_R + '). New payments are NOT being recorded — process the current batch first.';
+                    break;
+                }
                 stealthAnnouncementsR.push(rHex);
                 added++;
             }
@@ -12545,11 +12808,29 @@ async function handleStealthFetchAnnouncements() {
             }
         };
 
-        ws.onerror = () => {
-            el('stealth-scan-status').textContent =
-                'Scan connection error. You can also enter R manually below.';
+            ws.onerror = () => {
+                console.log('[KasSee] Stealth live WS error');
+            };
+            // Any close (failed handshake, node drop, proxy timeout) marks the
+            // live scan DOWN and retries in 3s — but only if this socket is
+            // still the current one (stealthScanStop / a fresh Fetch replaces
+            // _stealthScanWs, which cancels the reconnect chain).
+            ws.onclose = () => {
+                if (window._stealthScanWs !== ws) return;
+                window._stealthScanWs = null;
+                window._stealthLiveUp = false;
+                const d = stealthLiveStatusEl();
+                d.style.color = 'var(--error, #f44336)';
+                d.textContent = 'LIVE scan: DOWN — new payments are NOT being watched. Reconnecting…';
+                console.log('[KasSee] Stealth live WS closed, reconnecting in 3s');
+                setTimeout(() => {
+                    // Reconnect only if this scan session is still active and
+                    // no newer socket took over meanwhile.
+                    if (window._stealthScanActive && window._stealthScanWs === null) stealthConnectLiveWs();
+                }, 3000);
+            };
         };
-        ws.onclose = () => { if (window._stealthScanWs === ws) window._stealthScanWs = null; };
+        stealthConnectLiveWs();
 
         // Historical catch-up via the REST indexer: scans a recent blue-score
         // window for KST1-tagged payloads. Survives node pruning and covers the
@@ -12579,12 +12860,16 @@ async function handleStealthFetchAnnouncements() {
                     recent = await stealthRestCatchUp(apiBase);
                 }
                 let added = 0;
+                let capHit = false;
                 for (const rHex of recent) {
                     if (typeof rHex !== 'string' || rHex.length !== 64) continue;
                     if (stealthAnnouncementsR.includes(rHex)) continue;
-                    if (stealthAnnouncementsR.length >= 64) break;
+                    if (stealthAnnouncementsR.length >= STEALTH_MAX_R) { capHit = true; break; }
                     stealthAnnouncementsR.push(rHex);
                     added++;
+                }
+                if (capHit) {
+                    console.log('[KasSee] Stealth catch-up hit STEALTH_MAX_R cap (' + STEALTH_MAX_R + ')');
                 }
                 if (stealthAnnouncementsR.length > 0) {
                     const list = el('stealth-r-list');
@@ -12611,7 +12896,26 @@ async function handleStealthFetchAnnouncements() {
     }
 }
 
+// Panel-switch cleanup only: stops the device-QR frame cycler, an active
+// camera scan, and removes the inserted QR box. Leaves the live BlockAdded
+// WebSocket, the R list, and device results untouched.
+function stealthScanPause() {
+    if (window._stealthQrTimer) {
+        try { clearInterval(window._stealthQrTimer); } catch (_) {}
+        window._stealthQrTimer = null;
+    }
+    if (scanStream) { try { stopScanner(); } catch (_) {} }
+    const qrBox = el('stealth-scan-qr-display');
+    if (qrBox && qrBox.parentNode) qrBox.parentNode.removeChild(qrBox);
+}
+
 function stealthScanStop() {
+    // Deactivate the session first: any pending live-WS reconnect timer
+    // checks this flag and will not resurrect a stopped scan.
+    window._stealthScanActive = false;
+    window._stealthLiveUp = false;
+    const liveEl = el('stealth-live-status');
+    if (liveEl && liveEl.parentNode) liveEl.parentNode.removeChild(liveEl);
     // Close the live BlockAdded subscription.
     if (window._stealthScanWs) {
         try { window._stealthScanWs.close(); } catch (_) {}
