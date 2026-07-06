@@ -261,8 +261,10 @@ pub fn handle_export_touch(
                                 // Top left triangle = pan left (<)
                                 if pan_x >= step {
                                     ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x: pan_x - step, pan_y, compact };
+                                    needs_redraw = true;
                                 } else if pan_x > 0 {
                                     ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x: 0, pan_y, compact };
+                                    needs_redraw = true;
                                 }
                             }
                             else if x < 55 && (130..200).contains(&y) {
@@ -270,6 +272,7 @@ pub fn handle_export_touch(
                                 let new_x = (pan_x + step).min(max_pan);
                                 if new_x != pan_x {
                                     ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x: new_x, pan_y, compact };
+                                    needs_redraw = true;
                                 }
                             }
                             // Right strip — vertical pan
@@ -277,8 +280,10 @@ pub fn handle_export_touch(
                                 // Top right triangle = pan up (^)
                                 if pan_y >= step {
                                     ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x, pan_y: pan_y - step, compact };
+                                    needs_redraw = true;
                                 } else if pan_y > 0 {
                                     ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x, pan_y: 0, compact };
+                                    needs_redraw = true;
                                 }
                             }
                             else if x > 265 && (130..200).contains(&y) {
@@ -286,6 +291,7 @@ pub fn handle_export_touch(
                                 let new_y = (pan_y + step).min(max_pan);
                                 if new_y != pan_y {
                                     ad.app.state = crate::app::input::AppState::SeedQrGrid { pan_x, pan_y: new_y, compact };
+                                    needs_redraw = true;
                                 }
                             }
                         }
