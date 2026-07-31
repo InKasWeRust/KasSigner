@@ -553,7 +553,7 @@ pub fn handle_menu_touch(
                                     ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 1 };
                                     return Some(true);
                                 }
-                                log!("   Dice: {} ({}/{})", val, ad.dice_collector.count, ad.dice_collector.target);
+                                log!("   Dice roll entered ({}/{})", ad.dice_collector.count, ad.dice_collector.target);
 
                                 if ad.dice_collector.is_complete() {
                                     // Generate seed from dice
