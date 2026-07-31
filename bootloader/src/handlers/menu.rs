@@ -492,7 +492,7 @@ pub fn handle_menu_touch(
 
                             if let Some(val) = tapped_die {
                                 ad.dice_collector.add_roll(val);
-                                log!("   Dice: {} ({}/{})", val, ad.dice_collector.count, ad.dice_collector.target);
+                                log!("   Dice roll entered ({}/{})", ad.dice_collector.count, ad.dice_collector.target);
 
                                 if ad.dice_collector.is_complete() {
                                     // Generate seed from dice
