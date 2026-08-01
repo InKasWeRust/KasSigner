@@ -22,7 +22,7 @@
 // Each slot stores:
 //   - BIP39 word indices (12 or 24 words)
 //   - BIP39 passphrase (up to 64 chars)
-//   - SHA256 fingerprint of entropy (4 bytes, instant to compute)
+//   - SHA256 fingerprint of the BIP39-derived seed (4 bytes)
 //
 // SeedQR format (SeedSigner-compatible):
 //   Standard: 4-digit zero-padded decimal per word index, concatenated
@@ -30,7 +30,7 @@
 //     24 words → 96 digits
 //   CompactSeedQR: raw entropy bytes (16 or 32 bytes)
 //
-// Fingerprint: SHA256(entropy)[0..4] displayed as hex (e.g. "a3f8e2b1")
+// Fingerprint: SHA256(BIP39 seed)[0..4] displayed as hex (e.g. "62a772f8")
 
 
 use sha2::{Sha256, Digest};
@@ -47,7 +47,7 @@ pub struct SeedSlot {
     /// BIP39 passphrase (UTF-8, up to 64 bytes)
     pub passphrase: [u8; 64],
     pub passphrase_len: u8,
-    /// SHA256(entropy)[0..4] — instant visual identifier
+    /// SHA256(BIP39-derived seed)[0..4] — display identifier
     pub fingerprint: [u8; 4],
 }
 
@@ -84,45 +84,20 @@ pub fn is_empty(&self) -> bool {
         }
     }
 
-    /// Compute fingerprint from word indices.
-    /// Reconstructs entropy from indices, then SHA256(entropy)[0..4].
+    /// Compute a fingerprint from the fully derived BIP39 seed.
+    /// This avoids exposing a fast SHA256 passphrase-guessing oracle.
     pub fn compute_fingerprint(&mut self) {
-        let mut entropy = [0u8; 33]; // max 264 bits for 24 words
-        let wc = self.word_count as usize;
+        let passphrase = self.passphrase_str();
+        let mut seed = crate::app::signing::derive_seed(
+            &self.indices,
+            self.word_count,
+            passphrase,
+        );
 
-        // Pack word indices into bits (11 bits each)
-        let mut bit_pos: usize = 0;
-        for i in 0..wc {
-            let idx = self.indices[i];
-            for bit in (0..11).rev() {
-                let byte_idx = bit_pos / 8;
-                let bit_idx = 7 - (bit_pos % 8);
-                if (idx >> bit) & 1 == 1 {
-                    entropy[byte_idx] |= 1 << bit_idx;
-                }
-                bit_pos += 1;
-            }
-        }
-
-        // Entropy is the first 128 bits (16 bytes) for 12-word
-        // or first 256 bits (32 bytes) for 24-word
-        let entropy_len = if wc == 12 { 16 } else { 32 };
-
-        // Hash entropy + passphrase together so that same mnemonic
-        // with different passphrases produces different fingerprints
-        let mut hasher = Sha256::new();
-        hasher.update(&entropy[..entropy_len]);
-        let pp_len = self.passphrase_len as usize;
-        if pp_len > 0 {
-            hasher.update(&self.passphrase[..pp_len]);
-        }
-        let hash = hasher.finalize();
+        let hash = Sha256::digest(&seed.bytes);
         self.fingerprint.copy_from_slice(&hash[..4]);
 
-        // Zeroize temp
-        for b in entropy.iter_mut() {
-            unsafe { core::ptr::write_volatile(b, 0); }
-        }
+        seed.zeroize();
     }
 
     /// Get passphrase as &str
@@ -190,15 +165,38 @@ pub const fn new() -> Self {
         self.slots.iter().filter(|s| !s.is_empty()).count()
     }
 
-    /// Store a seed into the next free slot.
-    /// Returns slot index, or None if full.
-    /// Find existing slot with matching fingerprint. Returns slot index if found.
+    /// Find an existing slot with a matching display fingerprint.
+    /// Used by non-BIP39 key import paths.
     pub fn find_by_fingerprint(&self, fp: &[u8; 4]) -> Option<usize> {
         for i in 0..MAX_SLOTS {
             if !self.slots[i].is_empty() && self.slots[i].fingerprint == *fp {
                 return Some(i);
             }
         }
+        None
+    }
+
+    /// Find an identical BIP39 mnemonic and passphrase.
+    fn find_matching_mnemonic(
+        &self,
+        indices: &[u16; 24],
+        word_count: u8,
+        passphrase: &[u8],
+        passphrase_len: usize,
+    ) -> Option<usize> {
+        let word_len = word_count as usize;
+
+        for i in 0..MAX_SLOTS {
+            let slot = &self.slots[i];
+            if slot.word_count == word_count
+                && slot.indices[..word_len] == indices[..word_len]
+                && slot.passphrase_len as usize == passphrase_len
+                && slot.passphrase[..passphrase_len] == passphrase[..passphrase_len]
+            {
+                return Some(i);
+            }
+        }
+
         None
     }
 
@@ -210,8 +208,8 @@ pub fn store(
         passphrase: &[u8],
         passphrase_len: u8,
     ) -> Option<usize> {
-        // Compute fingerprint INCLUDING passphrase to distinguish
-        // same mnemonic with different passphrases
+        // Derive the fingerprint through BIP39 so the passphrase cannot
+        // be tested using a single fast SHA256 operation.
         let mut tmp = SeedSlot::empty();
         tmp.indices = *indices;
         tmp.word_count = word_count;
@@ -220,8 +218,11 @@ pub fn store(
         tmp.passphrase_len = pp_len as u8;
         tmp.compute_fingerprint();
 
-        // If same fingerprint already exists, return that slot (no duplicate)
-        if let Some(existing) = self.find_by_fingerprint(&tmp.fingerprint) {
+        // Only exact mnemonic and passphrase matches are duplicates.
+        // A four-byte display fingerprint is not a unique identifier.
+        if let Some(existing) =
+            self.find_matching_mnemonic(indices, word_count, passphrase, pp_len)
+        {
             return Some(existing);
         }
 
@@ -620,10 +621,18 @@ pub fn test_fingerprint() -> bool {
     // All zeros → "abandon" x 11 + "about"
     slot.indices = [0,0,0,0,0,0,0,0,0,0,0,3, 0,0,0,0,0,0,0,0,0,0,0,0];
     slot.compute_fingerprint();
-    // SHA256 of 16 zero bytes: known hash
-    // Just check fingerprint is not all zeros (entropy is all zeros but hash isn't)
-    // Actually SHA256(0x00 * 16) = 374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb
-    slot.fingerprint[0] == 0x37 && slot.fingerprint[1] == 0x47
+    // BIP39 seed for this mnemonic with an empty passphrase is the standard
+    // 64-byte seed beginning 5eb00bbd. SHA256(seed)[0..4] = 62a772f8.
+    if slot.fingerprint != [0x62, 0xA7, 0x72, 0xF8] {
+        return false;
+    }
+
+    slot.passphrase[..6].copy_from_slice(b"TREZOR");
+    slot.passphrase_len = 6;
+    slot.compute_fingerprint();
+
+    // Official TREZOR BIP39 seed, hashed with SHA256, begins c08dda51.
+    slot.fingerprint == [0xC0, 0x8D, 0xDA, 0x51]
 }
 
 #[cfg(any(test, feature = "verbose-boot"))]
@@ -645,16 +654,57 @@ pub fn test_seed_manager_store_delete() -> bool {
 }
 
 #[cfg(any(test, feature = "verbose-boot"))]
+/// Test: a display-fingerprint collision does not merge different mnemonics.
+pub fn test_fingerprint_collision_does_not_merge_seeds() -> bool {
+    let mut mgr = SeedManager::new();
+    let mut indices_a = [0u16; 24];
+    let mut indices_b = [0u16; 24];
+
+    if decode_compact_seedqr(&[0u8; 16], &mut indices_a) != 12
+        || decode_compact_seedqr(&[1u8; 16], &mut indices_b) != 12
+    {
+        return false;
+    }
+
+    let first = match mgr.store(&indices_a, 12, b"", 0) {
+        Some(index) => index,
+        None => return false,
+    };
+
+    let mut collision = SeedSlot::empty();
+    collision.indices = indices_b;
+    collision.word_count = 12;
+    collision.compute_fingerprint();
+
+    // Force the first slot to have the second mnemonic's display fingerprint.
+    mgr.slots[first].fingerprint = collision.fingerprint;
+
+    let second = match mgr.store(&indices_b, 12, b"", 0) {
+        Some(index) => index,
+        None => return false,
+    };
+
+    if second == first || mgr.count() != 2 {
+        return false;
+    }
+
+    // An actual duplicate must still return the existing second slot.
+    mgr.store(&indices_b, 12, b"", 0) == Some(second)
+        && mgr.count() == 2
+}
+
+#[cfg(any(test, feature = "verbose-boot"))]
 /// Run all seed manager tests.
 pub fn run_seed_manager_tests() -> (u32, u32) {
     let mut passed = 0u32;
-    let total = 5u32;
+    let total = 6u32;
 
     if test_seedqr_roundtrip_12() { passed += 1; }
     if test_seedqr_roundtrip_24() { passed += 1; }
     if test_compact_seedqr_12() { passed += 1; }
     if test_fingerprint() { passed += 1; }
     if test_seed_manager_store_delete() { passed += 1; }
+    if test_fingerprint_collision_does_not_merge_seeds() { passed += 1; }
 
     (passed, total)
 }
