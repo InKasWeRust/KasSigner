@@ -38,14 +38,17 @@ use sha2::{Sha256, Digest};
 /// Maximum seed slots in RAM
 pub const MAX_SLOTS: usize = 16;
 
+/// Maximum accepted BIP39 passphrase length in bytes.
+pub const MAX_PASSPHRASE_LEN: usize = 128;
+
 /// A single seed slot
 pub struct SeedSlot {
     /// BIP39 word indices (0-2047)
     pub indices: [u16; 24],
     /// Number of words: 12 or 24 (0 = empty slot)
     pub word_count: u8,
-    /// BIP39 passphrase (UTF-8, up to 64 bytes)
-    pub passphrase: [u8; 64],
+    /// BIP39 passphrase (UTF-8, up to MAX_PASSPHRASE_LEN bytes)
+    pub passphrase: [u8; MAX_PASSPHRASE_LEN],
     pub passphrase_len: u8,
     /// SHA256(entropy)[0..4] — instant visual identifier
     pub fingerprint: [u8; 4],
@@ -57,7 +60,7 @@ pub const fn empty() -> Self {
         Self {
             indices: [0; 24],
             word_count: 0,
-            passphrase: [0; 64],
+            passphrase: [0; MAX_PASSPHRASE_LEN],
             passphrase_len: 0,
             fingerprint: [0; 4],
         }
@@ -215,7 +218,10 @@ pub fn store(
         let mut tmp = SeedSlot::empty();
         tmp.indices = *indices;
         tmp.word_count = word_count;
-        let pp_len = (passphrase_len as usize).min(64);
+        let pp_len = passphrase_len as usize;
+        if pp_len > MAX_PASSPHRASE_LEN || pp_len > passphrase.len() {
+            return None;
+        }
         tmp.passphrase[..pp_len].copy_from_slice(&passphrase[..pp_len]);
         tmp.passphrase_len = pp_len as u8;
         tmp.compute_fingerprint();
@@ -450,7 +456,7 @@ pub fn decode_compact_seedqr(data: &[u8], indices: &mut [u16; 24]) -> u8 {
 /// Passphrase input state for BIP39 passphrase entry.
 /// Supports a-z, A-Z, 0-9, space, and basic symbols.
 pub struct PassphraseInput {
-    pub buf: [u8; 128],
+    pub buf: [u8; MAX_PASSPHRASE_LEN],
     pub len: usize,
     /// Cursor position (0 = before first char, len = after last char)
     pub cursor: usize,
@@ -462,7 +468,7 @@ impl PassphraseInput {
         /// Create a new empty passphrase input.
 pub fn new() -> Self {
         Self {
-            buf: [0; 128],
+            buf: [0; MAX_PASSPHRASE_LEN],
             len: 0,
             cursor: 0,
             page: 0,
@@ -471,7 +477,7 @@ pub fn new() -> Self {
 
         /// Insert a character at cursor position.
 pub fn push_char(&mut self, c: u8) {
-        if self.len < 128 {
+        if self.len < MAX_PASSPHRASE_LEN {
             // Shift everything after cursor right by 1
             let mut i = self.len;
             while i > self.cursor {
@@ -645,16 +651,60 @@ pub fn test_seed_manager_store_delete() -> bool {
 }
 
 #[cfg(any(test, feature = "verbose-boot"))]
+/// Test: passphrases are stored fully through 128 bytes and invalid lengths fail.
+pub fn test_passphrase_length_boundaries() -> bool {
+    let mut mgr = SeedManager::new();
+    let indices = [0u16; 24];
+    let passphrase = [b'a'; MAX_PASSPHRASE_LEN];
+
+    let slot_64 = match mgr.store(&indices, 12, &passphrase, 64) {
+        Some(index) => index,
+        None => return false,
+    };
+    if mgr.slots[slot_64].passphrase_len != 64 {
+        return false;
+    }
+
+    let slot_65 = match mgr.store(&indices, 12, &passphrase, 65) {
+        Some(index) => index,
+        None => return false,
+    };
+    if mgr.slots[slot_65].passphrase_len != 65
+        || mgr.slots[slot_65].passphrase[64] != b'a'
+        || mgr.slots[slot_64].fingerprint == mgr.slots[slot_65].fingerprint
+    {
+        return false;
+    }
+
+    let slot_128 = match mgr.store(&indices, 12, &passphrase, 128) {
+        Some(index) => index,
+        None => return false,
+    };
+    if mgr.slots[slot_128].passphrase_len != 128
+        || mgr.slots[slot_128].passphrase != passphrase
+    {
+        return false;
+    }
+
+    if mgr.store(&indices, 12, &passphrase, 129).is_some() {
+        return false;
+    }
+
+    mgr.store(&indices, 12, &passphrase[..64], 65).is_none()
+}
+
+#[cfg(any(test, feature = "verbose-boot"))]
 /// Run all seed manager tests.
 pub fn run_seed_manager_tests() -> (u32, u32) {
     let mut passed = 0u32;
-    let total = 5u32;
+    let total = 6u32;
 
     if test_seedqr_roundtrip_12() { passed += 1; }
     if test_seedqr_roundtrip_24() { passed += 1; }
     if test_compact_seedqr_12() { passed += 1; }
     if test_fingerprint() { passed += 1; }
     if test_seed_manager_store_delete() { passed += 1; }
+    if test_passphrase_length_boundaries() { passed += 1; }
 
     (passed, total)
 }

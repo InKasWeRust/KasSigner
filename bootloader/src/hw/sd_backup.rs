@@ -419,10 +419,10 @@ pub fn decrypt_xprv_backup_progress(
 /// Magic for raw encrypted blobs (distinguishes from seed backups)
 const RAW_MAGIC: [u8; 4] = [b'K', b'A', b'S', 0x02];
 
-/// Max raw payload: 64 bytes passphrase text
-pub const MAX_RAW_PAYLOAD: usize = 64;
+/// Max raw payload: 128 bytes of passphrase or hint text
+pub const MAX_RAW_PAYLOAD: usize = 128;
 
-/// Max raw encrypted size: magic(4) + len(1) + nonce(12) + data(64) + tag(16) = 97
+/// Max raw encrypted size: magic(4) + len(1) + nonce(12) + data(128) + tag(16) = 161
 pub const MAX_RAW_ENCRYPTED: usize = 4 + 1 + NONCE_SIZE + MAX_RAW_PAYLOAD + TAG_SIZE;
 /// Encrypt arbitrary bytes with progress callback for PBKDF2.
 pub fn encrypt_raw_progress(
@@ -525,4 +525,50 @@ pub fn decrypt_raw_progress(
             }
         }
     }
+}
+
+#[cfg(any(test, feature = "verbose-boot"))]
+/// Test: a full 128-byte stego payload encrypts and decrypts without truncation.
+pub fn test_raw_128_byte_roundtrip() -> bool {
+    let mut payload = [0u8; MAX_RAW_PAYLOAD];
+    for (index, byte) in payload.iter_mut().enumerate() {
+        *byte = index as u8;
+    }
+
+    let password = b"KasSigner test password";
+    let nonce = [0x5Au8; NONCE_SIZE];
+    let mut encrypted = [0u8; MAX_RAW_ENCRYPTED];
+    let mut recovered = [0u8; MAX_RAW_PAYLOAD];
+    let mut progress = |_: u32, _: u32| {};
+
+    let encrypted_len = match encrypt_raw_progress(
+        &payload,
+        payload.len(),
+        password,
+        &nonce,
+        &mut encrypted,
+        &mut progress,
+    ) {
+        Ok(length) => length,
+        Err(_) => return false,
+    };
+
+    let recovered_len = match decrypt_raw_progress(
+        &encrypted[..encrypted_len],
+        password,
+        &mut recovered,
+        &mut progress,
+    ) {
+        Ok(length) => length,
+        Err(_) => return false,
+    };
+
+    let passed = recovered_len == MAX_RAW_PAYLOAD
+        && recovered == payload;
+
+    zeroize_buf(&mut payload);
+    zeroize_buf(&mut encrypted);
+    zeroize_buf(&mut recovered);
+
+    passed
 }

@@ -348,11 +348,11 @@ pub fn handle_stego_touch(
                                         // Encrypt hint with descriptor as password
                                         boot_display.draw_loading_screen("Encrypting hint...");
                                         let password = &ad.jpeg_desc_buf[..ad.jpeg_desc_len];
-                                        let mut nonce_src = [0u8; 128];
-                                        let ns_len = (ad.stego_pp_len + ad.jpeg_desc_len).min(128);
-                                        nonce_src[..(ad.stego_pp_len).min(64)].copy_from_slice(&ad.stego_pp_buf[..(ad.stego_pp_len).min(64)]);
-                                        if ad.jpeg_desc_len > 0 && (ad.stego_pp_len) < 128 {
-                                            let copy = (ad.jpeg_desc_len).min(128 - (ad.stego_pp_len));
+                                        let mut nonce_src = [0u8; 256];
+                                        let ns_len = (ad.stego_pp_len + ad.jpeg_desc_len).min(256);
+                                        nonce_src[..ad.stego_pp_len].copy_from_slice(&ad.stego_pp_buf[..ad.stego_pp_len]);
+                                        if ad.jpeg_desc_len > 0 && ad.stego_pp_len < 256 {
+                                            let copy = ad.jpeg_desc_len.min(256 - ad.stego_pp_len);
                                             nonce_src[ad.stego_pp_len..(ad.stego_pp_len) + copy].copy_from_slice(&ad.jpeg_desc_buf[..copy]);
                                         }
                                         let hash = wallet::hmac::hmac_sha512(b"stego-pp-nonce", &nonce_src[..ns_len]);
@@ -399,7 +399,7 @@ pub fn handle_stego_touch(
                                 5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "CUSTOM HINT"); }
                                 6 => {
                                     let pp_str = ad.pp_input.as_str();
-                                    let pp_copy_len = pp_str.len().min(64);
+                                    let pp_copy_len = pp_str.len();
                                     ad.stego_pp_buf[..pp_copy_len].copy_from_slice(&pp_str.as_bytes()[..pp_copy_len]);
                                     ad.stego_pp_len = pp_copy_len;
                                     ad.pp_input.reset();
@@ -407,11 +407,11 @@ pub fn handle_stego_touch(
                                     if ad.stego_pp_len > 0 {
                                         boot_display.draw_loading_screen("Encrypting hint...");
                                         let password = &ad.jpeg_desc_buf[..ad.jpeg_desc_len];
-                                        let mut nonce_src = [0u8; 128];
-                                        let ns_len = (ad.stego_pp_len + ad.jpeg_desc_len).min(128);
-                                        nonce_src[..(ad.stego_pp_len).min(64)].copy_from_slice(&ad.stego_pp_buf[..(ad.stego_pp_len).min(64)]);
-                                        if ad.jpeg_desc_len > 0 && (ad.stego_pp_len) < 128 {
-                                            let copy = (ad.jpeg_desc_len).min(128 - (ad.stego_pp_len));
+                                        let mut nonce_src = [0u8; 256];
+                                        let ns_len = (ad.stego_pp_len + ad.jpeg_desc_len).min(256);
+                                        nonce_src[..ad.stego_pp_len].copy_from_slice(&ad.stego_pp_buf[..ad.stego_pp_len]);
+                                        if ad.jpeg_desc_len > 0 && ad.stego_pp_len < 256 {
+                                            let copy = ad.jpeg_desc_len.min(256 - ad.stego_pp_len);
                                             nonce_src[ad.stego_pp_len..(ad.stego_pp_len) + copy].copy_from_slice(&ad.jpeg_desc_buf[..copy]);
                                         }
                                         let hash = wallet::hmac::hmac_sha512(b"stego-pp-nonce", &nonce_src[..ns_len]);
@@ -911,7 +911,7 @@ pub fn handle_stego_touch(
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "25TH WORD"); }
                                 6 => {
                                     let pp_str = ad.pp_input.as_str();
-                                    let pp_len = pp_str.len().min(64);
+                                    let pp_len = pp_str.len();
                                     let pp_bytes = &ad.pp_input.buf[..pp_len];
                                     // Store with passphrase (or empty if user hit OK without typing)
                                     if let Some(slot_idx) = ad.seed_mgr.store(

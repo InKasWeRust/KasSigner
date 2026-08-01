@@ -307,6 +307,16 @@ pub fn run_phase1_tests(delay: &mut esp_hal::delay::Delay) {
             log!("   SeedManager verified OK");
         }
 
+        // SD/steganographic 128-byte encrypted payload round-trip
+        let raw_128_ok = crate::hw::sd_backup::test_raw_128_byte_roundtrip();
+        log!(
+            "   SD/stego 128-byte round-trip: {}",
+            if raw_128_ok { "OK" } else { "FAIL" }
+        );
+        if !raw_128_ok {
+            log!("   CRITICAL: 128-byte SD/stego payload round-trip failed!");
+        }
+
         // Address encoding tests (verified against official rusty-kaspa vectors)
         let (passed_addr, total_addr) = wallet::address::run_address_tests();
         log!("   Address tests: {}/{} passed", passed_addr, total_addr);

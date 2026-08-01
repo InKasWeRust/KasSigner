@@ -564,6 +564,34 @@ pub fn test_seed_derivation_trezor() -> bool {
     matches
 }
 
+/// Test: bytes 65 and 128 of a passphrase affect BIP39 seed derivation.
+#[cfg(any(test, feature = "verbose-boot"))]
+pub fn test_long_passphrase_derivation() -> bool {
+    let entropy = [0u8; 16];
+    let mnemonic = mnemonic_from_entropy_12(&entropy);
+    let passphrase = [b'a'; 128];
+
+    let pp_64 = core::str::from_utf8(&passphrase[..64]).unwrap_or("");
+    let pp_65 = core::str::from_utf8(&passphrase[..65]).unwrap_or("");
+    let pp_127 = core::str::from_utf8(&passphrase[..127]).unwrap_or("");
+    let pp_128 = core::str::from_utf8(&passphrase[..128]).unwrap_or("");
+
+    let mut seed_64 = seed_from_mnemonic_12(&mnemonic, pp_64);
+    let mut seed_65 = seed_from_mnemonic_12(&mnemonic, pp_65);
+    let mut seed_127 = seed_from_mnemonic_12(&mnemonic, pp_127);
+    let mut seed_128 = seed_from_mnemonic_12(&mnemonic, pp_128);
+
+    let passed = seed_64.bytes != seed_65.bytes
+        && seed_127.bytes != seed_128.bytes;
+
+    seed_64.zeroize();
+    seed_65.zeroize();
+    seed_127.zeroize();
+    seed_128.zeroize();
+
+    passed
+}
+
 /// Test: word lookup (binary search)
 #[cfg(any(test, feature = "verbose-boot"))]
 pub fn test_word_lookup() -> bool {
@@ -591,12 +619,13 @@ pub fn test_word_lookup() -> bool {
 #[cfg(any(test, feature = "verbose-boot"))]
 pub fn run_bip39_tests() -> (u32, u32) {
     let mut passed = 0u32;
-    let total = 5u32;
+    let total = 6u32;
 
     if test_vector_12_zeros() { passed += 1; }
     if test_vector_12_7f() { passed += 1; }
     if test_vector_24_zeros() { passed += 1; }
     if test_seed_derivation_trezor() { passed += 1; }
+    if test_long_passphrase_derivation() { passed += 1; }
     if test_word_lookup() { passed += 1; }
 
     (passed, total)

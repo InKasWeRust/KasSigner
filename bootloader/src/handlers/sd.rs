@@ -23,7 +23,7 @@
 
 use crate::log;
 use crate::{app::data::AppData, hw::display, hw::sd_backup, hw::sdcard, hw::sound, hw::touch, wallet};
-use crate::ui::helpers::pp_keyboard_hit;
+use crate::ui::{helpers::pp_keyboard_hit, seed_manager::MAX_PASSPHRASE_LEN};
 
 use crate::wallet::hmac::zeroize_buf;
 
@@ -872,7 +872,7 @@ pub fn handle_sd_touch(
                                 6 => { // OK — read from SD and decrypt
                                     boot_display.draw_loading_screen("Reading from SD...");
                                     let pp_bytes_len = ad.pp_input.len;
-                                    let mut pp_copy = [0u8; 64];
+                                    let mut pp_copy = [0u8; MAX_PASSPHRASE_LEN];
                                     pp_copy[..pp_bytes_len].copy_from_slice(&ad.pp_input.buf[..pp_bytes_len]);
 
                                     let read_result = sdcard::with_sd_card(i2c, delay, |ct| {
@@ -1105,7 +1105,7 @@ pub fn handle_sd_touch(
                                 6 => { // OK — read from SD, decrypt, import xprv
                                     boot_display.draw_loading_screen("Reading from SD...");
                                     let pp_bytes_len = ad.pp_input.len;
-                                    let mut pp_copy = [0u8; 64];
+                                    let mut pp_copy = [0u8; MAX_PASSPHRASE_LEN];
                                     pp_copy[..pp_bytes_len].copy_from_slice(&ad.pp_input.buf[..pp_bytes_len]);
 
                                     let read_result = sdcard::with_sd_card(i2c, delay, |ct| {
@@ -2215,7 +2215,7 @@ pub fn handle_sd_touch(
                                         // LOADING: decrypt encrypted KSPT from signed_qr_buf
                                         boot_display.draw_loading_screen("Decrypting TX...");
                                         let pp_bytes_len = ad.pp_input.len;
-                                        let mut pp_copy = [0u8; 64];
+                                        let mut pp_copy = [0u8; MAX_PASSPHRASE_LEN];
                                         pp_copy[..pp_bytes_len].copy_from_slice(&ad.pp_input.buf[..pp_bytes_len]);
 
                                         let file_len = ad.signed_qr_len;
