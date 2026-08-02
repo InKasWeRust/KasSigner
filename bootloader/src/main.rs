@@ -200,6 +200,27 @@ fn main() -> ! {
     #[cfg(feature = "waveshare")]
     hw::lockdown::early_lockdown();
 
+    // ─── Security: initialize the sole cryptographic RNG ─────────
+    // TrngSource temporarily owns ADC1 while the ESP32-S3 SAR-ADC noise
+    // source seeds the central HMAC-DRBG. It is dropped before initialize()
+    // returns, so Waveshare battery ADC setup remains safe below.
+    match crypto::entropy::initialize(peripherals.RNG, peripherals.ADC1) {
+        Ok(()) => log!("   [SEC] Cryptographic RNG initialized"),
+        Err(e) => {
+            // No display exists yet. Log the exact cause and fail closed:
+            // the firmware must never operate without secure randomness.
+            log!("   [FATAL] Cryptographic RNG initialization failed: {:?}", e);
+            loop {
+                core::hint::spin_loop();
+            }
+        }
+    }
+
+    // ESP-HAL leaves its RNG clock bit enabled after releasing the SAR-ADC
+    // source. Reapply the Waveshare lockdown before any peripheral setup.
+    #[cfg(feature = "waveshare")]
+    hw::lockdown::early_lockdown();
+
     // ─── Phase 1: Hardware self-tests ────────────────────────────
     app::boot_test::run_phase1_tests(&mut delay);
 

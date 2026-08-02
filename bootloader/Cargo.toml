@@ -52,6 +52,7 @@ embedded-iconoir = { version = "0.2", default-features = false, features = ["24p
 
 # Crypto
 sha2 = { version = "0.10", default-features = false }
+critical-section = "1.2"
 heapless = "0.8"
 k256 = { version = "0.13.4", default-features = false, features = ["arithmetic", "ecdsa"] }
 aes-gcm = { version = "0.10.3", default-features = false, features = ["aes"] }

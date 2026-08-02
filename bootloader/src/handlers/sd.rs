@@ -184,14 +184,12 @@ pub(crate) fn write_file_to_sd(
     })
 }
 
-/// Generate a 12-byte nonce for AES-GCM.
-/// Thin wrapper over the shared collector in crypto::entropy, which
-/// enables RC_FAST (correct DIG_CLK8M_EN bit) and mixes SYSTIMER,
-/// eFuse, WDEV RNG, and camera sensor noise via SHA-256.
-pub(crate) fn generate_trng_nonce() -> [u8; 12] {
+/// Generate a 12-byte nonce for AES-GCM from the central generator.
+/// Returns an error instead of permitting encryption with a weak nonce.
+pub(crate) fn generate_trng_nonce() -> Result<[u8; 12], crate::crypto::entropy::EntropyError> {
     let mut nonce = [0u8; 12];
-    crate::crypto::entropy::fill(&mut nonce);
-    nonce
+    crate::crypto::entropy::fill(&mut nonce)?;
+    Ok(nonce)
 }
 
 /// Scan SD card for the highest auto-increment number matching a prefix+extension pattern.
@@ -384,7 +382,16 @@ pub fn handle_sd_touch(
                                     // Show encrypting screen with progress bar
                                     boot_display.draw_saving_screen("Encrypting seed...");
                                     let pp_bytes = &ad.pp_input.buf[..ad.pp_input.len];
-                                    let nonce = generate_trng_nonce();
+                                    let nonce = match generate_trng_nonce() {
+                                        Ok(nonce) => nonce,
+                                        Err(e) => {
+                                            log!("[SECURITY] Secure RNG failed: {:?}", e);
+                                            boot_display.draw_rejected_screen("Secure RNG failed");
+                                            sound::beep_error(delay);
+                                            delay.delay_millis(2000);
+                                            return Some(true);
+                                        }
+                                    };
                                     let mut backup_buf = [0u8; sd_backup::MAX_BACKUP_SIZE];
                                     match sd_backup::encrypt_backup_progress(
                                         &ad.mnemonic_indices, ad.word_count,
@@ -1010,7 +1017,17 @@ pub fn handle_sd_touch(
                                             boot_display.update_progress_bar(50);
                                             boot_display.draw_saving_screen("Encrypting...");
                                             boot_display.update_progress_bar(50);
-                                            let nonce = generate_trng_nonce();
+                                            let nonce = match generate_trng_nonce() {
+                                                Ok(nonce) => nonce,
+                                                Err(e) => {
+                                                    log!("[SECURITY] Secure RNG failed: {:?}", e);
+                                                    boot_display.draw_rejected_screen("Secure RNG failed");
+                                                    sound::beep_error(delay);
+                                                    delay.delay_millis(2000);
+                                                    zeroize_buf(&mut xprv_buf);
+                                                    return Some(true);
+                                                }
+                                            };
                                             let mut enc_buf = [0u8; sd_backup::MAX_XPRV_BACKUP_SIZE];
                                             match sd_backup::encrypt_xprv_backup(&xprv_buf, xlen, pp_bytes, &nonce, &mut enc_buf) {
                                                 Ok(enc_len) => {
@@ -2137,7 +2154,16 @@ pub fn handle_sd_touch(
                                         // SAVING: encrypt signed_qr_buf and write to SD
                                         boot_display.draw_saving_screen("Encrypting...");
                                         let pp_bytes = &ad.pp_input.buf[..ad.pp_input.len];
-                                        let nonce = generate_trng_nonce();
+                                        let nonce = match generate_trng_nonce() {
+                                            Ok(nonce) => nonce,
+                                            Err(e) => {
+                                                log!("[SECURITY] Secure RNG failed: {:?}", e);
+                                                boot_display.draw_rejected_screen("Secure RNG failed");
+                                                sound::beep_error(delay);
+                                                delay.delay_millis(2000);
+                                                return Some(true);
+                                            }
+                                        };
                                         let data_len = ad.signed_qr_len;
                                         // Encrypt in a temp buffer: KAS\x03 + len(2B LE) + nonce(12) + ciphertext + tag(16)
                                         let enc_size = 4 + 2 + 12 + data_len + 16;

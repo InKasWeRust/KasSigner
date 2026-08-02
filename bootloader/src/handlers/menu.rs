@@ -538,12 +538,10 @@ pub fn handle_menu_touch(
                                 needs_redraw = true;
                                 match action {
                                     0 => {
-                                        // === HARDWARE ENTROPY COLLECTION ===
-                                        // Sources mixed via SHA-256:
-                                        //   1. ESP32-S3 TRNG (thermal noise + RC_FAST_CLK jitter)
-                                        //   2. Camera sensor noise (8 frames, full 153KB each)
-                                        //   3. Timing jitter (DMA completion, I2C bus, loop iteration)
-                                        //   4. ADC noise from battery pin (GPIO5)
+                                        // === SECURE SEED GENERATION ===
+                                        // The central HMAC-DRBG, seeded at boot by ESP-HAL's
+                                        // supported SAR-ADC TRNG source, is mandatory. Camera
+                                        // frames and timing are supplemental inputs only.
 
                                         // Show progress screen
                                         boot_display.clear_screen();
@@ -569,59 +567,15 @@ pub fn handle_menu_touch(
                                         wizard.word_count = wc;
                                         let entropy_bytes = if wc == 12 { 16usize } else { 32usize };
                                         let mut pool = [0u8; 32]; // entropy accumulator
-                                        let mut got_entropy = false;
+                                        let mut got_camera_entropy = false;
 
-                                        // Enable RC_FAST_CLK for TRNG entropy
-                                        // RTC_CNTL_CLK_CONF_REG = 0x6000_8074, bit 10 = DIG_CLK8M_EN
-                                        unsafe {
-                                            let clk_conf = core::ptr::read_volatile(0x6000_8074u32 as *const u32);
-                                            core::ptr::write_volatile(0x6000_8074u32 as *mut u32, clk_conf | (1 << 10));
-                                        }
-
-
-                                        // Round 1: TRNG seed (32 reads at 500kHz max → ~64µs)
-                                        {
-                                            use sha2::{Sha256, Digest};
-                                            let mut hasher = Sha256::new();
-                                            let mut trng_buf = [0u8; 128]; // 32 × 4 bytes
-                                            for i in 0..32 {
-                                                let rng_val = unsafe {
-                                                    core::ptr::read_volatile(0x6003_5144u32 as *const u32)
-                                                };
-                                                trng_buf[i*4]     = (rng_val & 0xFF) as u8;
-                                                trng_buf[i*4 + 1] = ((rng_val >> 8) & 0xFF) as u8;
-                                                trng_buf[i*4 + 2] = ((rng_val >> 16) & 0xFF) as u8;
-                                                trng_buf[i*4 + 3] = ((rng_val >> 24) & 0xFF) as u8;
-                                                // ~2µs delay between reads for max entropy
-                                                for _ in 0..160u32 { core::hint::spin_loop(); }
-                                            }
-                                            hasher.update(trng_buf);
-                                            // Mix SYSTIMER: latch counter then read full 52-bit value
-                                            unsafe {
-                                                // SYSTIMER_UNIT0_OP_REG (0x6002_3004): write 1 to bit 30 to latch
-                                                core::ptr::write_volatile(0x6002_3004u32 as *mut u32, 1 << 30);
-                                                for _ in 0..20u32 { core::hint::spin_loop(); }
-                                                let lo = core::ptr::read_volatile(0x6002_3044u32 as *const u32);
-                                                let hi = core::ptr::read_volatile(0x6002_3040u32 as *const u32);
-                                                hasher.update(lo.to_le_bytes());
-                                                hasher.update(hi.to_le_bytes());
-                                            }
-                                            // Mix eFuse MAC address (unique per chip — 6 bytes at EFUSE_RD_MAC_SPI_SYS_0/1)
-                                            unsafe {
-                                                let mac0 = core::ptr::read_volatile(0x6000_7044u32 as *const u32);
-                                                let mac1 = core::ptr::read_volatile(0x6000_7048u32 as *const u32);
-                                                hasher.update(mac0.to_le_bytes());
-                                                hasher.update(mac1.to_le_bytes());
-                                            }
-                                            // Mix idle_ticks (touch/display loop counter — varies with user interaction timing)
-                                            hasher.update(ad.idle_ticks.to_le_bytes());
-                                            hasher.update([0x01]); // domain separator
-                                            let hash = hasher.finalize();
-                                            for i in 0..32 { pool[i] ^= hash[i]; }
-                                            // Zeroize
-                                            for b in trng_buf.iter_mut() {
-                                                unsafe { core::ptr::write_volatile(b, 0); }
-                                            }
+                                        if let Err(e) = crate::crypto::entropy::fill(&mut pool) {
+                                            log!("[SECURITY] Secure RNG failed during seed generation: {:?}", e);
+                                            boot_display.draw_rejected_screen("Secure RNG failed");
+                                            sound::beep_error(delay);
+                                            delay.delay_millis(2000);
+                                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                            return Some(true);
                                         }
 
                                         // Round 2: Camera frames (8 frames, full data)
@@ -647,14 +601,9 @@ pub fn handle_menu_touch(
                                                             hasher.update(pixels);
                                                             // Mix in frame index + timing jitter
                                                             hasher.update([frame_idx, (t0 & 0xFF) as u8, (t1 & 0xFF) as u8]);
-                                                            // Mix in TRNG sample taken mid-frame
-                                                            let rng_mid = unsafe {
-                                                                core::ptr::read_volatile(0x6003_5144u32 as *const u32)
-                                                            };
-                                                            hasher.update(rng_mid.to_le_bytes());
                                                             let hash = hasher.finalize();
                                                             for i in 0..32 { pool[i] ^= hash[i]; }
-                                                            got_entropy = true;
+                                                            got_camera_entropy = true;
                                                             *cam_dma_buf_opt = Some(buf_back);
                                                             *dvp_camera_opt = Some(cam_back);
                                                         }
@@ -692,13 +641,9 @@ pub fn handle_menu_touch(
                                                     };
                                                     hasher.update([frame_idx, (t0 & 0xFF) as u8, 0xCA]);
                                                     hasher.update(ccount.to_le_bytes());
-                                                    let rng_mid = unsafe {
-                                                        core::ptr::read_volatile(0x6003_5144u32 as *const u32)
-                                                    };
-                                                    hasher.update(rng_mid.to_le_bytes());
                                                     let hash = hasher.finalize();
                                                     for i in 0..32 { pool[i] ^= hash[i]; }
-                                                    got_entropy = true;
+                                                    got_camera_entropy = true;
                                                 }
                                             }
                                             delay.delay_millis(30);
@@ -709,27 +654,13 @@ pub fn handle_menu_touch(
                                             crate::hw::cam_dma::stop();
                                         }
 
-                                        // Round 3: Final TRNG + ADC noise whitening
+                                        // Final domain-separated whitening. The pool already
+                                        // contains mandatory DRBG output and may also contain
+                                        // camera/timing data mixed above.
                                         {
                                             use sha2::{Sha256, Digest};
                                             let mut hasher = Sha256::new();
                                             hasher.update(pool);
-                                            // 64 more TRNG reads
-                                            for _ in 0..64 {
-                                                let rng_val = unsafe {
-                                                    core::ptr::read_volatile(0x6003_5144u32 as *const u32)
-                                                };
-                                                hasher.update(rng_val.to_le_bytes());
-                                                for _ in 0..160u32 { core::hint::spin_loop(); }
-                                            }
-                                            // Battery ADC noise (GPIO5) — even if not calibrated, LSBs are noisy
-                                            for _ in 0..16 {
-                                                let adc_val = unsafe {
-                                                    // SAR ADC1 data register
-                                                    core::ptr::read_volatile(0x6004_0868u32 as *const u32)
-                                                };
-                                                hasher.update(adc_val.to_le_bytes());
-                                            }
                                             // SYSTIMER latch for final timing jitter
                                             unsafe {
                                                 core::ptr::write_volatile(0x6002_3004u32 as *mut u32, 1 << 30);
@@ -752,23 +683,20 @@ pub fn handle_menu_touch(
                                             pool.copy_from_slice(&final_hash);
                                         }
 
-                                        if got_entropy {
-                                            log!("   Entropy: CAM(8 frames) + eFuse + SYSTIMER + timing → SHA-256");
-                                            wizard.generate_from_entropy(&pool[..entropy_bytes]);
-                                            for b in pool.iter_mut() {
-                                                unsafe { core::ptr::write_volatile(b, 0); }
-                                            }
-                                            ad.mnemonic_indices = wizard.mnemonic;
-                                            ad.word_count = wc;
-                                            wizard.zeroize();
-                                            ad.pp_input.reset();
-                                            ad.app.state = crate::app::input::AppState::PassphraseEntry;
+                                        if got_camera_entropy {
+                                            log!("   Entropy: secure DRBG + optional camera/timing mix → SHA-256");
                                         } else {
-                                            log!("   No camera for entropy!");
-                                            boot_display.draw_rejected_screen("Camera not ready");
-                                            delay.delay_millis(2000);
-                                            ad.app.state = crate::app::input::AppState::ToolsMenu;
+                                            log!("   Entropy: secure DRBG (camera supplement unavailable) → SHA-256");
                                         }
+                                        wizard.generate_from_entropy(&pool[..entropy_bytes]);
+                                        for b in pool.iter_mut() {
+                                            unsafe { core::ptr::write_volatile(b, 0); }
+                                        }
+                                        ad.mnemonic_indices = wizard.mnemonic;
+                                        ad.word_count = wc;
+                                        wizard.zeroize();
+                                        ad.pp_input.reset();
+                                        ad.app.state = crate::app::input::AppState::PassphraseEntry;
                                     }
                                     1 => {
                                         // Dice

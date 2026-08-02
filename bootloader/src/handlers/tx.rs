@@ -19,7 +19,7 @@
 // Covers: ScanQR, ReviewTx, ConfirmTx, MultisigChooseMN, MultisigAddKey, MultisigShowAddress,
 //         SignMsgChoice, SignMsgType, SignMsgFile, SignMsgPreview, SignMsgResult
 
-use crate::{app::data::AppData, hw::display, hw::sdcard, hw::sound, hw::touch, wallet};
+use crate::{app::data::AppData, hw::display, hw::sdcard, hw::sound, hw::touch, log, wallet};
 use crate::ui::helpers::pp_keyboard_hit;
 #[allow(unused_variables, unused_assignments, unused_mut)]
 /// Handle touch events for transaction review, signing, message signing, and multisig screens.
@@ -796,7 +796,13 @@ pub fn handle_tx_touch(
                                         // preimage, never in the script — script layout is
                                         // byte-identical, so type detection is unaffected.
                                         let mut salt = [0u8; 8];
-                                        crate::crypto::entropy::fill(&mut salt);
+                                        if let Err(e) = crate::crypto::entropy::fill(&mut salt) {
+                                            log!("[SECURITY] Secure RNG failed: {:?}", e);
+                                            boot_display.draw_rejected_screen("Secure RNG failed");
+                                            sound::beep_error(delay);
+                                            delay.delay_millis(2000);
+                                            return Some(true);
+                                        }
                                         let copy_len = len.min(ad.jpeg_desc_buf.len() - 8);
                                         // Write secret after the salt slot, then the salt.
                                         for i in (0..copy_len).rev() {
@@ -846,17 +852,23 @@ pub fn handle_tx_touch(
                             }
                             boot_display.update_progress_bar(40);
 
-                            // Generate 44 bytes of randomness: 32 for ephemeral key + 12 for nonce.
-                            // Shared collector: enables RC_FAST (correct DIG_CLK8M_EN bit) and
-                            // mixes WDEV + SYSTIMER + eFuse + camera sensor noise. The previous
-                            // inline sampler set bit 8 (DIG_XTAL32K_EN) by mistake, so the WDEV
-                            // RNG ran without its jitter feed.
+                            // Generate 44 bytes from the central generator:
+                            // 32 for the ephemeral key and 12 for the nonce.
                             let mut rng_bytes = [0u8; 44];
-                            crate::crypto::entropy::fill(&mut rng_bytes);
-                            boot_display.update_progress_bar(60);
+                            if let Err(e) = crate::crypto::entropy::fill(&mut rng_bytes) {
+                                log!("[SECURITY] Secure RNG failed: {:?}", e);
+                                boot_display.draw_rejected_screen("Secure RNG failed");
+                                sound::beep_error(delay);
+                                delay.delay_millis(2000);
+                                for b in ad.jpeg_desc_buf[..ad.jpeg_desc_len].iter_mut() { *b = 0; }
+                                ad.jpeg_desc_len = 0;
+                                ad.pp_input.reset();
+                                return Some(true);
+                            }
 
                             // ECIES encrypt the plaintext message
                             let plaintext = &ad.jpeg_desc_buf[..ad.jpeg_desc_len];
+                            boot_display.update_progress_bar(60);
                             match wallet::ecies::encrypt(&xonly_pub, plaintext, &rng_bytes) {
                                 Ok(ct) => {
                                     ad.cr_ciphertext = ct;
@@ -892,6 +904,7 @@ pub fn handle_tx_touch(
                                     needs_redraw = true;
                                 }
                             }
+                            wallet::hmac::zeroize_buf(&mut rng_bytes);
 
                             // Zeroize plaintext from buffer
                             for b in ad.jpeg_desc_buf[..ad.jpeg_desc_len].iter_mut() { *b = 0; }

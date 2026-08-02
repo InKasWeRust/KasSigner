@@ -190,6 +190,16 @@ pub fn run_phase1_tests(delay: &mut esp_hal::delay::Delay) {
         }
     }
 
+    let (entropy_passed, entropy_total) = crate::crypto::entropy::run_self_tests();
+    log!("   Entropy tests: {}/{} passed", entropy_passed, entropy_total);
+    if entropy_passed != entropy_total {
+        log!("   CRITICAL: Cryptographic RNG self-test failed.");
+        log!("   Cannot continue safely.");
+        loop {
+            delay.delay_millis(1000);
+        }
+    }
+
     log!();
 
     // ═══════════════════════════════════════════════════════════════
