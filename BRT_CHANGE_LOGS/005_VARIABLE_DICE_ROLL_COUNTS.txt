@@ -93,5 +93,5 @@ Confirm the device generates a seed exactly at the selected target.
 BRANCH NOTE
 
 This branch is intentionally based on clean main so the variable-count change can be reviewed independently.
-Original main still logs individual dice values over USB serial.
-The separate remove-dice-logging security commit must be combined before using a test or release build for real secret generation.
+The existing remove-dice-logging security commit was subsequently combined into this branch.
+USB serial now reports only the completed count and target; it does not report the entered die value.
