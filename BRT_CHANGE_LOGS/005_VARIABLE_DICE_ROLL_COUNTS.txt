@@ -1,0 +1,97 @@
+KASSIGNER CHANGE RECORD 005
+
+Change:
+Variable dice roll counts with enforced safe minimums
+
+Repository:
+https://github.com/InKasWeRust/KasSigner.git
+
+Base branch:
+main
+
+Base commit:
+162a4c8594e3181540eaf5ded95a2e607c42d14f
+
+Fix branch:
+feature/variable-dice-counts
+
+Files changed:
+bootloader/src/app/input.rs
+bootloader/src/handlers/menu.rs
+bootloader/src/ui/redraw.rs
+bootloader/src/ui/screens.rs
+bootloader/src/ui/setup_wizard.rs
+
+BEFORE
+
+12-word dice generation always stopped at 99 rolls.
+24-word dice generation always stopped at 198 rolls.
+The roll buffer held only 200 values.
+The user could not select a larger roll count.
+The seed word count was inferred by comparing the target to 198.
+Entropy extraction could be called before the selected target was complete.
+The dice test only checked that one hash was not all zeroes.
+
+AFTER
+
+12-word dice generation requires at least 100 rolls.
+24-word dice generation requires at least 200 rolls.
+The user can select any target from the applicable minimum through 500.
+The selector provides -10, -1, +1, and +10 controls and a START button.
+The collector buffer safely holds exactly 500 rolls.
+Targets below the applicable minimum or above 500 are rejected by the collector.
+Values outside 1 through 6 are rejected.
+A 501st roll is rejected without changing the completed 500-roll collection.
+The storage function independently checks the physical 500-roll buffer limit even if its target is corrupted.
+The touchscreen checks whether every roll was accepted and shows a visible error instead of silently continuing.
+The collector records whether it is producing 12 or 24 words; the code no longer guesses from the target.
+Entropy extraction refuses to produce output until the selected target is complete.
+Failure is logged, shown on screen, and returned to the dice setup flow instead of silently continuing.
+
+ENTROPY PROCESS
+
+Each accepted die value is stored as one byte with a value from 1 through 6.
+Only the exact number of rolls selected by the user is hashed.
+For 12 words, SHA-256 is calculated over the rolls and the first 16 bytes become the 128-bit BIP39 entropy.
+For 24 words, two domain-separated SHA-256 calculations are made and 16 bytes from each are combined into 32 bytes of BIP39 entropy.
+Increasing the target does not slow the device in a meaningful way. Hashing 500 bytes is small for the ESP32-S3.
+
+AUTOMATED VERIFICATION
+
+Validated target boundaries:
+12 words: 99 rejected, 100 accepted, 500 accepted, 501 rejected.
+24 words: 199 rejected, 200 accepted, 500 accepted, 501 rejected.
+
+Golden tests:
+100 repeating 1-6 rolls must produce the exact expected 12-word entropy bytes.
+200 repeating 1-6 rolls must produce the exact expected 24-word entropy bytes.
+500 repeating 1-6 rolls must produce the exact expected entropy bytes.
+
+Health and safety tests:
+Incomplete collections cannot return entropy.
+Die values 0 and 7 are rejected.
+The 501st roll is rejected.
+An intentionally corrupted target above 500 still cannot write a 501st value.
+Undo clears the removed roll and makes a completed collection incomplete.
+Adding a valid roll after undo completes it again.
+
+BUILD VERIFICATION
+
+M5Stack release build with verbose boot tests: passed.
+Waveshare release build with verbose boot tests: passed.
+Git whitespace/error check: passed.
+
+PHYSICAL TESTING STILL REQUIRED
+
+The M5Stack selector layout and touchscreen controls were physically verified by the user.
+The collector limits, exact entropy outputs, incomplete-state rejection, invalid-value rejection, overflow rejection, and undo behavior are verified by the seven verbose-boot setup tests.
+
+REMAINING OPTIONAL END-TO-END TEST
+
+Confirm the device generates a seed exactly at the selected target.
+
+BRANCH NOTE
+
+This branch is intentionally based on clean main so the variable-count change can be reviewed independently.
+Original main still logs individual dice values over USB serial.
+The separate remove-dice-logging security commit must be combined before using a test or release build for real secret generation.

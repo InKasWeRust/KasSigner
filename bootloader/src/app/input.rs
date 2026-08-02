@@ -413,6 +413,8 @@ pub enum AppState {
     /// Choose word count (12 or 24) before an action
     /// action: 0=TRNG, 1=Dice, 2=Import, 3=CalcLastWord
     ChooseWordCount { action: u8 },
+    /// Choose the number of manual dice rolls before collection starts.
+    ChooseDiceRollCount { word_count: u8, target: u16 },
     /// Passphrase entry after seed creation/import
     PassphraseEntry,
     /// Export active seed as SeedQR
@@ -710,6 +712,7 @@ pub fn new() -> Self {
             | AppState::ViewSeed | AppState::SeedBackup { .. }
             | AppState::DiceRoll | AppState::ImportWord { .. }
             | AppState::CalcLastWord { .. } | AppState::ChooseWordCount { .. }
+            | AppState::ChooseDiceRollCount { .. }
             | AppState::PassphraseEntry | AppState::ExportSeedQR | AppState::ExportKpub
             | AppState::ExportKpubModeChoice | AppState::ExportKpubFrameCount | AppState::ExportKpubPopup | AppState::KpubScannedPopup
             | AppState::SeedList | AppState::DisplaySettings
@@ -930,7 +933,8 @@ pub fn handler_group(&self) -> HandlerGroup {
             // Menu screens
             MainMenu | SeedsMenu | ToolsMenu | SeedToolsMenu | ImportExportChoice
             | ImportMenu | SingleSigMenu | MultisigMenu | DiceRoll
-            | ChooseWordCount { .. } | ShowQR | ShowQrFrameChoice | ShowQrDensityChoice | Rejected | ViewSeed
+            | ChooseWordCount { .. } | ChooseDiceRollCount { .. }
+            | ShowQR | ShowQrFrameChoice | ShowQrDensityChoice | Rejected | ViewSeed
             | CovBackupName
                 => HandlerGroup::Menu,
 

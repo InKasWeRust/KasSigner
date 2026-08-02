@@ -139,6 +139,9 @@ pub fn redraw_screen(
                     };
                     boot_display.draw_choose_wc_screen(title);
                 }
+                crate::app::input::AppState::ChooseDiceRollCount { word_count, target } => {
+                    boot_display.draw_dice_target_screen(word_count, target as usize);
+                }
                 crate::app::input::AppState::PassphraseEntry => {
                     boot_display.draw_passphrase_screen_full(&ad.pp_input);
                 }

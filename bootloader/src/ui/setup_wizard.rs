@@ -23,7 +23,7 @@
 //
 // Flows:
 //   A) New wallet (TRNG entropy)
-//   B) New wallet (dice roll — 99 rolls for 12 words, 198 for 24)
+//   B) New wallet (dice roll — user-selectable count with safe minimums)
 //   C) Import 12/24 words manually
 //   D) Calc last word (enter 11 or 23 words, compute checksum)
 //
@@ -116,46 +116,75 @@ pub const WORDCOUNT_MENU: &[&str] = &[
 /// Dice roll entropy collector.
 ///
 /// Each dice roll (1-6) contributes log2(6) ≈ 2.585 bits of entropy.
-/// For 128 bits: need 50 rolls minimum, we use 99 for safety margin.
-/// For 256 bits: need 100 rolls minimum, we use 198.
+/// KasSigner requires at least 100 rolls for 12 words and 200 rolls for
+/// 24 words, with a user-selectable maximum of 500 rolls.
 ///
-/// Method: Hash all rolls with SHA256 to extract uniform entropy.
-/// This is the same approach used by SeedSigner and ColdCard.
+/// Method: Hash all accepted rolls with SHA-256 to extract fixed-length entropy.
 pub struct DiceCollector {
     /// Raw dice values (1-6)
-    pub rolls: [u8; 200],
+    pub rolls: [u8; MAX_DICE_ROLLS],
     /// Number of rolls collected
     pub count: usize,
     /// Target number of rolls
     pub target: usize,
     /// Target entropy bytes (16 for 12-word, 32 for 24-word)
-    pub entropy_bytes: usize,
+    entropy_bytes: usize,
 }
 
+pub const MIN_DICE_ROLLS_12: usize = 100;
+pub const MIN_DICE_ROLLS_24: usize = 200;
+pub const MAX_DICE_ROLLS: usize = 500;
+
 impl DiceCollector {
-        /// Create a dice collector targeting 12-word mnemonic (128 bits).
-pub fn new_12_word() -> Self {
-        Self {
-            rolls: [0; 200],
-            count: 0,
-            target: 99,
-            entropy_bytes: 16,
-        }
+    /// Create a dice collector targeting the minimum for a 12-word mnemonic.
+    pub fn new_12_word() -> Self {
+        Self::new_12_word_with_target(MIN_DICE_ROLLS_12)
+            .expect("minimum 12-word dice target is valid")
     }
 
-        /// Create a dice collector targeting 24-word mnemonic (256 bits).
-pub fn new_24_word() -> Self {
-        Self {
-            rolls: [0; 200],
-            count: 0,
-            target: 198,
-            entropy_bytes: 32,
+    /// Create a 12-word collector with a validated user-selected target.
+    pub fn new_12_word_with_target(target: usize) -> Option<Self> {
+        if !(MIN_DICE_ROLLS_12..=MAX_DICE_ROLLS).contains(&target) {
+            return None;
         }
+        Some(Self {
+            rolls: [0; MAX_DICE_ROLLS],
+            count: 0,
+            target,
+            entropy_bytes: 16,
+        })
+    }
+
+    /// Create a dice collector targeting the minimum for a 24-word mnemonic.
+    pub fn new_24_word() -> Self {
+        Self::new_24_word_with_target(MIN_DICE_ROLLS_24)
+            .expect("minimum 24-word dice target is valid")
+    }
+
+    /// Create a 24-word collector with a validated user-selected target.
+    pub fn new_24_word_with_target(target: usize) -> Option<Self> {
+        if !(MIN_DICE_ROLLS_24..=MAX_DICE_ROLLS).contains(&target) {
+            return None;
+        }
+        Some(Self {
+            rolls: [0; MAX_DICE_ROLLS],
+            count: 0,
+            target,
+            entropy_bytes: 32,
+        })
+    }
+
+    /// Word count associated with this collector.
+    pub fn word_count(&self) -> u8 {
+        if self.entropy_bytes == 32 { 24 } else { 12 }
     }
 
     /// Add a dice roll (value 1-6)
     pub fn add_roll(&mut self, value: u8) -> bool {
-        if !(1..=6).contains(&value) || self.count >= self.target {
+        if !(1..=6).contains(&value)
+            || self.count >= self.target
+            || self.count >= MAX_DICE_ROLLS
+        {
             return false;
         }
         self.rolls[self.count] = value;
@@ -178,23 +207,28 @@ pub fn new_24_word() -> Self {
 
     /// Extract entropy by hashing all rolls with SHA256.
     /// Returns 16 bytes (12-word) or 32 bytes (24-word).
-    pub fn extract_entropy_16(&self) -> [u8; 16] {
+    pub fn extract_entropy_16(&self) -> Option<[u8; 16]> {
+        if !self.is_complete() || self.count > MAX_DICE_ROLLS {
+            return None;
+        }
         use sha2::{Sha256, Digest};
         let mut hasher = Sha256::new();
         hasher.update(&self.rolls[..self.count]);
         let hash = hasher.finalize();
         let mut entropy = [0u8; 16];
         entropy.copy_from_slice(&hash[..16]);
-        entropy
+        Some(entropy)
     }
 
-        /// Extract collected dice entropy as a 32-byte array.
-pub fn extract_entropy_32(&self) -> [u8; 32] {
+    /// Extract collected dice entropy as a 32-byte array.
+    pub fn extract_entropy_32(&self) -> Option<[u8; 32]> {
+        if !self.is_complete() || self.count > MAX_DICE_ROLLS {
+            return None;
+        }
         use sha2::{Sha256, Digest};
 
-        // For 32 bytes, use SHA256 of rolls + SHA256 of (rolls reversed)
-        // and concatenate the first 16 bytes of each.
-        // Alternative: use two rounds with different prefixes.
+        // Use two domain-separated SHA-256 hashes and concatenate the first
+        // 16 bytes of each.
         let mut hasher1 = Sha256::new();
         hasher1.update(b"KasSigner-dice-entropy-1:");
         hasher1.update(&self.rolls[..self.count]);
@@ -208,7 +242,7 @@ pub fn extract_entropy_32(&self) -> [u8; 32] {
         let mut entropy = [0u8; 32];
         entropy[..16].copy_from_slice(&hash1[..16]);
         entropy[16..].copy_from_slice(&hash2[..16]);
-        entropy
+        Some(entropy)
     }
 }
 
@@ -504,16 +538,24 @@ pub fn new() -> Self {
     }
 
     /// Generate mnemonic from completed dice rolls
-    pub fn generate_from_dice(&mut self) {
+    pub fn generate_from_dice(&mut self) -> bool {
+        if self.word_count != self.dice.word_count() {
+            return false;
+        }
         if self.word_count == 12 {
-            let entropy = self.dice.extract_entropy_16();
+            let Some(entropy) = self.dice.extract_entropy_16() else {
+                return false;
+            };
             let m = bip39::mnemonic_from_entropy_12(&entropy);
             self.mnemonic[..12].copy_from_slice(&m.indices);
         } else {
-            let entropy = self.dice.extract_entropy_32();
+            let Some(entropy) = self.dice.extract_entropy_32() else {
+                return false;
+            };
             let m = bip39::mnemonic_from_entropy_24(&entropy);
             self.mnemonic[..24].copy_from_slice(&m.indices);
         }
+        true
     }
     /// Serialize mnemonic indices to bytes for encryption
     /// Format: [count][idx0_hi][idx0_lo][idx1_hi][idx1_lo]...
@@ -582,18 +624,86 @@ impl Drop for SetupWizard {
 // ═══════════════════════════════════════════════════════════════════
 
 #[cfg(any(test, feature = "verbose-boot"))]
-/// Test: dice entropy collection for 12 words.
-pub fn test_dice_entropy_12() -> bool {
-    let mut dice = DiceCollector::new_12_word();
-    // Roll 99 dice (all 3s for test)
-    for _ in 0..99 {
-        dice.add_roll(3);
-    }
-    if !dice.is_complete() { return false; }
+/// Test validated minimum and maximum targets for both word counts.
+pub fn test_dice_target_validation() -> bool {
+    DiceCollector::new_12_word_with_target(99).is_none()
+        && DiceCollector::new_12_word_with_target(100).is_some()
+        && DiceCollector::new_12_word_with_target(500).is_some()
+        && DiceCollector::new_12_word_with_target(501).is_none()
+        && DiceCollector::new_24_word_with_target(199).is_none()
+        && DiceCollector::new_24_word_with_target(200).is_some()
+        && DiceCollector::new_24_word_with_target(500).is_some()
+        && DiceCollector::new_24_word_with_target(501).is_none()
+        && DiceCollector::new_12_word().word_count() == 12
+        && DiceCollector::new_24_word().word_count() == 24
+}
 
-    let entropy = dice.extract_entropy_16();
-    // Entropy should not be all zeros (SHA256 of "333...3" is not zero)
-    entropy.iter().any(|&b| b != 0)
+#[cfg(any(test, feature = "verbose-boot"))]
+/// Golden vector: repeating 1..6 for 100 rolls produces an exact result.
+pub fn test_dice_entropy_12_golden() -> bool {
+    let mut dice = DiceCollector::new_12_word();
+    if dice.extract_entropy_16().is_some() { return false; }
+    for i in 0..100 {
+        if !dice.add_roll((i % 6 + 1) as u8) { return false; }
+    }
+    let expected = [
+        0x0d, 0x91, 0xab, 0x5f, 0xf9, 0x62, 0x57, 0x68,
+        0xd7, 0x05, 0xbb, 0x7a, 0xf3, 0xb6, 0xd2, 0x59,
+    ];
+    dice.extract_entropy_16() == Some(expected)
+}
+
+#[cfg(any(test, feature = "verbose-boot"))]
+/// Golden vector: repeating 1..6 for 200 rolls produces an exact result.
+pub fn test_dice_entropy_24_golden() -> bool {
+    let mut dice = DiceCollector::new_24_word();
+    if dice.extract_entropy_32().is_some() { return false; }
+    for i in 0..200 {
+        if !dice.add_roll((i % 6 + 1) as u8) { return false; }
+    }
+    let expected = [
+        0x26, 0x9a, 0x31, 0xeb, 0x8b, 0x83, 0xa9, 0xfd,
+        0xc2, 0x6a, 0x8e, 0xd2, 0x72, 0xcc, 0x9c, 0x87,
+        0x3a, 0xc3, 0x39, 0x63, 0x4e, 0xaf, 0x65, 0x51,
+        0x23, 0xdb, 0x6f, 0x95, 0xba, 0x47, 0xbf, 0xb6,
+    ];
+    dice.extract_entropy_32() == Some(expected)
+}
+
+#[cfg(any(test, feature = "verbose-boot"))]
+/// Test the 500-roll boundary, overflow rejection, and undo behavior.
+pub fn test_dice_max_overflow_and_undo() -> bool {
+    let Some(mut dice) = DiceCollector::new_12_word_with_target(500) else {
+        return false;
+    };
+    if dice.add_roll(0) || dice.add_roll(7) || dice.count != 0 {
+        return false;
+    }
+    for i in 0..500 {
+        if !dice.add_roll((i % 6 + 1) as u8) { return false; }
+    }
+    if !dice.is_complete() || dice.count != 500 || dice.add_roll(6) || dice.count != 500 {
+        return false;
+    }
+    // Simulate an internally corrupted target above the physical buffer size.
+    // The independent MAX_DICE_ROLLS check must still prevent rolls[500].
+    dice.target = 501;
+    if dice.add_roll(6) || dice.count != 500 {
+        return false;
+    }
+    dice.target = 500;
+    let expected = [
+        0x67, 0x2f, 0xcd, 0x18, 0x8f, 0xc2, 0x55, 0x0c,
+        0x10, 0xae, 0x1d, 0xdf, 0x1d, 0x38, 0x78, 0x77,
+    ];
+    if dice.extract_entropy_16() != Some(expected) { return false; }
+    dice.undo();
+    !dice.is_complete()
+        && dice.count == 499
+        && dice.rolls[499] == 0
+        && dice.extract_entropy_16().is_none()
+        && dice.add_roll(2)
+        && dice.is_complete()
 }
 
 #[cfg(any(test, feature = "verbose-boot"))]
@@ -655,9 +765,12 @@ pub fn test_word_input_matching() -> bool {
 /// Run all setup wizard tests.
 pub fn run_setup_tests() -> (u32, u32) {
     let mut passed = 0u32;
-    let total = 4u32;
+    let total = 7u32;
 
-    if test_dice_entropy_12() { passed += 1; }
+    if test_dice_target_validation() { passed += 1; }
+    if test_dice_entropy_12_golden() { passed += 1; }
+    if test_dice_entropy_24_golden() { passed += 1; }
+    if test_dice_max_overflow_and_undo() { passed += 1; }
     if test_calc_last_word_12() { passed += 1; }
     if test_serialize_deserialize_mnemonic() { passed += 1; }
     if test_word_input_matching() { passed += 1; }

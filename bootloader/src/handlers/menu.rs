@@ -465,6 +465,59 @@ pub fn handle_menu_touch(
                         }
                         needs_redraw = true;
                     }
+                    crate::app::input::AppState::ChooseDiceRollCount { word_count, target } => {
+                        if is_back {
+                            ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 1 };
+                            needs_redraw = true;
+                        } else {
+                            let min = if word_count == 24 {
+                                setup_wizard::MIN_DICE_ROLLS_24 as u16
+                            } else {
+                                setup_wizard::MIN_DICE_ROLLS_12 as u16
+                            };
+                            let max = setup_wizard::MAX_DICE_ROLLS as u16;
+                            let next = if (20..=85).contains(&x) && (90..=135).contains(&y) {
+                                target.saturating_sub(10).max(min)
+                            } else if (90..=155).contains(&x) && (90..=135).contains(&y) {
+                                target.saturating_sub(1).max(min)
+                            } else if (165..=230).contains(&x) && (90..=135).contains(&y) {
+                                target.saturating_add(1).min(max)
+                            } else if (235..=300).contains(&x) && (90..=135).contains(&y) {
+                                target.saturating_add(10).min(max)
+                            } else {
+                                target
+                            };
+
+                            if next != target {
+                                ad.app.state = crate::app::input::AppState::ChooseDiceRollCount {
+                                    word_count,
+                                    target: next,
+                                };
+                                boot_display.update_dice_target(next as usize);
+                            } else if (60..=260).contains(&x) && (165..=215).contains(&y) {
+                                let collector = if word_count == 24 {
+                                    setup_wizard::DiceCollector::new_24_word_with_target(target as usize)
+                                } else {
+                                    setup_wizard::DiceCollector::new_12_word_with_target(target as usize)
+                                };
+                                match collector {
+                                    Some(validated) => {
+                                        ad.dice_collector = validated;
+                                        ad.app.state = crate::app::input::AppState::DiceRoll;
+                                        needs_redraw = true;
+                                    }
+                                    None => {
+                                        log!("[SECURITY] Rejected invalid dice target: {} rolls for {} words", target, word_count);
+                                        boot_display.draw_rejected_screen("Invalid dice roll count");
+                                        sound::beep_error(delay);
+                                        delay.delay_millis(1500);
+                                        ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 1 };
+                                        needs_redraw = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
                     crate::app::input::AppState::DiceRoll => {
                         if is_back {
                             // Cancel dice roll, go to tools menu
@@ -491,20 +544,36 @@ pub fn handle_menu_touch(
                             }
 
                             if let Some(val) = tapped_die {
-                                ad.dice_collector.add_roll(val);
+                                if !ad.dice_collector.add_roll(val) {
+                                    log!("[SECURITY] Dice entry rejected by collector");
+                                    boot_display.draw_rejected_screen("Dice entry rejected");
+                                    sound::beep_error(delay);
+                                    delay.delay_millis(1500);
+                                    ad.dice_collector.count = 0;
+                                    ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 1 };
+                                    return Some(true);
+                                }
                                 log!("   Dice: {} ({}/{})", val, ad.dice_collector.count, ad.dice_collector.target);
 
                                 if ad.dice_collector.is_complete() {
                                     // Generate seed from dice
                                     boot_display.draw_saving_screen("Generating seed...");
-                                    let wc = if ad.dice_collector.target >= 198 { 24u8 } else { 12u8 };
+                                    let wc = ad.dice_collector.word_count();
                                     let mut wizard = setup_wizard::SetupWizard::new();
                                     wizard.word_count = wc;
                                     wizard.dice = core::mem::replace(
                                         &mut ad.dice_collector,
                                         setup_wizard::DiceCollector::new_12_word(),
                                     );
-                                    wizard.generate_from_dice();
+                                    if !wizard.generate_from_dice() {
+                                        log!("[SECURITY] Dice entropy extraction rejected incomplete collection");
+                                        wizard.zeroize();
+                                        boot_display.draw_rejected_screen("Dice collection incomplete");
+                                        sound::beep_error(delay);
+                                        delay.delay_millis(1500);
+                                        ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 1 };
+                                        return Some(true);
+                                    }
                                     ad.mnemonic_indices = wizard.mnemonic;
                                     ad.word_count = wc;
                                     wizard.zeroize();
@@ -771,13 +840,16 @@ pub fn handle_menu_touch(
                                         }
                                     }
                                     1 => {
-                                        // Dice
-                                        ad.dice_collector = if wc == 24 {
-                                            setup_wizard::DiceCollector::new_24_word()
+                                        // Dice: choose a validated target before collection.
+                                        let target = if wc == 24 {
+                                            setup_wizard::MIN_DICE_ROLLS_24 as u16
                                         } else {
-                                            setup_wizard::DiceCollector::new_12_word()
+                                            setup_wizard::MIN_DICE_ROLLS_12 as u16
                                         };
-                                        ad.app.state = crate::app::input::AppState::DiceRoll;
+                                        ad.app.state = crate::app::input::AppState::ChooseDiceRollCount {
+                                            word_count: wc,
+                                            target,
+                                        };
                                     }
                                     2 => {
                                         // Import Words

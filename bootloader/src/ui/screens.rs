@@ -1982,6 +1982,59 @@ pub fn draw_home_grid(&mut self) {
 
     }
 
+    /// Draw the validated dice-roll target selector.
+    pub fn draw_dice_target_screen(&mut self, word_count: u8, target: usize) {
+        self.clear_keep_nav();
+
+        let title = "DICE ROLL COUNT";
+        let tw = measure_header(title);
+        draw_oswald_header(&mut self.display, title, (320 - tw) / 2, 28, COLOR_TEXT);
+
+        let mut range: heapless::String<32> = heapless::String::new();
+        let min = if word_count == 24 { 200 } else { 100 };
+        core::fmt::Write::write_fmt(&mut range,
+            format_args!("{} words: {}-500 rolls", word_count, min)).ok();
+        let rw = measure_body(range.as_str());
+        draw_lato_body(&mut self.display, range.as_str(), (320 - rw) / 2, 58, COLOR_TEXT_DIM);
+
+        self.update_dice_target(target);
+
+        let labels = ["-10", "-1", "+1", "+10"];
+        let xs = [20i32, 90, 165, 235];
+        let widths = [65u32, 65, 65, 65];
+        let corner = CornerRadii::new(Size::new(6, 6));
+        for i in 0..4 {
+            let rect = Rectangle::new(Point::new(xs[i], 90), Size::new(widths[i], 45));
+            RoundedRectangle::new(rect, corner)
+                .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
+                .draw(&mut self.display).ok();
+            RoundedRectangle::new(rect, corner)
+                .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+                .draw(&mut self.display).ok();
+            let lw = measure_title(labels[i]);
+            draw_lato_title(&mut self.display, labels[i],
+                xs[i] + (widths[i] as i32 - lw) / 2, 120, COLOR_TEXT);
+        }
+
+        let start = Rectangle::new(Point::new(60, 165), Size::new(200, 50));
+        RoundedRectangle::new(start, CornerRadii::new(Size::new(8, 8)))
+            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .draw(&mut self.display).ok();
+        let sw = measure_title("START ROLLING");
+        draw_lato_title(&mut self.display, "START ROLLING", (320 - sw) / 2, 198, COLOR_BG);
+    }
+
+    /// Redraw only the selected target value.
+    pub fn update_dice_target(&mut self, target: usize) {
+        Rectangle::new(Point::new(100, 60), Size::new(120, 28))
+            .into_styled(PrimitiveStyle::with_fill(COLOR_BG))
+            .draw(&mut self.display).ok();
+        let mut value: heapless::String<4> = heapless::String::new();
+        core::fmt::Write::write_fmt(&mut value, format_args!("{target}")).ok();
+        let vw = measure_header(value.as_str());
+        draw_oswald_header(&mut self.display, value.as_str(), (320 - vw) / 2, 84, KASPA_ACCENT);
+    }
+
     /// Partial redraw: only the dice count header + progress bar.
     /// Everything else (dice buttons, undo, back) is static.
     pub fn update_dice_progress(&mut self, count: usize, target: usize) {
