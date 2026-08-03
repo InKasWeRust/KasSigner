@@ -385,7 +385,7 @@ if $CAN_BUILD && $CAN_FLASH_ELF; then
     echo ""
 
     BUILD_START=$SECONDS
-    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features skip-tests 2>&1
+    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release 2>&1
 
     if [ $? -ne 0 ]; then
         die "Build failed.\n  Try: espup update"

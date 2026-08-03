@@ -1,4 +1,4 @@
-<!-- KasSigner — Air-gapped offline signing device for Kaspa -->
+<!-- KasSigner: Air-gapped offline signing device for Kaspa -->
 <!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
 <!-- License: GPL-3.0-only -->
 
@@ -6,25 +6,56 @@
 
 ## How KasSigner Hides Your Seed in Plain Sight
 
-Imagine you lose everything. Fire, flood, theft — whatever. Your signing device is gone. Your metal seed plate melted. Your safety deposit box was compromised. Years of accumulated wealth, evaporated.
+Imagine you lose everything. Fire, flood, theft, whatever. Your signing device is gone. Your metal seed plate melted. Your safety deposit box was compromised. Years of accumulated wealth, evaporated.
 
-Now imagine a different scenario. Your seed lives inside a photo of your dog. It sits in your Google Drive, in your email, on a USB stick in your desk drawer, on your phone's camera roll. Nobody knows. Nobody can tell. The photo looks like every other photo — because it is a photo. The pixels are untouched. The file size is normal. No forensic tool will flag it. No thief will think twice about it.
+Now imagine a different scenario. Your seed lives inside a photo of your dog. It sits in your Google Drive, in your email, on a USB stick in your desk drawer, on your phone's camera roll. Not one copy. Twenty. Nobody knows. Nobody can tell. The photos look like every other photo, because they are photos.
 
-That photo *is* your vault. And the caption you wrote on it — "Rocky at the beach, summer 2024" — is the key.
+That photo *is* your vault, and the descriptor you wrote on it, "Rocky at the beach, summer 2024", is the key. It reads as an ordinary photo caption. That is the whole trick.
 
 ---
 
-## The Architecture
+## The Model: Redundancy, Not One Clever File
 
-KasSigner embeds encrypted seeds into JPEG photographs using EXIF metadata. EXIF is the standard metadata format that every digital camera writes: date, GPS coordinates, camera model, exposure settings — and text fields like `ImageDescription`. Photo management software, cloud storage, and operating systems all read and preserve EXIF. It is the most ordinary, most invisible, most overlooked data structure in digital photography.
+This is the part to understand before anything else, because every other decision follows from it.
 
-KasSigner uses two EXIF fields:
+The security does not come from one perfect artifact. It comes from **many**, spread across places and channels that fail in different ways. Some copies will be stripped of metadata. Some will be re-compressed. Some accounts will close, some drives will die. The design assumes that attrition and survives it, because losing any single copy costs nothing.
 
-**`ImageDescription`** — This is your password. Not a cover story for the password. Not a hint toward the password. It *is* the password, typed into the photo's metadata where any viewer can see it. It looks like a caption: *"Sunset at Playa Blanca, Aug 2024"*. Anyone inspecting the EXIF sees a normal description. What they cannot know is that this exact string of characters — every letter, every space, every comma — was fed through PBKDF2 with 100,000 iterations of HMAC-SHA256 to derive a 256-bit AES key.
+So: make a lot of them. Put them everywhere. In plain sight, because that is the point.
 
-**`UserComment`** — This holds the encrypted seed. Base64-encoded, it looks like garbled metadata — the kind of string a camera firmware might write, the kind nobody questions. Inside it: a 12-byte random nonce, the seed word indices encrypted with AES-256-GCM, and a 16-byte authentication tag that ensures even a single bit flip is detected.
+What makes this safe to scatter is that a photo on its own is not enough. The seed inside it is encrypted, and the wallet that matters lives behind a passphrase that was never written into any file. An attacker who finds an artifact, identifies it as an artifact, and opens it still arrives at a decoy.
 
-The key is the caption. The caption is the key. They are the same thing, and it is visible to everyone, and it is useless to everyone who doesn't know what it is.
+---
+
+## The Two Carriers
+
+An artifact can hide its payload in two places, chosen at export. They survive opposite things, which is exactly why both exist.
+
+**Descriptor** puts the payload in the photo's EXIF metadata. EXIF is the standard metadata format every digital camera writes: date, GPS coordinates, camera model, exposure settings, and text fields like `ImageDescription`. Photo management software, cloud storage and operating systems all read it.
+
+**Picture** puts the payload in the image's own compressed data, in the quantized coefficients the JPEG is built from. It does not touch metadata at all.
+
+| | Descriptor | Picture |
+|---|---|---|
+| Photo re-saved or re-compressed | survives | destroyed |
+| Metadata stripped | destroyed | survives |
+
+Metadata stripping is routine. Every messaging app and most social platforms do it. Re-compression happens whenever an image is edited or re-encoded. Nothing about one export removes the other, so **running both on the same photo is how a single artifact covers both risks**. On import the device tries both carriers and reports which one held the backup.
+
+### The two EXIF fields
+
+**`ImageDescription`**: this is your password. Not a cover story for the password. Not a hint toward the password. It *is* the password, typed into the photo's metadata where any viewer can see it. It looks like a caption: *"Sunset at Playa Blanca, Aug 2024"*. Anyone inspecting the EXIF sees a normal description. What they cannot know is that this exact string of characters, every letter and space and comma, was fed through PBKDF2 with 100,000 iterations of HMAC-SHA256 to derive a 256-bit AES key.
+
+**`UserComment`**: this holds the encrypted seed, stored as raw bytes. Inside it: a per-file random salt, a per-file random nonce, the seed word indices encrypted with AES-256-GCM, and a 16-byte authentication tag that ensures even a single bit flip is detected.
+
+The descriptor is the key. It is visible to everyone, and useless to everyone who does not know what it is.
+
+### What the Picture carrier does differently
+
+The Picture carrier writes no EXIF at all. The descriptor keys both the encryption and the walk through the coefficients, and is never stored in the file.
+
+That has a consequence worth stating plainly: **a Picture-only artifact carries no copy of its own password**. If every surviving copy is Picture-only and the descriptor has been forgotten, the seed is unreachable. The files are intact and useless.
+
+This is not a reason to avoid the Picture carrier. It is one of the reasons the printed copy exists. The print carries the two weakest pieces of the puzzle, the ones that live only in your memory and nowhere in the files: which photograph it was, because the print is the image, and what the descriptor was, written on the back. Everything else the artifacts carry themselves.
 
 ---
 
@@ -36,39 +67,45 @@ A metal plate stamped with 24 words is obviously a seed backup. A Cryptosteel ca
 
 A photo of your dog is not a seed backup. It is a photo of your dog.
 
-The security does not depend on hiding the file. You can put it anywhere — cloud storage, email, USB drives, printed and framed on your wall. The security comes from the fact that the file is indistinguishable from the billions of JPEG photographs that exist in the world. An attacker doesn't need to crack the encryption. They need to realize encryption exists in the first place, and there is nothing to suggest it does.
+An attacker does not begin by cracking encryption. They begin by working out that encryption is there at all, across every photo you own, and there is nothing in a photo that suggests it.
 
 ---
 
 ## The Three Layers
 
-An attacker must defeat all three independent layers to reach your funds. Each layer is a fundamentally different kind of problem.
+An attacker must get past all three to reach your funds. They are different kinds of problem, and they are not equally strong. Layer 3 is the one holding the weight.
 
-### Layer 1 — Which File?
+### Layer 1: Which File?
 
 You have 4,000 photos on your Google Drive. One of them contains your seed. Which one?
 
-There is no way to tell. The EXIF metadata format is identical to what any camera produces. The `UserComment` field contains base64 text that looks like firmware data. The `ImageDescription` contains text that looks like a caption. No statistical analysis, no entropy test, no forensic tool will flag this file as different from the other 3,999.
+This is the layer everything visible rests on, and **in v1.0.4 and earlier it did not hold.** A security audit showed that artifacts of that era could be picked out of a folder of ordinary photos reliably and cheaply. Those weaknesses are closed as of v1.0.5, and the same test now finds nothing.
 
-The attacker's problem is not decryption. It is identification. They are searching for a needle in a haystack, and the needle looks exactly like hay.
+An artifact now keeps the host photo's own metadata, camera details and thumbnail included, with KasSigner's two fields merged in. Nothing about it is constant from one artifact to the next. A photo that arrived with no metadata, as screenshots and messaging-app downloads do, gets a plausible one built for it.
 
-### Layer 2 — What Caption?
+**Stated plainly:** this defeats casual inspection, not a trained analyst with the right tools, and it was never meant to be the layer your funds depend on.
 
-Say the attacker somehow identifies the correct photo. They extract the EXIF and find the `UserComment`. They recognize the base64 encoding. They even figure out it's an AES-256-GCM encrypted blob. Now they need the key.
+### Layer 2: What Caption?
 
-The key was derived from the `ImageDescription` field: *"Me at the age of 20 with my family"*. It's right there. They can read it. But they don't know it's the key. And even if they suspect EXIF-based steganography, the `ImageDescription` looks like what it says it is — a description of the image. The attacker must make the conceptual leap that this visible, ordinary text string is the cryptographic password. There is nothing in the data to suggest this. It is not labeled. It is not formatted like a password. It does not look like a key because it was never designed to look like a key.
+Say the attacker identifies the correct photo. They extract the payload and work out it is an encrypted blob. Now they need the key.
 
-And if they do make that leap — if they try every EXIF field as a potential password — then AES-256-GCM gives them exactly one answer: right or wrong. No partial decryption. No gradual convergence. The GCM authentication tag either validates or it doesn't.
+The key is the descriptor: *"Me at the age of 20 with my family"*. It is right there, and they can read it. What they have to work out is that it is the key at all. It is not labeled, not formatted like a password, and does not look like one because it was never designed to.
 
-### Layer 3 — What Word?
+So be clear about what this layer is. With the Descriptor carrier the password travels in the file. Anyone holding it already has the key; what stops them is not knowing that. That is obscurity. Worth having, but not a wall. The Picture carrier stores no descriptor at all, and there the password has to be guessed for real.
+
+Either way, guessing is all-or-nothing. AES-256-GCM gives one answer, right or wrong, with no partial decryption and nothing to converge on.
+
+### Layer 3: What Word?
 
 This is the final wall, and it exists nowhere.
 
-Even if the attacker has the correct file, decrypts the correct `UserComment` with the correct `ImageDescription`, and recovers all 24 BIP39 mnemonic words — they do not have your wallet. They have *a* wallet. A decoy. Put some dust in it. Make it look real.
+Even if the attacker has the correct file, decrypts it with the correct descriptor, and recovers all 24 BIP39 mnemonic words, they do not have your wallet. They have *a* wallet. A decoy. Put some dust in it. Make it look real.
 
-Your actual funds live on a derivation path created by the BIP39 passphrase — the 25th word. This passphrase is concatenated with the mnemonic during PBKDF2 seed derivation. Different passphrase means different master key, different addresses, different wallet. Same 24 words, completely separate universe of keys.
+Your actual funds live on a derivation path created by the BIP39 passphrase, the 25th word. This passphrase is folded into the seed during derivation. Different passphrase means different master key, different addresses, different wallet. Same 24 words, completely separate universe of keys.
 
-The 25th word is never written down. Never stored on any device. Never transmitted. Never recorded in the EXIF, on the SD card, in the encrypted backup, anywhere. It exists only in the owner's memory. The only way to obtain it is to ask the owner, and the owner can point to the decoy wallet and say "that's all there is."
+The 25th word is never written down. Never stored on any device. Never transmitted. Never recorded in the metadata, on the SD card, in the encrypted backup, anywhere. It exists only in the owner's memory. The only way to obtain it is to ask the owner, and the owner can point to the decoy wallet and say "that's all there is."
+
+This is the layer that carries the weight. Layers 1 and 2 buy time and obscurity. Layer 3 is the one that is actually hard.
 
 ---
 
@@ -76,123 +113,118 @@ The 25th word is never written down. Never stored on any device. Never transmitt
 
 Humans forget. Over years, even the most important memories fade. The 25th word protects your wealth, but it only works if you remember it.
 
-KasSigner addresses this with an encrypted recovery hint embedded alongside the seed. During export, you can attach a question whose answer is your 25th word:
+KasSigner addresses this with an encrypted recovery hint stored alongside the seed. During export, you can attach a question whose answer is your 25th word:
 
 - *"My favorite place I lived?"*
-- *"Name of my loved one?"*  
+- *"Name of my loved one?"*
 - *"Song I can't stop humming?"*
 - Or any custom text you write.
 
-The hint is encrypted with the same `ImageDescription` password and appended to the `UserComment` after a `|` separator. During import, after the seed is decrypted, the hint is decrypted and displayed on screen — a private reminder, visible only to someone who already proved they know the descriptor text.
+The hint is encrypted with the same descriptor and stored in the same payload, so it appears on screen only after the seed is decrypted: a private reminder, visible only to someone who has already proved they know the descriptor.
 
-The hint is not the answer. It is a question designed to trigger a memory. The answer — the 25th word — is never stored. It travels from your memory to the device's keypad and back to your memory, touching nothing permanent along the way.
+It is not the answer, only a question shaped to trigger one. The 25th word itself is never stored. It travels from your memory to the keypad and back, touching nothing permanent on the way.
+
+One catch. The hint covers the passphrase, nothing else. It is locked behind the descriptor, so if the descriptor is what you lost, the hint is lost with it. Which is why the descriptor is the piece to duplicate hardest: in every Descriptor-carrier artifact you make, and on the back of every print.
 
 ---
 
 ## Technical Specification
 
-### Encrypted Seed Format
+### Container format (v3)
 
-The seed is encrypted using the `sd_backup` module (shared with the SD card backup feature):
+The seed is encrypted with the `sd_backup` module, shared with SD card backups. One container serves every encrypted artifact the device writes.
 
 ```
 Offset  Size     Field
-──────  ───────  ──────────────────────────
-0x00    4 bytes  Magic: "KAS\x01"
-0x04    1 byte   Word count (12 or 24)
-0x05    12 bytes Nonce (SHA-256 of SYSTIMER + eFuse + camera noise, truncated)
-0x11    24 or 48 Ciphertext (word indices, 2 bytes each)
-0x29/41 16 bytes AES-256-GCM authentication tag
-──────────────────────────────────────────
-Total:  57 bytes (12-word seed) or 81 bytes (24-word seed)
+------  -------  ------------------------------------------
+0x00    4 bytes  Magic "KAS\x04"
+0x04    1 byte   Version (3)
+0x05    1 byte   Purpose (1 seed, 2 xprv, 3 raw, 4 kspt)
+0x06    1 byte   KDF id (1 = PBKDF2-HMAC-SHA256, 100,000)
+0x07    1 byte   Plaintext length
+0x08    16 bytes Salt, per file, from the hardware RNG
+0x18    12 bytes Nonce, per file, from the hardware RNG
+0x24    len      Ciphertext
++len    16 bytes AES-256-GCM authentication tag
 ```
 
-This blob is base64-encoded (76–108 characters) before storage in EXIF.
+Associated data is bytes 0x00 to 0x18, taken as one contiguous slice so no caller can assemble it in the wrong order. Any modification to ciphertext, nonce or header fails as "Wrong password". There is no silent corruption.
 
-### Key Derivation
+Salt and nonce are per file. An earlier format used a fixed salt for every device, which would have let one precomputed table break every artifact ever produced, and derived the nonce from the secret itself, which made it a password-testing oracle. The KDF id exists so a memory-hard replacement can ship later without breaking old backups.
 
-```
-ImageDescription text (UTF-8 bytes)
-    │
-    ▼
-PBKDF2-HMAC-SHA256
-    Salt: "KasSigner-SD-v1" (15 bytes, fixed)
-    Iterations: 100,000
-    │
-    ▼
-256-bit AES key
-    │
-    ▼
-AES-256-GCM encrypt/decrypt
-    Nonce: 12 bytes (entropy-derived, stored in the blob)
-    AAD: [0x4B, 0x41, 0x53, 0x01, word_count]
-    │
-    ▼
-Ciphertext + 16-byte GCM tag
-```
+### What gets embedded
 
-The GCM authentication tag provides tamper detection. Any modification to the ciphertext, nonce, or associated data (including the word count) causes decryption to fail with "Wrong password" — there is no silent corruption.
+Not the container verbatim. Its first seven bytes are identical in every seed artifact, so they are stripped on embed and rebuilt on import. What is stored starts with the length byte and the random salt, so every artifact begins with different bytes.
 
-### EXIF APP1 Structure
+Stored raw, not base64: `UserComment` uses the UNDEFINED charset, which is what raw bytes are for.
 
-```
-FF E1 [length]              JPEG APP1 marker
-"Exif\0\0"                  EXIF header (6 bytes)
-"II" 0x2A00 0x08000000      TIFF header (little-endian, IFD at offset 8)
+Seed and hint are concatenated with no separator. The leading length byte splits them, since a separator character cannot survive raw storage.
 
-IFD0 (2 entries):
-  Tag 0x010E  ImageDescription  ASCII   → The password (visible caption)
-  Tag 0x9286  UserComment       UNDEF   → "ASCII\0\0\0" + base64(encrypted_seed)
-                                           Optional: "|" + base64(encrypted_hint)
+**Where the KDF matters.** PBKDF2-HMAC-SHA256 is not memory-hard. With the Descriptor carrier that is close to irrelevant, because the password is written in the photo and an attacker holding the file reads it rather than guessing. With the Picture carrier the descriptor is nowhere in the file, so it has to be guessed, and there its strength does real work.
 
-Next IFD pointer: 0x00000000 (no more IFDs)
-Data area: description bytes + null terminator + comment bytes
-```
+### Metadata structure (Descriptor carrier)
 
-The new APP1 segment is injected after the JPEG SOI marker (`FF D8`). Any existing APP1 (previous EXIF) is removed. All image pixel data — every scan line, every MCU block, every Huffman table — is copied byte-for-byte. The image is mathematically identical.
+The builder copies the host photo's metadata verbatim, keeping every internal offset valid including the thumbnail, and appends an entry list carrying the host's own tags plus KasSigner's two: `ImageDescription` for the password, `UserComment` for the payload. Both byte orders are read and written.
 
-### Recovery Hint Format
+Before writing, the device re-extracts its own payload from the block it just built and compares byte for byte, falling back to a minimal builder on mismatch. A malformed cover photo cannot produce an artifact that fails only on the day it is needed.
 
-When a hint is provided, it is encrypted separately using the same key derivation (ImageDescription → PBKDF2 → AES-256-GCM) and appended to the UserComment:
+All image data is copied byte for byte, so a Descriptor-carrier artifact is mathematically identical to the original image.
 
-```
-UserComment = "ASCII\0\0\0" + base64(encrypted_seed) + "|" + base64(encrypted_hint)
-```
+### The Picture carrier
 
-During import:
-1. Split UserComment on `|`
-2. Decrypt seed with ImageDescription
-3. If `|` separator found: decrypt hint with same key, display on screen
-4. User reads hint, types 25th word from memory
-5. Device derives wallet using 24 words + 25th word
+The payload goes into the JPEG's quantized coefficients using magnitude decrement, walked in an order derived from the descriptor. A wrong descriptor produces a different walk and no payload: the same uniform failure as a wrong password anywhere else.
 
-### File Impact
+Baseline sequential JPEGs only; progressive files are refused rather than mishandled. Embedding takes a few seconds on the device. Pixel-domain hiding was tested and rejected, because it does not survive a single JPEG save.
 
-The EXIF overhead is 200–400 bytes on a file that's typically 500KB–5MB. The size change is below the noise floor of JPEG quantization. No viewer, no thumbnail generator, no cloud sync engine will notice.
+**Steganalysis exposure, stated plainly.** The embedding rate sits where statistical detectors are weakest, but this is a mature field and a trained detector with the right tooling is a real adversary.
+
+### File impact
+
+The Descriptor carrier adds a few hundred bytes to a file of 500 KB to 5 MB. The Picture carrier changes values rather than adding bytes, so the size barely moves. Either way it is below the noise floor of JPEG compression.
 
 ---
 
 ## What Survives
 
-**Safe channels** — file copy (USB, SD, network), Google Drive, Dropbox, iCloud, email attachments, NAS backup, JPEG recompression (pixels change but EXIF metadata survives).
+The two carriers survive opposite things, and that is the reason to use both.
 
-**Unsafe channels** — Twitter/X (strips all EXIF), Instagram (strips all EXIF), Facebook (strips most EXIF), WhatsApp (strips metadata on send), any "metadata removal" tool, screenshots (new image, no EXIF), OCR or re-encoding.
+Descriptor survives anything that copies a file intact or re-saves the image: USB sticks, SD cards, network shares, Google Drive, Dropbox, iCloud, email attachments, NAS backups. It dies the moment something strips metadata, which every messaging app and most social platforms do routinely.
 
-**Always test your backup path.** Upload a JPEG with custom EXIF to your intended storage, download it back, and verify the EXIF fields survived. Do this before trusting the channel with real funds.
+Picture is the reverse. It shrugs off metadata stripping and dies to re-compression. Platforms that strip usually re-encode as well, so treat it as "may survive" there rather than "will".
+
+Neither survives a screenshot, OCR, resizing or a format conversion. A screenshot is a new image, and the others rewrite it.
+
+**Always test your backup path.** Send an artifact through the channel you intend to use, bring it back, and import it on the device. Do this before trusting the channel with real funds.
 
 ---
 
-## Operational Security
+## The Printed Copy
 
-**Choose your descriptor carefully.** It should be memorable, natural-sounding, and specific enough that you won't confuse it with another photo's caption. A full sentence is better than a few words. *"The old house on Elm Street where we had Christmas 2019"* is stronger and more memorable than *"password123"*.
+Print the photograph. A real print, on paper, with the descriptor written on the back, exactly as people have labelled photographs for a hundred years.
 
-**Use the recovery hint.** Years from now, you need to remember the 25th word. A hint that triggers the right memory — *"My favorite place I lived?"* → *"Montevideo"* — is the difference between recovery and permanent loss.
+Paper does not care about any of the things above. No metadata to strip, no compression to redo, no format to obsolete, no account to close, no sync engine to quietly rewrite it. Every failure mode that kills a digital artifact leaves a print untouched. It fails to fire, water and the bin, which is why you make several and keep them apart.
 
-**Multiple copies across different photos.** Embed the same seed in three different JPEGs with the same descriptor. Store them in different places. If one storage channel strips metadata, the others survive.
+It also answers the two questions the digital copies cannot always answer for themselves.
 
-**Verify before you trust.** After embedding, import the stego JPEG back on the device. Confirm the seed recovers correctly. Confirm the hint displays. Confirm the 25th word produces the right addresses. Do not skip this step.
+**Which photo was it?** You may have thousands. In ten years you will not remember which one, and there is nothing in any of them to say. The print *is* the answer: it is the image. Hold it up and you know what you are looking for.
 
-**The decoy wallet matters.** Send a small amount to the wallet derived from the 24 words alone (no 25th word). If an attacker ever gets to Layer 3, they find real funds and may stop looking. An empty decoy wallet is suspicious. A wallet with some activity is convincing.
+**What was the descriptor?** The Picture carrier never stores it, and a stripped artifact has lost its own copy. The back of the print carries it.
+
+That is why the print sits close to the passphrase in importance. Not equal to it, since the passphrase is what protects the funds, but the print is what keeps the other two layers reachable. Lose every print and forget the descriptor, and you can still be holding a hundred perfect artifacts you cannot open.
+
+**It is safe to keep in the open, and this is the point.** A framed photo on a shelf, a print in an album, a postcard in a book. What does a person who finds it have? A photograph and a caption. They do not know it is anything else, they do not have the passphrase, and without that they reach a decoy even if they work out everything else.
+
+A photograph with writing on the back is not a suspicious object. That is the whole idea, carried out of the files and into the world.
+
+Make several. Different photos, different places. Frame one and hang it on the wall if you like: that is the most ordinary thing anyone can do with a photograph, and it is as good a hiding place as a drawer.
+
+---
+
+## One Last Thing
+
+Verify before you trust it. Import each artifact back on the device, confirm the seed recovers, the hint displays, and the passphrase produces the addresses you expect. A backup you have never opened is not a backup.
+
+The rest is yours to arrange. How many copies, which photos, which channels, what the descriptor says, whether the funds sit behind a passphrase at all. The device does not impose a scheme and this document is not one.
 
 ---
 
@@ -200,8 +232,10 @@ The EXIF overhead is 200–400 bytes on a file that's typically 500KB–5MB. The
 
 | File | Role |
 |------|------|
-| `features/stego.rs` | EXIF APP1 builder, base64 codec, EXIF parser, JPEG injector |
-| `handlers/stego.rs` | Export and import UI flow (16 app states) |
-| `hw/sd_backup.rs` | AES-256-GCM encrypt/decrypt, PBKDF2 key derivation |
+| `features/stego.rs` | Metadata builder and parser, JPEG injector, carrier selection |
+| `features/stego_dct.rs` | Picture carrier: coefficient-domain embedding |
+| `features/stego_perm.rs` | Keyed permutation over coefficient positions |
+| `handlers/stego.rs` | Export and import flow |
+| `hw/sd_backup.rs` | Container v3, AES-256-GCM, PBKDF2 |
 
-The entire steganography system is implemented in pure Rust, `no_std`, with zero heap allocation. All buffers are stack-allocated or in PSRAM. The JPEG file is read into PSRAM (up to ~2MB), the EXIF is built in a stack buffer, and the modified JPEG is written back to SD card in a single pass.
+Pure Rust, `no_std`. Stack buffers with compile-time bounds throughout the small paths; the heap holds what would otherwise overflow the stack, including the JPEG itself in PSRAM.

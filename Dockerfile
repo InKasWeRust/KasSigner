@@ -2,39 +2,94 @@
 # Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 # License: GPL-3.0
 #
-# Reproducible firmware build (both platforms) + KasSee WASM verification
+# ════════════════════════════════════════════════════════════════════
+#  Reproducible release build
+# ════════════════════════════════════════════════════════════════════
 #
-# Usage:
-#   Without signing key (anyone — unsigned reproducible build):
+#   Toolchain image first (once):
+#     docker build --platform linux/amd64 -f Dockerfile.base \
+#       -t kassigner-toolchain:v3 .
+#
+#   Verifier (no key) — builds the three UNSIGNED images:
 #     docker build --platform linux/amd64 -t kassigner-build .
 #
-#   With signing key (developer only — signed reproducible build):
-#     docker build --platform linux/amd64 --secret id=signkey,src=dev_signing_key.bin -t kassigner-build .
+#   Maintainer (with key) — builds all six, unsigned then signed:
+#     docker build --platform linux/amd64 \
+#       --secret id=signkey,src=/path/to/dev_signing_key.bin \
+#       -t kassigner-build .
 #
-# Output files (firmware only — KasSee is browser-deployed via gh-pages):
-# skip-tests removed from every stage, 2026-08-02 (P-09).
+#   Then:
+#     docker run --rm kassigner-build
 #
-# That flag does not merely silence the boot output: it compiles out the KAT
-# functions themselves in wallet/schnorr.rs, wallet/bip32.rs, wallet/storage.rs
-# and qr/payload.rs. Every released binary therefore performed no
-# self-verification of its own Schnorr or BIP32 implementation before signing.
+# ── Six configurations ──────────────────────────────────────────────
 #
-# Cost is about one second of boot. The default KAT set is deliberately minimal,
-# one published vector per primitive: measured 952 ms on M5Stack and 1,062 ms on
-# Waveshare. The expensive full set is a separate feature, boot-kats-full.
+#   Waveshare          unsigned / signed    OV2640 / OV5640 auto-detect
+#   Waveshare AF       unsigned / signed    AF module, H+V orientation flip
+#   M5Stack CoreS3     unsigned / signed
 #
-#   kassigner-waveshare.bin       — app-only image (for developers, hash verification)
-#   kassigner-m5stack.bin         — app-only image (for developers, hash verification)
-#   kassigner-waveshare-full.bin  — merged full-flash image (bootloader + partition table + app)
-#   kassigner-m5stack-full.bin    — merged full-flash image (bootloader + partition table + app)
-#   kassigner-waveshare-af.bin      — app-only image, OV5640-AF camera module (AF firmware + H/V flip)
-#   kassigner-waveshare-af-full.bin — merged full-flash image, OV5640-AF camera module
+# Each converges independently. Unsigned images are built first, so a run
+# without a key still produces a complete, useful result.
 #
-# Flashing:
-#   Full image (new users):  python3 -m esptool --port <PORT> --baud 460800 write_flash 0x0 kassigner-waveshare-full.bin
-#   App-only (developers):   python3 -m esptool --port <PORT> --baud 460800 write_flash 0x10000 kassigner-waveshare.bin
+# ── Why every image here is a `production` build ────────────────────
+#
+# `FIRMWARE_SIGNATURE` is a Rust `const`, and consts have no storage: they
+# exist only where they are used. Its only use is inside `verify_signature()`,
+# which a development build never reaches, so the compiler discards the
+# function and the 64 bytes with it. Measured 2026-08-03: signed and unsigned
+# DEV builds are byte-identical and contain no signature at all. Only a
+# `production` build embeds it.
+#
+# Development builds are for developers, via `cargo run`. They are not release
+# artifacts and no hashes are published for them.
+#
+# ── Signed and unsigned differ ──────────────────────────────────────
+#
+# The signature changes the code segment (measured: 552396 bytes signed vs
+# 552388 unsigned), so the two have DIFFERENT code-segment hashes. A verifier
+# compares their build against the published UNSIGNED hash for the same
+# target.
+#
+# Unsigned images run in production mode with no valid signature and halt at
+# boot. They exist to be hashed, not flashed.
+#
+# ── Convergence ─────────────────────────────────────────────────────
+#
+# The firmware embeds a hash of its own code segment, so writing the hash
+# changes the thing being hashed. The build iterates until it settles.
+#
+# FIVE passes, with an explicit check that the last two agree. Measured:
+# signed settles at pass 2, unsigned at pass 3. Three passes was the previous
+# assumption and was never verified — a configuration needing four would have
+# shipped a binary whose embedded hash did not match its own code, which in a
+# production build HALTS AT BOOT. The assertion turns that into a failed
+# build instead of a dead device.
+#
+# ── Outputs ─────────────────────────────────────────────────────────
+#
+# Four per target, twelve in total:
+#
+#   kassigner-waveshare.bin                 signed, app-only      FLASH THIS
+#   kassigner-waveshare-full.bin            signed, full flash    FLASH THIS
+#   kassigner-waveshare-unsigned.bin        unsigned, app-only    verify only
+#   kassigner-waveshare-unsigned-full.bin   unsigned, full flash  verify only
+#
+# and the same four for -waveshare-af- and -m5stack-.
+#
+# The unsigned images are how a third party checks that the published signed
+# binaries were built from this source: they build unsigned and compare
+# against the published UNSIGNED hashes. Do not flash them — an unsigned
+# production image has no valid signature and halts at boot.
+#
+# Flash (full image, new devices):
+#   python3 -m esptool --port <PORT> --baud 460800 write_flash 0x0 <name>-full.bin
+# Flash (app only):
+#   python3 -m esptool --port <PORT> --baud 460800 write_flash 0x10000 <name>.bin
+#
+# NOTE: production firmware gates the USB Serial/JTAG peripheral a second or
+# two into boot. To reflash, enter download mode first — unplug USB, hold
+# BOOT, plug USB in, release BOOT. See docs/BUILD_FLASH_GUIDE.md.
 
-FROM --platform=linux/amd64 kassigner-toolchain:v2
+FROM --platform=linux/amd64 kassigner-toolchain:v3
 
 SHELL ["/bin/bash", "-c"]
 
@@ -70,230 +125,149 @@ RUN source /root/esp-env.sh && \
 RUN cargo build --manifest-path tools/Cargo.toml --bin gen-hash --release 2>&1 | tail -1
 
 # ════════════════════════════════════════════════════
-#  Waveshare build with hash convergence
+#  Convergence driver
 # ════════════════════════════════════════════════════
+#
+#   converge.sh <label> <out-basename> <sign:0|1> <cargo-args...>
+#
+# Five build/hash passes, fail if the last two disagree, then one final build
+# from the converged firmware_hash.rs, then the image(s).
+#
+# sign=1 with no key mounted SKIPS the target rather than failing, so a
+# verifier without the key still gets a complete unsigned build.
+#
+# PSRAM mode is passed by the caller, not set globally: octal is correct for
+# Waveshare and must NOT be applied to M5Stack.
+#
+RUN cat > /usr/local/bin/converge.sh <<'SCRIPT' && chmod +x /usr/local/bin/converge.sh
+#!/bin/bash
+set -euo pipefail
 
-# Pass 1: Initial compilation
-RUN source /root/esp-env.sh && \
-    cd bootloader && \
-    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release
+LABEL="$1"; shift
+OUT="$1"; shift
+SIGN="$1"; shift
 
-# Pass 1: Generate .bin, compute hash, write firmware_hash.rs
-RUN --mount=type=secret,id=signkey,required=false \
-    source /root/esp-env.sh && \
+source /root/esp-env.sh
+cd /build/KasSigner
+
+if [ "${SIGN}" = "1" ]; then
+    if [ ! -f /run/secrets/signkey ]; then
+        echo ""
+        echo "  SKIPPED: ${LABEL} (signed) — no signing key mounted"
+        exit 0
+    fi
+    KEYARG=(/run/secrets/signkey)
+    MODE="signed"
+else
+    KEYARG=()
+    MODE="unsigned"
+fi
+
+echo ""
+echo "════════════════════════════════════════════════"
+echo "  ${LABEL} (${MODE}) — 5-pass convergence"
+echo "════════════════════════════════════════════════"
+
+PREV=""
+PREV_PREV=""
+for pass in 1 2 3 4 5; do
+    ( cd bootloader && cargo build --release "$@" 2>&1 | tail -1 )
     espflash save-image --chip esp32s3 \
         bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-        /build/ws-pass1.bin 2>&1 | grep -v INFO && \
-    if [ -f /run/secrets/signkey ]; then \
-        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-pass1.bin /run/secrets/signkey 2>&1; \
-    else \
-        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-pass1.bin 2>&1; \
-    fi && \
-    echo "=== Pass 1 hash ===" && \
-    grep FIRMWARE_HASH_HEX bootloader/src/firmware_hash.rs
+        "/build/${OUT}-p${pass}.bin" 2>&1 | grep -v INFO || true
+    cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- \
+        "/build/${OUT}-p${pass}.bin" "${KEYARG[@]}" >/dev/null 2>&1
+    H=$(grep FIRMWARE_HASH_HEX bootloader/src/firmware_hash.rs | sed 's/.*= "//; s/".*//')
+    echo "  pass ${pass}: ${H}"
+    PREV_PREV="${PREV}"
+    PREV="${H}"
+done
 
-# Pass 2: Recompile with embedded hash
-RUN source /root/esp-env.sh && \
-    cd bootloader && \
-    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release
+if [ "${PREV_PREV}" != "${PREV}" ]; then
+    echo ""
+    echo "  BUILD FAILED: ${LABEL} (${MODE}) did not converge."
+    echo "  Pass 4 and pass 5 produced different code-segment hashes."
+    echo "  Raise the pass count. Do NOT ship this binary: in a production"
+    echo "  build the embedded hash would not match the running code, and the"
+    echo "  device halts at boot."
+    exit 1
+fi
+echo "  CONVERGED: ${PREV}"
 
-# Pass 2: Recompute hash — should converge
-RUN --mount=type=secret,id=signkey,required=false \
-    source /root/esp-env.sh && \
-    espflash save-image --chip esp32s3 \
-        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-        /build/ws-pass2.bin 2>&1 | grep -v INFO && \
-    if [ -f /run/secrets/signkey ]; then \
-        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-pass2.bin /run/secrets/signkey 2>&1; \
-    else \
-        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-pass2.bin 2>&1; \
-    fi && \
-    echo "=== Pass 2 hash ===" && \
-    grep FIRMWARE_HASH_HEX bootloader/src/firmware_hash.rs
+# The shipped image must be compiled from the converged firmware_hash.rs,
+# so one more build after the final gen-hash write.
+( cd bootloader && cargo build --release "$@" 2>&1 | tail -1 )
 
-# Pass 3: Final recompile + verify convergence
-RUN source /root/esp-env.sh && \
-    cd bootloader && \
-    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release
+# Both images for both modes. The unsigned pair exists so a verifier can
+# reproduce and compare EITHER published artifact — app-only or full-flash —
+# not just one of them. They are for hashing, not for flashing: an unsigned
+# production image has no valid signature and halts at boot.
+espflash save-image --chip esp32s3 \
+    bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
+    "/build/${OUT}.bin" 2>&1 | grep -v INFO || true
+espflash save-image --chip esp32s3 --merge --flash-size 16mb \
+    bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
+    "/build/${OUT}-full.bin" 2>&1 | grep -v INFO || true
 
-# Final app-only image (unchanged — preserves existing hash)
-RUN source /root/esp-env.sh && \
-    espflash save-image --chip esp32s3 \
-        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-        /build/kassigner-waveshare.bin 2>&1 | grep -v INFO && \
-    echo "" && \
-    echo "============================================" && \
-    echo "  KasSigner Waveshare Build Complete" && \
-    echo "============================================" && \
-    sha256sum /build/kassigner-waveshare.bin && \
-    ls -la /build/kassigner-waveshare.bin && \
-    echo "============================================"
-
-# Merged full-flash image (bootloader + partition table + app)
-RUN source /root/esp-env.sh && \
-    espflash save-image --chip esp32s3 --merge --flash-size 16mb \
-        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-        /build/kassigner-waveshare-full.bin 2>&1 | grep -v INFO && \
-    echo "" && \
-    echo "============================================" && \
-    echo "  KasSigner Waveshare Full Image" && \
-    echo "============================================" && \
-    sha256sum /build/kassigner-waveshare-full.bin && \
-    ls -la /build/kassigner-waveshare-full.bin && \
-    echo "============================================"
-
-# ════════════════════════════════════════════════════
-#  M5Stack build with hash convergence
-# ════════════════════════════════════════════════════
-
-# Pass 1: Initial compilation
-RUN source /root/esp-env.sh && \
-    cd bootloader && \
-    cargo build --release --no-default-features --features m5stack
-
-# Pass 1: Generate .bin, compute hash, write firmware_hash.rs
-RUN --mount=type=secret,id=signkey,required=false \
-    source /root/esp-env.sh && \
-    espflash save-image --chip esp32s3 \
-        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-        /build/m5-pass1.bin 2>&1 | grep -v INFO && \
-    if [ -f /run/secrets/signkey ]; then \
-        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/m5-pass1.bin /run/secrets/signkey 2>&1; \
-    else \
-        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/m5-pass1.bin 2>&1; \
-    fi && \
-    echo "=== M5 Pass 1 hash ===" && \
-    grep FIRMWARE_HASH_HEX bootloader/src/firmware_hash.rs
-
-# Pass 2: Recompile with embedded hash
-RUN source /root/esp-env.sh && \
-    cd bootloader && \
-    cargo build --release --no-default-features --features m5stack
-
-# Pass 2: Recompute hash
-RUN --mount=type=secret,id=signkey,required=false \
-    source /root/esp-env.sh && \
-    espflash save-image --chip esp32s3 \
-        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-        /build/m5-pass2.bin 2>&1 | grep -v INFO && \
-    if [ -f /run/secrets/signkey ]; then \
-        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/m5-pass2.bin /run/secrets/signkey 2>&1; \
-    else \
-        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/m5-pass2.bin 2>&1; \
-    fi && \
-    echo "=== M5 Pass 2 hash ===" && \
-    grep FIRMWARE_HASH_HEX bootloader/src/firmware_hash.rs
-
-# Pass 3: Final recompile + verify convergence
-RUN source /root/esp-env.sh && \
-    cd bootloader && \
-    cargo build --release --no-default-features --features m5stack
-
-# Final app-only image (unchanged — preserves existing hash)
-RUN source /root/esp-env.sh && \
-    espflash save-image --chip esp32s3 \
-        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-        /build/kassigner-m5stack.bin 2>&1 | grep -v INFO && \
-    echo "" && \
-    echo "============================================" && \
-    echo "  KasSigner M5Stack Build Complete" && \
-    echo "============================================" && \
-    sha256sum /build/kassigner-m5stack.bin && \
-    ls -la /build/kassigner-m5stack.bin && \
-    echo "============================================"
-
-# Merged full-flash image (bootloader + partition table + app)
-RUN source /root/esp-env.sh && \
-    espflash save-image --chip esp32s3 --merge --flash-size 16mb \
-        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-        /build/kassigner-m5stack-full.bin 2>&1 | grep -v INFO && \
-    echo "" && \
-    echo "============================================" && \
-    echo "  KasSigner M5Stack Full Image" && \
-    echo "============================================" && \
-    sha256sum /build/kassigner-m5stack-full.bin && \
-    ls -la /build/kassigner-m5stack-full.bin && \
-    echo "============================================"
+echo "${PREV}" > "/build/${OUT}.codehash"
+grep -E "Segment size|Signed:" bootloader/src/firmware_hash.rs | sed 's/^/ /'
+rm -f /build/${OUT}-p*.bin
+SCRIPT
 
 # ════════════════════════════════════════════════════
-#  Waveshare OV5640-AF build with hash convergence
-#  (AF camera module: AF firmware loader + H/V flip for
-#   the AF module's 180-degree physical orientation)
+#  UNSIGNED — built first, so a keyless run is still complete
 # ════════════════════════════════════════════════════
 
-# Pass 1: Initial compilation
-RUN source /root/esp-env.sh && \
-    cd bootloader && \
-    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features ov5640-af
-
-# Pass 1: Generate .bin, compute hash, write firmware_hash.rs
 RUN --mount=type=secret,id=signkey,required=false \
-    source /root/esp-env.sh && \
-    espflash save-image --chip esp32s3 \
-        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-        /build/ws-af-pass1.bin 2>&1 | grep -v INFO && \
-    if [ -f /run/secrets/signkey ]; then \
-        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-af-pass1.bin /run/secrets/signkey 2>&1; \
-    else \
-        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-af-pass1.bin 2>&1; \
-    fi && \
-    echo "=== AF Pass 1 hash ===" && \
-    grep FIRMWARE_HASH_HEX bootloader/src/firmware_hash.rs
+    ESP_HAL_CONFIG_PSRAM_MODE=octal \
+    converge.sh "Waveshare" "kassigner-waveshare-unsigned" 0 \
+        --features production
 
-# Pass 2: Recompile with embedded hash
-RUN source /root/esp-env.sh && \
-    cd bootloader && \
-    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features ov5640-af
-
-# Pass 2: Recompute hash — should converge
+# `ov5640-af` is not only autofocus: it applies the H+V orientation flip that
+# the AF module needs. Without it that camera renders upside down, whether or
+# not the AF solder modification has been done. Hence a separate image.
 RUN --mount=type=secret,id=signkey,required=false \
-    source /root/esp-env.sh && \
-    espflash save-image --chip esp32s3 \
-        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-        /build/ws-af-pass2.bin 2>&1 | grep -v INFO && \
-    if [ -f /run/secrets/signkey ]; then \
-        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-af-pass2.bin /run/secrets/signkey 2>&1; \
-    else \
-        cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- /build/ws-af-pass2.bin 2>&1; \
-    fi && \
-    echo "=== AF Pass 2 hash ===" && \
-    grep FIRMWARE_HASH_HEX bootloader/src/firmware_hash.rs
+    ESP_HAL_CONFIG_PSRAM_MODE=octal \
+    converge.sh "Waveshare AF" "kassigner-waveshare-af-unsigned" 0 \
+        --features production,ov5640-af
 
-# Pass 3: Final recompile + verify convergence
-RUN source /root/esp-env.sh && \
-    cd bootloader && \
-    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features ov5640-af
+RUN --mount=type=secret,id=signkey,required=false \
+    converge.sh "M5Stack" "kassigner-m5stack-unsigned" 0 \
+        --no-default-features --features m5stack,production
 
-# Final app-only image (unchanged — preserves existing hash)
-RUN source /root/esp-env.sh && \
-    espflash save-image --chip esp32s3 \
-        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-        /build/kassigner-waveshare-af.bin 2>&1 | grep -v INFO && \
-    echo "" && \
-    echo "============================================" && \
-    echo "  KasSigner Waveshare AF Build Complete" && \
-    echo "============================================" && \
-    sha256sum /build/kassigner-waveshare-af.bin && \
-    ls -la /build/kassigner-waveshare-af.bin && \
-    echo "============================================"
+# ════════════════════════════════════════════════════
+#  SIGNED — skipped entirely when no key is mounted
+# ════════════════════════════════════════════════════
 
-# Merged full-flash image (bootloader + partition table + app)
-RUN source /root/esp-env.sh && \
-    espflash save-image --chip esp32s3 --merge --flash-size 16mb \
-        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-        /build/kassigner-waveshare-af-full.bin 2>&1 | grep -v INFO && \
-    echo "" && \
-    echo "============================================" && \
-    echo "  KasSigner Waveshare AF Full Image" && \
-    echo "============================================" && \
-    sha256sum /build/kassigner-waveshare-af-full.bin && \
-    ls -la /build/kassigner-waveshare-af-full.bin && \
-    echo "============================================"
+RUN --mount=type=secret,id=signkey,required=false \
+    ESP_HAL_CONFIG_PSRAM_MODE=octal \
+    converge.sh "Waveshare" "kassigner-waveshare" 1 \
+        --features production
 
-CMD ["bash", "-c", "\
-    echo '=== Waveshare (app-only) ===' && sha256sum /build/kassigner-waveshare.bin && \
-    echo '=== Waveshare (full flash) ===' && sha256sum /build/kassigner-waveshare-full.bin && \
-    echo '=== Waveshare AF (app-only) ===' && sha256sum /build/kassigner-waveshare-af.bin && \
-    echo '=== Waveshare AF (full flash) ===' && sha256sum /build/kassigner-waveshare-af-full.bin && \
-    echo '=== M5Stack (app-only) ===' && sha256sum /build/kassigner-m5stack.bin && \
-    echo '=== M5Stack (full flash) ===' && sha256sum /build/kassigner-m5stack-full.bin"]
+RUN --mount=type=secret,id=signkey,required=false \
+    ESP_HAL_CONFIG_PSRAM_MODE=octal \
+    converge.sh "Waveshare AF" "kassigner-waveshare-af" 1 \
+        --features production,ov5640-af
+
+RUN --mount=type=secret,id=signkey,required=false \
+    converge.sh "M5Stack" "kassigner-m5stack" 1 \
+        --no-default-features --features m5stack,production
+
+# ════════════════════════════════════════════════════
+#  Report
+# ════════════════════════════════════════════════════
+CMD bash -c '\
+    echo "════════════════════════════════════════════════"; \
+    echo "  KasSigner build complete"; \
+    echo "════════════════════════════════════════════════"; \
+    echo ""; \
+    echo "-- code-segment hashes (compare with the device boot screen) --"; \
+    for f in /build/*.codehash; do \
+        printf "  %-36s %s\n" "$(basename $f .codehash)" "$(cat $f)"; \
+    done; \
+    echo ""; \
+    echo "-- file hashes --"; \
+    for f in /build/*.bin; do \
+        printf "  %s  %s\n" "$(sha256sum $f | cut -d" " -f1)" "$(basename $f)"; \
+    done; \
+    echo ""'

@@ -1,4 +1,4 @@
-<!-- KasSigner — Air-gapped offline signing device for Kaspa -->
+<!-- KasSigner: Air-gapped offline signing device for Kaspa -->
 <!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
 <!-- License: GPL-3.0-only -->
 
@@ -19,20 +19,22 @@ full security policy.
 3. Create a feature branch (`git checkout -b feature/my-feature`)
 4. Make your changes
 5. Ensure the firmware compiles for both targets:
-   - Waveshare: `cd bootloader && ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features waveshare,skip-tests`
-   - M5Stack: `cd bootloader && cargo build --release --no-default-features --features m5stack,skip-tests`
-6. Run clippy: `cd bootloader && ESP_HAL_CONFIG_PSRAM_MODE=octal cargo clippy --features waveshare,skip-tests`
-7. Run the hardware self-tests (they execute at boot — flash and verify on device)
+   - Waveshare: `cd bootloader && ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features waveshare`
+   - M5Stack: `cd bootloader && cargo build --release --no-default-features --features m5stack`
+6. Run clippy for both targets, and make sure it is clean:
+   - Waveshare: `cd bootloader && ESP_HAL_CONFIG_PSRAM_MODE=octal cargo clippy --release --features ov5640-af`
+   - M5Stack: `cd bootloader && cargo clippy --release --no-default-features --features m5stack`
+7. Flash and check the boot output: the hardware self-tests and the crypto known-answer tests run at boot and must all pass. Do not build with `skip-tests` for this step, since that is what removes them
 8. If modifying KasSee Web (`kassee/`), verify the WASM build: `cd kassee && RUSTUP_TOOLCHAIN=stable ./build.sh`
 9. Commit with clear messages
 10. Open a Pull Request
 
 ## Code Standards
 
-- All code must be `no_std` compatible (no heap allocation in hot paths)
+- All code must be `no_std` compatible. Prefer stack buffers with compile-time bounds; the heap is for large structures that would otherwise overflow the stack
 - All comments and strings in English
 - GPL v3 copyright header on every source file
-- No `unsafe` blocks unless absolutely necessary for hardware register access
+- Keep `unsafe` to the roles that need it: MMIO register access, `write_volatile` for zeroization (a safe write can be optimised away), and heap construction of oversized structures. Anything else needs justification in a comment
 - Key material must be explicitly cleared after use
 - No network-capable dependencies in the firmware
 - Zero compiler warnings on both platforms (clippy clean)

@@ -1,8 +1,8 @@
-<!-- KasSigner — Air-gapped offline signing device for Kaspa -->
+<!-- KasSigner: Air-gapped offline signing device for Kaspa -->
 <!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
 <!-- License: GPL-3.0-only -->
 
-# KasSigner — eFuse Secure Boot Runbook
+# KasSigner: eFuse Secure Boot Runbook
 
 **WARNING: eFuse operations are IRREVERSIBLE. A mistake here can permanently brick the board. Read this entire document before touching any commands.**
 
@@ -10,8 +10,8 @@
 
 The ESP32-S3 has two independent security layers that use eFuses:
 
-1. **Secure Boot v2** — ROM bootloader verifies the second-stage bootloader signature (RSA-3072 or ECDSA). Second-stage bootloader verifies the app signature.
-2. **Flash Encryption** — all flash contents are encrypted with an AES-128/256 XTS key. Prevents reading firmware from flash.
+1. **Secure Boot v2**: ROM bootloader verifies the second-stage bootloader signature (RSA-3072 or ECDSA). Second-stage bootloader verifies the app signature.
+2. **Flash Encryption**: all flash contents are encrypted with an AES-128/256 XTS key. Prevents reading firmware from flash.
 
 KasSigner also has a **software-level** Schnorr signature check (the `features/verify.rs` + `firmware_hash.rs` system). This is independent of and complementary to the hardware secure boot.
 
@@ -193,9 +193,25 @@ python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse DIS_DIRECT_BOOT
 
 # Enable secure download mode (restricts what UART download can do)
+# See the note below before burning this one.
 python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse ENABLE_SECURITY_DOWNLOAD
 ```
+
+**On `ENABLE_SECURITY_DOWNLOAD`, and why it is the weakest item in this step.**
+It restricts UART download mode to flash writes: no reading flash back, no
+memory access, no stub upload. Signed firmware can still be flashed, which is
+the update path this device needs.
+
+What it defends is flash readout by someone holding the board. On KasSigner
+that surface is close to empty: the firmware is public, there is no persistent
+key storage, keys live in RAM and die at power-off, and only the public key
+digest is in eFuse. The private signing key never touches the device. What is
+actually worth stealing sits on the SD card, and no eFuse protects that.
+
+It has also **not been verified on this hardware**. Every other fuse in this
+step has. If you burn it, expect to need `--no-stub` for flashing as well as
+for monitoring, and confirm the update path on a sacrificial board first.
 
 **DO NOT burn `DIS_USB_SERIAL_JTAG`.** It is deliberately left unburned. Note the two fuse names differ by one word and do very different things:
 
@@ -210,7 +226,13 @@ This matches `KasSigner_Security_Architecture.pdf` section 3 (eFuse Hardening), 
 
 **Step 8 is required, not optional.** `DIS_PAD_JTAG` and `DIS_USB_JTAG` are what remove debug access to a device holding key material. A board with Secure Boot burned but JTAG left open is not hardened.
 
-**DO NOT burn `DIS_DOWNLOAD_MODE` unless you are absolutely sure.** This permanently prevents any firmware updates via UART, even signed ones. Only do this for final production units where OTA is the only update path (and KasSigner has no OTA since it's air-gapped).
+**DO NOT burn `DIS_DOWNLOAD_MODE` unless you are absolutely sure.** This permanently prevents any firmware updates via UART, even signed ones. Only do this for final production units where OTA is the only update path, and KasSigner has no OTA since it is air-gapped.
+
+The reason it is safe to leave open is worth stating: **Secure Boot does not close download mode, and it does not need to.** Verified on a provisioned board, 2026-08-03: with `SECURE_BOOT_EN`, `DIS_PAD_JTAG` and `DIS_USB_JTAG` all burned, every download-mode fuse read `False` and the board flashed normally. Flashing stays open because it must; what Secure Boot enforces is that only firmware signed with the burned key digest will *run*. An attacker can write whatever they like and the ROM refuses to execute it.
+
+That is also what anchors the software verification in `features/verify.rs`. The hash, the signature and the public key all live inside the image being checked, so on their own they cannot stop someone who replaced the image and removed the check. The ROM check happens first and cannot be removed.
+
+**Note the interaction with production firmware.** A `production` build gates the USB Serial/JTAG peripheral a second or two into boot, so download mode is the only way back into a running device. Burning `DIS_DOWNLOAD_MODE` on a board running production firmware leaves no recovery path at all. See `BUILD_FLASH_GUIDE.md`.
 
 ## Optional: Flash Encryption
 
@@ -288,9 +310,9 @@ The ESP32-S3 has 6 key blocks (BLOCK_KEY0 through BLOCK_KEY5). Plan allocation:
 | BLOCK_KEY0 | Secure Boot primary key digest | SECURE_BOOT_DIGEST0 |
 | BLOCK_KEY1 | Secure Boot backup key digest | SECURE_BOOT_DIGEST1 |
 | BLOCK_KEY2 | Flash encryption key (if used) | XTS_AES_128_KEY |
-| BLOCK_KEY3 | Available | — |
-| BLOCK_KEY4 | Available | — |
-| BLOCK_KEY5 | Available | — |
+| BLOCK_KEY3 | Available |. |
+| BLOCK_KEY4 | Available |. |
+| BLOCK_KEY5 | Available |. |
 
 ## KasSigner-Specific Notes
 
@@ -298,6 +320,6 @@ The ESP32-S3 has 6 key blocks (BLOCK_KEY0 through BLOCK_KEY5). Plan allocation:
 
 2. **The `esp-bootloader-esp-idf` crate** provides a pre-built second-stage bootloader. For secure boot, this bootloader binary must also be signed.
 
-3. **No OTA.** KasSigner is air-gapped, so firmware updates require physical UART access. If `DIS_DOWNLOAD_MODE` is burned, the board cannot be updated at all. Consider leaving UART download enabled with `ENABLE_SECURITY_DOWNLOAD` (secure download mode) which still allows signed firmware flashing.
+3. **No OTA.** KasSigner is air-gapped, so firmware updates require physical UART access. If `DIS_DOWNLOAD_MODE` is burned, the board cannot be updated at all. Leave UART download enabled. `ENABLE_SECURITY_DOWNLOAD` narrows it further and still allows signed firmware flashing, but see the note in Step 8 before burning it.
 
 4. **Test on a sacrificial board first.** Buy a spare Waveshare board specifically for eFuse testing. Never experiment on the primary development board.
