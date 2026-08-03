@@ -1015,7 +1015,7 @@ let customRestUrl = null;
 // Stealth indexer (keeper): pull R's from the always-on Linode keeper instead of
 // walking the lane in-browser. Toggle persists; URL is fixed.
 let stealthIndexerEnabled = localStorage.getItem('kassee-stealth-indexer') === '1';
-const STEALTH_INDEXER_URL = 'https://172-239-20-116.nip.io/keeper';
+const STEALTH_INDEXER_URL = 'https://keeper.kassigner.org/keeper';
 let autoRefreshTimer = null;
 const AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
 
@@ -14289,7 +14289,7 @@ const ORACLE_MB = {
   hashfnHex:    "01",                       // poseidon2
   network:      "mainnet",                   // <-- the network string KasSee passes to the wasm
   restBase:     "https://api.kaspa.org",
-  proverBase:   "https://172-239-20-116.nip.io", // PUBLIC prover (Caddy on Linode -> 127.0.0.1:8799), CORS-open
+  proverBase:   "https://keeper.kassigner.org", // PUBLIC prover (Caddy -> 127.0.0.1:8799), CORS-open. Domain proxies the VPS so the IP can rotate without a code change.
   // Service fee, paid per roll to the operator's prover (see /quote). v1 fixed address; rotate later.
   feeAddress:   "kaspa:qq5zdr7cwuyrqu0zmr03v3qx0tnf6psmangl4f9aecp8a4xkjmz0x5e2ejesy",
   feeSpk:       "00002028268fd877083071e2d8df1644067ae69d061becd1faa4bdce027ed4d696c4f3ac", // version-0 P2PK SPK of feeAddress
