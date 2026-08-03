@@ -139,7 +139,6 @@ pub async fn create_covenant_timelocked_savings_claim(
         utxos.truncate(32);
     }
 
-
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
     if total <= fee {
         return Err(JsValue::from_str("Balance too low to cover fee"));
@@ -455,7 +454,6 @@ pub async fn create_covenant_timeout_refund(
         utxos.truncate(32);
     }
 
-
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
     if total <= fee {
         return Err(JsValue::from_str("Balance too low to cover fee"));
@@ -574,7 +572,6 @@ pub async fn create_covenant_beneficiary_spend(
         utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
         utxos.truncate(32);
     }
-
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
     if total <= fee {
@@ -803,7 +800,6 @@ pub async fn create_covenant_allowance_withdraw(
         all_utxos.truncate(32);
     }
 
-
     let total_balance: u64 = all_utxos.iter().map(|u| u.amount).sum();
     if withdraw_sompi + fee > total_balance {
         return Err(JsValue::from_str(&format!(
@@ -954,7 +950,6 @@ pub async fn create_covenant_atomic_claim(
         utxos.truncate(32);
     }
 
-
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
     if total <= fee {
         return Err(JsValue::from_str("Balance too low to cover fee"));
@@ -1084,7 +1079,6 @@ pub async fn create_covenant_owner_spend(
         utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
         utxos.truncate(32);
     }
-
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
     if total <= fee {
@@ -3112,7 +3106,6 @@ pub async fn create_covenant_oracle_claim(
         utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
         utxos.truncate(32);
     }
-
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
     if total <= fee {
