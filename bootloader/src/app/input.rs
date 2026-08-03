@@ -536,7 +536,12 @@ pub enum AppState {
     /// Stego import: enter passphrase after seeing hint
     StegoHintPassphrase,
     /// Firmware update: verification result screen
-    FwUpdateResult,
+    // H-03: firmware-update-over-QR was an abandoned design. Nothing ever
+    // installed anything: the flow stopped at a screen showing a verified tick,
+    // and the signature covered only the hash, never the version, so a replayed
+    // signature with any version number displayed as verified. Commented out
+    // rather than deleted so the abandoned design stays visible.
+    // FwUpdateResult,
     /// SD import: submenu (Seed Backup, Transaction, future KRC20/721...)
     SdImportMenu,
     /// SD KSPT: list .KSP files on SD to load
@@ -762,7 +767,6 @@ pub fn new() -> Self {
             | AppState::StegoImportPick | AppState::StegoImportDescChoice
             | AppState::StegoImportDescFile | AppState::StegoImportPass
             | AppState::StegoHintReveal | AppState::StegoHintPassphrase
-            | AppState::FwUpdateResult
             | AppState::CovBackupName
             => {
                 Action::None
@@ -923,6 +927,43 @@ pub enum HandlerGroup {
 }
 
 impl AppState {
+    /// Maximum characters the shared keyboard accepts on this screen.
+    ///
+    /// One place, next to the state definitions, because PassphraseInput is
+    /// shared by fifteen entry screens with different destination buffers. The
+    /// alternative was setting a cap at each of the nine PassphraseEntry entry
+    /// sites, which is nine chances to forget and leaves new screens broken by
+    /// default.
+    ///
+    /// Default 128 is the widget's buffer size, so an unlisted screen behaves
+    /// exactly as before rather than being silently narrowed.
+    pub fn keyboard_max_len(&self) -> usize {
+        match self {
+            // BIP39 passphrase. SeedSlot::passphrase is [u8; 64] and
+            // SeedManager::store silently applied .min(64); a longer passphrase
+            // produced a wallet no standards-compliant BIP39 implementation can
+            // reproduce from what the user actually recorded. H-09.
+            AppState::PassphraseEntry     => 64,
+            AppState::StegoHintPassphrase => 64,
+            // Stego recovery hint, into stego_pp_buf [u8; 64].
+            AppState::StegoJpegPpEntry    => 64,
+            // Stego image descriptor. 96 is inherited from the existing
+            // .min(96) clamp in handlers/stego.rs and is NOT verified against a
+            // product requirement: jpeg_desc_buf is 128, so 32 bytes are
+            // unexplained. Left as-is deliberately. The stego block reworks the
+            // EXIF layout (D-01) and may remove the descriptor's role entirely
+            // (C-01a), so settle this number there rather than freezing it now.
+            AppState::StegoJpegDesc       => 96,
+            AppState::StegoImportPass     => 96,
+            // Commit-reveal secret. Already rejected above 33 at
+            // handlers/tx.rs:830 because the preimage must fit one V6 QR
+            // (8-byte salt + 33 secret). Capping here stops the user typing
+            // characters that rejection would only discard.
+            AppState::CommitRevealType    => 33,
+            _ => 128,
+        }
+    }
+
         /// Map this AppState to its responsible handler module.
 pub fn handler_group(&self) -> HandlerGroup {
         use AppState::*;
@@ -941,7 +982,6 @@ pub fn handler_group(&self) -> HandlerGroup {
             | StegoJpegPpEntry | StegoJpegConfirm | StegoImportPick
             | StegoImportDescChoice | StegoImportDescFile
             | StegoImportPass | StegoHintReveal | StegoHintPassphrase
-            | FwUpdateResult
                 => HandlerGroup::Stego,
 
             // SD backup/restore

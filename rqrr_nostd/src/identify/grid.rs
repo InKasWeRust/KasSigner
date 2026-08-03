@@ -136,7 +136,7 @@ where
     }
 
     fn bit(&self, y: usize, x: usize) -> bool {
-        let p = self.grid.c.map(x as f64 + 0.5, y as f64 + 0.5);
+        let p = self.grid.c.map(x as f32 + 0.5, y as f32 + 0.5);
         PixelColor::White != self.img.get_pixel_at_point(p)
     }
 }
@@ -157,8 +157,8 @@ where
             align,
             caps.0.corners[0],
         ],
-        (grid_size - 7) as f64,
-        (grid_size - 7) as f64,
+        (grid_size - 7) as f32,
+        (grid_size - 7) as f32,
     )?;
 
     Some(jiggle_perspective(img, initial, grid_size))
@@ -191,8 +191,8 @@ fn measure_timing_pattern<S>(img: &PreparedImage<S>, caps: &CapStoneGroup) -> us
 where
     S: ImageBuffer,
 {
-    const US: [f64; 3] = [6.5f64, 6.5f64, 0.5f64];
-    const VS: [f64; 3] = [0.5f64, 6.5f64, 6.5f64];
+    const US: [f32; 3] = [6.5f32, 6.5f32, 0.5f32];
+    const VS: [f32; 3] = [0.5f32, 6.5f32, 6.5f32];
     let tpet0 = caps.0.c.map(US[0], VS[0]);
     let tpet1 = caps.1.c.map(US[1], VS[1]);
     let tpet2 = caps.2.c.map(US[2], VS[2]);
@@ -205,7 +205,7 @@ where
     /* Choose the nearest allowable grid size */
     assert!(scan >= 1);
     let size = scan + 13;
-    let ver = ((size as f64 - 15.0) as usize) / 4;
+    let ver = ((size as f32 - 15.0) as usize) / 4;
     ver * 4 + 17
 }
 
@@ -323,15 +323,15 @@ where
     S: ImageBuffer,
 {
     let mut best = fitness_all(img, &perspective, grid_size);
-    let mut adjustments: [f64; 8] = [
-        perspective.0[0] * 0.02f64,
-        perspective.0[1] * 0.02f64,
-        perspective.0[2] * 0.02f64,
-        perspective.0[3] * 0.02f64,
-        perspective.0[4] * 0.02f64,
-        perspective.0[5] * 0.02f64,
-        perspective.0[6] * 0.02f64,
-        perspective.0[7] * 0.02f64,
+    let mut adjustments: [f32; 8] = [
+        perspective.0[0] * 0.02f32,
+        perspective.0[1] * 0.02f32,
+        perspective.0[2] * 0.02f32,
+        perspective.0[3] * 0.02f32,
+        perspective.0[4] * 0.02f32,
+        perspective.0[5] * 0.02f32,
+        perspective.0[6] * 0.02f32,
+        perspective.0[7] * 0.02f32,
     ];
 
     for _pass in 0..2 {
@@ -353,7 +353,7 @@ where
 
         #[allow(clippy::needless_range_loop)]
         for i in 0..8 {
-            adjustments[i] *= 0.5f64;
+            adjustments[i] *= 0.5f32;
         }
     }
     perspective
@@ -445,12 +445,12 @@ fn fitness_cell<S>(
 where
     S: ImageBuffer,
 {
-    const OFFSETS: [f64; 3] = [0.3f64, 0.5f64, 0.7f64];
+    const OFFSETS: [f32; 3] = [0.3f32, 0.5f32, 0.7f32];
     let mut score = 0;
     #[allow(clippy::needless_range_loop)]
     for v in 0..3 {
         for u in 0..3 {
-            let p = perspective.map(x as f64 + OFFSETS[u], y as f64 + OFFSETS[v]);
+            let p = perspective.map(x as f32 + OFFSETS[u], y as f32 + OFFSETS[v]);
             if !(p.y < 0 || p.y as usize >= img.height() || p.x < 0 || p.x as usize >= img.width())
             {
                 if PixelColor::White != img.get_pixel_at_point(p) {

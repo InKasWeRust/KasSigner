@@ -40,11 +40,22 @@ const INT_IN_DONE: u32     = 1 << 0;
 const INT_IN_SUC_EOF: u32  = 1 << 1;
 const INT_IN_DSCR_ERR: u32 = 1 << 3;
 
+// Frame geometry. Default 480x480 (960x960 crop, DCW 2x — proven v1.0.4
+// pipeline). The `cam640` feature switches to 640x640 (1280x1280 crop,
+// DCW 2x): wider FOV + 78% more decode pixels. PCLK byte rate is identical
+// (set by the sensor PLL), so the DMA drain load per unit time is unchanged;
+// only the frame period grows (~1.33x, VTS 1304 vs 984).
+#[cfg(feature = "cam640")]
+pub const FRAME_W: usize = 640;
+#[cfg(feature = "cam640")]
+pub const FRAME_H: usize = 640;
+#[cfg(not(feature = "cam640"))]
 pub const FRAME_W: usize = 480;
+#[cfg(not(feature = "cam640"))]
 pub const FRAME_H: usize = 480;
 pub const BPL: usize = FRAME_W; // Y8: 1 byte per pixel
-pub const FRAME_BYTES: usize = BPL * FRAME_H; // 230,400
-pub const Y_PLANE_SIZE: usize = FRAME_W * FRAME_H; // 230,400
+pub const FRAME_BYTES: usize = BPL * FRAME_H; // 230,400 (480) / 409,600 (640)
+pub const Y_PLANE_SIZE: usize = FRAME_W * FRAME_H;
 
 const BOUNCE_SIZE: usize = 4032;
 
@@ -257,6 +268,13 @@ pub fn get_entropy_bytes() -> Option<&'static [u8]> {
             })
     }
 }
+
+// Frame noise measurement lives in hw/frame_noise.rs, not here.
+//
+// It was here first, and being here meant it was Waveshare-only, which left
+// audit finding E-07 fixed on one platform and silently open on the other.
+// The measurement takes a byte slice and does not care how the frame arrived,
+// so it belongs somewhere both platforms can reach.
 
 /// Stop DMA + camera. Call before heavy PSRAM reads (Y extraction, decode).
 /// Next start_capture() call will reinitialize.

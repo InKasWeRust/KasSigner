@@ -343,6 +343,97 @@ pub fn init_480<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, delay: &mut Delay) -
     Ok(())
 }
 
+/// Resolution dispatcher: picks the DVP output mode at compile time.
+/// Default = 480x480 (proven v1.0.4 mode). `cam640` feature = 640x640.
+pub fn init_hires<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, delay: &mut Delay) -> Result<(), &'static str> {
+    #[cfg(feature = "cam640")]
+    return init_640(i2c, delay);
+    #[cfg(not(feature = "cam640"))]
+    init_480(i2c, delay)
+}
+
+/// Initialize OV5640 for 640x640 YUV422 output (cam640 feature).
+///
+/// 1280x1280 center crop from the 2592x1944 array, DCW 2x -> 640x640 DVP.
+/// Same 2:1 sensor-to-output ratio as the 480 mode (identical per-pixel
+/// sharpness), but 33% wider FOV and 78% more pixels for the decoder.
+///
+/// 1280x1280 center crop geometry:
+///   X start = (2592-1280)/2 = 656  = 0x0290
+///   X end   = 656+1280-1    = 1935 = 0x078F
+///   Y start = (1944-1280)/2 = 332  = 0x014C
+///   Y end   = 332+1280-1    = 1611 = 0x064B
+///   VTS = 1280+24 = 1304 = 0x0518 (frame period ~1.33x of 480 mode)
+#[cfg(feature = "cam640")]
+pub fn init_640<I2C: embedded_hal::i2c::I2c>(i2c: &mut I2C, delay: &mut Delay) -> Result<(), &'static str> {
+    // Normal init first (PLL, analog, ISP, AF firmware)
+    init(i2c, delay)?;
+
+    crate::log!("   OV5640: upgrading to 640x640 YUV422 (cam640)...");
+
+    for &(reg, val) in OV5640_640_OVERRIDES {
+        if !write_reg(i2c, reg, val) {
+            return Err("OV5640: 640x640 override SCCB write failed");
+        }
+    }
+    delay.delay_millis(100);
+
+    #[cfg(feature = "ov5640-af")]
+    {
+        write_reg(i2c, 0x3820, 0x47); // vertical flip ON (bit6 + bit2:1)
+        write_reg(i2c, 0x3821, 0x06); // horizontal mirror ON (bit2:1)
+        crate::log!("   OV5640-AF: orientation flipped (H+V) for AF module");
+    }
+
+    // Same close-range LCD QR tuning as the 480 mode
+    for &(reg, val) in OV5640_LCD_QR_TUNING {
+        if !write_reg(i2c, reg, val) {
+            return Err("OV5640: LCD QR tuning SCCB write failed");
+        }
+    }
+    delay.delay_millis(50);
+
+    crate::log!("   OV5640: 640x640 YUV422 configured (1280x1280 crop, DCW 2x, LCD QR tuned)");
+    Ok(())
+}
+
+/// Register overrides: 320×240 → 640×640 (cam640 feature).
+#[cfg(feature = "cam640")]
+static OV5640_640_OVERRIDES: &[(u16, u8)] = &[
+    // ── Sensor window: 1280×1280 center crop ──
+    // X start = 656 = 0x0290
+    (0x3800, 0x02), (0x3801, 0x90),
+    // Y start = 332 = 0x014C
+    (0x3802, 0x01), (0x3803, 0x4C),
+    // X end = 1935 = 0x078F
+    (0x3804, 0x07), (0x3805, 0x8F),
+    // Y end = 1611 = 0x064B
+    (0x3806, 0x06), (0x3807, 0x4B),
+
+    // ── DVP output size: 640×640 ──
+    (0x3808, 0x02), (0x3809, 0x80), // DVPHO = 640
+    (0x380A, 0x02), (0x380B, 0x80), // DVPVO = 640
+
+    // ── Total pixel timing ──
+    (0x380C, 0x07), (0x380D, 0x68), // HTS = 1896 (unchanged, covers 1280 + blank)
+    (0x380E, 0x05), (0x380F, 0x18), // VTS = 1304 (1280 rows + 24 blank)
+
+    // ── Offset: 0,0 ──
+    (0x3810, 0x00), (0x3811, 0x00),
+    (0x3812, 0x00), (0x3813, 0x00),
+
+    // ── Sub-sampling: none ──
+    (0x3814, 0x11), (0x3815, 0x11),
+
+    // ── ISP/DCW: 2× downscale (1280→640), same bits as 480 mode ──
+    (0x5001, 0xA2),
+    (0x5600, 0x10), // DCW enable
+    (0x5601, 0x11), // 2× H and V
+
+    // ── Flip/mirror: default, overridden for the AF module above ──
+    (0x3820, 0x41), (0x3821, 0x00),
+];
+
 /// Register overrides: 320×240 → 480×480.
 /// Applied after full init to change only the window/output/DCW registers.
 static OV5640_480_OVERRIDES: &[(u16, u8)] = &[

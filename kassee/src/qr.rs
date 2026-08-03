@@ -13,7 +13,27 @@ use serde::Serialize;
 use std::cell::RefCell;
 use std::fmt::Write;
 
-const MAX_FRAME_DATA: usize = 106;
+/// Bytes of transaction data per multi-frame QR.
+///
+/// Sized so a frame ([frame_num][total][frag_len] + fragment = 251 bytes)
+/// lands exactly on the QR version 11 byte-mode ECC-M ceiling and never
+/// above it (verified by sweeping every payload length 1..8400 through this
+/// framing: worst case is V11). 249 would spill into V12.
+///
+/// Bench result behind the number (phone screen → Waveshare OV5640, fixed
+/// focus, dual-core f32 decoder): V7 through V11 read from an iPhone SE at
+/// the 450ms frame period; V13 needs the 45-degree trick (see
+/// docs/SCANNING_GUIDE.md). V11 is the new multiframe standard.
+///
+/// Firmware side needs nothing: frag_len is a u8 and MF_SLOT_SIZE is 256
+/// (bootloader/src/handlers/camera_loop.rs), so 248 is comfortably inside
+/// both. The firmware's own MF_MAX_FRAMES of 40 covers 9,920 bytes of
+/// transaction at this size.
+const MAX_FRAME_DATA: usize = 248;
+
+/// Largest single-frame payload: the V11 byte-mode ECC-M capacity. A single
+/// frame carries no 3-byte header, so it gets the full 251.
+const MAX_SINGLE_FRAME: usize = 251;
 
 /// Maximum number of frames for a multi-frame QR payload. Sized to
 /// cover a 3-input 2-of-3 PSKT on the tightest hardware envelope
@@ -37,7 +57,7 @@ pub fn generate_frames(kspt_hex: &str) -> Result<Vec<QrFrame>, String> {
     }
 
     // Single frame if small enough
-    if data.len() <= 134 {
+    if data.len() <= MAX_SINGLE_FRAME {
         let svg = qr_to_svg(&data)?;
         return Ok(vec![QrFrame {
             frame_num: 0,

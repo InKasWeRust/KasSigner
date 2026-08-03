@@ -47,7 +47,6 @@
 //   CMD25  → WRITE_MULTIPLE_BLOCK (R1 + data stream)
 //   CMD12  → STOP_TRANSMISSION (R1b response)
 
-#[cfg(not(feature = "silent"))]
 use crate::log;
 use esp_hal::delay::Delay;
 

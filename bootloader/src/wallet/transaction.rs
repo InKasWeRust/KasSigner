@@ -24,10 +24,22 @@
 //
 // Note: we use fixed arrays and maximum limits because we have no allocator.
 // A typical Kaspa transaction has 1-5 inputs and 1-2 outputs.
-// We support up to MAX_INPUTS=8 and MAX_OUTPUTS=8 (enough for a signing device).
+// We support up to MAX_INPUTS=32 and MAX_OUTPUTS=8.
 
-/// Maximum supported inputs
-pub const MAX_INPUTS: usize = 8;
+/// Maximum supported inputs.
+///
+/// Raised 8 -> 16 once the QR transport stopped being the constraint:
+/// a 16-in/1-out consolidation KSPT is 1,533 bytes = 8 frames at 210 B,
+/// ~3.6s at the 450ms sender period (it was 15 frames x 1.6s = 24s under
+/// the old transport). Cost of the raise: the per-input slots live inside
+/// the Box<Transaction> on the PSRAM heap (~2 KB each, so ~16 KB more),
+/// the signed response (~2.6 KB for 16 inputs) still fits the 4 KB
+/// signed_qr_buf, and signing time scales linearly with input count.
+/// The multiframe wire ceiling (40 frames x 210 B = 8.4 KB) allows far
+/// more; 16 doubles capability while staying trivially inside every
+/// buffer. The [.; 8] arrays in pskt.rs sign paths are seed-slot
+/// (account) indexed, not input indexed — unaffected.
+pub const MAX_INPUTS: usize = 32;
 
 /// Maximum supported outputs (bumped from 4 to 8 for beacon-style multi-output TXs).
 /// RAM cost: +1.2 KB in Transaction struct (heap-allocated via Box).
@@ -369,7 +381,7 @@ pub struct TransactionOutput {
 /// Shared pool size for redeem scripts that exceed MAX_SCRIPT_SIZE.
 /// Covers worst case: one 1024-byte covenant + margin, or several
 /// smaller scripts. Total RAM cost: 2048 bytes (in Box on heap).
-pub const REDEEM_POOL_SIZE: usize = 2048;
+pub const REDEEM_POOL_SIZE: usize = 4096; // 32 inputs x 128-byte redeems
 
 /// Complete Kaspa transaction (for signing)
 #[derive(Debug)]
@@ -416,6 +428,54 @@ impl Transaction {
             tx.inputs[i].sig_op_count = 1;
         }
         tx
+    }
+
+    /// Allocate an empty `Transaction` directly on the heap.
+    ///
+    /// `Box::new(Transaction::new())` does NOT do this. `Box::new` takes its
+    /// argument by value, so `Transaction::new()` must produce the whole ~79 KB
+    /// value before the box exists, and that value lands in a slot in the
+    /// caller's stack frame. The box is then filled by copying from that slot.
+    ///
+    /// The copy is dead immediately, but the slot is not. A frame is reserved
+    /// in full on entry, and `AppData::new()` is inlined into `main`, which
+    /// never returns. So the temporary reserved 79 KB of stack for the entire
+    /// life of the device, holding a value that stopped being needed
+    /// microseconds after boot. Measured: it was 96,512 of the 112,884 bytes of
+    /// usable stack, which left the QR decoder 1,092 bytes and tripped the
+    /// stack guard inside rqrr.
+    ///
+    /// This allocates zeroed heap first and writes the non-zero defaults
+    /// through the pointer, so the value is born at its final address and
+    /// never exists in a frame. Same technique as `clear()` below, which was
+    /// added for the same reason on the same type.
+    ///
+    /// SAFETY: identical to `new()`. Every field is a primitive, a bool or a
+    /// fixed-size byte array, and all-zeros is a valid bit pattern for each.
+    /// There are no references, pointers, or enums with non-zero
+    /// discriminants. `alloc_zeroed` therefore yields a valid `Transaction`,
+    /// and the only fixup needed is `sig_op_count`, which `new()` also sets.
+    ///
+    /// Returns `None` if the allocation fails, so the caller decides what a
+    /// 79 KB allocation failure means rather than aborting here.
+    pub fn new_boxed() -> Option<alloc::boxed::Box<Self>> {
+        use core::alloc::Layout;
+        let layout = Layout::new::<Self>();
+        // SAFETY: Layout::new::<Self>() has non-zero size, and all-zeros is a
+        // valid bit pattern for every field (see above).
+        let ptr = unsafe { alloc::alloc::alloc_zeroed(layout) } as *mut Self;
+        if ptr.is_null() {
+            return None;
+        }
+        // SAFETY: ptr is a valid, uniquely-owned, correctly-aligned allocation
+        // of exactly Layout::new::<Self>(), zero-initialised, which is a valid
+        // Transaction. Ownership transfers to the Box.
+        let mut boxed = unsafe { alloc::boxed::Box::from_raw(ptr) };
+        // The one non-zero default, matching `new()`.
+        for i in 0..MAX_INPUTS {
+            boxed.inputs[i].sig_op_count = 1;
+        }
+        Some(boxed)
     }
 
     /// Reset this transaction to its empty state, in place.

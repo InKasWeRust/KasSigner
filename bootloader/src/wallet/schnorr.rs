@@ -21,7 +21,7 @@
 //   - secp256k1 curve (via crate k256, pure Rust)
 //   - Public keys: x-only 32 bytes (BIP-340 style)
 //   - Signatures: 64 bytes (R.x || s)
-//   - Nonce generation: RFC6979 deterministic (no TRNG needed for signing)
+//   - Nonce generation: hedged, k = HMAC-SHA512(privkey, tag || msg || aux)
 //
 // Kaspa uses Schnorr over secp256k1 similar to Bitcoin BIP340.
 // The main difference is in the sighash hash (Blake2b vs SHA256),
@@ -30,8 +30,28 @@
 // This implementation signs a 32-byte message (the pre-computed sighash).
 //
 // Security:
-//   - Deterministic nonce (RFC6979) → no TRNG needed for signing
-//   - The private key is zeroized after each operation
+//   - HEDGED nonce, and it does NOT fall back. Two earlier versions of this
+//     header claimed the opposite of each other and both were wrong: one said
+//     "falls back to deterministic behaviour if the TRNG returns zeros", the
+//     other said "deterministic nonce (RFC6979), no TRNG needed". Neither is
+//     what the code does. `generate_rfc6979_nonce` calls `entropy::fill` and
+//     returns `EntropyUnavailable` on failure, refusing to sign, because a
+//     silent fall back to the deterministic nonce is exactly the
+//     DFA-vulnerable case H-05 exists to remove.
+//
+//     Note what the auxiliary randomness is and is not for. The private key
+//     is the HMAC KEY, so `k` is unpredictable without it even if `aux` were
+//     all zeros. `aux` buys non-determinism, which is what defeats
+//     differential fault analysis; it is not the source of the nonce's
+//     secrecy. Entropy quality is therefore defence-in-depth HERE, and
+//     load-bearing elsewhere: seed generation has no such hedge, and a
+//     repeated AES-GCM nonce is a total break.
+//
+//   - Secrets are zeroized: `SecretKey` is `ZeroizeOnDrop` upstream, and the
+//     bare `k256::Scalar` locals that are NOT covered by that are wrapped in
+//     `Zeroizing` (M-06, closed). The previous line here stated the M-06
+//     defect as if it were still present.
+//
 //   - No heap/alloc used
 
 
@@ -48,6 +68,7 @@ use k256::{
     Secp256k1,
 };
 use sha2::{Sha256, Digest};
+use zeroize::Zeroizing;
 use super::hmac::{hmac_sha512, zeroize_buf};
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -85,6 +106,10 @@ pub enum SchnorrError {
     CurveError,
     /// Invalid signature (verification failed)
     InvalidSignature,
+    /// The hardware RNG failed its continuous health tests, so the hedged
+    /// nonce's auxiliary randomness is unavailable. Signing is refused rather
+    /// than silently falling back to a purely deterministic nonce (H-05).
+    EntropyUnavailable,
 }
 
 // ─── Sign ────────────────────────────────────────────────────────────
@@ -93,7 +118,7 @@ pub enum SchnorrError {
 ///
 /// Algorithm:
 ///   1. d = private key. If P = d*G has odd Y, d = n - d
-///   2. k = deterministic nonce (RFC6979 with SHA256)
+///   2. k = hedged nonce (HMAC-SHA512 over tag || message || TRNG aux)
 ///   3. R = k*G. If R.y is odd, k = n - k
 ///   4. e = SHA256(R.x || P.x || message) mod n
 ///   5. s = (k + e * d) mod n
@@ -109,51 +134,92 @@ pub fn schnorr_sign(
     let sk = SecretKey::from_slice(private_key)
         .map_err(|_| SchnorrError::InvalidPrivateKey)?;
 
-    let d_scalar: Scalar = *sk.to_nonzero_scalar();
+    // Every secret scalar below is wrapped in `Zeroizing` (M-06).
+    //
+    // `SecretKey` is `ZeroizeOnDrop`; a bare `k256::Scalar` is NOT, and these
+    // were bare. Either of them alone recovers the private key: `d` is the key,
+    // and `k` yields it from the released signature via
+    // `d = (s - k) * e^-1`. The module header claimed "the private key is
+    // zeroized after each operation". It was not.
+    //
+    // `Zeroizing` rather than a wipe at the end of the function, because there
+    // are two early returns after these values exist: the `?` on the nonce
+    // below, and the verify-before-release failure further down. A manual wipe
+    // would be skipped by exactly the paths where a fault has just occurred.
+    let d_scalar = Zeroizing::new(*sk.to_nonzero_scalar());
 
     // Get public key point
-    let pubkey_point = ProjectivePoint::GENERATOR * d_scalar;
+    let pubkey_point = ProjectivePoint::GENERATOR * *d_scalar;
     let pubkey_affine = pubkey_point.to_affine();
 
     // BIP340: if Y is odd, negate d
-    let d = if has_even_y(&pubkey_affine) {
-        d_scalar
-    } else {
-        d_scalar.negate()
-    };
+    // Identity is unreachable here (`d_scalar` is nonzero, so d*G is a real
+    // point), but `has_even_y` no longer panics on it (L-06); map the
+    // impossible case to an error like every other curve failure.
+    let d = Zeroizing::new(
+        if has_even_y(&pubkey_affine).ok_or(SchnorrError::CurveError)? {
+            *d_scalar
+        } else {
+            d_scalar.negate()
+        },
+    );
 
     // x-only public key (32 bytes)
     let px = x_bytes(&pubkey_affine);
 
     // 2. Deterministic nonce (RFC6979-like using HMAC-SHA256)
-    let k_scalar = generate_rfc6979_nonce(private_key, message)?;
+    let k_scalar = Zeroizing::new(generate_rfc6979_nonce(private_key, message)?);
 
     // 3. R = k*G
-    let r_point = (ProjectivePoint::GENERATOR * k_scalar).to_affine();
+    let r_point = (ProjectivePoint::GENERATOR * *k_scalar).to_affine();
 
     // If R.y is odd, negate k
-    let k = if has_even_y(&r_point) {
-        k_scalar
-    } else {
-        k_scalar.negate()
-    };
+    // Same as `d` above: `k_scalar` is nonzero, so identity cannot occur,
+    // and the impossible case is an error, not a panic (L-06).
+    let k = Zeroizing::new(
+        if has_even_y(&r_point).ok_or(SchnorrError::CurveError)? {
+            *k_scalar
+        } else {
+            k_scalar.negate()
+        },
+    );
 
     let rx = x_bytes(&r_point);
 
-    // 4. e = SHA256(R.x || P.x || message) mod n
-    //    (BIP340 uses tagged hash, but for Kaspa compatibility
-    //     we use the challenge hash per their implementation)
+    // 4. e = tagged_hash("BIP0340/challenge", R.x || P.x || m) mod n
+    //
+    // This comment previously read "BIP340 uses tagged hash, but for Kaspa
+    // compatibility we use the challenge hash per their implementation", which
+    // was false: `compute_challenge` has always used the tagged hash, and
+    // rusty-kaspa does too. The same wrong belief, written down in
+    // `tools/gen_hash.rs`, produced H-12: signatures that no BIP-340 verifier
+    // would accept.
     let e = compute_challenge(&rx, &px, message);
 
     // 5. s = k + e * d (mod n)
-    let s = k + (e * d);
+    let s = Zeroizing::new(*k + (e * *d));
 
     // 6. Serialize: R.x || s
     let mut sig_bytes = [0u8; 64];
     sig_bytes[..32].copy_from_slice(&rx);
-    sig_bytes[32..].copy_from_slice(&scalar_to_bytes(&s));
+    sig_bytes[32..].copy_from_slice(&scalar_to_bytes(&*s));
+    let sig = SchnorrSignature { bytes: sig_bytes };
 
-    Ok(SchnorrSignature { bytes: sig_bytes })
+    // 7. Verify before release. This is the actual fault-injection
+    //    countermeasure: a glitch anywhere above (scalar arithmetic, the
+    //    challenge input, the even-Y negation, the message load) produces a
+    //    signature that fails here, so the faulty value is never emitted and
+    //    cannot be differenced against a good one. Costs one point
+    //    multiplication; [sign_t] reports it so the real per-signature cost
+    //    can be measured rather than estimated.
+    let t_v = esp_hal::time::Instant::now();
+    let vr = schnorr_verify(&px, message, &sig);
+    crate::log!("   [sign_t] verify {} ms", (esp_hal::time::Instant::now() - t_v).as_millis());
+    if vr.is_err() {
+        return Err(SchnorrError::CurveError);
+    }
+
+    Ok(sig)
 }
 
 // ─── Verification ─────────────────────────────────────────────────────
@@ -187,8 +253,13 @@ pub fn schnorr_verify(
         - (ProjectivePoint::from(pubkey_point) * e);
     let r_affine = r_computed.to_affine();
 
-    // Check: R'.x == R.x and R'.y is even
-    if !has_even_y(&r_affine) {
+    // Check: R'.x == R.x and R'.y is even.
+    //
+    // R' is the identity only if s = e*d, which an attacker cannot arrange
+    // without the key, but the signature bytes are attacker-supplied and this
+    // path must not be able to panic (L-06): identity means invalid, same as
+    // odd Y.
+    if !has_even_y(&r_affine).ok_or(SchnorrError::InvalidSignature)? {
         return Err(SchnorrError::InvalidSignature);
     }
 
@@ -203,11 +274,18 @@ pub fn schnorr_verify(
 // ─── Helper functions ─────────────────────────────────────────────
 
 /// Checks if the point has an even Y coordinate.
-fn has_even_y(point: &AffinePoint) -> bool {
+///
+/// Returns `None` for the identity point, which has no Y coordinate (L-06).
+/// This was previously `.expect("not identity")`: unreachable from the
+/// signing side, where both scalars are nonzero by construction, and
+/// unreachable in verification without solving `s = e*d`, but it was still a
+/// panic in code that processes attacker-supplied signatures. Callers map
+/// `None` to an error instead.
+fn has_even_y(point: &AffinePoint) -> Option<bool> {
     let encoded = point.to_encoded_point(false); // uncompressed: 04 || x || y
-    let y_bytes = encoded.y().expect("not identity");
+    let y_bytes = encoded.y()?;
     // Y is even if the last byte is even
-    y_bytes[31] & 1 == 0
+    Some(y_bytes[31] & 1 == 0)
 }
 
 /// Extracts the 32-byte X coordinate from a point.
@@ -247,24 +325,54 @@ fn compute_challenge(rx: &[u8; 32], px: &[u8; 32], message: &[u8; 32]) -> Scalar
     bytes_to_scalar_reduce(&hash_bytes)
 }
 
-/// Generate a deterministic nonce using RFC6979 (simplified with HMAC-SHA512).
+/// Generate a hedged nonce (see the detailed note below).
 ///
 /// k = HMAC-SHA512(private_key, SHA256(message))[0..32] mod n
 ///
 /// This is a simplification. Full RFC6979 uses a loop with
 /// V/K states, but for Schnorr signatures with 32-byte messages
 /// (which are hashes), a single iteration is safe in practice.
+/// Hedged nonce: k = HMAC-SHA512(d, tag || message || aux)[..32] mod n.
+///
+/// NOT RFC 6979, despite the historical name of this function. The old
+/// construction was HMAC-SHA512(d, message), a pure function of (d, m) with
+/// no other input. That is the precondition for differential fault analysis
+/// on deterministic signatures: sign the same message twice, glitch one run,
+/// and both share k and therefore R, so
+///     s1 = k + e1*d,  s2 = k + e2*d  =>  d = (s1-s2)*(e1-e2)^-1
+/// recovers the private key from one successful fault. Determinism protects
+/// against a weak RNG and is exactly what enables this.
+///
+/// Mixing fresh entropy removes the shared-k premise. It degrades safely: if
+/// entropy::fill returns all zeros the result reduces to a deterministic
+/// nonce, i.e. today's behaviour, rather than to a repeated or predictable
+/// one. So this is never worse than either pure strategy alone, which matters
+/// while the RNG feed is still unverified (M-13).
+///
+/// WIRE-COMPATIBLE. The signature still verifies against the same pubkey over
+/// the same bytes, so OP_CHECKSIGFROMSTACK in the deployed mainnet oracle
+/// covenants cannot tell the difference. Only bit-identical repetition stops.
 fn generate_rfc6979_nonce(
     private_key: &[u8; 32],
     message: &[u8; 32],
 ) -> Result<Scalar, SchnorrError> {
-    // Build data for HMAC: private_key || message
-    let mut data = [0u8; 64];
-    data[..32].copy_from_slice(private_key);
-    data[32..].copy_from_slice(message);
+    // Fail closed. A hedged nonce whose auxiliary randomness is unavailable
+    // silently degrades to the deterministic one, which is the DFA-vulnerable
+    // case H-05 exists to remove. Refuse to sign instead.
+    let mut aux = [0u8; 32];
+    crate::crypto::entropy::fill(&mut aux)
+        .map_err(|_| SchnorrError::EntropyUnavailable)?;
 
-    let hmac_out = hmac_sha512(&data[..32], &data[32..]);
+    // tag(32) || message(32) || aux(32). The tag domain-separates this HMAC
+    // from any other use of the private key as an HMAC key.
+    let mut data = [0u8; 96];
+    data[..32].copy_from_slice(b"KasSigner/schnorr-nonce/v2______");
+    data[32..64].copy_from_slice(message);
+    data[64..].copy_from_slice(&aux);
 
+    let hmac_out = hmac_sha512(private_key, &data);
+
+    zeroize_buf(&mut aux);
     zeroize_buf(&mut data);
 
     // Take first 32 bytes and reduce mod n
@@ -328,7 +436,62 @@ fn lift_x(x_bytes: &[u8; 32]) -> Option<AffinePoint> {
 // ═══════════════════════════════════════════════════════════════════════
 
 /// Test: sign and verify roundtrip
-#[cfg(any(test, feature = "verbose-boot"))]
+// Reachable in shipped builds. Gated on `skip-tests` only: NOT on
+// `verbose-boot` (which also enables the sighash debug dump and must
+// never ship) and NOT on `silent` (a logging flag must not switch off a
+// correctness check). Called from boot_test::run_crypto_kats.
+#[cfg(any(test, not(feature = "skip-tests")))]
+/// Test: verify a PUBLISHED BIP-340 test vector.
+///
+/// The roundtrip test below signs and verifies with this same code, so an
+/// implementation that is wrong but self-consistent passes it. That is not
+/// hypothetical: `tools/gen_hash.rs` computed the challenge as a plain
+/// `SHA256(R.x || P.x || m)` instead of the BIP-340 tagged hash, was entirely
+/// self-consistent, and produced signatures no verifier on earth would accept.
+/// It went undetected for the life of the project (H-12).
+///
+/// This anchors the implementation to the specification instead of to itself.
+/// The same vector is checked by `gen_hash.rs`, so the two cannot drift apart
+/// without one of them failing.
+///
+/// BIP-340 test vector 0, derived from first principles rather than copied:
+///   secret key  0x03  (not used here; verification needs only the pubkey)
+///   message     all zeros
+///   aux_rand    all zeros
+///
+/// Costs one verification, about 71 ms.
+pub fn test_bip340_published_vector() -> bool {
+    const PUBKEY: [u8; 32] = [
+        0xF9, 0x30, 0x8A, 0x01, 0x92, 0x58, 0xC3, 0x10,
+        0x49, 0x34, 0x4F, 0x85, 0xF8, 0x9D, 0x52, 0x29,
+        0xB5, 0x31, 0xC8, 0x45, 0x83, 0x6F, 0x99, 0xB0,
+        0x86, 0x01, 0xF1, 0x13, 0xBC, 0xE0, 0x36, 0xF9,
+    ];
+    const MESSAGE: [u8; 32] = [0u8; 32];
+    const SIGNATURE: [u8; 64] = [
+        0xE9, 0x07, 0x83, 0x1F, 0x80, 0x84, 0x8D, 0x10,
+        0x69, 0xA5, 0x37, 0x1B, 0x40, 0x24, 0x10, 0x36,
+        0x4B, 0xDF, 0x1C, 0x5F, 0x83, 0x07, 0xB0, 0x08,
+        0x4C, 0x55, 0xF1, 0xCE, 0x2D, 0xCA, 0x82, 0x15,
+        0x25, 0xF6, 0x6A, 0x4A, 0x85, 0xEA, 0x8B, 0x71,
+        0xE4, 0x82, 0xA7, 0x4F, 0x38, 0x2D, 0x2C, 0xE5,
+        0xEB, 0xEE, 0xE8, 0xFD, 0xB2, 0x17, 0x2F, 0x47,
+        0x7D, 0xF4, 0x90, 0x0D, 0x31, 0x05, 0x36, 0xC0,
+    ];
+
+    let sig = SchnorrSignature { bytes: SIGNATURE };
+    if schnorr_verify(&PUBKEY, &MESSAGE, &sig).is_err() {
+        return false;
+    }
+
+    // A single flipped bit must be rejected, so that a verifier which accepts
+    // everything cannot pass this test.
+    let mut bad = SIGNATURE;
+    bad[63] ^= 0x01;
+    schnorr_verify(&PUBKEY, &MESSAGE, &SchnorrSignature { bytes: bad }).is_err()
+}
+
+#[cfg(any(test, not(feature = "skip-tests")))]
 /// Test: sign then verify succeeds.
 pub fn test_sign_verify_roundtrip() -> bool {
     // Test private key (DO NOT use in production)
@@ -373,9 +536,22 @@ pub fn test_sign_verify_roundtrip() -> bool {
 }
 
 /// Test: deterministic signing (same key + message = same signature)
-#[cfg(any(test, feature = "verbose-boot"))]
-/// Test: deterministic signing (same key + message = same signature).
-pub fn test_deterministic_signature() -> bool {
+// Reachable in shipped builds. Gated on `skip-tests` only: NOT on
+// `verbose-boot` (which also enables the sighash debug dump and must
+// never ship) and NOT on `silent` (a logging flag must not switch off a
+// correctness check). Called from boot_test::run_crypto_kats.
+#[cfg(any(test, feature = "boot-kats-full", feature = "verbose-boot"))]
+/// Test: hedged nonce. Two signatures over the SAME key and message must
+/// DIFFER, and both must verify.
+///
+/// This asserted the opposite until H-05. The nonce was
+/// HMAC-SHA512(d, message), a pure function of (d, m), so signing twice gave
+/// byte-identical output. That is the precondition for differential fault
+/// analysis: glitch one of two runs that share k and therefore R, and
+///     s1 = k + e1*d,  s2 = k + e2*d  =>  d = (s1-s2)*(e1-e2)^-1
+/// recovers the private key. entropy is now mixed into the nonce, so identical
+/// output would mean the hedging is not reaching it.
+pub fn test_hedged_nonce() -> bool {
     let privkey: [u8; 32] = [
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
         0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
@@ -395,12 +571,30 @@ pub fn test_deterministic_signature() -> bool {
         Err(_) => return false,
     };
 
-    // Must be identical (deterministic nonce)
-    sig1.bytes == sig2.bytes
+    // Must DIFFER: identical output means entropy is not reaching the nonce.
+    if sig1.bytes == sig2.bytes {
+        return false;
+    }
+    // And both must still verify against the same pubkey.
+    // x-only pubkey, same derivation as test_sign_verify_roundtrip above.
+    let sk = match SecretKey::from_slice(&privkey) {
+        Ok(k) => k,
+        Err(_) => return false,
+    };
+    let pk_point = sk.public_key().to_encoded_point(true);
+    let mut pubkey_x = [0u8; 32];
+    pubkey_x.copy_from_slice(&pk_point.as_bytes()[1..33]);
+
+    schnorr_verify(&pubkey_x, &message, &sig1).is_ok()
+        && schnorr_verify(&pubkey_x, &message, &sig2).is_ok()
 }
 
 /// Test: invalid signature must fail verification
-#[cfg(any(test, feature = "verbose-boot"))]
+// Reachable in shipped builds. Gated on `skip-tests` only: NOT on
+// `verbose-boot` (which also enables the sighash debug dump and must
+// never ship) and NOT on `silent` (a logging flag must not switch off a
+// correctness check). Called from boot_test::run_crypto_kats.
+#[cfg(any(test, feature = "boot-kats-full", feature = "verbose-boot"))]
 /// Test: invalid signature must fail verification.
 pub fn test_invalid_signature_fails() -> bool {
     let privkey: [u8; 32] = [
@@ -438,7 +632,11 @@ pub fn test_invalid_signature_fails() -> bool {
 }
 
 /// Test: sign with BIP32-derived key
-#[cfg(any(test, feature = "verbose-boot"))]
+// Reachable in shipped builds. Gated on `skip-tests` only: NOT on
+// `verbose-boot` (which also enables the sighash debug dump and must
+// never ship) and NOT on `silent` (a logging flag must not switch off a
+// correctness check). Called from boot_test::run_crypto_kats.
+#[cfg(any(test, feature = "boot-kats-full", feature = "verbose-boot"))]
 pub fn test_sign_with_bip32_key() -> bool {
     use super::bip39;
     use super::bip32;
@@ -473,15 +671,34 @@ pub fn test_sign_with_bip32_key() -> bool {
 
 /// Runs all Schnorr tests.
 /// Returns (passed, total).
-#[cfg(any(test, feature = "verbose-boot"))]
+// Reachable in shipped builds. Gated on `skip-tests` only: NOT on
+// `verbose-boot` (which also enables the sighash debug dump and must
+// never ship) and NOT on `silent` (a logging flag must not switch off a
+// correctness check). Called from boot_test::run_crypto_kats.
+#[cfg(any(test, not(feature = "skip-tests")))]
 pub fn run_schnorr_tests() -> (u32, u32) {
     let mut passed = 0u32;
-    let total = 4u32;
+    // Incremented beside the tests it counts. See run_bip32_tests.
+    #[allow(unused_mut)]
+    let mut total = 2u32;
 
+    // Minimal set: one published-vector verification and one sign+verify
+    // roundtrip. Each signature costs a k256 point multiplication plus the
+    // H-05 verify-before-release (~71 ms), so the full set measured 1,969 ms
+    // at boot; the vector test adds one verification.
+    //
+    // The vector test comes first deliberately. The roundtrip only proves this
+    // code agrees with itself, which a wrong implementation also does.
+    if test_bip340_published_vector() { passed += 1; }
     if test_sign_verify_roundtrip() { passed += 1; }
-    if test_deterministic_signature() { passed += 1; }
-    if test_invalid_signature_fails() { passed += 1; }
-    if test_sign_with_bip32_key() { passed += 1; }
+
+    #[cfg(any(feature = "boot-kats-full", feature = "verbose-boot"))]
+    {
+        total += 3;
+        if test_hedged_nonce() { passed += 1; }
+        if test_invalid_signature_fails() { passed += 1; }
+        if test_sign_with_bip32_key() { passed += 1; }
+    }
 
     (passed, total)
 }

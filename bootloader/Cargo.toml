@@ -7,7 +7,7 @@
 
 [package]
 name = "kassigner-bootloader"
-version = "1.0.4"
+version = "1.0.5"
 edition = "2021"
 authors = ["KasSigner Team"]
 
@@ -27,14 +27,56 @@ production = ["silent"]
 silent = []
 verbose-boot = []
 skip-tests = []
+# SRAM sentinel scan. Compiles the boot test's account PRIVATE KEY into the
+# binary as a search pattern, to prove a wipe actually reached a real secret.
+# Measurement only. NEVER enable for a shipped build.
+sentinel-scan = []
+# M-13 measurement: sample the WDEV RNG either side of `early_lockdown` to
+# establish whether zeroing SYSTEM_WIFI_CLK_EN gates the RNG's clock.
+# Diagnostic only.
+rng-probe = []
+# Run the FULL boot KAT set instead of the minimal one.
+#
+# Default is one published vector per primitive, which is what a boot KAT is
+# for: proving a primitive is not fundamentally broken. Measured on hardware,
+# the full BIP32 set costs 24,043 ms (31 derivations at ~775 ms each) and the
+# full SCHNORR set 1,969 ms; the minimal set brings both under ~1.2 s combined.
+# Edge-case and consistency coverage belongs in cargo test, where time is free.
+boot-kats-full = []
+# One-shot SHA accelerator benchmark at boot. Measurement only: compiles
+# in app/sha_bench.rs, which no production path calls. Never enable for a
+# shipped build.
+sha-bench = []
+# Bench diagnostic: dumps 16 raw QMI8658C gyro samples to the serial log at
+# boot, full 16-bit per axis, flagging any pass identical to the previous one.
+# Exists to distinguish an unlucky health-check draw from a real stale-sample
+# bug in the STATUS0 gDA gate. Prints the same physical noise the seed pool is
+# fed from, so hw/imu_ws.rs makes `imu-dump` + `production` a compile error.
+# Never enable for a shipped build, and do not generate a real seed on a board
+# running it.
+imu-dump = ["waveshare"]
 screenshot = []
 mirror = ["screenshot"]
 icon-browser = []
 test-psram = []
+# Experimental 640x640 capture (1280x1280 crop, DCW 2x) on OV5640 only.
+# Wider FOV + 78% more decode pixels; frame rate ~25% lower (VTS 1304 vs 984).
+# Do NOT use on boards with OV2640 modules (frame size mismatch, scan fails).
+cam640 = ["waveshare"]
 
 [dependencies]
 esp-hal = { version = "1.0", features = ["esp32s3", "unstable", "psram"] }
-esp-backtrace = { version = "0.15", features = ["esp32s3", "panic-handler", "println"] }
+# Interrupt-free critical sections, for the stack wipe in AppData::wipe_secrets
+# (H-01). Not a new dependency: esp-hal already pulls critical-section 1.2.0 and
+# implements it, so this pins nothing new and resolves to what is already in
+# Cargo.lock. Naming it here only makes it usable directly.
+critical-section = "1.2"
+# panic-handler deliberately NOT enabled: main.rs owns #[panic_handler]
+# so a panic can zeroize key material before halting. Rust permits
+# exactly one, and esp-backtrace holding it was why hw::lockdown::
+# panic_wipe had no caller. Backtraces are traded for the wipe; the
+# handler still prints the panic message and source location.
+esp-backtrace = { version = "0.15", features = ["esp32s3", "println"] }
 esp-println = { version = "0.13", default-features = false, features = ["esp32s3", "jtag-serial"] }
 esp-alloc = "0.7"
 esp-bootloader-esp-idf = { version = "0.2", features = ["esp32s3"] }
@@ -52,6 +94,23 @@ embedded-iconoir = { version = "0.2", default-features = false, features = ["24p
 
 # Crypto
 sha2 = { version = "0.10", default-features = false }
+# BIP32 parent fingerprint, HASH160 = RIPEMD160(SHA256(compressed_pubkey)).
+# Same pin rusty-kaspa uses (workspace Cargo.toml: ripemd 0.1.3,
+# default-features = false), and it shares the digest 0.10 core that sha2
+# already brings in. See wallet/xpub.rs for why this was previously SHA-256.
+ripemd = { version = "0.1.3", default-features = false }
+# Drop-based wiping for secret scalars (M-06). Not a new dependency: zeroize
+# 1.8.2 is already in Cargo.lock via elliptic-curve, which uses it to make
+# `SecretKey` ZeroizeOnDrop. Naming it here only makes `Zeroizing` usable
+# directly, for the bare `Scalar` values that are NOT covered by that.
+zeroize = { version = "1.8", default-features = false, features = ["alloc"] }
+# Constant-time primitives for BIP32 child-key scalar arithmetic (M-05). Not a
+# new dependency: subtle 2.6.1 is already in Cargo.lock via elliptic-curve,
+# which is where k256 gets its own `Choice` and `ConditionallySelectable`.
+# Naming it here only makes those usable directly, and the alternative was
+# hand-rolling `Choice` in bip32.rs, which is the kind of code that gets
+# quietly optimised back into a branch. default-features = false drops `std`.
+subtle = { version = "2.6", default-features = false }
 heapless = "0.8"
 k256 = { version = "0.13.4", default-features = false, features = ["arithmetic", "ecdsa"] }
 aes-gcm = { version = "0.10.3", default-features = false, features = ["aes"] }

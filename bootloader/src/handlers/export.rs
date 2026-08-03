@@ -21,7 +21,7 @@
 //         ExportKpub, ExportXprv, ExportChoice, ExportPrivKey
 
 use crate::log;
-use crate::{app::data::AppData, hw::display, hw::sdcard, ui::seed_manager, hw::touch, wallet};
+use crate::{app::data::AppData, hw::display, hw::sdcard, ui::seed_manager, hw::sound, hw::touch, wallet};
 use crate::app::signing::{derive_pubkey_from_acct, derive_change_pubkey_from_acct};
 /// Handle touch events for export/display screens (address, QR, kpub, xprv).
 #[inline(never)]
@@ -61,7 +61,7 @@ pub fn handle_export_touch(
                         needs_redraw = true;
                     }
                     crate::app::input::AppState::ShowAddress => {
-                        let is_single_addr = ad.word_count == 1; // raw key = one address only
+                        let is_single_addr = ad.active_kind() == crate::ui::seed_manager::SlotKind::RawKey; // raw key = one address only
                         let is_change = ad.addr_view_is_change;
                         if is_back {
                             ad.scanned_addr_len = 0;
@@ -235,18 +235,25 @@ pub fn handle_export_touch(
                             needs_redraw = true;
                         } else {
                             // Get actual QR size by encoding
-                            let qr_size: u8 = if let Some(slot) = ad.seed_mgr.active_slot() {
+                            // Kind-checked: a SeedQR is a mnemonic-only artifact,
+                            // and on a raw-key or xprv slot `indices` holds a
+                            // private key rather than word indices (H-08). Falls
+                            // back to the default size for those kinds, matching
+                            // what the export screens now draw, which is nothing.
+                            let qr_size: u8 = if let Some((indices, wc)) =
+                                ad.seed_mgr.active_slot().and_then(|s| s.as_mnemonic())
+                            {
                                 if compact {
                                     let mut buf = [0u8; 32];
                                     let len = seed_manager::encode_compact_seedqr(
-                                        &slot.indices, slot.word_count, &mut buf);
+                                        indices, wc, &mut buf);
                                     if let Ok(qr) = crate::qr::encoder::encode(&buf[..len]) {
                                         qr.size
                                     } else { 21 }
                                 } else {
                                     let mut buf = [0u8; 96];
                                     let len = seed_manager::encode_seedqr(
-                                        &slot.indices, slot.word_count, &mut buf);
+                                        indices, wc, &mut buf);
                                     if let Ok(qr) = crate::qr::encoder::encode(&buf[..len]) {
                                         qr.size
                                     } else { 29 }
@@ -554,7 +561,7 @@ pub fn handle_export_touch(
                                 needs_redraw = true;
                                 match item {
                                     0 => {
-                                        if ad.word_count == 2 {
+                                        if ad.active_kind() == crate::ui::seed_manager::SlotKind::Xprv {
                                             // xprv wallet — no seed words to show
                                             boot_display.draw_rejected_screen("No seed phrase (xprv)");
                                             delay.delay_millis(1500);
@@ -607,20 +614,42 @@ pub fn handle_export_touch(
                                         ad.kpub_user_nframes = 0;
                                         ad.kpub_frame = 0;
                                         boot_display.draw_saving_screen("Deriving kpub...");
-                                        let pp = ad.seed_mgr.active_slot().map(|s: &seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
-                                        let seed_bytes = if ad.word_count == 12 {
-                                            let m12 = wallet::bip39::Mnemonic12 {
-                                                indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&ad.mnemonic_indices[..12]); arr }
-                                            };
-                                            wallet::bip39::seed_from_mnemonic_12(&m12, pp)
-                                        } else {
-                                            let m24 = wallet::bip39::Mnemonic24 {
-                                                indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&ad.mnemonic_indices[..24]); arr }
-                                            };
-                                            wallet::bip39::seed_from_mnemonic_24(&m24, pp)
-                                        };
                                         let mut kpub_buf = [0u8; wallet::xpub::KPUB_MAX_LEN];
-                                        match wallet::xpub::derive_and_serialize_kpub(&seed_bytes.bytes, &mut kpub_buf) {
+                                        let kpub_res = if ad.active_kind() == crate::ui::seed_manager::SlotKind::Xprv {
+                                            // xprv slot (word_count sentinel 2): the
+                                            // mnemonic indices belong to whichever seed
+                                            // loaded them last — deriving from them
+                                            // exported the WRONG wallet's kpub. Neuter
+                                            // the cached account xprv instead.
+                                            if ad.acct_key_raw[..32].iter().all(|&b| b == 0) {
+                                                Err(wallet::bip32::Bip32Error::InvalidKey)
+                                            } else {
+                                                let acct = wallet::bip32::ExtendedPrivKey::from_raw(&ad.acct_key_raw);
+                                                wallet::xpub::serialize_kpub_from_account(&acct, &mut kpub_buf)
+                                            }
+                                        } else {
+                                            // Mnemonic slots only: build the seed here.
+                                            // (This ran unconditionally before the
+                                            // branch and PANICKED on xprv slots — the
+                                            // resident mnemonic_indices can hold
+                                            // non-word data, e.g. after an SD restore:
+                                            // bip39 indexed the wordlist with 46969.)
+                                            // The xprv case (wc=2) is handled by the branch above.
+                                            // A raw-key slot (wc=1) still reached here and fell
+                                            // into the 24-word branch, deriving a kpub from packed
+                                            // key bytes or stale indices. derive_seed returns None
+                                            // for both, so map that to the same InvalidKey error the
+                                            // empty-account path already uses.
+                                            let pp = ad.seed_mgr.active_slot().map(|s: &seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
+                                            match crate::app::signing::derive_seed(
+                                                &ad.mnemonic_indices, ad.word_count, pp,
+                                            ) {
+                                                Some(seed_bytes) => wallet::xpub::derive_and_serialize_kpub(
+                                                    &seed_bytes.bytes, &mut kpub_buf),
+                                                None => Err(wallet::bip32::Bip32Error::InvalidKey),
+                                            }
+                                        };
+                                        match kpub_res {
                                             Ok(len) => {
                                                 ad.kpub_len = len;
                                                 ad.kpub_data[..len].copy_from_slice(&kpub_buf[..len]);
@@ -640,20 +669,42 @@ pub fn handle_export_touch(
                                             delay.delay_millis(1500);
                                         } else {
                                             boot_display.draw_saving_screen("Deriving kpub...");
-                                            let pp = ad.seed_mgr.active_slot().map(|s: &seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
-                                            let seed_bytes = if ad.word_count == 12 {
-                                                let m12 = wallet::bip39::Mnemonic12 {
-                                                    indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&ad.mnemonic_indices[..12]); arr }
-                                                };
-                                                wallet::bip39::seed_from_mnemonic_12(&m12, pp)
-                                            } else {
-                                                let m24 = wallet::bip39::Mnemonic24 {
-                                                    indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&ad.mnemonic_indices[..24]); arr }
-                                                };
-                                                wallet::bip39::seed_from_mnemonic_24(&m24, pp)
-                                            };
                                             let mut kpub_buf = [0u8; wallet::xpub::KPUB_MAX_LEN];
-                                            match wallet::xpub::derive_and_serialize_kpub(&seed_bytes.bytes, &mut kpub_buf) {
+                                            let kpub_res = if ad.active_kind() == crate::ui::seed_manager::SlotKind::Xprv {
+                                            // xprv slot (word_count sentinel 2): the
+                                            // mnemonic indices belong to whichever seed
+                                            // loaded them last — deriving from them
+                                            // exported the WRONG wallet's kpub. Neuter
+                                            // the cached account xprv instead.
+                                            if ad.acct_key_raw[..32].iter().all(|&b| b == 0) {
+                                                Err(wallet::bip32::Bip32Error::InvalidKey)
+                                            } else {
+                                                let acct = wallet::bip32::ExtendedPrivKey::from_raw(&ad.acct_key_raw);
+                                                wallet::xpub::serialize_kpub_from_account(&acct, &mut kpub_buf)
+                                            }
+                                        } else {
+                                            // Mnemonic slots only: build the seed here.
+                                            // (This ran unconditionally before the
+                                            // branch and PANICKED on xprv slots — the
+                                            // resident mnemonic_indices can hold
+                                            // non-word data, e.g. after an SD restore:
+                                            // bip39 indexed the wordlist with 46969.)
+                                            // The xprv case (wc=2) is handled by the branch above.
+                                            // A raw-key slot (wc=1) still reached here and fell
+                                            // into the 24-word branch, deriving a kpub from packed
+                                            // key bytes or stale indices. derive_seed returns None
+                                            // for both, so map that to the same InvalidKey error the
+                                            // empty-account path already uses.
+                                            let pp = ad.seed_mgr.active_slot().map(|s: &seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
+                                            match crate::app::signing::derive_seed(
+                                                &ad.mnemonic_indices, ad.word_count, pp,
+                                            ) {
+                                                Some(seed_bytes) => wallet::xpub::derive_and_serialize_kpub(
+                                                    &seed_bytes.bytes, &mut kpub_buf),
+                                                None => Err(wallet::bip32::Bip32Error::InvalidKey),
+                                            }
+                                        };
+                                        match kpub_res {
                                                 Ok(len) => {
                                                     ad.kpub_len = len;
                                                     ad.kpub_data[..len].copy_from_slice(&kpub_buf[..len]);
@@ -723,7 +774,7 @@ pub fn handle_export_touch(
                             // For xprv (word_count==2), only one card is shown
                             // at visual slot 0: "Plain Text QR" (item 2).
                             // For normal seeds, slots map 1:1 to items.
-                            let is_xprv = ad.word_count == 2;
+                            let is_xprv = ad.active_kind() == crate::ui::seed_manager::SlotKind::Xprv;
                             if is_xprv {
                                 // Only slot 0 is visible → Plain Text QR
                                 if list_zones[0].contains(x, y) {
@@ -793,19 +844,40 @@ pub fn handle_export_touch(
                                         // Show as QR
                                         boot_display.draw_saving_screen("Deriving xprv...");
                                         let pp = ad.seed_mgr.active_slot().map(|s: &seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
-                                        let seed_bytes = if ad.word_count == 12 {
-                                            let m12 = wallet::bip39::Mnemonic12 {
-                                                indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&ad.mnemonic_indices[..12]); arr }
-                                            };
-                                            wallet::bip39::seed_from_mnemonic_12(&m12, pp)
-                                        } else {
-                                            let m24 = wallet::bip39::Mnemonic24 {
-                                                indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&ad.mnemonic_indices[..24]); arr }
-                                            };
-                                            wallet::bip39::seed_from_mnemonic_24(&m24, pp)
+                                        let seed_bytes = match ad.word_count {
+                                            // xprv slot: this seed is unused below (the xprv branch
+                                            // re-serializes the cached account key). Keep the zero
+                                            // placeholder rather than deriving from stale indices.
+                                            2 => wallet::bip39::Seed { bytes: [0u8; 64] },
+                                            // A raw-key slot (wc=1) used to fall into the 24-word
+                                            // branch here and derive from packed key bytes. Refuse.
+                                            _ => match crate::app::signing::derive_seed(
+                                                &ad.mnemonic_indices, ad.word_count, pp,
+                                            ) {
+                                                Some(s) => s,
+                                                None => {
+                                                    boot_display.draw_rejected_screen("Slot has no mnemonic");
+                                                    sound::beep_error(delay);
+                                                    delay.delay_millis(2000);
+                                                    return Some(true);
+                                                }
+                                            },
                                         };
                                         let mut xprv_buf = [0u8; wallet::xpub::XPRV_MAX_LEN];
-                                        match wallet::xpub::derive_and_serialize_xprv(&seed_bytes.bytes, &mut xprv_buf) {
+                                        let xprv_res = if ad.active_kind() == crate::ui::seed_manager::SlotKind::Xprv {
+                                            // xprv slot: re-serialize the stored account
+                                            // key (the mnemonic path below would read
+                                            // stale indices and can panic in bip39).
+                                            if ad.acct_key_raw[..32].iter().all(|&b| b == 0) {
+                                                Err(wallet::bip32::Bip32Error::InvalidKey)
+                                            } else {
+                                                let acct = wallet::bip32::ExtendedPrivKey::from_raw(&ad.acct_key_raw);
+                                                wallet::xpub::serialize_xprv_from_account(&acct, &mut xprv_buf)
+                                            }
+                                        } else {
+                                            wallet::xpub::derive_and_serialize_xprv(&seed_bytes.bytes, &mut xprv_buf)
+                                        };
+                                        match xprv_res {
                                             Ok(len) => {
                                                 ad.xprv_len = len;
                                                 ad.xprv_data[..len].copy_from_slice(&xprv_buf[..len]);
@@ -894,19 +966,36 @@ pub fn handle_export_touch(
                                             boot_display.draw_saving_screen("Deriving key...");
 
                                             let pp = ad.seed_mgr.active_slot().map(|s| s.passphrase_str()).unwrap_or("");
-                                            let seed_bytes = if ad.word_count == 12 {
-                                                let m12 = wallet::bip39::Mnemonic12 {
-                                                    indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&ad.mnemonic_indices[..12]); arr }
-                                                };
-                                                wallet::bip39::seed_from_mnemonic_12(&m12, pp)
-                                            } else {
-                                                let m24 = wallet::bip39::Mnemonic24 {
-                                                    indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&ad.mnemonic_indices[..24]); arr }
-                                                };
-                                                wallet::bip39::seed_from_mnemonic_24(&m24, pp)
+                                            let seed_bytes = match ad.word_count {
+                                                // xprv slot: this seed is unused below (the xprv branch
+                                                // re-serializes the cached account key). Keep the zero
+                                                // placeholder rather than deriving from stale indices.
+                                                2 => wallet::bip39::Seed { bytes: [0u8; 64] },
+                                                // A raw-key slot (wc=1) used to fall into the 24-word
+                                                // branch here and derive from packed key bytes. Refuse.
+                                                _ => match crate::app::signing::derive_seed(
+                                                    &ad.mnemonic_indices, ad.word_count, pp,
+                                                ) {
+                                                    Some(s) => s,
+                                                    None => {
+                                                        boot_display.draw_rejected_screen("Slot has no mnemonic");
+                                                        sound::beep_error(delay);
+                                                        delay.delay_millis(2000);
+                                                        return Some(true);
+                                                    }
+                                                },
                                             };
 
-                                            match wallet::bip32::derive_account_key(&seed_bytes.bytes) {
+                                            let acct_res = if ad.active_kind() == crate::ui::seed_manager::SlotKind::Xprv {
+                                                if ad.acct_key_raw[..32].iter().all(|&b| b == 0) {
+                                                    Err(wallet::bip32::Bip32Error::InvalidKey)
+                                                } else {
+                                                    Ok(wallet::bip32::ExtendedPrivKey::from_raw(&ad.acct_key_raw))
+                                                }
+                                            } else {
+                                                wallet::bip32::derive_account_key(&seed_bytes.bytes)
+                                            };
+                                            match acct_res {
                                                 Ok(acct) => {
                                                     match wallet::bip32::derive_address_key(&acct, val) {
                                                         Ok(addr_key) => {

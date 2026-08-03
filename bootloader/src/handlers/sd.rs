@@ -54,6 +54,41 @@ fn hex_nibble(ch: u8) -> u8 {
 /// because the account-level xpub (needed for child derivation) was never
 /// recorded.
 #[allow(clippy::type_complexity)]
+/// Longest a `multi_hd(...)` descriptor can be, derived from the grammar
+/// `parse_descriptor` accepts:
+///
+///   "multi_hd("  9
+///   "M,"         2
+///   N x 130 hex  (33-byte pubkey + 32-byte chain code, hex encoded)
+///   N-1 commas
+///   ")"          1
+///
+/// At MAX_MULTISIG_KEYS = 5 that is 666 bytes. Concrete sizes:
+/// 2 cosigners 273, 3 cosigners 404, 4 cosigners 535, 5 cosigners 666.
+///
+/// This constant exists because those numbers were previously hard-coded
+/// as a 400-byte accept limit, a 512-byte read buffer and a 512-byte file
+/// list filter, none of which matched each other or the grammar. A 2-of-3
+/// descriptor is 404 bytes: it listed, it read, and then it was rejected
+/// four bytes over the accept limit as "Invalid descriptor". Only
+/// 2-cosigner multisig could round-trip through SD at all.
+pub(crate) const MAX_DESCRIPTOR_LEN: usize = 9
+    + 2
+    + crate::wallet::transaction::MAX_MULTISIG_KEYS * 130
+    + (crate::wallet::transaction::MAX_MULTISIG_KEYS - 1)
+    + 1;
+
+/// Read buffer for the kpub / address / descriptor TXT import. Covers
+/// MAX_DESCRIPTOR_LEN plus trailing whitespace, and is the single size
+/// limit all three file-list filters use.
+pub(crate) const TXT_IMPORT_BUF: usize = 1024;
+
+/// Compile-time guard on the invariant this bug violated: the read buffer
+/// must be able to hold the largest descriptor the parser will accept.
+/// Raising MAX_MULTISIG_KEYS without raising TXT_IMPORT_BUF now fails the
+/// build instead of silently making large descriptors unreadable.
+const _: () = assert!(TXT_IMPORT_BUF >= MAX_DESCRIPTOR_LEN);
+
 fn parse_descriptor(
     data: &[u8],
 ) -> Option<(
@@ -188,10 +223,30 @@ pub(crate) fn write_file_to_sd(
 /// Thin wrapper over the shared collector in crypto::entropy, which
 /// enables RC_FAST (correct DIG_CLK8M_EN bit) and mixes SYSTIMER,
 /// eFuse, WDEV RNG, and camera sensor noise via SHA-256.
+/// Returns ALL ZEROS if the hardware RNG failed its continuous health tests.
+///
+/// Deliberate, and safe because of where it is caught: `encrypt_v3` rejects an
+/// all-zero nonce or salt, and every v3 write goes through it. One check at the
+/// chokepoint instead of eleven at the call sites, which cannot be forgotten by
+/// a twelfth caller and needs no change to the eleven existing `Err` arms.
 pub(crate) fn generate_trng_nonce() -> [u8; 12] {
     let mut nonce = [0u8; 12];
-    crate::crypto::entropy::fill(&mut nonce);
+    // Failure leaves `nonce` zeroed, which `encrypt_v3` refuses.
+    let _ = crate::crypto::entropy::fill(&mut nonce);
     nonce
+}
+
+/// Fresh per-file PBKDF2 salt for a v3 container.
+///
+/// Never a constant, never derived from the payload. A fixed salt is what made
+/// one precomputed dictionary table break every artifact this project ever
+/// produced (M-01).
+/// Returns ALL ZEROS if the hardware RNG failed its health tests. Caught by
+/// `encrypt_v3`; see `generate_trng_nonce`.
+pub(crate) fn generate_trng_salt() -> [u8; crate::hw::sd_backup::V3_SALT_SIZE] {
+    let mut salt = [0u8; crate::hw::sd_backup::V3_SALT_SIZE];
+    let _ = crate::crypto::entropy::fill(&mut salt);
+    salt
 }
 
 /// Scan SD card for the highest auto-increment number matching a prefix+extension pattern.
@@ -313,8 +368,15 @@ pub fn handle_sd_touch(
                                     } else {
                                         ad.pp_input.reset();
                                         ad.app.state = crate::app::input::AppState::SdBackupPassphrase;
-                                        needs_redraw = true;
                                     }
+                                    // The last arm still missing this. Reusing an
+                                    // existing .KAS filename changed the state to
+                                    // the overwrite warning but repainted nothing,
+                                    // so the keyboard stayed on screen over an
+                                    // active but invisible warning and OK appeared
+                                    // to do nothing. The KSP and descriptor arms
+                                    // were already fixed; the seed arm was not.
+                                    needs_redraw = true;
                                 }
                                 _ => {}
                             }
@@ -385,10 +447,11 @@ pub fn handle_sd_touch(
                                     boot_display.draw_saving_screen("Encrypting seed...");
                                     let pp_bytes = &ad.pp_input.buf[..ad.pp_input.len];
                                     let nonce = generate_trng_nonce();
+                                    let salt = generate_trng_salt();
                                     let mut backup_buf = [0u8; sd_backup::MAX_BACKUP_SIZE];
                                     match sd_backup::encrypt_backup_progress(
                                         &ad.mnemonic_indices, ad.word_count,
-                                        pp_bytes, &nonce, &mut backup_buf,
+                                        pp_bytes, &salt, &nonce, &mut backup_buf,
                                         &mut |done, total| {
                                             let pct = if total > 0 { (done * 50 / total) as u8 } else { 0 };
                                             boot_display.update_progress_bar(pct);
@@ -487,8 +550,12 @@ pub fn handle_sd_touch(
                                     let peek_result = sdcard::with_sd_card(i2c, delay, |ct| {
                                         let fat32 = sdcard::mount_fat32(ct)?;
                                         let (entry, _, _) = sdcard::find_file_in_root(ct, &fat32, &ad.sd_selected_file)?;
-                                        let mut buf = [0u8; 1024];
-                                        let n = sdcard::read_file(ct, &fat32, &entry, &mut buf)?;
+                                        // Heap, not stack: this array is RETURNED
+                                        // from the closure, so as `[u8; 1024]` it
+                                        // occupied a slot in both this frame and
+                                        // handle_sd_touch's for the whole function.
+                                        let mut buf = alloc::vec![0u8; 1024];
+                                        let n = sdcard::read_file(ct, &fat32, &entry, &mut buf[..])?;
                                         Ok((buf, n))
                                     });
                                     match peek_result {
@@ -599,12 +666,31 @@ pub fn handle_sd_touch(
                                                     }
                                                 }
                                                 needs_redraw = true;
+                                            } else if len >= 6 && buf[0] == b'K' && buf[1] == b'A' && buf[2] == b'S' && buf[3] == 0x04 {
+                                                // v3 container. The purpose byte says which
+                                                // secret it holds, so one magic serves all of
+                                                // them and the routing is explicit rather than
+                                                // inferred from the file size.
+                                                ad.pp_input.reset();
+                                                match buf[5] {
+                                                    sd_backup::PURPOSE_SEED => {
+                                                        ad.app.state = crate::app::input::AppState::SdRestorePassphrase;
+                                                    }
+                                                    sd_backup::PURPOSE_XPRV => {
+                                                        ad.app.state = crate::app::input::AppState::SdXprvImportPassphrase;
+                                                    }
+                                                    _ => {
+                                                        boot_display.draw_rejected_screen("Unsupported file");
+                                                        delay.delay_millis(1500);
+                                                        needs_redraw = true;
+                                                    }
+                                                }
                                             } else if len >= 4 && buf[0] == b'K' && buf[1] == b'A' && buf[2] == b'S' && buf[3] == 0x01 {
-                                                // Encrypted seed backup (KAS\x01) — use original n, not trimmed
+                                                // Legacy seed backup (KAS\x01) — use original n, not trimmed
                                                 ad.pp_input.reset();
                                                 ad.app.state = crate::app::input::AppState::SdRestorePassphrase;
                                             } else if len >= 4 && buf[0] == b'K' && buf[1] == b'A' && buf[2] == b'S' && buf[3] == 0x02 {
-                                                // Encrypted xprv backup (KAS\x02)
+                                                // Legacy xprv backup (KAS\x02)
                                                 ad.pp_input.reset();
                                                 ad.app.state = crate::app::input::AppState::SdXprvImportPassphrase;
                                             } else if len >= 4 && buf[0] == b'x' && buf[1] == b'p' && buf[2] == b'r' && buf[3] == b'v' {
@@ -630,18 +716,17 @@ pub fn handle_sd_touch(
                                                     use sha2::{Sha256, Digest};
                                                     let hash = Sha256::digest(acct_key.private_key_bytes());
                                                     let fp = [hash[0], hash[1], hash[2], hash[3]];
-                                                    let mut dummy_indices = [0u16; 24];
-                                                    for j in 0..16 {
-                                                        dummy_indices[j] = u16::from_le_bytes([raw[j*2], raw[j*2+1]]);
-                                                    }
-                                                    if let Some(slot_idx) = ad.seed_mgr.find_by_fingerprint(&fp).or_else(|| ad.seed_mgr.find_free()) {
+                                                    if let Some(slot_idx) = ad.seed_mgr.find_by_fingerprint(&fp, 2).or_else(|| ad.seed_mgr.find_free()) {
                                                         let slot = &mut ad.seed_mgr.slots[slot_idx];
                                                         if slot.is_empty() {
-                                                            slot.word_count = 2;
-                                                            slot.indices = dummy_indices;
-                                                            slot.passphrase[..32].copy_from_slice(&raw[32..64]);
-                                                            slot.passphrase[32] = raw[64];
-                                                            slot.passphrase_len = 33;
+                                                            // One constructor rather than
+                                                            // packing the layout by hand
+                                                            // at each site (H-08).
+                                                            let mut key = [0u8; 32];
+                                                            key.copy_from_slice(&raw[..32]);
+                                                            let mut cc = [0u8; 32];
+                                                            cc.copy_from_slice(&raw[32..64]);
+                                                            slot.set_xprv(&key, &cc, raw[64]);
                                                             slot.fingerprint = fp;
                                                         }
                                                         ad.seed_mgr.activate(slot_idx);
@@ -831,12 +916,18 @@ pub fn handle_sd_touch(
                                             sound::success(delay);
                                             delay.delay_millis(1500);
                                             // Remove from file list
+                                            // Shift bounds track SD_FILE_LIST_MAX, not a
+                                            // literal. These were `j..7` and `[7]` from
+                                            // when the list held 8 entries; left as
+                                            // literals they would have shifted only the
+                                            // first eight and cleared the wrong slot.
+                                            const LAST: usize = crate::app::data::SD_FILE_LIST_MAX - 1;
                                             for j in 0..ad.sd_file_count as usize {
                                                 if ad.sd_file_list[j] == ad.sd_selected_file {
-                                                    for k in j..7 {
+                                                    for k in j..LAST {
                                                         ad.sd_file_list[k] = ad.sd_file_list[k + 1];
                                                     }
-                                                    ad.sd_file_list[7] = [b' '; 11];
+                                                    ad.sd_file_list[LAST] = [b' '; 11];
                                                     ad.sd_file_count -= 1;
                                                     break;
                                                 }
@@ -887,7 +978,7 @@ pub fn handle_sd_touch(
                                         Ok((file_buf, bytes_read)) => {
                                             boot_display.draw_loading_screen("Decrypting...");
                                             let mut restored_indices = [0u16; 24];
-                                            match sd_backup::decrypt_backup_progress(
+                                            match sd_backup::decrypt_backup_versioned(
                                                 &file_buf[..bytes_read],
                                                 &pp_copy[..pp_bytes_len],
                                                 &mut restored_indices,
@@ -896,7 +987,7 @@ pub fn handle_sd_touch(
                                                     boot_display.update_progress_bar(pct);
                                                 },
                                             ) {
-                                                Ok(wc) => {
+                                                Ok((wc, legacy)) => {
                                                     boot_display.update_progress_bar(100);
                                                     ad.mnemonic_indices = [0u16; 24];
                                                     for i in 0..wc as usize {
@@ -907,6 +998,16 @@ pub fn handle_sd_touch(
                                                     boot_display.draw_success_screen("Seed restored!");
                                                     sound::success(delay);
                                                     delay.delay_millis(1500);
+                                                    if legacy {
+                                                        // Old format: one shared salt across every
+                                                        // device and file, so a single dictionary
+                                                        // table attacks every backup ever written.
+                                                        // The file still works; it should not be
+                                                        // the copy the user keeps.
+                                                        log!("[SD-RESTORE] Legacy format, prompting re-export");
+                                                        boot_display.draw_rejected_screen("Old format: re-export");
+                                                        delay.delay_millis(2500);
+                                                    }
                                                     // Single-store model: the seed is stored exactly
                                                     // once, on the PassphraseEntry OK. Empty field =
                                                     // base wallet; typed passphrase = that wallet.
@@ -992,16 +1093,25 @@ pub fn handle_sd_touch(
                                     boot_display.update_progress_bar(15);
                                     let pp_bytes = &ad.pp_input.buf[..ad.pp_input.len];
                                     let pp_str = ad.seed_mgr.active_slot().map(|s| s.passphrase_str()).unwrap_or("");
-                                    let seed_bytes = if ad.word_count == 12 {
-                                        let m12 = wallet::bip39::Mnemonic12 {
-                                            indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&ad.mnemonic_indices[..12]); arr }
-                                        };
-                                        wallet::bip39::seed_from_mnemonic_12(&m12, pp_str)
-                                    } else {
-                                        let m24 = wallet::bip39::Mnemonic24 {
-                                            indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&ad.mnemonic_indices[..24]); arr }
-                                        };
-                                        wallet::bip39::seed_from_mnemonic_24(&m24, pp_str)
+                                    // Raw-key (wc=1) and xprv (wc=2) slots have no BIP39
+                                    // mnemonic: their `indices` hold a packed 32-byte
+                                    // private key, not word indices. This site had no
+                                    // slot-type check, so both fell into the 24-word
+                                    // branch and produced a valid-looking encrypted
+                                    // backup that restores a DIFFERENT wallet. Refuse
+                                    // instead of writing an unrestorable file.
+                                    let seed_bytes = match crate::app::signing::derive_seed(
+                                        &ad.mnemonic_indices, ad.word_count, pp_str,
+                                    ) {
+                                        Some(s) => s,
+                                        None => {
+                                            ad.pp_input.reset();
+                                            boot_display.draw_rejected_screen("Slot has no mnemonic");
+                                            sound::beep_error(delay);
+                                            delay.delay_millis(2000);
+                                            ad.app.state = crate::app::input::AppState::SigningKeysMenu;
+                                            return Some(true);
+                                        }
                                     };
                                     boot_display.update_progress_bar(33);
                                     let mut xprv_buf = [0u8; wallet::xpub::XPRV_MAX_LEN];
@@ -1011,8 +1121,15 @@ pub fn handle_sd_touch(
                                             boot_display.draw_saving_screen("Encrypting...");
                                             boot_display.update_progress_bar(50);
                                             let nonce = generate_trng_nonce();
+                                            let salt = generate_trng_salt();
                                             let mut enc_buf = [0u8; sd_backup::MAX_XPRV_BACKUP_SIZE];
-                                            match sd_backup::encrypt_xprv_backup(&xprv_buf, xlen, pp_bytes, &nonce, &mut enc_buf) {
+                                            match sd_backup::encrypt_xprv_backup_v3(
+                                                &xprv_buf, xlen, pp_bytes, &salt, &nonce, &mut enc_buf,
+                                                &mut |done, total| {
+                                                    let pct = if total > 0 { 50 + (done * 20 / total) as u8 } else { 50 };
+                                                    boot_display.update_progress_bar(pct);
+                                                },
+                                            ) {
                                                 Ok(enc_len) => {
                                                     boot_display.update_progress_bar(70);
                                                     boot_display.draw_saving_screen("Writing to SD...");
@@ -1120,7 +1237,7 @@ pub fn handle_sd_touch(
                                         Ok((file_buf, bytes_read)) => {
                                             boot_display.draw_loading_screen("Decrypting xprv...");
                                             let mut xprv_plain = [0u8; 120];
-                                            match sd_backup::decrypt_xprv_backup_progress(
+                                            match sd_backup::decrypt_xprv_versioned(
                                                 &file_buf[..bytes_read],
                                                 &pp_copy[..pp_bytes_len],
                                                 &mut xprv_plain,
@@ -1129,7 +1246,7 @@ pub fn handle_sd_touch(
                                                     boot_display.update_progress_bar(pct);
                                                 },
                                             ) {
-                                                Ok(xlen) => {
+                                                Ok((xlen, legacy)) => {
                                                     match wallet::xpub::import_xprv(&xprv_plain[..xlen]) {
                                                         Ok(acct_key) => {
                                                             boot_display.update_progress_bar(75);
@@ -1149,21 +1266,18 @@ pub fn handle_sd_touch(
                                                             // Derive change pubkeys (m/44'/111111'/0'/1/{0..4})
                                                             crate::app::signing::derive_change_pubkeys(
                                                                 &raw, &mut ad.change_pubkey_cache);
-                                                            let mut dummy_indices = [0u16; 24];
                                                             use sha2::{Sha256, Digest};
                                                             let hash = Sha256::digest(acct_key.private_key_bytes());
                                                             let fp = [hash[0], hash[1], hash[2], hash[3]];
-                                                            for i in 0..16 {
-                                                                dummy_indices[i] = u16::from_le_bytes([raw[i*2], raw[i*2+1]]);
-                                                            }
-                                                            if let Some(slot_idx) = ad.seed_mgr.find_by_fingerprint(&fp).or_else(|| ad.seed_mgr.find_free()) {
+                                                            if let Some(slot_idx) = ad.seed_mgr.find_by_fingerprint(&fp, 2).or_else(|| ad.seed_mgr.find_free()) {
                                                                 let slot = &mut ad.seed_mgr.slots[slot_idx];
                                                                 if slot.is_empty() {
-                                                                    slot.word_count = 2;
-                                                                    slot.indices = dummy_indices;
-                                                                    slot.passphrase[..32].copy_from_slice(&raw[32..64]);
-                                                                    slot.passphrase[32] = raw[64];
-                                                                    slot.passphrase_len = 33;
+                                                                    // Constructor, see above (H-08).
+                                                                    let mut key = [0u8; 32];
+                                                                    key.copy_from_slice(&raw[..32]);
+                                                                    let mut cc = [0u8; 32];
+                                                                    cc.copy_from_slice(&raw[32..64]);
+                                                                    slot.set_xprv(&key, &cc, raw[64]);
                                                                     slot.fingerprint = fp;
                                                                 }
                                                                 ad.seed_mgr.activate(slot_idx);
@@ -1175,6 +1289,18 @@ pub fn handle_sd_touch(
                                                                 log!("[SD-XPRV] Imported xprv to slot {}", slot_idx);
                                                                 boot_display.draw_saving_screen("XPrv imported!");
                                                                 delay.delay_millis(2000);
+                                                                // A v2 xprv file carries the shared
+                                                                // salt, and it also shares magic
+                                                                // KAS\x02 with the raw hint blob
+                                                                // (M-03), so it is the artifact most
+                                                                // worth replacing. Shown after the
+                                                                // success screen, since the import
+                                                                // itself did succeed.
+                                                                if legacy {
+                                                                    log!("[SD-XPRV] Legacy format, prompting re-export");
+                                                                    boot_display.draw_rejected_screen("Old format: re-export");
+                                                                    delay.delay_millis(2500);
+                                                                }
                                                                 ad.app.state = crate::app::input::AppState::SeedList;
                                                             } else {
                                                                 boot_display.draw_rejected_screen("All 4 slots full!");
@@ -1249,22 +1375,50 @@ pub fn handle_sd_touch(
                                             ad.sd_file_scroll = 0;
                                             let scan_result = sdcard::with_sd_card(i2c, delay, |ct| {
                                                 let fat32 = sdcard::mount_fat32(ct)?;
-                                                let mut candidates: [[u8; 11]; 16] = [[b' '; 11]; 16];
+                                                // Sized to `SD_FILE_LIST_MAX`, like the .KSP
+                                                // scanner below. It was 16 while the list array
+                                                // was 32 and the accept cap was 8: three
+                                                // different limits for one list. An 18-file card
+                                                // silently lost the last two entries, which
+                                                // presented as an exported xprv that could not
+                                                // be imported.
+                                                let mut candidates: [[u8; 11]; crate::app::data::SD_FILE_LIST_MAX] =
+                                                    [[b' '; 11]; crate::app::data::SD_FILE_LIST_MAX];
                                                 let mut cand_count = 0u8;
+                                                let mut capped = false;
                                                 sdcard::list_root_dir(ct, &fat32, |entry| {
                                                     if !entry.is_dir()
                                                         && entry.file_size > 0
                                                         && entry.file_size <= 1024
-                                                        && (cand_count as usize) < 16
+                                                        && (cand_count as usize) < crate::app::data::SD_FILE_LIST_MAX
                                                     {
                                                         candidates[cand_count as usize] = entry.name;
                                                         cand_count += 1;
+                                                    } else if !entry.is_dir()
+                                                        && (cand_count as usize) >= crate::app::data::SD_FILE_LIST_MAX
+                                                    {
+                                                        // Count only, no filename. Any cap can be
+                                                        // reached, and a file dropping out of the
+                                                        // list with no explanation is
+                                                        // indistinguishable from a lost backup:
+                                                        // that is exactly how the 16-entry cap
+                                                        // presented. Kept deliberately; the
+                                                        // per-file diagnostics that sat here
+                                                        // during testing are gone because they
+                                                        // printed filenames over USB.
+                                                        capped = true;
                                                     }
                                                     true
                                                 })?;
+                                                if capped {
+                                                    log!("[SD-IMPORT] file list truncated at {}", crate::app::data::SD_FILE_LIST_MAX);
+                                                }
+                                                // Stays on the stack: sd_read_block
+                                                // takes &mut [u8; 512], a fixed array,
+                                                // not a slice.
                                                 let mut peek_buf = [0u8; 512];
                                                 for c in 0..cand_count as usize {
-                                                    if ad.sd_file_count >= 8 { break; }
+                                                    if (ad.sd_file_count as usize) >= crate::app::data::SD_FILE_LIST_MAX { break; }
                                                     let name = &candidates[c];
                                                     if let Ok((entry, _, _)) = sdcard::find_file_in_root(ct, &fat32, name) {
                                                         let cluster = entry.first_cluster();
@@ -1272,6 +1426,13 @@ pub fn handle_sd_touch(
                                                             let sector = fat32.cluster_to_sector(cluster);
                                                             if sdcard::sd_read_block(ct, sector, &mut peek_buf).is_ok() {
                                                                 let sz = entry.file_size as usize;
+                                                                // v3 container, any purpose. Without this the
+                                                                // file browser silently omits every file the
+                                                                // current firmware writes.
+                                                                let is_v3 = sz >= sd_backup::V3_OVERHEAD + 1
+                                                                    && peek_buf[0] == b'K' && peek_buf[1] == b'A'
+                                                                    && peek_buf[2] == b'S' && peek_buf[3] == 0x04
+                                                                    && peek_buf[4] == sd_backup::V3_VERSION;
                                                                 let is_enc_seed = sz >= 57 && peek_buf[0] == b'K' && peek_buf[1] == b'A' && peek_buf[2] == b'S' && peek_buf[3] == 0x01;
                                                                 let is_enc_xprv = sz >= 40 && peek_buf[0] == b'K' && peek_buf[1] == b'A' && peek_buf[2] == b'S' && peek_buf[3] == 0x02;
                                                                 let is_plain_xprv = sz >= 100 && peek_buf[0] == b'x' && peek_buf[1] == b'p' && peek_buf[2] == b'r' && peek_buf[3] == b'v';
@@ -1284,7 +1445,7 @@ pub fn handle_sd_touch(
                                                                     }
                                                                     ok
                                                                 };
-                                                                if is_enc_seed || is_enc_xprv || is_plain_xprv || is_plain_hex {
+                                                                if is_v3 || is_enc_seed || is_enc_xprv || is_plain_xprv || is_plain_hex {
                                                                     ad.sd_file_list[ad.sd_file_count as usize] = *name;
                                                                     ad.sd_file_count += 1;
                                                                 }
@@ -1325,7 +1486,7 @@ pub fn handle_sd_touch(
                                                     if !entry.is_dir()
                                                         && entry.file_size > 0
                                                         && entry.file_size <= 1024
-                                                        && (ad.sd_file_count as usize) < 8
+                                                        && (ad.sd_file_count as usize) < crate::app::data::SD_FILE_LIST_MAX
                                                         && entry.name[8] == b'K'
                                                         && entry.name[9] == b'S'
                                                         && entry.name[10] == b'P'
@@ -1366,13 +1527,21 @@ pub fn handle_sd_touch(
                                             let scan_result = sdcard::with_sd_card(i2c, delay, |ct| {
                                                 let fat32 = sdcard::mount_fat32(ct)?;
                                                 sdcard::list_root_dir(ct, &fat32, |entry| {
+                                                    // Same shape as the descriptor
+                                                    // filter. list_root_dir does NOT
+                                                    // skip deleted entries, so without
+                                                    // the 0xE5 check deleted files
+                                                    // appeared in this list and read
+                                                    // back as garbage.
+                                                    let is_hidden = entry.name[0] == b'.' || entry.name[0] == 0xE5;
+                                                    let ext = [entry.name[8], entry.name[9], entry.name[10]];
+                                                    let is_txt = ext == *b"TXT" || ext == *b"txt";
                                                     if !entry.is_dir()
+                                                        && !is_hidden
                                                         && entry.file_size > 0
-                                                        && entry.file_size <= 1024
-                                                        && (ad.sd_file_count as usize) < 8
-                                                        && entry.name[8] == b'T'
-                                                        && entry.name[9] == b'X'
-                                                        && entry.name[10] == b'T'
+                                                        && (entry.file_size as usize) <= TXT_IMPORT_BUF
+                                                        && (ad.sd_file_count as usize) < crate::app::data::SD_FILE_LIST_MAX
+                                                        && is_txt
                                                     {
                                                         ad.sd_file_list[ad.sd_file_count as usize] = entry.name;
                                                         ad.sd_file_count += 1;
@@ -1410,13 +1579,21 @@ pub fn handle_sd_touch(
                                             let scan_result = sdcard::with_sd_card(i2c, delay, |ct| {
                                                 let fat32 = sdcard::mount_fat32(ct)?;
                                                 sdcard::list_root_dir(ct, &fat32, |entry| {
+                                                    // Same shape as the descriptor
+                                                    // filter. list_root_dir does NOT
+                                                    // skip deleted entries, so without
+                                                    // the 0xE5 check deleted files
+                                                    // appeared in this list and read
+                                                    // back as garbage.
+                                                    let is_hidden = entry.name[0] == b'.' || entry.name[0] == 0xE5;
+                                                    let ext = [entry.name[8], entry.name[9], entry.name[10]];
+                                                    let is_txt = ext == *b"TXT" || ext == *b"txt";
                                                     if !entry.is_dir()
+                                                        && !is_hidden
                                                         && entry.file_size > 0
-                                                        && entry.file_size <= 1024
-                                                        && (ad.sd_file_count as usize) < 8
-                                                        && entry.name[8] == b'T'
-                                                        && entry.name[9] == b'X'
-                                                        && entry.name[10] == b'T'
+                                                        && (entry.file_size as usize) <= TXT_IMPORT_BUF
+                                                        && (ad.sd_file_count as usize) < crate::app::data::SD_FILE_LIST_MAX
+                                                        && is_txt
                                                     {
                                                         ad.sd_file_list[ad.sd_file_count as usize] = entry.name;
                                                         ad.sd_file_count += 1;
@@ -1460,8 +1637,8 @@ pub fn handle_sd_touch(
                                                     if !entry.is_dir()
                                                         && !is_hidden
                                                         && entry.file_size > 0
-                                                        && entry.file_size <= 512
-                                                        && (ad.sd_file_count as usize) < 8
+                                                        && (entry.file_size as usize) <= TXT_IMPORT_BUF
+                                                        && (ad.sd_file_count as usize) < crate::app::data::SD_FILE_LIST_MAX
                                                         && (is_txt || is_ksp)
                                                     {
                                                         ad.sd_file_list[ad.sd_file_count as usize] = entry.name;
@@ -1507,7 +1684,7 @@ pub fn handle_sd_touch(
                                                         && !is_hidden
                                                         && entry.file_size > 0
                                                         && entry.file_size <= 1024
-                                                        && (ad.sd_file_count as usize) < 8
+                                                        && (ad.sd_file_count as usize) < crate::app::data::SD_FILE_LIST_MAX
                                                         && ext == *b"COV"
                                                     {
                                                         ad.sd_file_list[ad.sd_file_count as usize] = entry.name;
@@ -1580,8 +1757,12 @@ pub fn handle_sd_touch(
                                     let read_result = sdcard::with_sd_card(i2c, delay, |ct| {
                                         let fat32 = sdcard::mount_fat32(ct)?;
                                         let (entry, _, _) = sdcard::find_file_in_root(ct, &fat32, &ad.sd_selected_file)?;
-                                        let mut buf = [0u8; 1024];
-                                        let n = sdcard::read_file(ct, &fat32, &entry, &mut buf)?;
+                                        // Heap, not stack: this array is RETURNED
+                                        // from the closure, so as `[u8; 1024]` it
+                                        // occupied a slot in both this frame and
+                                        // handle_sd_touch's for the whole function.
+                                        let mut buf = alloc::vec![0u8; 1024];
+                                        let n = sdcard::read_file(ct, &fat32, &entry, &mut buf[..])?;
                                         Ok((buf, n))
                                     });
                                     match read_result {
@@ -1723,6 +1904,11 @@ pub fn handle_sd_touch(
                                         ad.pp_input.reset();
                                         ad.app.state = crate::app::input::AppState::SdKsptEncryptAsk;
                                     }
+                                    // Same omission as the descriptor arm: without
+                                    // this, reusing an existing .KSP filename left
+                                    // the keyboard drawn over an active but
+                                    // invisible overwrite warning.
+                                    needs_redraw = true;
                                 }
                                 _ => {}
                             }
@@ -1822,8 +2008,11 @@ pub fn handle_sd_touch(
                                     let read_result = sdcard::with_sd_card(i2c, delay, |ct| {
                                         let fat32 = sdcard::mount_fat32(ct)?;
                                         let (entry, _, _) = sdcard::find_file_in_root(ct, &fat32, &ad.sd_selected_file)?;
-                                        let mut buf = [0u8; 512];
-                                        let n = sdcard::read_file(ct, &fat32, &entry, &mut buf)?;
+                                        // Heap: returned from the closure, see above.
+                                        // Sized by TXT_IMPORT_BUF so the largest
+                                        // descriptor the parser accepts can be read.
+                                        let mut buf = alloc::vec![0u8; TXT_IMPORT_BUF];
+                                        let n = sdcard::read_file(ct, &fat32, &entry, &mut buf[..])?;
                                         Ok((buf, n))
                                     });
                                     match read_result {
@@ -1839,6 +2028,14 @@ pub fn handle_sd_touch(
                                                         ad.signed_qr_buf[..n].copy_from_slice(&buf[..n]);
                                                         ad.signed_qr_len = n;
                                                         ad.sd_txt_origin = 1;
+                                                        // Clear so SdKsptEncryptPass detects LOAD.
+                                                        // That screen decides encrypt-vs-decrypt from
+                                                        // the kspt_filename extension; a stale .TXT
+                                                        // left by an earlier save sent this load down
+                                                        // the encrypt branch, which showed
+                                                        // "Encrypting..." and produced a QR of the
+                                                        // wrong bytes.
+                                                        ad.kspt_filename = [b' '; 11];
                                                         ad.pp_input.reset();
                                                         ad.app.state = crate::app::input::AppState::SdKsptEncryptPass;
                                                     } else if (is_kpub_ascii || is_kpub_v1raw) && n <= wallet::xpub::KPUB_MAX_LEN {
@@ -1862,6 +2059,8 @@ pub fn handle_sd_touch(
                                                         ad.signed_qr_buf[..n].copy_from_slice(&buf[..n]);
                                                         ad.signed_qr_len = n;
                                                         ad.sd_txt_origin = 0; // address import
+                                                        // Clear so SdKsptEncryptPass detects LOAD.
+                                                        ad.kspt_filename = [b' '; 11];
                                                         ad.pp_input.reset();
                                                         ad.app.state = crate::app::input::AppState::SdKsptEncryptPass;
                                                     } else if is_address {
@@ -1898,9 +2097,11 @@ pub fn handle_sd_touch(
                                                         ad.signed_qr_buf[..n].copy_from_slice(&buf[..n]);
                                                         ad.signed_qr_len = n;
                                                         ad.sd_txt_origin = 2;
+                                                        // Clear so SdKsptEncryptPass detects LOAD.
+                                                        ad.kspt_filename = [b' '; 11];
                                                         ad.pp_input.reset();
                                                         ad.app.state = crate::app::input::AppState::SdKsptEncryptPass;
-                                                    } else if n > 0 && n <= 400 && n <= buf.len() {
+                                                    } else if n > 0 && n <= buf.len() {
                                                         let text = core::str::from_utf8(&buf[..n]).unwrap_or("?");
                                                         log!("[SD-DESC] Loaded: {}", text);
                                                         if let Some((m, nn, cosigner_pubkeys, cosigner_chain_codes)) = parse_descriptor(&buf[..n]) {
@@ -2059,6 +2260,13 @@ pub fn handle_sd_touch(
                                         ad.pp_input.reset();
                                         ad.app.state = crate::app::input::AppState::SdMsDescEncryptAsk;
                                     }
+                                    // Without this the state changed but nothing
+                                    // repainted, so picking an EXISTING filename
+                                    // left the keyboard on screen with no way
+                                    // forward: the overwrite warning was active
+                                    // but invisible. The identical kpub and
+                                    // multisig-address arms above both set it.
+                                    needs_redraw = true;
                                 }
                                 _ => {}
                             }
@@ -2130,7 +2338,19 @@ pub fn handle_sd_touch(
                                 5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "PASSWORD"); }
                                 6 => {
-                                    // OK — check if we're encrypting (save) or decrypting (load)
+                                    // OK — check if we're encrypting (save) or decrypting (load).
+                                    //
+                                    // CONVENTION, and a landmine: this screen is shared by
+                                    // both directions and tells them apart by whether
+                                    // `kspt_filename` carries an extension. A SAVE sets the
+                                    // filename first; a LOAD must CLEAR it. Every entry point
+                                    // that arrives here to decrypt has to do
+                                    // `ad.kspt_filename = [b' '; 11]`, or a filename left over
+                                    // from an earlier save in the same session sends the load
+                                    // down the encrypt branch: it shows "Encrypting...",
+                                    // encrypts whatever is in signed_qr_buf, and renders a QR
+                                    // of the wrong bytes. The kpub, multisig-address and
+                                    // multisig-descriptor load paths all missed this.
                                     let is_ksp = ad.kspt_filename[8] == b'K' && ad.kspt_filename[9] == b'S' && ad.kspt_filename[10] == b'P';
                                     let is_txt = ad.kspt_filename[8] == b'T' && ad.kspt_filename[9] == b'X' && ad.kspt_filename[10] == b'T';
                                     if is_ksp || is_txt {
@@ -2142,7 +2362,7 @@ pub fn handle_sd_touch(
                                         // Encrypt in a temp buffer: KAS\x03 + len(2B LE) + nonce(12) + ciphertext + tag(16)
                                         let enc_size = 4 + 2 + 12 + data_len + 16;
                                         if enc_size <= 1024 {
-                                            let mut enc_buf = [0u8; 1024];
+                                            let mut enc_buf = alloc::vec![0u8; 1024];
                                             enc_buf[0] = b'K'; enc_buf[1] = b'A'; enc_buf[2] = b'S'; enc_buf[3] = 0x03;
                                             enc_buf[4] = (data_len & 0xFF) as u8;
                                             enc_buf[5] = ((data_len >> 8) & 0xFF) as u8;

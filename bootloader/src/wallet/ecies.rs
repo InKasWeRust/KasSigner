@@ -15,6 +15,7 @@
 //
 // Total overhead: 33 + 12 + 16 = 61 bytes over plaintext.
 
+use zeroize::Zeroizing;
 use k256::{
     SecretKey,
     elliptic_curve::sec1::ToEncodedPoint,
@@ -48,35 +49,68 @@ pub fn encrypt(
     // 1. Build ephemeral keypair from rng_bytes[0..32]
     let eph_sk = SecretKey::from_slice(&rng_bytes[..32])
         .map_err(|_| "bad ephemeral key")?;
-    let eph_scalar: Scalar = *eph_sk.to_nonzero_scalar();
-    let eph_pub_point = (ProjectivePoint::GENERATOR * eph_scalar).to_affine();
+    // `Zeroizing`, because a bare `k256::Scalar` has no `Drop` (M-06). The
+    // ephemeral scalar reconstructs the shared secret for this message, so it
+    // is as sensitive as the plaintext it protects.
+    let eph_scalar = Zeroizing::new(*eph_sk.to_nonzero_scalar());
+    let eph_pub_point = (ProjectivePoint::GENERATOR * *eph_scalar).to_affine();
 
     // Compressed ephemeral public key (33 bytes: 0x02/0x03 + x)
     let eph_pub_encoded = eph_pub_point.to_encoded_point(true);
     let eph_pub_bytes: &[u8] = eph_pub_encoded.as_bytes(); // 33 bytes
 
     // 2. Reconstruct recipient public key from x-only (assume even Y)
+    //
+    // Assuming even Y is CORRECT here and is not a simplification to be
+    // "fixed" later: only `shared_x` feeds the KDF, and negating a point
+    // preserves its x coordinate. So whichever parity the recipient's real key
+    // has, the shared secret is the same. Noted because the opposite
+    // assumption looks like a bug on inspection (M-08).
     let recipient_point = lift_x(recipient_xonly)
         .ok_or("invalid recipient pubkey")?;
 
     // 3. ECDH: shared = eph_priv * recipient_pub
-    let shared_point = (ProjectivePoint::from(recipient_point) * eph_scalar).to_affine();
+    let shared_point = (ProjectivePoint::from(recipient_point) * *eph_scalar).to_affine();
     let shared_encoded = shared_point.to_encoded_point(false);
     let shared_x = &shared_encoded.as_bytes()[1..33]; // x-coordinate only
 
-    // 4. Key derivation: aes_key = BLAKE2B-256(shared_x)
+    // 4. Key derivation, X9.63 style: both public keys AND the shared secret.
+    //
+    // v1 hashed only the domain string and `shared_x` (M-08). Omitting the
+    // ephemeral public key is safe today only by argument, not by construction:
+    // substituting it changes the shared secret, so the tag fails anyway. The
+    // binding is what makes that true regardless of key reuse, invalid-curve or
+    // small-subgroup variants, or a future reuse of this KDF under different
+    // assumptions.
+    //
+    // The label is versioned, so a v2 key can never collide with a v1 key.
+    // v1 ciphertexts are NOT readable by this build; that was accepted, since
+    // these payloads are transient rather than archived.
     let mut hasher = Blake2b256::new();
-    hasher.update(b"KasSigner-ECIES-v1");
-    hasher.update(shared_x);
+    hasher.update(b"KasSigner-ECIES-v2");
+    hasher.update(eph_pub_bytes);      // 33
+    hasher.update(recipient_xonly);    // 32
+    hasher.update(shared_x);           // 32
     let aes_key: [u8; 32] = hasher.finalize().into();
 
     // 5. AES-256-GCM encrypt (detached: ciphertext in-place, tag returned separately)
     let nonce_bytes: &[u8; 12] = rng_bytes[32..44].try_into().unwrap();
     let cipher = Aes256Gcm::new(GenericArray::from_slice(&aes_key));
     let nonce = GenericArray::from_slice(nonce_bytes);
-    let mut ct_buf = alloc::vec![0u8; plaintext.len()];
+    // `Zeroizing` (M-09). This holds the PLAINTEXT until `encrypt_in_place`
+    // overwrites it, and it lives in PSRAM: `esp-alloc` does not clear freed
+    // blocks, so without this the plaintext persists in external RAM for the
+    // rest of the session.
+    let mut ct_buf = Zeroizing::new(alloc::vec![0u8; plaintext.len()]);
     ct_buf.copy_from_slice(plaintext);
-    let tag = cipher.encrypt_in_place_detached(nonce, b"", &mut ct_buf)
+    // AAD covers the 45-byte header. The wire format is
+    // eph_pub(33) || nonce(12) || ciphertext(N) || tag(16), and GCM authenticates
+    // the ciphertext plus whatever AAD it is given. With `b""` those 45 bytes
+    // travelled unauthenticated (M-08).
+    let mut aad = [0u8; 45];
+    aad[..33].copy_from_slice(eph_pub_bytes);
+    aad[33..].copy_from_slice(nonce_bytes);
+    let tag = cipher.encrypt_in_place_detached(nonce, &aad, &mut ct_buf)
         .map_err(|_| "encryption failed")?;
 
     // 6. Wire format: eph_pub(33) + nonce(12) + ciphertext(N) + tag(16)
@@ -95,7 +129,7 @@ pub fn encrypt(
 pub fn decrypt(
     private_key: &[u8; 32],
     ciphertext_wire: &[u8],
-) -> Result<alloc::vec::Vec<u8>, &'static str> {
+) -> Result<Zeroizing<alloc::vec::Vec<u8>>, &'static str> {
     // Minimum: 33 (eph_pub) + 12 (nonce) + 16 (tag) = 61 bytes
     if ciphertext_wire.len() < 61 {
         return Err("ciphertext too short");
@@ -119,15 +153,26 @@ pub fn decrypt(
     // 3. ECDH: shared = priv * eph_pub
     let sk = SecretKey::from_slice(private_key)
         .map_err(|_| "bad private key")?;
-    let priv_scalar: Scalar = *sk.to_nonzero_scalar();
-    let shared_point = (ProjectivePoint::from(eph_point) * priv_scalar).to_affine();
+    // `Zeroizing` (M-06): this IS the recipient's private key as a scalar.
+    let priv_scalar = Zeroizing::new(*sk.to_nonzero_scalar());
+    let shared_point = (ProjectivePoint::from(eph_point) * *priv_scalar).to_affine();
     let shared_encoded = shared_point.to_encoded_point(false);
     let shared_x = &shared_encoded.as_bytes()[1..33];
 
-    // 4. Key derivation (same as encrypt)
+    // 4. Key derivation (same as encrypt, M-08).
+    //
+    // The recipient's own x-only public key is part of the KDF input, so it has
+    // to be derived here: one extra point multiplication, alongside the ECDH
+    // one above.
+    let recipient_point = (ProjectivePoint::GENERATOR * *priv_scalar).to_affine();
+    let recipient_encoded = recipient_point.to_encoded_point(false);
+    let recipient_x = &recipient_encoded.as_bytes()[1..33];
+
     let mut hasher = Blake2b256::new();
-    hasher.update(b"KasSigner-ECIES-v1");
-    hasher.update(shared_x);
+    hasher.update(b"KasSigner-ECIES-v2");
+    hasher.update(eph_pub_bytes);   // 33
+    hasher.update(recipient_x);     // 32
+    hasher.update(shared_x);        // 32
     let aes_key: [u8; 32] = hasher.finalize().into();
 
     // 5. AES-256-GCM decrypt (detached: split ciphertext and tag)
@@ -139,9 +184,19 @@ pub fn decrypt(
     let cipher = Aes256Gcm::new(GenericArray::from_slice(&aes_key));
     let nonce = GenericArray::from_slice(nonce_bytes);
     let tag = GenericArray::from_slice(&encrypted[ct_len..]);
-    let mut buf = alloc::vec![0u8; ct_len];
+    // Returned as `Zeroizing` (M-09): this becomes the decrypted PLAINTEXT, in
+    // PSRAM, and ownership passes to the caller. Making the wipe part of the
+    // type means the caller cannot forget it, and the `?` below cannot leak a
+    // partially decrypted buffer.
+    let mut buf = Zeroizing::new(alloc::vec![0u8; ct_len]);
     buf.copy_from_slice(&encrypted[..ct_len]);
-    cipher.decrypt_in_place_detached(nonce, b"", &mut buf, tag)
+    // Same AAD as encrypt: the 45-byte header. A ciphertext whose eph_pub or
+    // nonce has been altered now fails the tag directly, rather than only
+    // failing because the altered bytes happened to derive a different key.
+    let mut aad = [0u8; 45];
+    aad[..33].copy_from_slice(eph_pub_bytes);
+    aad[33..].copy_from_slice(nonce_bytes);
+    cipher.decrypt_in_place_detached(nonce, &aad, &mut buf, tag)
         .map_err(|_| "decryption failed")?;
 
     Ok(buf)

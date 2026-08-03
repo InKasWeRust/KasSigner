@@ -65,6 +65,12 @@ fn read_reg(i2c: &mut I2c<'_, esp_hal::Blocking>, reg: u8) -> Result<u8, ()> {
     Ok(buf[0])
 }
 
+// ADC noise probe removed. The AXP2101 VBAT channel was evaluated as an
+// entropy source for M5Stack and measured dead: on battery, USB unplugged,
+// 32 samples 20 ms apart gave 1 distinct value and 0 mV spread. Internally
+// averaged, by all appearances. Recorded here so the idea is not re-proposed
+// from first principles, since it is a reasonable-sounding one.
+
 /// Read battery status from AXP2101.
 /// Returns None if I2C communication fails.
 pub fn read_battery(i2c: &mut I2c<'_, esp_hal::Blocking>) -> Option<BatteryStatus> {

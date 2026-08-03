@@ -132,12 +132,63 @@ where
     }
 }
 
+/// An image buffer over caller-owned memory. Exists so the decode working
+/// set can live in internal SRAM on device: the heap (and therefore
+/// BasicImageBuffer) is PSRAM, and PSRAM bandwidth is shared with the
+/// display path and the camera DMA, which is what made detect times on
+/// core 1 vary by 10x. The caller pre-fills the slice with grayscale;
+/// prepare thresholds it in place, so there is no copy at all.
+pub struct BorrowedImageBuffer<'b> {
+    w: usize,
+    h: usize,
+    pixels: &'b mut [u8],
+}
+
+impl<'b> BorrowedImageBuffer<'b> {
+    pub fn new(w: usize, h: usize, pixels: &'b mut [u8]) -> Self {
+        assert!(pixels.len() >= w * h);
+        BorrowedImageBuffer { w, h, pixels }
+    }
+}
+
+impl ImageBuffer for BorrowedImageBuffer<'_> {
+    fn width(&self) -> usize {
+        self.w
+    }
+
+    fn height(&self) -> usize {
+        self.h
+    }
+
+    fn get_pixel(&self, x: usize, y: usize) -> u8 {
+        self.pixels[(y * self.w) + x]
+    }
+
+    fn set_pixel(&mut self, x: usize, y: usize, val: u8) {
+        self.pixels[(y * self.w) + x] = val
+    }
+
+    fn raw_contiguous(&mut self) -> Option<*mut u8> {
+        Some(self.pixels.as_mut_ptr())
+    }
+}
+
 pub trait ImageBuffer {
     fn width(&self) -> usize;
     fn height(&self) -> usize;
 
     fn get_pixel(&self, x: usize, y: usize) -> u8;
     fn set_pixel(&mut self, x: usize, y: usize, val: u8);
+
+    /// Base pointer for buffers whose pixels are one contiguous
+    /// width*height u8 slab, row-major. Lets the binarizer run raw-pointer
+    /// row loops (no per-pixel bounds checks, no y*w multiplies), which on
+    /// the in-order Xtensa is the difference between ~90ms and tens of ms
+    /// per 240x240 prepare. Default None keeps exotic buffers on the
+    /// generic path.
+    fn raw_contiguous(&mut self) -> Option<*mut u8> {
+        None
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -164,6 +215,10 @@ impl ImageBuffer for BasicImageBuffer {
     fn set_pixel(&mut self, x: usize, y: usize, val: u8) {
         let w = self.width();
         self.pixels[(y * w) + x] = val
+    }
+
+    fn raw_contiguous(&mut self) -> Option<*mut u8> {
+        Some(self.pixels.as_mut_ptr())
     }
 }
 
@@ -255,40 +310,131 @@ impl<S> PreparedImage<S>
 where
     S: ImageBuffer,
 {
-    pub fn prepare(mut buf: S) -> Self {
+    pub fn prepare(buf: S) -> Self {
+        Self::prepare_with_denom(buf, 8)
+    }
+
+    /// Like [prepare], but with an explicit threshold-window denominator.
+    /// The adaptive binarizer averages over ~w/denom pixels. denom=8 is the
+    /// quirc default. Smaller denom = wider window, which keeps the interior
+    /// of very large QR modules (low versions rendered big) from washing out
+    /// to white once the moving average adapts inside them.
+    ///
+    /// The window is rounded to the nearest power of two so the moving average
+    /// and the threshold reduce to shifts. Upstream divides by a runtime value
+    /// three times per pixel, which on Xtensa is a multi-cycle `quou` each and
+    /// dominates this pass on a 240x240 image. The window is a smoothing
+    /// length, so 30 -> 32 or 80 -> 64 changes nothing that matters.
+    pub fn prepare_with_denom(mut buf: S, denom: usize) -> Self {
         let w = buf.width();
         let h = buf.height();
-        let mut row_average = alloc::vec![0; w];
+        // Static accumulator instead of a heap Vec. On device the heap is
+        // PSRAM and this accumulator is touched four times per pixel; with
+        // the shared data cache churned by the other core's display traffic,
+        // those touches were mostly cache misses and dominated prepare time.
+        // A static lands in .bss = internal SRAM. (A stack array was measured
+        // to inflate the thread's stack floor by >20KB on the host, so
+        // static it is.)
+        //
+        // SAFETY / invariant: prepare must not run on two cores at once. In
+        // KasSigner that holds by construction — when the core-1 worker is
+        // active, core 0 never calls into rqrr (the synchronous path is gated
+        // off), and single-core builds are single-threaded.
+        assert!(w <= 1024, "prepare: width exceeds row accumulator");
+        static mut ROW_AVERAGE: [usize; 1024] = [0; 1024];
+        let row_average: &mut [usize] = unsafe {
+            core::slice::from_raw_parts_mut(
+                core::ptr::addr_of_mut!(ROW_AVERAGE) as *mut usize, w)
+        };
         let mut avg_v = 0;
         let mut avg_u = 0;
 
-        let threshold_s = cmp::max(w / 8, 1);
+        // Nearest power of two to w/denom, at least 1.
+        let target = cmp::max(w / cmp::max(denom, 1), 1);
+        let mut shift = 0usize;
+        while (1usize << (shift + 1)) <= target {
+            shift += 1;
+        }
+        if (target - (1usize << shift)) > ((1usize << (shift + 1)) - target) {
+            shift += 1;
+        }
+        let threshold_s = 1usize << shift;
 
-        for y in 0..h {
-            row_average.fill(0);
-
-            for x in 0..w {
-                let (v, u) = if y % 2 == 0 {
-                    (w - 1 - x, x)
+        let raw = buf.raw_contiguous();
+        if let Some(base) = raw {
+            // ── Raw-pointer fast path — bit-identical math ──
+            // The generic path pays a y*w multiply plus a bounds check on
+            // every access; at 4 accesses per pixel that overhead, not the
+            // memory, dominated prepare on the in-order Xtensa. Row base is
+            // hoisted, both zig-zag streams walk raw offsets.
+            let black: u8 = PixelColor::Black.into();
+            let white: u8 = PixelColor::White.into();
+            for y in 0..h {
+                row_average.fill(0);
+                let row = unsafe { base.add(y * w) };
+                if y % 2 == 0 {
+                    // v runs right-to-left, u left-to-right
+                    for x in 0..w {
+                        let pv = unsafe { *row.add(w - 1 - x) } as usize;
+                        let pu = unsafe { *row.add(x) } as usize;
+                        avg_v = avg_v - ((avg_v + threshold_s - 1) >> shift) + pv;
+                        avg_u = avg_u - ((avg_u + threshold_s - 1) >> shift) + pu;
+                        unsafe {
+                            *row_average.get_unchecked_mut(w - 1 - x) += avg_v;
+                            *row_average.get_unchecked_mut(x) += avg_u;
+                        }
+                    }
                 } else {
-                    (x, w - 1 - x)
-                };
-                avg_v = avg_v * (threshold_s - 1) / threshold_s + buf.get_pixel(v, y) as usize;
-                avg_u = avg_u * (threshold_s - 1) / threshold_s + buf.get_pixel(u, y) as usize;
-                row_average[v] += avg_v;
-                row_average[u] += avg_u;
+                    for x in 0..w {
+                        let pv = unsafe { *row.add(x) } as usize;
+                        let pu = unsafe { *row.add(w - 1 - x) } as usize;
+                        avg_v = avg_v - ((avg_v + threshold_s - 1) >> shift) + pv;
+                        avg_u = avg_u - ((avg_u + threshold_s - 1) >> shift) + pu;
+                        unsafe {
+                            *row_average.get_unchecked_mut(x) += avg_v;
+                            *row_average.get_unchecked_mut(w - 1 - x) += avg_u;
+                        }
+                    }
+                }
+                for x in 0..w {
+                    // floor(a/(200*s)) == floor(floor(a/200)/s), s = 1<<shift
+                    let thresh = (unsafe { *row_average.get_unchecked(x) } * (100 - 5) / 200) >> shift;
+                    unsafe {
+                        let p = row.add(x);
+                        *p = if (*p as usize) < thresh { black } else { white };
+                    }
+                }
             }
+        } else {
+            for y in 0..h {
+                row_average.fill(0);
 
-            #[allow(clippy::needless_range_loop)]
-            for x in 0..w {
-                let fill = if (buf.get_pixel(x, y) as usize)
-                    < row_average[x] * (100 - 5) / (200 * threshold_s)
-                {
-                    PixelColor::Black
-                } else {
-                    PixelColor::White
-                };
-                buf.set_pixel(x, y, fill.into());
+                for x in 0..w {
+                    let (v, u) = if y % 2 == 0 {
+                        (w - 1 - x, x)
+                    } else {
+                        (x, w - 1 - x)
+                    };
+                    // avg * (s-1) / s == avg - ceil(avg / s) for s = 1 << shift
+                    avg_v = avg_v - ((avg_v + threshold_s - 1) >> shift) + buf.get_pixel(v, y) as usize;
+                    avg_u = avg_u - ((avg_u + threshold_s - 1) >> shift) + buf.get_pixel(u, y) as usize;
+                    row_average[v] += avg_v;
+                    row_average[u] += avg_u;
+                }
+
+                #[allow(clippy::needless_range_loop)]
+                for x in 0..w {
+                    // floor(a / (200 * s)) == floor(floor(a / 200) / s) for s a
+                    // power of two, so this stays bit-identical to the divide form
+                    // while 200 is a literal the compiler turns into a multiply.
+                    let thresh = (row_average[x] * (100 - 5) / 200) >> shift;
+                    let fill = if (buf.get_pixel(x, y) as usize) < thresh {
+                        PixelColor::Black
+                    } else {
+                        PixelColor::White
+                    };
+                    buf.set_pixel(x, y, fill.into());
+                }
             }
         }
 
@@ -304,10 +450,7 @@ where
     /// Return a vector of Grids
     pub fn detect_grids<'a>(
         &'a mut self,
-    ) -> Vec<crate::Grid<crate::identify::grid::RefGridImage<'a, S>>>
-    where
-        S: Clone,
-    {
+    ) -> Vec<crate::Grid<crate::identify::grid::RefGridImage<'a, S>>> {
         let mut res = Vec::new();
         let stones = crate::capstones_from_image(self);
         let groups = self.find_groupings(stones);
@@ -320,14 +463,14 @@ where
                 grid_location.c.map(0.0, 0.0),
                 grid_location
                     .c
-                    .map(grid_location.grid_size as f64 + 1.0, 0.0),
+                    .map(grid_location.grid_size as f32 + 1.0, 0.0),
                 grid_location.c.map(
-                    grid_location.grid_size as f64 + 1.0,
-                    grid_location.grid_size as f64 + 1.0,
+                    grid_location.grid_size as f32 + 1.0,
+                    grid_location.grid_size as f32 + 1.0,
                 ),
                 grid_location
                     .c
-                    .map(0.0, grid_location.grid_size as f64 + 1.0),
+                    .map(0.0, grid_location.grid_size as f32 + 1.0),
             ];
             let grid = grid_location.into_grid_image(self);
             res.push(crate::Grid { grid, bounds });
@@ -344,10 +487,7 @@ where
     ///
     /// Trade-off: if multiple QR codes overlap, may pick wrong group.
     /// For single-QR camera frames this is always correct.
-    fn find_groupings(&mut self, capstones: Vec<crate::CapStone>) -> Vec<CapStoneGroup>
-    where
-        S: Clone,
-    {
+    fn find_groupings(&mut self, capstones: Vec<crate::CapStone>) -> Vec<CapStoneGroup> {
         let mut used_capstones = Vec::new();
         let mut groups = Vec::new();
         for idx in 0..capstones.len() {
@@ -606,7 +746,27 @@ impl PreparedImage<BasicImageBuffer> {
     ///
     /// The values returned by the function are interpreted as luminance. i.e. a
     /// value of 0 is black, 255 is white.
-    pub fn prepare_from_greyscale<F>(w: usize, h: usize, mut fill: F) -> Self
+    pub fn prepare_from_greyscale<F>(w: usize, h: usize, fill: F) -> Self
+    where
+        F: FnMut(usize, usize) -> u8,
+    {
+        Self::prepare_from_greyscale_with_denom(w, h, 8, fill)
+    }
+
+    /// Prepare over a caller-owned grayscale buffer, thresholding in place.
+    /// No copy: the pixels slice IS the working image for detect and decode.
+    pub fn prepare_borrowed_with_denom(
+        w: usize,
+        h: usize,
+        denom: usize,
+        pixels: &mut [u8],
+    ) -> PreparedImage<BorrowedImageBuffer<'_>> {
+        PreparedImage::prepare_with_denom(BorrowedImageBuffer::new(w, h, pixels), denom)
+    }
+
+    /// Like [prepare_from_greyscale], with an explicit threshold-window
+    /// denominator (see [prepare_with_denom]).
+    pub fn prepare_from_greyscale_with_denom<F>(w: usize, h: usize, denom: usize, mut fill: F) -> Self
     where
         F: FnMut(usize, usize) -> u8,
     {
@@ -619,6 +779,6 @@ impl PreparedImage<BasicImageBuffer> {
         }
         let pixels = data.into_boxed_slice();
         let buffer = BasicImageBuffer { w, h, pixels };
-        PreparedImage::prepare(buffer)
+        PreparedImage::prepare_with_denom(buffer, denom)
     }
 }

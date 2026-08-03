@@ -1,23 +1,29 @@
+// Float width note: this module (and the identify path) runs in f32, not
+// f64. The ESP32-S3 FPU is single-precision only; f64 here is software
+// emulation, and the perspective/jiggle math dominated on-device detect time
+// (~660ms extra per frame with a symbol in view). At 240-640px image
+// coordinates, f32's 24-bit mantissa is far beyond the precision the grid
+// fit needs.
 use crate::identify::Point;
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Perspective(pub [f64; 8]);
+pub struct Perspective(pub [f32; 8]);
 
 impl Perspective {
-    pub fn create(rect: &[Point; 4], w: f64, h: f64) -> Option<Self> {
+    pub fn create(rect: &[Point; 4], w: f32, h: f32) -> Option<Self> {
         let mut c = [0.0; 8];
-        let x0 = rect[0].x as f64;
-        let y0 = rect[0].y as f64;
-        let x1 = rect[1].x as f64;
-        let y1 = rect[1].y as f64;
-        let x2 = rect[2].x as f64;
-        let y2 = rect[2].y as f64;
-        let x3 = rect[3].x as f64;
-        let y3 = rect[3].y as f64;
+        let x0 = rect[0].x as f32;
+        let y0 = rect[0].y as f32;
+        let x1 = rect[1].x as f32;
+        let y1 = rect[1].y as f32;
+        let x2 = rect[2].x as f32;
+        let y2 = rect[2].y as f32;
+        let x3 = rect[3].x as f32;
+        let y3 = rect[3].y as f32;
         let wden = w * (x2 * y3 - x3 * y2 + (x3 - x2) * y1 + x1 * (y2 - y3));
         let hden = h * (x2 * y3 + x1 * (y2 - y3) - x3 * y2 + (x3 - x2) * y1);
 
-        if wden < f64::EPSILON || hden < f64::EPSILON {
+        if wden < f32::EPSILON || hden < f32::EPSILON {
             return None;
         }
 
@@ -44,28 +50,28 @@ impl Perspective {
         Some(Perspective(c))
     }
 
-    pub fn map(&self, u: f64, v: f64) -> Point {
-        let den = self.0[6] * u + self.0[7] * v + 1.0f64;
+    pub fn map(&self, u: f32, v: f32) -> Point {
+        let den = self.0[6] * u + self.0[7] * v + 1.0f32;
         let x = (self.0[0] * u + self.0[1] * v + self.0[2]) / den;
         let y = (self.0[3] * u + self.0[4] * v + self.0[5]) / den;
 
         // no_std round: add 0.5 and truncate (works for positive and negative)
-        let x = if x >= 0.0 { (x + 0.5) as i64 as f64 } else { (x - 0.5) as i64 as f64 };
-        let y = if y >= 0.0 { (y + 0.5) as i64 as f64 } else { (y - 0.5) as i64 as f64 };
+        let x = if x >= 0.0 { (x + 0.5) as i64 as f32 } else { (x - 0.5) as i64 as f32 };
+        let y = if y >= 0.0 { (y + 0.5) as i64 as f32 } else { (y - 0.5) as i64 as f32 };
 
-        assert!(x <= i32::MAX as f64);
-        assert!(x >= i32::MIN as f64);
-        assert!(y <= i32::MAX as f64);
-        assert!(y >= i32::MIN as f64);
+        assert!(x <= i32::MAX as f32);
+        assert!(x >= i32::MIN as f32);
+        assert!(y <= i32::MAX as f32);
+        assert!(y >= i32::MIN as f32);
         Point {
             x: x as i32,
             y: y as i32,
         }
     }
 
-    pub fn unmap(&self, p: &Point) -> (f64, f64) {
-        let x = p.x as f64;
-        let y = p.y as f64;
+    pub fn unmap(&self, p: &Point) -> (f32, f32) {
+        let x = p.x as f32;
+        let y = p.y as f32;
         let den = -self.0[0] * self.0[7] * y
             + self.0[1] * self.0[6] * y
             + (self.0[3] * self.0[7] - self.0[4] * self.0[6]) * x

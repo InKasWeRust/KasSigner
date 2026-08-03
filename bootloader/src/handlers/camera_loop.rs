@@ -44,7 +44,6 @@ fn hex_nibble(b: u8) -> u8 {
     }
 }
 
-#[cfg(not(feature = "silent"))]
 // Static buffers for QR state (persist across calls)
 static mut FN: u32 = 0;
 // DB decode buffer: heap-allocated (PSRAM) to free ~76KB SRAM for stack.
@@ -56,6 +55,57 @@ static mut QR_LAST_LEN: usize = 0;
 static mut QR_CONSEC: u8 = 0;
 static mut QR_COOLDOWN: u32 = 0;
 static mut QR_FINDERS_BEEPED: bool = false;
+// Full-resolution escalation throttle: after a failed full-res pass,
+// skip escalation for this many fast passes to keep the viewfinder alive.
+#[cfg(feature = "waveshare")]
+static mut QR_ESC_COOLDOWN: u8 = 0;
+// Adaptive-threshold window in use, as a divisor of image width. 8 is the
+// quirc default and suits dense symbols; 3 is the wide window that rescues
+// V1/V2. Sticky: switches only after two consecutive misses, so a decoding
+// stream never pays for the window it isn't using.
+static mut QR_DENOM: usize = 8;
+static mut QR_DENOM_MISS: u8 = 0;
+// Frames left of green border after a successful decode.
+#[cfg(feature = "waveshare")]
+static mut QR_DECODE_FLASH: u8 = 0;
+// M5Stack synchronous decode working image, internal SRAM. The 240x240 crop
+// used to be compacted in PSRAM and then copied AGAIN into a PSRAM Vec by
+// prepare — every decode access paid the PSRAM/cache tax that measured 3-10x
+// on the Waveshare before its SRAM buffer landed. Affordable now: v1.0.4
+// evicted the DB from SRAM when rqrr needed >96KB of stack; heap-backed rqrr
+// needs ~4KB, so 57.6KB of .bss is fine.
+// EXPERIMENT, 2026-07-31. 57,600 bytes of internal SRAM .bss, restored to find
+// out whether the margin now exists for it.
+//
+// This buffer is why V11 decodes tripped the ProCpu stack guard inside
+// rqrr::decode::correct_format (audit section 2a); removing it is what made
+// them work. It buys roughly 100 ms per decode attempt: prep 81 -> 31 ms,
+// det ~88 -> 35 ms, and a scan takes several attempts.
+//
+// Expected to panic again. Since the removal the image has GROWN, not shrunk:
+// the SAR ADC entropy code, the keyboard length caps, the wall-clock idle wipe
+// and the whole BIP32/SCHNORR test surface are all compiled in now. The
+// boot-kats-full feature changes which tests RUN, not which are COMPILED.
+//
+// If it does NOT panic, that is not permission to keep it. Working and having
+// margin are different things, and confusing the two is what cost a day.
+#[cfg(feature = "m5stack")]
+static mut QR_SRAM_IMG: [u8; 240 * 240] = [0; 240 * 240];
+// Async escalation state (core-1 worker): a full-resolution job is owed, and
+// whether the second (alternate-window) attempt has been spent.
+#[cfg(feature = "waveshare")]
+static mut ESC_PENDING: bool = false;
+/// Consecutive fast-pass (240x240) results with zero grids. Dense codes
+/// (V11 at typical distance ~1.2 px/module after downscale) can be
+/// invisible to the finder at 240 while trivially readable at full
+/// resolution — but escalation only armed on located-not-decoded results,
+/// so a grids=0 streak hunted for tens of seconds. A streak now owes one
+/// full-resolution pass too.
+static mut QR_MISS_STREAK: u8 = 0;
+#[cfg(feature = "waveshare")]
+static mut ESC_TRIED_ALT: bool = false;
+#[cfg(feature = "waveshare")]
+static mut ESC_ALT_DENOM: usize = 3;
 static mut QR_ERROR_SHOWING: bool = false;
 static mut QR_GUIDE_VER: u8 = 0;
 static mut QR_VER_SAME_CNT: u8 = 0;
@@ -84,6 +134,47 @@ const VOTE_SLOTS: usize = 4;
 const VOTE_THRESHOLD: u8 = 5;
 #[cfg(feature = "waveshare")]
 static mut QR_VOTES: [[u8; 32]; 4] = [[0u8; 32]; 4];
+
+/// Zero every buffer a scanned QR payload can land in (M-10).
+///
+/// `QR_LAST`, `MF_BUF` and `QR_VOTES` are the generic decode buffers, so a
+/// scanned SeedQR ends up in them: 48 or 96 decimal digits for a standard one,
+/// or 16/32 bytes of raw entropy for CompactSeedQR. They are `static mut`, so
+/// the payload persisted for the rest of the session with nothing to clear it.
+/// The re-entry reset set `QR_LAST_LEN = 0` but left the bytes, which hides the
+/// data from the code without removing it.
+///
+/// Called at two points: immediately after a decoded seed is handed to
+/// `AppData`, which is the moment it stops being needed, and on re-entry to the
+/// scan state, which catches payloads from a session that ended some other way.
+///
+/// Volatile writes, so the compiler cannot elide stores to memory it can see is
+/// never read again.
+fn wipe_qr_buffers() {
+    unsafe {
+        let p = core::ptr::addr_of_mut!(QR_LAST) as *mut u8;
+        for i in 0..QR_LAST.len() {
+            core::ptr::write_volatile(p.add(i), 0);
+        }
+        QR_LAST_LEN = 0;
+
+        let m = core::ptr::addr_of_mut!(MF_BUF) as *mut u8;
+        for i in 0..MF_BUF_SIZE {
+            core::ptr::write_volatile(m.add(i), 0);
+        }
+
+        // Waveshare-only: the vote buffers belong to the dual-core decode
+        // path. M5Stack uses the synchronous path and has none of them.
+        #[cfg(feature = "waveshare")]
+        {
+            let v = core::ptr::addr_of_mut!(QR_VOTES) as *mut u8;
+            for i in 0..(VOTE_SLOTS * 32) {
+                core::ptr::write_volatile(v.add(i), 0);
+            }
+        }
+    }
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+}
 #[cfg(feature = "waveshare")]
 static mut QR_VOTE_LENS: [u8; 4] = [0u8; 4];
 #[cfg(feature = "waveshare")]
@@ -106,13 +197,75 @@ fn systick() -> u32 {
     }
 }
 
+/// Decode in place over a caller-owned buffer (no prepare copy: the buffer
+/// IS the working image and gets thresholded destructively). Same output
+/// contract as rqrr_decode. Used by the M5Stack synchronous path with the
+/// SRAM working image, mirroring the core-1 worker's zero-copy recipe.
+#[cfg(feature = "m5stack")]
+#[inline(never)]
+fn rqrr_decode_inplace(gray: &mut [u8], w: usize, h: usize, denom: usize) -> (usize, Vec<(u8, Vec<u8>)>) {
+    // STACK MARGIN, measured 2026-07-31: 12,380 bytes free at this point,
+    // deterministic across frames (sp = 0x3FCC2CFC). main.rs records rqrr's
+    // measured need after the heap-backing fix as ~4 KB for a 240x240 decode,
+    // so this is roughly 3x headroom, and it survives the hardest case: a
+    // 13-frame V11 multiframe consolidation, 32 inputs, 3,069 bytes.
+    //
+    // For contrast, the core-1 worker on waveshare gets 48 KB for the same job.
+    // M5Stack does it in a quarter of that, so the margin is real but not
+    // generous. Transaction is 78,952 bytes and AppData is 13 KB: one large
+    // local anywhere in main's call chain consumes this. Re-test a V11
+    // multiframe scan after any change that adds code, wherever it lands.
+    //
+    // To re-measure: a `let probe: u32 = 0;` here, its address is the stack
+    // pointer, minus 0x3FCBFCA0 (the guard, from the A1 register in three
+    // panic dumps). See audit section 2a.
+    let t0 = systick();
+    let mut img = rqrr::PreparedImage::prepare_borrowed_with_denom(w, h, denom, gray);
+    let t1 = systick();
+
+    let grids = img.detect_grids();
+    let t2 = systick();
+
+    let prep_ms = t1.wrapping_sub(t0) / 16_000;
+    let det_ms = t2.wrapping_sub(t1) / 16_000;
+    log!("   [rqrr] {}x{} s=w/{} prep={}ms det={}ms grids={} (sram)", w, h, denom, prep_ms, det_ms, grids.len());
+
+    let n_grids = grids.len();
+    let mut results = Vec::new();
+    for grid in grids {
+        let mut out = Vec::new();
+        // The stack-guard panics all die inside `decode_to`, between the log
+        // line above and the one below. Reporting on both sides brackets it:
+        // "before decode" is the depth everything else reached, "after decode"
+        // includes whatever rqrr needed. If it panics, the last line printed is
+        // the before-figure, which is still the headroom number that mattered.
+        crate::app::stack_probe::report("before rqrr decode");
+        match grid.decode_to(&mut out) {
+            Ok(meta) => {
+                crate::app::stack_probe::report("after rqrr decode");
+                log!("   [rqrr] decoded V{} {} bytes", meta.version.0, out.len());
+                results.push((meta.version.0 as u8, out));
+            }
+            Err(e) => {
+                crate::app::stack_probe::report("after rqrr decode (err)");
+                log!("   [rqrr] decode err: {}", e);
+            }
+        }
+    }
+    (n_grids, results)
+}
+
 /// Decode QR codes from a grayscale image using rqrr.
-/// Returns Vec of (version, raw_bytes) for each detected QR.
+/// Returns (grids_detected, decoded results). grids > 0 with empty results =
+/// QR located but not decodable at this resolution — the caller can escalate.
+/// `denom` sets the adaptive-threshold window (~w/denom px). 8 = quirc
+/// default, good for V3+. 3 = wide window, needed for V1/V2 rendered with
+/// huge modules (interior of large black areas washes out at w/8).
 /// Uses decode_to() for raw bytes — critical for binary payloads (KSPT).
 #[inline(never)]
-fn rqrr_decode(gray: &[u8], w: usize, h: usize) -> Vec<(u8, Vec<u8>)> {
+fn rqrr_decode(gray: &[u8], w: usize, h: usize, denom: usize) -> (usize, Vec<(u8, Vec<u8>)>) {
     let t0 = systick();
-    let mut img = rqrr::PreparedImage::prepare_from_greyscale(w, h, |x, y| {
+    let mut img = rqrr::PreparedImage::prepare_from_greyscale_with_denom(w, h, denom, |x, y| {
         gray[y * w + x]
     });
     let t1 = systick();
@@ -122,22 +275,31 @@ fn rqrr_decode(gray: &[u8], w: usize, h: usize) -> Vec<(u8, Vec<u8>)> {
 
     let prep_ms = t1.wrapping_sub(t0) / 16_000;
     let det_ms = t2.wrapping_sub(t1) / 16_000;
-    log!("   [rqrr] {}x{} prep={}ms det={}ms grids={}", w, h, prep_ms, det_ms, grids.len());
+    log!("   [rqrr] {}x{} s=w/{} prep={}ms det={}ms grids={}", w, h, denom, prep_ms, det_ms, grids.len());
 
+    let n_grids = grids.len();
     let mut results = Vec::new();
     for grid in grids {
         let mut out = Vec::new();
+        // The stack-guard panics all die inside `decode_to`, between the log
+        // line above and the one below. Reporting on both sides brackets it:
+        // "before decode" is the depth everything else reached, "after decode"
+        // includes whatever rqrr needed. If it panics, the last line printed is
+        // the before-figure, which is still the headroom number that mattered.
+        crate::app::stack_probe::report("before rqrr decode");
         match grid.decode_to(&mut out) {
             Ok(meta) => {
+                crate::app::stack_probe::report("after rqrr decode");
                 log!("   [rqrr] decoded V{} {} bytes", meta.version.0, out.len());
                 results.push((meta.version.0 as u8, out));
             }
             Err(e) => {
+                crate::app::stack_probe::report("after rqrr decode (err)");
                 log!("   [rqrr] decode err: {}", e);
             }
         }
     }
-    results
+    (n_grids, results)
 }
 
 /// Check raw TouchState for Contact/PressDown in safe button zones (back, gear, EXIT).
@@ -337,12 +499,17 @@ fn process_confirmed_qr(
         let pp = ad.seed_mgr.active_slot()
             .map(|s| s.passphrase_str())
             .unwrap_or("");
-        let seed = crate::app::signing::derive_seed(
-            &ad.mnemonic_indices, ad.word_count, pp);
-        let decrypt_result = if let Ok(acct_key) = wallet::bip32::derive_account_key(&seed.bytes) {
-            wallet::ecies::decrypt(acct_key.private_key_bytes(), &ct_bytes)
-        } else {
-            Err("key derivation failed")
+        // `derive_seed` is None for raw-key and xprv slots, which have no
+        // BIP39 seed. Previously it read their packed key bytes as word
+        // indices and panicked; now it folds into the existing failure arm.
+        let decrypt_result = match crate::app::signing::derive_seed(
+            &ad.mnemonic_indices, ad.word_count, pp)
+        {
+            Some(seed) => match wallet::bip32::derive_account_key(&seed.bytes) {
+                Ok(acct_key) => wallet::ecies::decrypt(acct_key.private_key_bytes(), &ct_bytes),
+                Err(_) => Err("key derivation failed"),
+            },
+            None => Err("needs a mnemonic seed"),
         };
         match decrypt_result {
             Ok(plaintext) => {
@@ -460,7 +627,7 @@ fn process_confirmed_qr(
         ad.tx_sigs_required = 0;
         match wallet::std_pskt::parse_pskt(
             data,
-            &mut ad.signed_qr_buf,
+            &mut ad.signed_qr_buf[..],
             &mut ad.demo_tx,
             &mut ad.pskt_parsed,
         ) {
@@ -512,6 +679,9 @@ fn process_confirmed_qr(
             #[cfg(feature = "waveshare")]
             crate::hw::cam_dma::stop();
             ad.pp_input.reset();
+            // The words are in `AppData` now; the decode buffers still hold the
+            // scanned payload (M-10).
+            wipe_qr_buffers();
             ad.app.state = crate::app::input::AppState::PassphraseEntry;
             ad.needs_redraw = true;
         } else {
@@ -530,6 +700,9 @@ fn process_confirmed_qr(
             #[cfg(feature = "waveshare")]
             crate::hw::cam_dma::stop();
             ad.pp_input.reset();
+            // The words are in `AppData` now; the decode buffers still hold the
+            // scanned payload (M-10).
+            wipe_qr_buffers();
             ad.app.state = crate::app::input::AppState::PassphraseEntry;
             ad.needs_redraw = true;
         } else {
@@ -565,8 +738,21 @@ fn process_confirmed_qr(
             let pp = ad.seed_mgr.active_slot()
                 .map(|s| s.passphrase_str())
                 .unwrap_or("");
-            let seed = crate::app::signing::derive_seed(
-                &ad.mnemonic_indices, ad.word_count, pp);
+            // Stealth scanning is BIP32-path based, so it is meaningless
+            // for a slot with no mnemonic. Bail the same way a failed
+            // derivation does rather than panicking on packed key bytes.
+            let seed = match crate::app::signing::derive_seed(
+                &ad.mnemonic_indices, ad.word_count, pp)
+            {
+                Some(s) => s,
+                None => {
+                    boot_display.draw_rejected_screen("Needs mnemonic seed");
+                    sound::beep_error(delay);
+                    delay.delay_millis(1500);
+                    ad.needs_redraw = true;
+                    return;
+                }
+            };
 
             let scan_path: [u32; 5] = [
                 44 | 0x80000000,
@@ -757,19 +943,23 @@ fn process_confirmed_qr(
                 ad.needs_redraw = true;
             }
         }
-    } else if len == 104 && &data[..4] == b"KSFU" {
-        // Firmware update QR — verify signature
-        if let Some(update) = fw_update::parse_update_qr(data) {
-            ad.fw_update_verified = fw_update::verify_update(&update);
-            ad.fw_update_info = update;
-            ad.app.state = crate::app::input::AppState::FwUpdateResult;
-            ad.needs_redraw = true;
-            log!("   → Firmware update QR: v{}, verified={}",
-                ad.fw_update_info.version, ad.fw_update_verified);
-        } else {
-            log!("   → KSFU: parse failed");
-            sound::beep_error(delay);
-        }
+    // H-03: firmware-update-over-QR was an abandoned design. Nothing ever
+// installed anything: the flow stopped at a screen showing a verified tick,
+// and the signature covered only the hash, never the version, so a replayed
+// signature with any version number displayed as verified. Commented out
+// rather than deleted so the abandoned design stays visible.
+    // } else if len == 104 && &data[..4] == b"KSFU" {
+    //     if let Some(update) = fw_update::parse_update_qr(data) {
+    //         ad.fw_update_verified = fw_update::verify_update(&update);
+    //         ad.fw_update_info = update;
+    //         ad.app.state = crate::app::input::AppState::FwUpdateResult;
+    //         ad.needs_redraw = true;
+    //         log!("   -> Firmware update QR: v{}, verified={}",
+    //             ad.fw_update_info.version, ad.fw_update_verified);
+    //     } else {
+    //         log!("   -> KSFU: parse failed");
+    //         sound::beep_error(delay);
+    //     }
     } else if (len >= 4 && &data[..4] == b"kpub")
         || (len == 79 && data[0] == crate::qr::payload::PAYLOAD_V1_RAW)
     {
@@ -883,6 +1073,10 @@ fn process_multiframe(
         let frag_len = d[2] as usize;
 
         if frag_len + 3 > len { return; }
+        // Bounds: reject frames outside the slot table (malformed QR would
+        // otherwise index past MF_RECEIVED). 32-input transactions run ~30
+        // frames, close enough to the 40-slot bound to make this guard real.
+        if frame_num >= MF_MAX_FRAMES || total as usize > MF_MAX_FRAMES { return; }
 
         if MF_TOTAL == 0 || MF_TOTAL != total {
             MF_TOTAL = total;
@@ -928,7 +1122,11 @@ fn process_multiframe(
                 // `esp_alloc::psram_allocator!`, so this Vec lives in
                 // external RAM for the ~microseconds between assembly
                 // and `process_confirmed_qr`. Dropped at end of scope.
-                let mut assembled: alloc::vec::Vec<u8> = alloc::vec![0u8; MF_BUF_SIZE];
+                // `Zeroizing` (M-09): a multiframe payload can be a SeedQR, so
+                // this 10 KB PSRAM buffer can hold a mnemonic. `esp-alloc` does
+                // not clear freed blocks.
+                let mut assembled: zeroize::Zeroizing<alloc::vec::Vec<u8>> =
+                    zeroize::Zeroizing::new(alloc::vec![0u8; MF_BUF_SIZE]);
                 let mut pos = 0usize;
                 for f in 0..total as usize {
                     let sl = f * MF_SLOT_SIZE;
@@ -1099,9 +1297,30 @@ pub fn run_camera_cycle(
                 if crate::QR_RESET_FLAG.swap(false, core::sync::atomic::Ordering::Relaxed) {
                     QR_CONSEC = 0;
                     QR_COOLDOWN = 0;
-                    QR_LAST_LEN = 0;
+                    // Clears the bytes, not just the length (M-10).
+                    wipe_qr_buffers();
                     QR_FINDERS_BEEPED = false;
                     QR_ERROR_SHOWING = false;
+                    // Border starts red on every new scan session: the green
+                    // TTL survives the previous session's final decode
+                    // otherwise (charged 10, screen routed away, remainder
+                    // shown on re-entry). The escalation/worker state below is
+                    // waveshare-only (dual-core decode path); m5stack uses the
+                    // synchronous path and has none of these statics.
+                    QR_DENOM = 8;
+                    QR_DENOM_MISS = 0;
+                    #[cfg(feature = "waveshare")]
+                    {
+                        QR_DECODE_FLASH = 0;
+                        QR_ESC_COOLDOWN = 0;
+                        ESC_PENDING = false;
+                        ESC_TRIED_ALT = false;
+                        // Invalidate in-flight/undelivered worker results from
+                        // the previous session — the cause of the previous
+                        // QR's action (e.g. the passphrase keyboard) re-firing
+                        // on re-entry.
+                        crate::hw::decode_core::bump_generation();
+                    }
                     MF_TOTAL = 0;
                     MF_LEN = 0;
                     for i in 0..MF_MAX_FRAMES { MF_RECEIVED[i] = false; }
@@ -1207,7 +1426,23 @@ pub fn run_camera_cycle(
                         }
                     }
                     #[cfg(feature = "waveshare")]
-                    log!("   YUV422 streaming started (cam_dma 480x480, rqrr)");
+                    log!("   YUV422 streaming started (cam_dma {}x{}, rqrr)", crate::hw::cam_dma::FRAME_W, crate::hw::cam_dma::FRAME_H);
+                    // Waveshare-only: reset the green-border TTL and allocate
+                    // the core-1 worker's job buffer. m5stack decodes
+                    // synchronously and has neither.
+                    #[cfg(feature = "waveshare")]
+                    {
+                        QR_DECODE_FLASH = 0;
+                        // Job buffer for the core-1 worker (one-time PSRAM
+                        // alloc, FRAME_BYTES so escalation jobs fit). On OOM
+                        // the flag drops and the synchronous path takes over
+                        // permanently.
+                        if crate::CORE1_OK.load(core::sync::atomic::Ordering::Relaxed)
+                            && !crate::hw::decode_core::init(crate::hw::cam_dma::FRAME_BYTES) {
+                            crate::CORE1_OK.store(false, core::sync::atomic::Ordering::Relaxed);
+                            log!("   decode_core: buffer alloc failed — synchronous decode");
+                        }
+                    }
                     #[cfg(feature = "m5stack")]
                     log!("   QVGA Y-only streaming started (320x240, rqrr)");
                 }
@@ -1379,13 +1614,25 @@ pub fn run_camera_cycle(
                         }
                         #[cfg(not(feature = "ov2640-wide"))]
                         {
-                            for cy in 0..render_h {
-                                for cx in 0..render_w {
-                                    let src_row = cx * 2;
+                            // Same pixels as before, opposite loop order. The
+                            // rotation means dst[cy][cx] = src[cx*2][col0+cy*2],
+                            // so walking cx on the inside strides the source by
+                            // a whole line (960 B at 480 wide) and every read
+                            // misses cache — 43k line fills from PSRAM per
+                            // frame. Walking the source row on the inside reads
+                            // sequentially and pushes the stride onto the
+                            // writes, which land in CROP_BUF in internal SRAM
+                            // where stride is free.
+                            let dp = data.as_ptr();
+                            for cx in 0..render_w {
+                                let src_row = cx * 2;
+                                if src_row >= cam_h { break; }
+                                let row_off = src_row * bpl;
+                                for cy in 0..render_h {
                                     let src_col = col0 + cy * 2;
-                                    let y_idx = src_row * bpl + src_col;
+                                    let y_idx = row_off + src_col;
                                     *crop_ptr.add(cy * render_w + cx) = if y_idx + 1 < max_safe {
-                                        data[y_idx]
+                                        *dp.add(y_idx)
                                     } else { 0 };
                                 }
                             }
@@ -1393,43 +1640,280 @@ pub fn run_camera_cycle(
                         cam_dma::poll_done();
                         let crop_slice = core::slice::from_raw_parts(
                             crop_ptr as *const u8, render_w * render_h);
-                        let mut guide = QR_GUIDE_VER | if QR_FINDERS_BEEPED { 0x80 } else { 0 };
+                        let mut guide = QR_GUIDE_VER;
                         if ad.cam_tune_active { guide |= 0x40; }
-                        boot_display.blit_camera_frame(crop_slice, render_w, render_h, guide);
+                        // Border: two states. Green rides a TTL charged the
+                        // moment a symbol is FOUND (and recharged by decodes),
+                        // so it lights on finding like earlier firmware, stays
+                        // solid while the code is in view, and returns to red
+                        // when the code leaves the frame.
+                        let scan_state: u8 = if QR_DECODE_FLASH > 0 {
+                            QR_DECODE_FLASH -= 1;
+                            2
+                        } else {
+                            0
+                        };
+                        boot_display.blit_camera_frame(crop_slice, render_w, render_h, guide, scan_state);
                         cam_dma::poll_done();
 
-                        // ── QR decode — single-pass 240×240 ──
-                        // Skip entirely when cam-tune is active (Camera Settings):
-                        // no point decoding, and it saves ~20ms per frame.
+                        // ── QR decode ──
+                        // Skip entirely when cam-tune is active (Camera Settings).
                         if QR_COOLDOWN > 0 {
                             QR_COOLDOWN -= 1;
-                        } else if FN % 2 == 0 && !ad.cam_tune_active {
+                        } else if !ad.cam_tune_active
+                            && crate::CORE1_OK.load(core::sync::atomic::Ordering::Relaxed) {
+                            // ── Pipelined decode on core 1 ──
+                            // The viewfinder no longer halts during decode:
+                            // core 0 only pays the 240x240 downsample (a few
+                            // ms) or, when escalating, one frame copy, and
+                            // keeps blitting while core 1 chews on rqrr.
+                            use crate::hw::decode_core;
+
+                            // Consume a finished job first.
+                            if let Some(o) = decode_core::take_results() {
+                                if o.gen != decode_core::current_generation() {
+                                    // Computed from a frame of the previous
+                                    // scan session; acting on it would replay
+                                    // that session's QR. Drop it.
+                                    log!("   [rqrr] stale result (gen {} != {}) discarded", o.gen, decode_core::current_generation());
+                                } else {
+                                log!("   [rqrr] {}x{} s=w/{} prep={}ms det={}ms grids={} (core1)",
+                                     o.w, o.w, o.denom, o.prep_ms, o.det_ms, o.grids);
+                                for (v, d) in o.results.iter() {
+                                    log!("   [rqrr] decoded V{} {} bytes", v, d.len());
+                                }
+                                if o.grids > 0 {
+                                    if !QR_FINDERS_BEEPED {
+                                        sound::qr_found(delay);
+                                        QR_FINDERS_BEEPED = true;
+                                    }
+                                    QR_DECODE_FLASH = 10;
+                                }
+                                if let Some((ver, ref decoded)) = o.results.first() {
+                                    QR_DENOM_MISS = 0;
+                                    QR_ESC_COOLDOWN = 0;
+                                    ESC_PENDING = false;
+                                    ESC_TRIED_ALT = false;
+                                    if o.kind == decode_core::KIND_ESC && o.denom != QR_DENOM {
+                                        // The window that actually read this
+                                        // source becomes the sticky one.
+                                        QR_DENOM = o.denom;
+                                    }
+                                    QR_DECODE_FLASH = 10;
+                                    handle_decode_result(*ver, decoded, decoded.len(), ad, boot_display, delay, i2c);
+                                } else if o.kind == decode_core::KIND_FAST {
+                                    QR_DENOM_MISS = QR_DENOM_MISS.saturating_add(1);
+                                    if QR_DENOM_MISS >= 2 {
+                                        QR_DENOM = if QR_DENOM == 8 { 3 } else { 8 };
+                                        QR_DENOM_MISS = 0;
+                                    }
+                                    if o.grids > 0 && QR_ESC_COOLDOWN == 0 && MF_TOTAL == 0 {
+                                        // Located but not decoded: owe one
+                                        // full-resolution pass. Not during a
+                                        // multi-frame stream (stale by the
+                                        // time it lands, and density is the
+                                        // sender's choice there).
+                                        ESC_PENDING = true;
+                                        ESC_TRIED_ALT = false;
+                                    } else if QR_ESC_COOLDOWN > 0 {
+                                        QR_ESC_COOLDOWN -= 1;
+                                    }
+                                    if o.grids == 0 {
+                                        QR_MISS_STREAK = QR_MISS_STREAK.saturating_add(1);
+                                        // A sustained streak of empty fast
+                                        // passes: the code may be too dense
+                                        // for 240 — owe one full-res pass.
+                                        if QR_MISS_STREAK >= 8 && QR_ESC_COOLDOWN == 0 && MF_TOTAL == 0 && !ESC_PENDING {
+                                            ESC_PENDING = true;
+                                            ESC_TRIED_ALT = false;
+                                            QR_MISS_STREAK = 0;
+                                        }
+                                    } else {
+                                        QR_MISS_STREAK = 0;
+                                    }
+                                    QR_CONSEC = 0;
+                                    if o.grids == 0 { QR_FINDERS_BEEPED = false; }
+                                } else {
+                                    // Escalation failed at o.denom.
+                                    if !ESC_TRIED_ALT {
+                                        ESC_TRIED_ALT = true;
+                                        ESC_ALT_DENOM = if o.denom == 8 { 3 } else { 8 };
+                                        ESC_PENDING = true;
+                                    } else {
+                                        ESC_PENDING = false;
+                                        QR_ESC_COOLDOWN = 3;
+                                        QR_CONSEC = 0;
+                                    }
+                                }
+                                } // gen check
+                            }
+
+                            // Submit the next job if the worker is free.
+                            if decode_core::is_idle() {
+                                if ESC_PENDING && MF_TOTAL == 0 {
+                                    if let Some(buf) = decode_core::buf_for_fill(cam_h * bpl) {
+                                        buf.copy_from_slice(data);
+                                        let den = if ESC_TRIED_ALT { ESC_ALT_DENOM } else { QR_DENOM };
+                                        decode_core::submit(cam_w, cam_h, den, decode_core::KIND_ESC);
+                                        ESC_PENDING = false; // in flight
+                                    }
+                                } else if let Some(buf) = decode_core::buf_for_fill(240 * 240) {
+                                    let dw: usize = 240;
+                                    let dh: usize = 240;
+                                    let dp = data.as_ptr();
+                                    let bp = buf.as_mut_ptr();
+                                    for dy in 0..dh {
+                                        let sr0 = (dy * cam_h) / dh;
+                                        let sr1 = (sr0 + 1).min(cam_h - 1);
+                                        let r0 = sr0 * bpl;
+                                        let r1 = sr1 * bpl;
+                                        let dst_off = dy * dw;
+                                        for dx in 0..dw {
+                                            let sc0 = (dx * cam_w) / dw;
+                                            let sc1 = (sc0 + 1).min(cam_w - 1);
+                                            let a = *dp.add(r0 + sc0) as u16;
+                                            let b = *dp.add(r0 + sc1) as u16;
+                                            let c = *dp.add(r1 + sc0) as u16;
+                                            let d = *dp.add(r1 + sc1) as u16;
+                                            *bp.add(dst_off + dx) = ((a + b + c + d + 2) >> 2) as u8;
+                                        }
+                                    }
+                                    decode_core::submit(dw, dh, QR_DENOM, decode_core::KIND_FAST);
+                                }
+                            }
+                        } else if !ad.cam_tune_active {
+                            // ── Fast pass: 240x240 box-filtered downsample ──
+                            //
+                            // No rotation here. The display path rotates because
+                            // the panel is mounted turned; rqrr locates the
+                            // finder patterns itself and decodes at any
+                            // orientation, which the full-resolution escalation
+                            // pass already proves by feeding it the raw frame.
+                            // The transpose was inherited from the display loop
+                            // and cost 230k stride-960 PSRAM reads per pass,
+                            // one cache line fill each. Reading along the source
+                            // row instead makes both the reads and the writes
+                            // sequential.
+                            //
+                            // Row offsets are computed once per row and the two
+                            // source rows are clamped, so the four samples are
+                            // provably inside the frame and the per-pixel bounds
+                            // checks (4 per output pixel, 230k per pass) come
+                            // out. Scaled mapping still covers 480 (exact 2x)
+                            // and 640 (cam640, 8/3 step).
                             let dw: usize = 240;
                             let dh: usize = 240;
+                            let dp = data.as_ptr();
+                            debug_assert!(data.len() >= cam_h * bpl);
                             for dy in 0..dh {
-                                let src_col = dy * 2;
+                                let sr0 = (dy * cam_h) / dh;
+                                let sr1 = (sr0 + 1).min(cam_h - 1);
+                                let r0 = sr0 * bpl;
+                                let r1 = sr1 * bpl;
                                 let dst_off = dy * dw;
                                 for dx in 0..dw {
-                                    let src_row = dx * 2;
-                                    let y00 = src_row * bpl + src_col;
-                                    let y01 = src_row * bpl + (src_col + 1);
-                                    let y10 = (src_row + 1) * bpl + src_col;
-                                    let y11 = (src_row + 1) * bpl + (src_col + 1);
-                                    let a = if y00 < data.len() { data[y00] as u16 } else { 0 };
-                                    let b = if y01 < data.len() { data[y01] as u16 } else { 0 };
-                                    let c = if y10 < data.len() { data[y10] as u16 } else { 0 };
-                                    let d = if y11 < data.len() { data[y11] as u16 } else { 0 };
+                                    let sc0 = (dx * cam_w) / dw;
+                                    let sc1 = (sc0 + 1).min(cam_w - 1);
+                                    let a = *dp.add(r0 + sc0) as u16;
+                                    let b = *dp.add(r0 + sc1) as u16;
+                                    let c = *dp.add(r1 + sc0) as u16;
+                                    let d = *dp.add(r1 + sc1) as u16;
                                     *db_ptr.add(dst_off + dx) = ((a + b + c + d + 2) >> 2) as u8;
                                 }
                             }
                             let db_slice = core::slice::from_raw_parts(
                                 db_ptr as *const u8, dw * dh);
-                            let results = rqrr_decode(db_slice, dw, dh);
+
+                            // Threshold window: w/8 suits dense symbols, w/3
+                            // rescues V1/V2 whose huge modules wash out under
+                            // the narrow window. Alternating every pass spends
+                            // most frames on the wrong one, so stick with
+                            // whatever last decoded and only switch after two
+                            // consecutive misses. An animated transfer settles
+                            // on one window and never pays for the other again.
+                            let (grids, results) = rqrr_decode(db_slice, dw, dh, QR_DENOM);
+                            // ── Feedback on finding, before any decode ──
+                            // The moment a symbol is located: beep (M5Stack;
+                            // no-op on Waveshare) and border to green, exactly
+                            // like earlier firmware. Decode is not required.
+                            if grids > 0 {
+                                if !QR_FINDERS_BEEPED {
+                                    sound::qr_found(delay);
+                                    QR_FINDERS_BEEPED = true;
+                                }
+                                // Green on finding, as before: charge the TTL
+                                // the moment a symbol is located, decode or
+                                // not. Decode passes recharge it too, so the
+                                // border is green the whole time a code is in
+                                // view and falls back to red when it leaves.
+                                QR_DECODE_FLASH = 10;
+                            }
                             if let Some((ver, ref decoded)) = results.first() {
+                                QR_DENOM_MISS = 0;
+                                QR_ESC_COOLDOWN = 0;
+                                QR_DECODE_FLASH = 10;
                                 handle_decode_result(*ver, decoded, decoded.len(), ad, boot_display, delay, i2c);
                             } else {
-                                QR_CONSEC = 0;
-                                QR_FINDERS_BEEPED = false;
+                                QR_DENOM_MISS = QR_DENOM_MISS.saturating_add(1);
+                                if QR_DENOM_MISS >= 2 {
+                                    QR_DENOM = if QR_DENOM == 8 { 3 } else { 8 };
+                                    QR_DENOM_MISS = 0;
+                                }
+                                // ── Escalation pass: full resolution ──
+                                // rqrr found a symbol but could not decode it:
+                                // too dense for 240x240, or blurred. One pass at
+                                // native resolution, 4x the pixels at 480.
+                                //
+                                // Not while a multi-frame transfer is running.
+                                // The sender is already showing the next frame
+                                // by the time this returns, so it trades a
+                                // guaranteed miss on a live frame for a retry on
+                                // a stale one. Density is not the problem there
+                                // anyway: the frame version is whatever the
+                                // sender chose, and if that were too dense the
+                                // first frame would never have landed.
+                                if grids > 0 && QR_ESC_COOLDOWN == 0 && MF_TOTAL == 0 {
+                                    cam_dma::poll_done();
+                                    // Sticky window first, then the other one.
+                                    // Bench (96 simulated hand-drawn V1/V2):
+                                    // 16 frames only decode at full res, and 4
+                                    // of those only under the wide window — a
+                                    // single-window escalation would sit
+                                    // through sticky flips to reach them. The
+                                    // second pass runs only when the first
+                                    // full-res pass fails, inside the same
+                                    // cooldown budget.
+                                    let alt = if QR_DENOM == 8 { 3 } else { 8 };
+                                    let (_hg, hires) = rqrr_decode(data, cam_w, cam_h, QR_DENOM);
+                                    let (hires, hit_alt) = if hires.is_empty() {
+                                        cam_dma::poll_done();
+                                        (rqrr_decode(data, cam_w, cam_h, alt).1, true)
+                                    } else {
+                                        (hires, false)
+                                    };
+                                    cam_dma::poll_done();
+                                    if let Some((ver, ref decoded)) = hires.first() {
+                                        if hit_alt {
+                                            // The other window is the one that
+                                            // reads this source — adopt it.
+                                            QR_DENOM = alt;
+                                            QR_DENOM_MISS = 0;
+                                        }
+                                        QR_ESC_COOLDOWN = 0;
+                                        QR_DECODE_FLASH = 10;
+                                        handle_decode_result(*ver, decoded, decoded.len(), ad, boot_display, delay, i2c);
+                                    } else {
+                                        // Failed at full res too — throttle, or
+                                        // the viewfinder crawls while the user
+                                        // holds an undecodable frame.
+                                        QR_ESC_COOLDOWN = 3;
+                                        QR_CONSEC = 0;
+                                    }
+                                } else {
+                                    if QR_ESC_COOLDOWN > 0 { QR_ESC_COOLDOWN -= 1; }
+                                    QR_CONSEC = 0;
+                                    if grids == 0 { QR_FINDERS_BEEPED = false; }
+                                }
                             }
                         }
                     }
@@ -1641,10 +2125,15 @@ pub fn run_camera_cycle(
                                 }
                                 let crop_slice = core::slice::from_raw_parts(
                                     crop_ptr as *const u8, render_w * render_h);
-                                let mut guide = QR_GUIDE_VER | if QR_FINDERS_BEEPED { 0x80 } else { 0 };
+                                let mut guide = QR_GUIDE_VER;
                                 #[cfg(feature = "waveshare")]
                                 if ad.cam_tune_active { guide |= 0x40; }
-                                boot_display.blit_camera_frame(crop_slice, render_w, render_h, guide);
+                                // Two-state on this path (no detection plumbing
+                                // here yet): green after decode, red otherwise.
+                                let scan_state: u8 = if QR_FINDERS_BEEPED { 2 } else { 0 };
+                                // Lock-frame overlay is wired on the cam_dma
+                                // path only; this path passes None for now.
+                                boot_display.blit_camera_frame(crop_slice, render_w, render_h, guide, scan_state);
                             }
 
                             // ── Copy full frame to DB on decode frames ──
@@ -1653,8 +2142,11 @@ pub fn run_camera_cycle(
                             // always run the decoder.
                             #[cfg(feature = "waveshare")]
                             let is_decode_frame = FN % 2 == 0 && !ad.cam_tune_active;
+                            // Every frame on m5stack: the FN%2 gate halved the
+                            // decode cadence, and with the SRAM in-place decode
+                            // below each attempt is cheap enough to run always.
                             #[cfg(feature = "m5stack")]
-                            let is_decode_frame = FN % 2 == 0;
+                            let is_decode_frame = true;
 
                             if is_decode_frame && frame_ok && !QR_ERROR_SHOWING {
                                 for dy in 0..full_h {
@@ -1745,25 +2237,58 @@ pub fn run_camera_cycle(
                             if QR_COOLDOWN > 0 {
                                 QR_COOLDOWN -= 1;
                             } else {
-                                // m5stack: crop center 240x240 from 320x240 for rqrr.
-                                // Compact rows in-place in DB buffer.
+                                // Crop center 240x240 from 320x240 for rqrr.
                                 let rqw: usize = 240;
                                 let rqh: usize = full_h.min(240);
                                 let x0: usize = 40; // (320 - 240) / 2
-                                for ry in 0..rqh {
-                                    let src = ry * 320 + x0;
-                                    let dst = ry * rqw;
-                                    if src != dst {
-                                        core::ptr::copy(db_ptr.add(src) as *const u8, db_ptr.add(dst), rqw);
+                                // m5stack: copy the crop rows into the SRAM
+                                // working image and decode in place. The fast
+                                // path, and the one that used to overflow the
+                                // stack on a V11. See QR_SRAM_IMG above.
+                                #[cfg(feature = "m5stack")]
+                                let (grids, results) = {
+                                    let dstp = core::ptr::addr_of_mut!(QR_SRAM_IMG) as *mut u8;
+                                    for ry in 0..rqh {
+                                        core::ptr::copy_nonoverlapping(
+                                            db_ptr.add(ry * 320 + x0) as *const u8,
+                                            dstp.add(ry * rqw),
+                                            rqw,
+                                        );
                                     }
+                                    let img = core::slice::from_raw_parts_mut(dstp, rqw * rqh);
+                                    rqrr_decode_inplace(img, rqw, rqh, QR_DENOM)
+                                };
+                                // waveshare-dvp fallback: existing PSRAM path.
+                                #[cfg(feature = "waveshare")]
+                                let (grids, results) = {
+                                    for ry in 0..rqh {
+                                        let src = ry * 320 + x0;
+                                        let dst = ry * rqw;
+                                        if src != dst {
+                                            core::ptr::copy(db_ptr.add(src) as *const u8, db_ptr.add(dst), rqw);
+                                        }
+                                    }
+                                    let crop_slice = core::slice::from_raw_parts(db_ptr as *const u8, rqw * rqh);
+                                    rqrr_decode(crop_slice, rqw, rqh, QR_DENOM)
+                                };
+                                // Green on finding here too: latch the flag the
+                                // moment a symbol is located, release it when
+                                // no symbol is in view.
+                                if grids > 0 && !QR_FINDERS_BEEPED {
+                                    sound::qr_found(delay);
+                                    QR_FINDERS_BEEPED = true;
                                 }
-                                let crop_slice = core::slice::from_raw_parts(db_ptr as *const u8, rqw * rqh);
-                                let results = rqrr_decode(crop_slice, rqw, rqh);
                                 if let Some((ver, ref decoded)) = results.first() {
+                                    QR_DENOM_MISS = 0;
                                     handle_decode_result(*ver, decoded, decoded.len(), ad, boot_display, delay, i2c);
                                 } else {
+                                    QR_DENOM_MISS = QR_DENOM_MISS.saturating_add(1);
+                                    if QR_DENOM_MISS >= 2 {
+                                        QR_DENOM = if QR_DENOM == 8 { 3 } else { 8 };
+                                        QR_DENOM_MISS = 0;
+                                    }
                                     QR_CONSEC = 0;
-                                    QR_FINDERS_BEEPED = false;
+                                    if grids == 0 { QR_FINDERS_BEEPED = false; }
                                 }
                             }
                         }

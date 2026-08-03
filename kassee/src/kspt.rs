@@ -263,9 +263,11 @@ pub async fn create_consolidate_kspt(
         return Err("Only 1 UTXO — nothing to consolidate".into());
     }
 
-    // Sort largest first, cap at 5 inputs to stay within 1024-byte signed TX limit
+    // Sort largest first, take up to MAX_INPUTS (16) inputs. Was 5, with a
+    // comment citing a 1024-byte signed-TX limit that was itself stale — the
+    // firmware's signed buffer is 4096 bytes and MAX_INPUTS is now 16.
     all_utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
-    let selected: Vec<_> = all_utxos.into_iter().take(5).collect();
+    let selected: Vec<_> = all_utxos.into_iter().take(32).collect();
 
     let total: u64 = selected.iter().map(|u| u.amount).sum();
     if total <= fee {
@@ -725,7 +727,30 @@ pub async fn create_multisig_kspt(
     // Build outputs
     let mut outputs: Vec<(u64, Vec<u8>)> = vec![(amount_sompi, dest_script)];
     if final_change > 0 {
-        // Change goes back to the same multisig address
+        // Change goes back to the same multisig address.
+        //
+        // ENFORCED, not merely intended. This comment previously stated the
+        // invariant while the next line converted whatever string the caller
+        // passed, so correctness depended on every caller doing the right
+        // thing. The web UI does (`app.js:8417`, `changeAddr = sourceAddr`),
+        // but the function is a WASM export and any caller could redirect the
+        // entire change amount to an address of its choosing.
+        //
+        // The device is not a reliable backstop for this: output labelling
+        // recognises only P2PK as owned change, so a redirected P2SH multisig
+        // change output renders on the review screen as an ordinary
+        // destination, and multisig change legitimately returns to the address
+        // being spent from, which is exactly the intuition that fails.
+        //
+        // Multisig has no change chain here by decision: `parse_descriptor`
+        // derives on chain 0 only, so there is no separate change address to
+        // send to. That makes this check both correct and complete.
+        if change_address != source_address {
+            return Err(format!(
+                "Multisig change must return to the source address ({}), got {}",
+                source_address, change_address
+            ));
+        }
         let change_script = crate::address::address_to_script_pubkey(change_address)?;
         outputs.push((final_change, change_script));
     }
@@ -928,7 +953,13 @@ pub async fn create_consolidate_pskb(
     }
 
     all_utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
-    let selected: Vec<_> = all_utxos.into_iter().take(5).collect();
+    // Take up to MAX_INPUTS (16) largest UTXOs. Was 5, from when the firmware
+    // ceiling was lower; the KasSigner now signs 16 (transaction.rs
+    // MAX_INPUTS) and the signed response fits its 4096-byte buffer. The
+    // caller (handleConsolidate) sizes the fee to this same count via
+    // consolidateFee(Math.min(16, ...)) — the two MUST stay in sync or the
+    // fee is wrong.
+    let selected: Vec<_> = all_utxos.into_iter().take(32).collect();
 
     let total: u64 = selected.iter().map(|u| u.amount).sum();
     if total <= fee {
@@ -1569,6 +1600,13 @@ pub async fn create_multisig_pskb(
     // ── Build outputs ──
     let mut outputs: Vec<(u64, Vec<u8>)> = vec![(amount_sompi, dest_script)];
     if final_change > 0 {
+        // Same invariant as `create_multisig_kspt`; see the note there.
+        if change_address != source_address {
+            return Err(format!(
+                "Multisig change must return to the source address ({}), got {}",
+                source_address, change_address
+            ));
+        }
         let change_script = crate::address::address_to_script_pubkey(change_address)?;
         outputs.push((final_change, change_script));
     }
@@ -1800,6 +1838,13 @@ pub async fn create_multisig_pskb_selected(
 
     let mut outputs: Vec<(u64, Vec<u8>)> = vec![(amount_sompi, dest_script)];
     if final_change > 0 {
+        // Same invariant as `create_multisig_kspt`; see the note there.
+        if change_address != source_address {
+            return Err(format!(
+                "Multisig change must return to the source address ({}), got {}",
+                source_address, change_address
+            ));
+        }
         let change_script = crate::address::address_to_script_pubkey(change_address)?;
         outputs.push((final_change, change_script));
     }

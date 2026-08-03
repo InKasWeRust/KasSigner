@@ -6,6 +6,12 @@ use crate::{BitGrid, DeQRError, DeQRResult, Write};
 
 pub const MAX_PAYLOAD_SIZE: usize = 8896;
 
+/// Compile-time marker: this decode.rs keeps RawData/CorrectedDataStream on
+/// the heap. The second-core worker references this symbol so that a build
+/// against the old inline-array decode.rs (which needs >96KB of stack and
+/// overflows the core-1 guard on device) fails at compile time, loudly.
+pub const RQRR_HEAP_BACKED: bool = true;
+
 /// Version of a QR Code which determines its size
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Version(pub usize);
@@ -45,8 +51,10 @@ pub struct MetaData {
 /// The bit stream contained in the QR Code
 #[derive(Clone)]
 pub struct RawData {
-    /// The bits of the QR Code
-    pub data: [u8; MAX_PAYLOAD_SIZE],
+    /// The bits of the QR Code. Heap-backed: as an inline array this struct
+    /// was ~8.9KB of stack (and moved by memcpy between frames), which
+    /// overflowed the second-core decode stack on device.
+    pub data: alloc::boxed::Box<[u8]>,
     /// Length of the bit stream in bits.
     pub len: usize,
 }
@@ -67,7 +75,8 @@ impl RawData {
 
 #[derive(Clone)]
 pub struct CorrectedDataStream {
-    data: [u8; MAX_PAYLOAD_SIZE],
+    // Heap-backed for the same stack-size reason as RawData.
+    data: alloc::boxed::Box<[u8]>,
     ptr: usize,
     bit_len: usize,
 }
@@ -330,7 +339,7 @@ fn numeric_tuple(
 
 fn codestream_ecc(meta: &MetaData, ds: RawData) -> DeQRResult<CorrectedDataStream> {
     let mut out = CorrectedDataStream {
-        data: [0; MAX_PAYLOAD_SIZE],
+        data: alloc::vec![0u8; MAX_PAYLOAD_SIZE].into_boxed_slice(),
         ptr: 0,
         bit_len: 0,
     };
@@ -528,7 +537,7 @@ where
 /// Reads the code in the "zigzag" pattern, optionally removing the mask
 fn read_data(code: &dyn BitGrid, meta: &MetaData, remove_mask: bool) -> RawData {
     let mut ds = RawData {
-        data: [0; MAX_PAYLOAD_SIZE],
+        data: alloc::vec![0u8; MAX_PAYLOAD_SIZE].into_boxed_slice(),
         len: 0,
     };
 

@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-// qr/encoder.rs — QR code generation (V1-V6)
+// qr/encoder.rs — QR code generation (V1-V9)
 
 // KasSigner — Minimal QR Code Encoder
 // 100% Rust, no-std, no-alloc
@@ -34,6 +34,9 @@
 //   V4: 78 bytes  (33x33)  — 1 signature comfortably
 //   V5: 106 bytes (37x37)  — 2 signatures
 //   V6: 134 bytes (41x41)  — 2+ signatures
+//   V7: 154 bytes (45x45)
+//   V8: 192 bytes (49x49)
+//   V9: 230 bytes (53x53)  — phone-mode signed-response frames
 //
 // For KSSN response: 72 bytes = V4 (33x33)
 // On 128x64 OLED: 33 modules * 1px = 33px, centered. Readable but tight.
@@ -53,9 +56,9 @@
 // ═══════════════════════════════════════════════════════════════════
 
 /// Maximum QR version we support
-const MAX_VERSION: usize = 6;
+const MAX_VERSION: usize = 9;
 /// Maximum modules per side (V6 = 41)
-const MAX_SIZE: usize = 41;
+const MAX_SIZE: usize = 53;
 /// Maximum total modules in bitmap
 const MAX_MODULES: usize = MAX_SIZE * MAX_SIZE; // 1681
 /// Bitmap stored as bytes (ceil(1681/8) = 211)
@@ -63,21 +66,24 @@ const BITMAP_BYTES: usize = (MAX_MODULES + 7) / 8;
 
 /// Version info table: (version, size, data_codewords, ec_codewords, ec_blocks)
 /// All for ECC Level L
-const VERSION_TABLE: [(u8, u8, u16, u16, u8); 6] = [
+const VERSION_TABLE: [(u8, u8, u16, u16, u8); 9] = [
     // ver, size, data_cw, ec_cw, ec_blocks
     (1, 21, 19, 7, 1),
     (2, 25, 34, 10, 1),
     (3, 29, 55, 15, 1),
     (4, 33, 80, 20, 1),
     (5, 37, 108, 26, 1),
-    (6, 41, 136, 36, 2), // 2 blocks for V6
+    (6, 41, 136, 36, 2), // 2 even blocks (V6-V9 at ECC L)
+    (7, 45, 156, 40, 2), // V7+: 2 even ECC-L blocks; version-info blocks required
+    (8, 49, 194, 48, 2),
+    (9, 53, 232, 60, 2),
 ];
 
 /// Byte mode capacity (ECC Level L) per version
-const BYTE_CAPACITY: [usize; 6] = [17, 32, 53, 78, 106, 134];
+const BYTE_CAPACITY: [usize; 9] = [17, 32, 53, 78, 106, 134, 154, 192, 230];
 
 /// Numeric mode capacity (ECC Level L) per version
-const NUMERIC_CAPACITY: [usize; 6] = [41, 77, 127, 187, 255, 322];
+const NUMERIC_CAPACITY: [usize; 9] = [41, 77, 127, 187, 255, 322, 370, 461, 552];
 // ═══════════════════════════════════════════════════════════════════
 // Reed-Solomon GF(256) with primitive polynomial 0x11D
 // ═══════════════════════════════════════════════════════════════════
@@ -304,6 +310,21 @@ pub fn get(&self, x: u8, y: u8) -> bool {
                     }
                     self.draw_alignment(positions.1[i] as u8, positions.1[j] as u8);
                 }
+            }
+        }
+
+        // Version information blocks (V7+ only): two 3x6 areas beside the
+        // finders, 18-bit BCH-protected version number. Mask-independent, so
+        // the final bits are written here. Standard precomputed constants.
+        if self.version >= 7 {
+            const VERSION_INFO_BITS: [u32; 3] = [0x07C94, 0x085BC, 0x09A99]; // V7, V8, V9
+            let bits = VERSION_INFO_BITS[(self.version - 7) as usize];
+            for i in 0..18u32 {
+                let dark = (bits >> i) & 1 == 1;
+                let a = s - 11 + (i % 3) as u8;
+                let b = (i / 3) as u8;
+                self.set_func(a, b, dark); // top-right block
+                self.set_func(b, a, dark); // bottom-left block (transposed)
             }
         }
 
@@ -558,6 +579,9 @@ fn alignment_positions(version: u8) -> (usize, [u8; 7]) {
         4 => { n = 2; positions = [6, 26, 0, 0, 0, 0, 0]; }
         5 => { n = 2; positions = [6, 30, 0, 0, 0, 0, 0]; }
         6 => { n = 2; positions = [6, 34, 0, 0, 0, 0, 0]; }
+        7 => { n = 3; positions = [6, 22, 38, 0, 0, 0, 0]; }
+        8 => { n = 3; positions = [6, 24, 42, 0, 0, 0, 0]; }
+        9 => { n = 3; positions = [6, 26, 46, 0, 0, 0, 0]; }
         _ => { n = 0; positions = [0; 7]; }
     }
 
@@ -593,7 +617,7 @@ pub fn encode(data: &[u8]) -> Result<QrCode, QrError> {
 
     // ─── Step 1: Build data codewords ───────────────────────
     // Byte mode indicator (0100) + character count + data + terminator + padding
-    let mut codewords = [0u8; 160]; // max data + EC for V6
+    let mut codewords = [0u8; 240]; // max data codewords (V9 = 232)
     let mut bit_buf = BitWriter::new(&mut codewords);
 
     // Mode indicator: 0100 (byte mode)
@@ -631,7 +655,7 @@ pub fn encode(data: &[u8]) -> Result<QrCode, QrError> {
 
     // For V1-5 (1 block): simple
     // For V6 (2 blocks): split data into 2 blocks
-    let mut all_codewords = [0u8; 180];
+    let mut all_codewords = [0u8; 300]; // max total codewords (V9 = 292)
 
     if ec_blocks == 1 {
         // Single block: data codewords + EC codewords
@@ -640,7 +664,7 @@ pub fn encode(data: &[u8]) -> Result<QrCode, QrError> {
         rs_encode(&codewords[..data_bytes], ec_bytes, &mut ec);
         all_codewords[data_bytes..data_bytes + ec_bytes].copy_from_slice(&ec[..ec_bytes]);
     } else {
-        // 2 blocks for V6
+        // 2 even blocks (V6-V9 at ECC L)
         // Block 1: data_bytes/2 data codewords, ec_bytes/2 EC
         // Block 2: remaining data codewords, ec_bytes/2 EC
         let block1_data = data_bytes / 2;
@@ -735,7 +759,7 @@ pub fn encode_numeric(digits: &[u8]) -> Result<QrCode, QrError> {
     let vi = (version - 1) as usize;
     let (_, _, data_cw, ec_cw, ec_blocks) = VERSION_TABLE[vi];
 
-    let mut codewords = [0u8; 160];
+    let mut codewords = [0u8; 240]; // max data codewords (V9 = 232)
     let mut bit_buf = BitWriter::new(&mut codewords);
 
     // Mode indicator: 0001 (numeric)
@@ -784,7 +808,7 @@ pub fn encode_numeric(digits: &[u8]) -> Result<QrCode, QrError> {
     // Error correction (same as byte mode)
     let data_bytes = data_cw as usize;
     let ec_bytes = ec_cw as usize;
-    let mut all_codewords = [0u8; 180];
+    let mut all_codewords = [0u8; 300]; // max total codewords (V9 = 292)
 
     if ec_blocks == 1 {
         all_codewords[..data_bytes].copy_from_slice(&codewords[..data_bytes]);

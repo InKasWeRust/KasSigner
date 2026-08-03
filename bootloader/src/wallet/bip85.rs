@@ -49,18 +49,11 @@ use super::bip39::{Mnemonic12, Mnemonic24};
 /// BIP32 hardened derivation bit
 const HARDENED_BIT: u32 = 0x8000_0000;
 
-#[cfg(not(feature = "silent"))]
-use esp_println::println;
-
-#[cfg(not(feature = "silent"))]
-macro_rules! log {
-    ($($arg:tt)*) => { println!($($arg)*) };
-}
-
-#[cfg(feature = "silent")]
-macro_rules! log {
-    ($($arg:tt)*) => { };
-}
+// Uses the crate-wide `log!` rather than a private copy. This file used to
+// define its own pair of arms, and its `silent` arm had the same `{ }` defect
+// as the crate one: a block with no value, which fails wherever `log!` sits in
+// expression position. One definition, one place to get it right.
+use crate::log;
 
 // ─── Constants ──────────────────────────────────────────────────────
 
@@ -112,8 +105,15 @@ fn derive_bip85_entropy(
     let mut derived = bip32::derive_path(seed, &path)
         .map_err(|_| Bip85Error::DerivationFailed)?;
 
-    // Get the derived private key
-    let private_key = *derived.private_key_bytes();
+    // Get the derived private key. `mut` so it can be wiped in place (M-07).
+    //
+    // This was immutable, and the wipe below therefore operated on
+    // `let mut pk_copy = private_key;` — a second copy made solely so that
+    // something could be zeroized. The copy was wiped and the original was left
+    // live on the stack, so the code read as if it cleaned up and did the
+    // opposite: it created an extra copy of a private key and destroyed the
+    // wrong one.
+    let mut private_key = *derived.private_key_bytes();
 
     // Zeroize the extended key — we only need the raw private key bytes
     derived.zeroize();
@@ -121,9 +121,8 @@ fn derive_bip85_entropy(
     // HMAC-SHA512 with BIP85-specific key
     let entropy = hmac_sha512(BIP85_HMAC_KEY, &private_key);
 
-    // Zeroize the private key copy
-    let mut pk_copy = private_key;
-    zeroize_buf(&mut pk_copy);
+    // Wipe the original, not a copy of it.
+    zeroize_buf(&mut private_key);
 
     Ok(entropy)
 }

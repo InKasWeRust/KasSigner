@@ -8,18 +8,18 @@ pub struct CapStoneGroup(pub CapStone, pub CapStone, pub CapStone);
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Neighbor {
     index: usize,
-    distance: f64,
+    distance: f32,
 }
 
 /// Return each pair Capstone indexes that are likely to be from a QR code
 /// Ordered from most symmetric to least symmetric
 pub fn find_and_rank_possible_neighbors(capstones: &[CapStone], idx: usize) -> Vec<(usize, usize)> {
-    const VIABILITY_THRESHOLD: f64 = 0.25;
+    const VIABILITY_THRESHOLD: f32 = 0.25;
 
     let (hlist, vlist) = find_possible_neighbors(capstones, idx);
     let mut res = Vec::new();
     struct NeighborSet {
-        score: f64,
+        score: f32,
         h_index: usize,
         v_index: usize,
     }
@@ -28,9 +28,9 @@ pub fn find_and_rank_possible_neighbors(capstones: &[CapStone], idx: usize) -> V
         for vn in vlist.iter() {
             let score = {
                 if hn.distance < vn.distance {
-                    (1.0f64 - hn.distance / vn.distance).abs()
+                    (1.0f32 - hn.distance / vn.distance).abs()
                 } else {
-                    (1.0f64 - vn.distance / hn.distance).abs()
+                    (1.0f32 - vn.distance / hn.distance).abs()
                 }
             };
             if score < VIABILITY_THRESHOLD {
@@ -68,17 +68,17 @@ fn find_possible_neighbors(capstones: &[CapStone], idx: usize) -> (Vec<Neighbor>
         let cmp_cap = &capstones[others_idx];
 
         let (mut u, mut v) = cap.c.unmap(&cmp_cap.center);
-        u = (u - 3.5f64).abs();
-        v = (v - 3.5f64).abs();
+        u = (u - 3.5f32).abs();
+        v = (v - 3.5f32).abs();
 
-        if u < 0.2f64 * v {
+        if u < 0.2f32 * v {
             hlist.push(Neighbor {
                 index: others_idx,
                 distance: v,
             });
         }
 
-        if v < 0.2f64 * u {
+        if v < 0.2f32 * u {
             vlist.push(Neighbor {
                 index: others_idx,
                 distance: u,

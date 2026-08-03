@@ -33,6 +33,14 @@ pub mod display;
 #[path = "display_m5.rs"]
 pub mod display;
 
+// ─── IMU (entropy source) ────────────────────────────────────
+// Waveshare only. The M5Stack BMI270 needs an 8 KB config blob uploaded on
+// every power-up before it returns anything but zeros, which is a much larger
+// change and is deliberately not attempted here.
+#[cfg(feature = "waveshare")]
+#[path = "imu_ws.rs"]
+pub mod imu;
+
 // ─── Camera ──────────────────────────────────────────────────
 #[cfg(feature = "waveshare")]
 #[path = "camera_ov5640.rs"]
@@ -93,14 +101,28 @@ pub mod sdcard;
 // ─── Shared modules (both platforms) ─────────────────────────
 pub mod icon_data;
 pub mod sd_backup;
+// Camera entropy measurement. Shared deliberately: it was Waveshare-only when
+// it lived in cam_dma.rs, which left the seed-path entropy gate real on one
+// board and a null-pointer test on the other (audit E-07).
+pub mod frame_noise;
+
+// ─── M5Stack-only modules ────────────────────────────────────
+// ES7210 audio ADC, identification only. Candidate entropy source for a board
+// whose only non-SoC source is a camera that goes bit-identical in darkness.
+#[cfg(feature = "m5stack")]
+pub mod mic_m5;
 
 // ─── Waveshare-only modules ──────────────────────────────────
 #[cfg(feature = "waveshare")]
 pub mod board;
-#[cfg(feature = "waveshare")]
+// Both boards as of 2026-08-02. Every register in here is SoC-level and
+// identical across the two; the gate meant untested, not incompatible.
 pub mod lockdown;
 #[cfg(feature = "waveshare")]
 pub mod ov5640_af_fw;
+
+#[cfg(feature = "waveshare")]
+pub mod decode_core;
 #[cfg(feature = "waveshare")]
 pub mod cam_dma;
 

@@ -198,21 +198,32 @@ pub fn redraw_screen(
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "COV NAME");
                 }
                 crate::app::input::AppState::ExportSeedQR => {
-                    if let Some(slot) = ad.seed_mgr.active_slot() {
+                    // `as_mnemonic` rather than `slot.indices` directly. A
+                    // SeedQR is a mnemonic-only artifact, but on a raw-key or
+                    // xprv slot those same bytes are a PRIVATE KEY, and the old
+                    // form would have encoded it as word indices and drawn it as
+                    // a QR. The accessor returns None for those kinds, so the
+                    // screen simply draws nothing (H-08).
+                    if let Some((indices, wc)) =
+                        ad.seed_mgr.active_slot().and_then(|s| s.as_mnemonic())
+                    {
                         let mut seedqr_buf = [0u8; 96];
                         let len = seed_manager::encode_seedqr(
-                            &slot.indices, slot.word_count, &mut seedqr_buf);
+                            indices, wc, &mut seedqr_buf);
                         boot_display.draw_export_seed_qr_screen(
-                            &seedqr_buf[..len], slot.word_count);
+                            &seedqr_buf[..len], wc);
                     }
                 }
                 crate::app::input::AppState::ExportCompactSeedQR => {
-                    if let Some(slot) = ad.seed_mgr.active_slot() {
+                    // Mnemonic-only; see the note on ExportSeedQR above (H-08).
+                    if let Some((indices, wc)) =
+                        ad.seed_mgr.active_slot().and_then(|s| s.as_mnemonic())
+                    {
                         let mut compact_buf = [0u8; 32];
                         let len = seed_manager::encode_compact_seedqr(
-                            &slot.indices, slot.word_count, &mut compact_buf);
+                            indices, wc, &mut compact_buf);
                         boot_display.draw_export_compact_seedqr_screen(
-                            &compact_buf[..len], slot.word_count);
+                            &compact_buf[..len], wc);
                     }
                 }
                 crate::app::input::AppState::QrExportMenu => {
@@ -231,24 +242,30 @@ pub fn redraw_screen(
                     boot_display.update_menu_content("SIGNING KEYS", &ad.signing_keys_menu);
                 }
                 crate::app::input::AppState::ExportPlainWordsQR => {
-                    if let Some(slot) = ad.seed_mgr.active_slot() {
-                        boot_display.draw_export_plain_words_qr(&slot.indices, slot.word_count);
+                    // Mnemonic-only (H-08).
+                    if let Some((indices, wc)) =
+                        ad.seed_mgr.active_slot().and_then(|s| s.as_mnemonic())
+                    {
+                        boot_display.draw_export_plain_words_qr(indices, wc);
                     }
                 }
                 crate::app::input::AppState::SeedQrGrid { pan_x, pan_y, compact } => {
-                    if let Some(slot) = ad.seed_mgr.active_slot() {
+                    // Mnemonic-only (H-08).
+                    if let Some((indices, wc)) =
+                        ad.seed_mgr.active_slot().and_then(|s| s.as_mnemonic())
+                    {
                         if compact {
                             let mut compact_buf = [0u8; 32];
                             let len = seed_manager::encode_compact_seedqr(
-                                &slot.indices, slot.word_count, &mut compact_buf);
+                                indices, wc, &mut compact_buf);
                             boot_display.draw_seedqr_grid(
-                                &compact_buf[..len], slot.word_count, pan_x, pan_y, false);
+                                &compact_buf[..len], wc, pan_x, pan_y, false);
                         } else {
                             let mut seedqr_buf = [0u8; 96];
                             let len = seed_manager::encode_seedqr(
-                                &slot.indices, slot.word_count, &mut seedqr_buf);
+                                indices, wc, &mut seedqr_buf);
                             boot_display.draw_seedqr_grid(
-                                &seedqr_buf[..len], slot.word_count, pan_x, pan_y, true);
+                                &seedqr_buf[..len], wc, pan_x, pan_y, true);
                         }
                     }
                 }
@@ -301,7 +318,7 @@ pub fn redraw_screen(
                         let offset = frame * balanced;
                         let remaining = raw_len.saturating_sub(offset);
                         let frag_len = remaining.min(balanced);
-                        let mut frame_buf = [0u8; 134];
+                        let mut frame_buf = [0u8; 230];
                         frame_buf[0] = frame as u8;
                         frame_buf[1] = n_frames as u8;
                         frame_buf[2] = frag_len as u8;
@@ -389,7 +406,7 @@ pub fn redraw_screen(
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "MESSAGE");
                 }
                 crate::app::input::AppState::SignMsgFile => {
-                    boot_display.draw_stego_txt_pick(&ad.txt_display_names, &ad.txt_display_lens, ad.txt_file_count);
+                    boot_display.draw_stego_txt_pick(&ad.txt_display_names, &ad.txt_display_lens, ad.txt_file_count, ad.txt_file_scroll);
                 }
                 crate::app::input::AppState::SignMsgPreview => {
                     let msg = core::str::from_utf8(&ad.jpeg_desc_buf[..ad.jpeg_desc_len]).unwrap_or("");
@@ -456,9 +473,28 @@ pub fn redraw_screen(
                         &ad.pubkey_cache, &ad.change_pubkey_cache);
                 }
                 crate::app::input::AppState::ConfirmTx => {
+                    // TOTAL across all outputs, not outputs[0].
+                    //
+                    // This screen previously showed outputs[0].value and called
+                    // it the amount. With more than one output that is simply a
+                    // wrong number: a transaction with 1 KAS in outputs[0] and
+                    // 100,000 KAS in outputs[1] displayed "1 KAS" on the final
+                    // confirmation.
+                    //
+                    // The ReviewTx pages before this one do show every output
+                    // individually and a correct sum on page 0, so the
+                    // information was always available. But the last screen a
+                    // user sees before signing must not be the one that lies,
+                    // and a user who pages through quickly sees only this.
+                    //
+                    // Matches the "Out:" figure on ReviewTx page 0 exactly, so
+                    // the two screens cannot disagree.
+                    let total_out: u64 = (0..ad.demo_tx.num_outputs)
+                        .map(|i| ad.demo_tx.outputs[i].value)
+                        .sum();
                     let mut amt_buf = [0u8; 20];
                     let amt_len = wallet::transaction::Transaction::format_kas(
-                        ad.demo_tx.outputs[0].value, &mut amt_buf);
+                        total_out, &mut amt_buf);
                     let mut fee_buf_fmt = [0u8; 20];
                     let fee_len = wallet::transaction::Transaction::format_kas(
                         ad.demo_tx.fee(), &mut fee_buf_fmt);
@@ -511,7 +547,7 @@ pub fn redraw_screen(
                         // [frame, total, frag_len] wire-header). Selected by
                         // signed_qr_mode (v1.0.3+), falling back to legacy
                         // signed_qr_large flag when mode == 0.
-                        //   mode 0 → legacy: phone 106 / device 55
+                        //   mode 0 → default: phone 227 (V9) / device 55
                         //   mode 1 → 85 (V5, few scans but tight on LCD)
                         //   mode 2 → 55 (V4, balanced)
                         //   mode 3 → 40 (V3, reliable LCD)
@@ -521,7 +557,9 @@ pub fn redraw_screen(
                             2 => 55usize,
                             3 => 40usize,
                             4 => 27usize,
-                            _ => if ad.signed_qr_large { 55usize } else { 106usize },
+                            // Phone: 227 + 3-byte header = 230 = V9-L exactly
+                            // (53x53 @ 4 px/module on the 240px panel).
+                            _ => if ad.signed_qr_large { 55usize } else { 227usize },
                         };
 
                         // Layout rules (unified v1.0.3 UX):
@@ -554,7 +592,7 @@ pub fn redraw_screen(
 
                         let single_frame = !ad.signed_qr_large
                             && ad.signed_qr_mode == 0
-                            && ad.signed_qr_len <= 134;
+                            && ad.signed_qr_len <= 230;
                         if single_frame {
                             // Centred — no overlays.
                             boot_display.draw_qr_screen(&ad.signed_qr_buf[..ad.signed_qr_len]);
@@ -574,7 +612,7 @@ pub fn redraw_screen(
                             let offset = frame * balanced;
                             let remaining = ad.signed_qr_len.saturating_sub(offset);
                             let frag_len = remaining.min(balanced);
-                            let mut frame_buf = [0u8; 134];
+                            let mut frame_buf = [0u8; 230];
                             frame_buf[0] = frame as u8;
                             frame_buf[1] = n_frames as u8;
                             frame_buf[2] = frag_len as u8;
@@ -669,8 +707,9 @@ pub fn redraw_screen(
                 }
                 // ─── Steganography Redraws ────────────
                 crate::app::input::AppState::StegoModeSelect => {
-                    // Auto-skip screen — show loading while SD scan runs
-                    boot_display.draw_loading_screen("JPEG Stego Export...");
+                    // Real choice now, not an auto-skip: Descriptor (EXIF)
+                    // or Picture (DCT coefficients).
+                    boot_display.draw_stego_mode_choice(ad.stego_mode_idx);
                 }
                 crate::app::input::AppState::StegoEmbed => {
                     boot_display.draw_saving_screen("Encoding stego...");
@@ -690,7 +729,7 @@ pub fn redraw_screen(
                     boot_display.draw_stego_desc_choice(false);
                 }
                 crate::app::input::AppState::StegoJpegDescFile => {
-                    boot_display.draw_stego_txt_pick(&ad.txt_display_names, &ad.txt_display_lens, ad.txt_file_count);
+                    boot_display.draw_stego_txt_pick(&ad.txt_display_names, &ad.txt_display_lens, ad.txt_file_count, ad.txt_file_scroll);
                 }
                 crate::app::input::AppState::StegoJpegDesc => {
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "IMAGE DESCRIPTOR");
@@ -723,7 +762,7 @@ pub fn redraw_screen(
                     boot_display.draw_stego_desc_choice(true);
                 }
                 crate::app::input::AppState::StegoImportDescFile => {
-                    boot_display.draw_stego_txt_pick(&ad.txt_display_names, &ad.txt_display_lens, ad.txt_file_count);
+                    boot_display.draw_stego_txt_pick(&ad.txt_display_names, &ad.txt_display_lens, ad.txt_file_count, ad.txt_file_scroll);
                 }
                 crate::app::input::AppState::StegoImportPass => {
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "IMAGE DESCRIPTOR");
@@ -735,16 +774,11 @@ pub fn redraw_screen(
                 crate::app::input::AppState::StegoHintPassphrase => {
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "25TH WORD");
                 }
-                crate::app::input::AppState::FwUpdateResult => {
-                    if ad.fw_update_verified {
-                        let mut ver_buf = [0u8; 16];
-                        let ver_len = fw_update::format_version(ad.fw_update_info.version, &mut ver_buf);
-                        let ver_str = core::str::from_utf8(&ver_buf[..ver_len]).unwrap_or("?.?.?");
-                        boot_display.draw_fw_update_screen(ver_str, true);
-                    } else {
-                        boot_display.draw_fw_update_screen("", false);
-                    }
-                }
+                // H-03: firmware-update-over-QR was an abandoned design. Nothing ever
+                // installed anything: the flow stopped at a screen showing a verified tick,
+                // and the signature covered only the hash, never the version, so a replayed
+                // signature with any version number displayed as verified. Commented out
+                // rather than deleted so the abandoned design stays visible.
                 // ─── SD KSPT Redraws ────────────
                 crate::app::input::AppState::SdImportMenu => {
                     boot_display.update_menu_content("IMPORT FROM SD", &ad.sd_import_menu);
@@ -857,7 +891,7 @@ pub fn redraw_screen(
                             wallet::address::AddressType::P2PK,
                             &mut addr_buf,
                         );
-                        let idx_option = if ad.word_count == 1 { None } else { Some(ad.current_addr_index) };
+                        let idx_option = if ad.active_kind() == crate::ui::seed_manager::SlotKind::RawKey { None } else { Some(ad.current_addr_index) };
                         // Use partial redraw when addr_partial flag is set
                         // (set by </>  handlers), full draw otherwise (first entry, toggle)
                         if ad.addr_partial_redraw && ad.word_count != 1 {

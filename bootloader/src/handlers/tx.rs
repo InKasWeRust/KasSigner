@@ -244,10 +244,44 @@ pub fn handle_tx_touch(
 
                                         if !already_active {
                                             ad.seed_mgr.activate(real_slot as usize);
-                                            let slot = &ad.seed_mgr.slots[real_slot as usize];
-                                            ad.mnemonic_indices = slot.indices;
-                                            ad.word_count = slot.word_count;
+                                            {
+                                                let slot = &ad.seed_mgr.slots[real_slot as usize];
+                                                ad.word_count = slot.word_count;
+                                                // BEHAVIOUR CHANGE, 2026-08-02.
+                                                // This used to copy `slot.indices`
+                                                // unconditionally, so for an xprv
+                                                // slot a packed PRIVATE KEY was
+                                                // written into a field named
+                                                // `mnemonic_indices`. Nothing reads
+                                                // it for that kind: the `as_xprv`
+                                                // branch below populates
+                                                // `acct_key_raw` from the slot, and
+                                                // `fill_display_caches` dispatches on
+                                                // `word_count`. Now non-mnemonic
+                                                // slots leave it zeroed (H-08).
+                                                ad.mnemonic_indices = match slot.as_mnemonic() {
+                                                    Some((idx, _)) => *idx,
+                                                    None => [0u16; 24],
+                                                };
+                                                // xprv slot: the slot IS the
+                                                // account key. Without this the
+                                                // xpub exported below came from
+                                                // whatever the previous slot
+                                                // left in acct_key_raw.
+                                                //
+                                                // `as_xprv` checks the kind and
+                                                // decodes in one step, so the two
+                                                // cannot disagree (H-08).
+                                                if let Some((key, chain_code, depth)) = slot.as_xprv() {
+                                                    ad.acct_key_raw[..32].copy_from_slice(&key);
+                                                    ad.acct_key_raw[32..64].copy_from_slice(&chain_code);
+                                                    ad.acct_key_raw[64] = depth;
+                                                }
+                                            }
                                             ad.seed_loaded = true;
+                                            ad.chain_cache = None;
+                                            ad.ext_recv_n = 0;
+                                            ad.ext_chg_n = 0;
                                             boot_display.draw_saving_screen("Deriving addresses...");
                                             boot_display.update_progress_bar(50);
                                             let hw = crate::hw::display::measure_hint("Deriving...");
@@ -255,13 +289,9 @@ pub fn handle_tx_touch(
                                                 &mut boot_display.display, "Deriving...",
                                                 (320 - hw) / 2, 170,
                                                 crate::hw::display::COLOR_TEXT_DIM);
-                                            let pp = slot.passphrase_str();
-                                            crate::app::signing::derive_all_pubkeys(
-                                                &ad.mnemonic_indices, ad.word_count, pp,
-                                                &mut ad.pubkey_cache, &mut ad.acct_key_raw);
-                                            crate::app::signing::derive_change_pubkeys(
-                                                &ad.acct_key_raw, &mut ad.change_pubkey_cache);
-                                            ad.pubkeys_cached = true;
+                                            // Dispatches on word_count and sets
+                                            // pubkeys_cached only on success.
+                                            crate::app::signing::fill_display_caches(ad);
                                         }
                                         // Store the account-level xpub directly.
                                         // The account path is fixed (m/44'/111111'/0'),
@@ -502,12 +532,13 @@ pub fn handle_tx_touch(
                             boot_display.update_progress_bar(50);
                             delay.delay_millis(50);
                             (ad.txt_file_count) = 0;
+                            ad.txt_file_scroll = 0;
                             let scan_ok = sdcard::with_sd_card(i2c, delay, |ct| {
                                 let fat32 = sdcard::mount_fat32(ct)?;
                                 sdcard::list_root_dir_lfn(ct, &fat32, |entry, disp_name, disp_len| {
                                     if !entry.is_dir() && entry.file_size > 0
                                         && entry.file_size <= 1024
-                                        && ((ad.txt_file_count) as usize) < 8 {
+                                        && ((ad.txt_file_count) as usize) < crate::app::data::SD_FILE_LIST_MAX {
                                         let ext = &entry.name[8..11];
                                         let first = entry.name[0];
                                         let is_hidden = first == b'.' || first == b'_' || first == 0xE5;
@@ -579,9 +610,30 @@ pub fn handle_tx_touch(
                             ad.app.state = crate::app::input::AppState::SignMsgChoice;
                             needs_redraw = true;
                         } else {
+                            // Page arrows, matching the triangles that
+                            // draw_stego_txt_pick paints at x 5..30 and
+                            // 290..315. Same hit thresholds the SD picker
+                            // uses. Previously the arrows were drawn but
+                            // wired to nothing, so only the first four
+                            // files were ever reachable.
+                            //
+                            // A flag rather than an else-block, so the row
+                            // loop below keeps its original nesting.
+                            const PAGE: u8 = 4;
+                            let mut paged = false;
+                            if x < 40 && y >= 42 && ad.txt_file_scroll > 0 {
+                                ad.txt_file_scroll = ad.txt_file_scroll.saturating_sub(PAGE);
+                                needs_redraw = true;
+                                paged = true;
+                            } else if x >= 280 && y >= 42
+                                && (ad.txt_file_scroll + PAGE) < ad.txt_file_count {
+                                ad.txt_file_scroll += PAGE;
+                                needs_redraw = true;
+                                paged = true;
+                            }
                             for slot in 0..4u8 {
-                                if list_zones[slot as usize].contains(x, y) {
-                                    let idx = slot;
+                                if !paged && list_zones[slot as usize].contains(x, y) {
+                                    let idx = ad.txt_file_scroll + slot;
                                     if idx < (ad.txt_file_count) {
                                         boot_display.draw_loading_screen("Reading...");
                                         boot_display.update_progress_bar(50);
@@ -648,10 +700,15 @@ pub fn handle_tx_touch(
                                 .map(|s| s.passphrase_str())
                                 .unwrap_or("");
                             let mut privkey = [0u8; 32];
-                            let seed = crate::app::signing::derive_seed(
-                                &ad.mnemonic_indices, ad.word_count, pp);
-                            if let Ok(acct_key) = wallet::bip32::derive_account_key(&seed.bytes) {
-                                privkey.copy_from_slice(acct_key.private_key_bytes());
+                            // None for raw-key/xprv slots, which have no BIP39
+                            // seed. Leaves privkey zeroed, the same outcome the
+                            // Err path already produced.
+                            if let Some(seed) = crate::app::signing::derive_seed(
+                                &ad.mnemonic_indices, ad.word_count, pp)
+                            {
+                                if let Ok(acct_key) = wallet::bip32::derive_account_key(&seed.bytes) {
+                                    privkey.copy_from_slice(acct_key.private_key_bytes());
+                                }
                             }
                             boot_display.update_progress_bar(70);
 
@@ -692,10 +749,15 @@ pub fn handle_tx_touch(
                                 .map(|s| s.passphrase_str())
                                 .unwrap_or("");
                             let mut privkey = [0u8; 32];
-                            let seed = crate::app::signing::derive_seed(
-                                &ad.mnemonic_indices, ad.word_count, pp);
-                            if let Ok(acct_key) = wallet::bip32::derive_account_key(&seed.bytes) {
-                                privkey.copy_from_slice(acct_key.private_key_bytes());
+                            // None for raw-key/xprv slots, which have no BIP39
+                            // seed. Leaves privkey zeroed, the same outcome the
+                            // Err path already produced.
+                            if let Some(seed) = crate::app::signing::derive_seed(
+                                &ad.mnemonic_indices, ad.word_count, pp)
+                            {
+                                if let Ok(acct_key) = wallet::bip32::derive_account_key(&seed.bytes) {
+                                    privkey.copy_from_slice(acct_key.private_key_bytes());
+                                }
                             }
                             boot_display.update_progress_bar(70);
 
@@ -796,7 +858,19 @@ pub fn handle_tx_touch(
                                         // preimage, never in the script — script layout is
                                         // byte-identical, so type detection is unaffected.
                                         let mut salt = [0u8; 8];
-                                        crate::crypto::entropy::fill(&mut salt);
+                                        if crate::crypto::entropy::fill(&mut salt).is_err() {
+                                            // Fail closed. An all-zero salt gives
+                                            // BLAKE2B(secret) alone, which is exactly the
+                                            // dictionary-attackable commitment the salt
+                                            // exists to prevent, and the covenant address
+                                            // would be reproducible by anyone who guesses
+                                            // the secret.
+                                            boot_display.draw_rejected_screen("Secure RNG failed");
+                                            sound::beep_error(delay);
+                                            delay.delay_millis(2000);
+                                            needs_redraw = true;
+                                            return Some(needs_redraw);
+                                        }
                                         let copy_len = len.min(ad.jpeg_desc_buf.len() - 8);
                                         // Write secret after the salt slot, then the salt.
                                         for i in (0..copy_len).rev() {
@@ -836,12 +910,16 @@ pub fn handle_tx_touch(
                             let pp = ad.seed_mgr.active_slot()
                                 .map(|s| s.passphrase_str())
                                 .unwrap_or("");
-                            let seed = crate::app::signing::derive_seed(
-                                &ad.mnemonic_indices, ad.word_count, pp);
                             let mut xonly_pub = [0u8; 32];
-                            if let Ok(acct_key) = wallet::bip32::derive_account_key(&seed.bytes) {
-                                if let Ok(xo) = acct_key.public_key_x_only() {
-                                    xonly_pub = xo;
+                            // None for raw-key/xprv slots; leaves xonly_pub
+                            // zeroed as the Err path already did.
+                            if let Some(seed) = crate::app::signing::derive_seed(
+                                &ad.mnemonic_indices, ad.word_count, pp)
+                            {
+                                if let Ok(acct_key) = wallet::bip32::derive_account_key(&seed.bytes) {
+                                    if let Ok(xo) = acct_key.public_key_x_only() {
+                                        xonly_pub = xo;
+                                    }
                                 }
                             }
                             boot_display.update_progress_bar(40);
@@ -852,7 +930,18 @@ pub fn handle_tx_touch(
                             // inline sampler set bit 8 (DIG_XTAL32K_EN) by mistake, so the WDEV
                             // RNG ran without its jitter feed.
                             let mut rng_bytes = [0u8; 44];
-                            crate::crypto::entropy::fill(&mut rng_bytes);
+                            // On failure `fill` leaves this zeroed, and ECIES then
+                            // rejects it: an all-zero 32 bytes is not a valid secp256k1
+                            // scalar, so `SecretKey::from_slice` returns "bad ephemeral
+                            // key" and the encrypt refuses. Fails closed already, but
+                            // not by design, so the result is checked here too.
+                            if crate::crypto::entropy::fill(&mut rng_bytes).is_err() {
+                                boot_display.draw_rejected_screen("Secure RNG failed");
+                                sound::beep_error(delay);
+                                delay.delay_millis(2000);
+                                needs_redraw = true;
+                                return Some(needs_redraw);
+                            }
                             boot_display.update_progress_bar(60);
 
                             // ECIES encrypt the plaintext message

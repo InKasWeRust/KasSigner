@@ -22,7 +22,6 @@ use crate::{app::data::AppData, hw::display, hw::sdcard, hw::sound, ui::setup_wi
 use esp_hal::lcd_cam::cam::Camera as DvpCamera;
 use esp_hal::dma::DmaRxBuf;
 
-#[cfg(not(feature = "silent"))]
 /// Handle touch events for menu screens (MainMenu, SeedsMenu, ToolsMenu, etc.).
 #[inline(never)]
 pub fn handle_menu_touch(
@@ -137,9 +136,10 @@ pub fn handle_menu_touch(
                                             if !ad.pubkeys_cached {
                                                 let slot_wc = ad.seed_mgr.active_slot().map(|s| s.word_count).unwrap_or(0);
                                                 if slot_wc == 1 {
-                                                    if let Some(slot) = ad.seed_mgr.active_slot() as Option<&crate::ui::seed_manager::SeedSlot> {
-                                                        let mut key = [0u8; 32];
-                                                        slot.raw_key_bytes(&mut key);
+                                                    // Kind-checked (H-08).
+                                                    if let Some(mut key) = ad.seed_mgr.active_slot()
+                                                        .and_then(|s| s.as_raw_key())
+                                                    {
                                                         if let Ok(xpub) = wallet::bip32::pubkey_from_raw_key(&key) {
                                                             ad.pubkey_cache[0].copy_from_slice(&xpub);
                                                         }
@@ -261,7 +261,7 @@ pub fn handle_menu_touch(
                                             let fat32 = sdcard::mount_fat32(ct)?;
                                             sdcard::list_root_dir_lfn(ct, &fat32, |entry, disp_name, disp_len| {
                                                 if !entry.is_dir() && entry.file_size > 0
-                                                    && (ad.import_jpeg_count as usize) < 8 {
+                                                    && (ad.import_jpeg_count as usize) < crate::app::data::SD_FILE_LIST_MAX {
                                                     let ext = &entry.name[8..11];
                                                     let first = entry.name[0];
                                                     let is_hidden = first == b'.' || first == b'_' || first == 0xE5;
@@ -305,7 +305,7 @@ pub fn handle_menu_touch(
                                                     && !is_hidden
                                                     && entry.file_size > 0
                                                     && entry.file_size <= 1024
-                                                    && (ad.sd_file_count as usize) < 8
+                                                    && (ad.sd_file_count as usize) < crate::app::data::SD_FILE_LIST_MAX
                                                     && ext == *b"COV"
                                                 {
                                                     ad.sd_file_list[ad.sd_file_count as usize] = entry.name;
@@ -365,13 +365,12 @@ pub fn handle_menu_touch(
                                                 let ww = crate::hw::display::measure_body("Deriving...");
                                                 crate::hw::display::draw_lato_body(&mut boot_display.display, "Deriving...", (320 - ww) / 2, 172, crate::hw::display::COLOR_TEXT_DIM);
                                             }
-                                            let pp = ad.seed_mgr.active_slot().map(|s: &crate::ui::seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
-                                            crate::app::signing::derive_all_pubkeys(
-                                                &ad.mnemonic_indices, ad.word_count, pp,
-                                                &mut ad.pubkey_cache, &mut ad.acct_key_raw);
-                                            crate::app::signing::derive_change_pubkeys(
-                                                &ad.acct_key_raw, &mut ad.change_pubkey_cache);
-                                            ad.pubkeys_cached = true;
+                                            // Dispatches on word_count: xprv and
+                                            // raw-key slots must not go through
+                                            // derive_all_pubkeys, whose packed key
+                                            // bytes are not BIP39 word indices.
+                                            // Sets pubkeys_cached only on success.
+                                            crate::app::signing::fill_display_caches(ad);
                                         }
                                         ad.app.state = crate::app::input::AppState::SignTxGuide;
                                     }
@@ -492,7 +491,22 @@ pub fn handle_menu_touch(
 
                             if let Some(val) = tapped_die {
                                 ad.dice_collector.add_roll(val);
-                                log!("   Dice: {} ({}/{})", val, ad.dice_collector.count, ad.dice_collector.target);
+                                // Progress only, never the value. The die values
+                                // ARE the seed entropy: anyone capturing serial
+                                // while a user rolls reproduces the wallet.
+                                //
+                                // `log!` is a no-op under `silent`, but no
+                                // shipped artifact sets it. Every Dockerfile
+                                // stage builds with `--features skip-tests`
+                                // alone, and `production` is enabled in no
+                                // documented build (P-08), so this reached the
+                                // wire in every published binary.
+                                //
+                                // Reported externally by `kas-builder` in PR #1
+                                // against InKasWeRust/KasSigner, their first
+                                // pull request. M-16.
+                                log!("   Dice roll entered ({}/{})",
+                                    ad.dice_collector.count, ad.dice_collector.target);
 
                                 if ad.dice_collector.is_complete() {
                                     // Generate seed from dice
@@ -555,6 +569,20 @@ pub fn handle_menu_touch(
                                             draw_lato_body(&mut boot_display.display, "Collecting entropy...", (320 - sw) / 2, 130, COLOR_TEXT_DIM);
                                         }
 
+                                        // Round 0.5: MEMS gyro noise BEFORE the camera is
+                                        // powered, as a control.
+                                        //
+                                        // The IMU is healthy at boot and degrades by seed time,
+                                        // and camera power-up is the only thing that differs.
+                                        // Collecting on both sides of it turns that inference into
+                                        // a measurement: if pre-cam is clean and post-cam is
+                                        // frozen, the camera is the cause and this collection
+                                        // point is also the fix.
+                                        #[cfg(feature = "waveshare")]
+                                        let mut imu_pre = [0u8; 96];
+                                        #[cfg(feature = "waveshare")]
+                                        let imu_pre_n = crate::hw::imu::collect(i2c, delay, &mut imu_pre);
+
                                         // Power on camera for entropy capture
                                         #[cfg(feature = "waveshare")]
                                         {
@@ -570,13 +598,31 @@ pub fn handle_menu_touch(
                                         let entropy_bytes = if wc == 12 { 16usize } else { 32usize };
                                         let mut pool = [0u8; 32]; // entropy accumulator
                                         let mut got_entropy = false;
+                                        // Bytes of MEMS gyro noise mixed in Round 2.5. The m5stack
+                                        // build has no IMU module, so the block that assigns this
+                                        // is cfg'd out there and `mut` goes unused: underscore
+                                        // silences unused_variables, allow() silences unused_mut.
+                                        #[allow(unused_mut)]
+                                        let mut _imu_bytes = 0usize;
 
-                                        // Enable RC_FAST_CLK for TRNG entropy
-                                        // RTC_CNTL_CLK_CONF_REG = 0x6000_8074, bit 10 = DIG_CLK8M_EN
-                                        unsafe {
-                                            let clk_conf = core::ptr::read_volatile(0x6000_8074u32 as *const u32);
-                                            core::ptr::write_volatile(0x6000_8074u32 as *mut u32, clk_conf | (1 << 10));
-                                        }
+                                        // Enable BOTH documented RNG noise sources before sampling.
+                                        //
+                                        // Shared with crypto::entropy so this path cannot drift from
+                                        // fill(). enable_rc_fast() sets RTC_CNTL_DIG_CLK8M_EN and then
+                                        // waits for the RC oscillator to settle, which the previous
+                                        // inline write here did not do: it set the bit and started
+                                        // reading immediately.
+                                        //
+                                        // enable_sar_adc_noise() holds the SAR ADC powered on. TRM 25.3:
+                                        // RC_FAST_CLK alone yields true random numbers, but "to ensure
+                                        // maximum entropy, it's recommended to always enable an ADC
+                                        // source as well". The high-speed ADC needs Wi-Fi or Bluetooth,
+                                        // which this device never starts, so the SAR ADC is the only one
+                                        // available. It also makes the SAR ADC1 data reads further down
+                                        // meaningful; without it that register is static and those reads
+                                        // contributed nothing while appearing to.
+                                        crate::crypto::entropy::enable_rc_fast();
+                                        crate::crypto::entropy::enable_sar_adc_noise();
 
 
                                         // Round 1: TRNG seed (32 reads at 500kHz max → ~64µs)
@@ -585,15 +631,13 @@ pub fn handle_menu_touch(
                                             let mut hasher = Sha256::new();
                                             let mut trng_buf = [0u8; 128]; // 32 × 4 bytes
                                             for i in 0..32 {
-                                                let rng_val = unsafe {
-                                                    core::ptr::read_volatile(0x6003_5144u32 as *const u32)
-                                                };
+                                                let rng_val = crate::crypto::entropy::read_wdev();
                                                 trng_buf[i*4]     = (rng_val & 0xFF) as u8;
                                                 trng_buf[i*4 + 1] = ((rng_val >> 8) & 0xFF) as u8;
                                                 trng_buf[i*4 + 2] = ((rng_val >> 16) & 0xFF) as u8;
                                                 trng_buf[i*4 + 3] = ((rng_val >> 24) & 0xFF) as u8;
                                                 // ~2µs delay between reads for max entropy
-                                                for _ in 0..160u32 { core::hint::spin_loop(); }
+                                                crate::crypto::entropy::delay_us_systimer(2);
                                             }
                                             hasher.update(trng_buf);
                                             // Mix SYSTIMER: latch counter then read full 52-bit value
@@ -631,6 +675,38 @@ pub fn handle_menu_touch(
                                             crate::hw::cam_dma::start_capture();
                                             delay.delay_millis(50); // let DMA settle
                                         }
+
+                                        // Camera noise measurement, accumulated across the frame
+                                        // loop. The image is a constant across generations; only
+                                        // the frame-to-frame delta is entropy.
+                                        //
+                                        // NOT platform-gated. Both capture paths feed the same
+                                        // measurement: the DvpCamera path below hands over full
+                                        // frames, the Waveshare cam_dma fallback hands over the
+                                        // partial capture. Gating this on `waveshare` is what left
+                                        // audit E-07 open on M5Stack.
+                                        let mut cam_meas = 0u32;
+                                        let mut cam_changed = 0u32;
+                                        let mut cam_mad = 0u32;
+                                        let mut cam_sampled = 0u32;
+                                        // ACCUMULATED |shift|, not the last frame's. Reporting
+                                        // the last frame's shift beside an averaged MAD and AC
+                                        // produced lines like "MAD 21.11, shift 0, AC 1.29",
+                                        // which is arithmetically impossible for one frame and
+                                        // hid the fact that ~94% of that MAD was DC level-step.
+                                        let mut cam_shift_abs = 0u32;
+                                        let mut cam_ac = 0u32;
+                                        // Worst frame, not the last one. distinct and shift were
+                                        // being overwritten each pass while changed and MAD were
+                                        // averaged, so the line mixed a snapshot with an average.
+                                        let mut cam_distinct_min = u32::MAX;
+                                        // Bytes actually hashed into the pool. Counted, not
+                                        // hardcoded: a literal was wrong by 28x on Waveshare
+                                        // (E-09) and wrong again on M5Stack, whose frames are
+                                        // 76800 bytes against Waveshare's 8064-byte partials.
+                                        let mut cam_bytes = 0u32;
+                                        crate::hw::frame_noise::reset_baseline();
+
                                         for frame_idx in 0..8u8 {
                                             if let Some(cam) = dvp_camera_opt.take() {
                                                 if let Some(dma_buf) = cam_dma_buf_opt.take() {
@@ -648,13 +724,28 @@ pub fn handle_menu_touch(
                                                             // Mix in frame index + timing jitter
                                                             hasher.update([frame_idx, (t0 & 0xFF) as u8, (t1 & 0xFF) as u8]);
                                                             // Mix in TRNG sample taken mid-frame
-                                                            let rng_mid = unsafe {
-                                                                core::ptr::read_volatile(0x6003_5144u32 as *const u32)
-                                                            };
+                                                            let rng_mid = crate::crypto::entropy::read_wdev();
                                                             hasher.update(rng_mid.to_le_bytes());
                                                             let hash = hasher.finalize();
                                                             for i in 0..32 { pool[i] ^= hash[i]; }
                                                             got_entropy = true;
+                                                            cam_bytes += pixels.len() as u32;
+                                                            // Measured here, before buf_back moves
+                                                            // back into the Option and the borrow
+                                                            // on `pixels` ends.
+                                                            if let Some(fm) =
+                                                                crate::hw::frame_noise::measure(pixels)
+                                                            {
+                                                                cam_meas += 1;
+                                                                cam_changed += fm.changed;
+                                                                cam_mad += fm.mad_x100;
+                                                                cam_ac += fm.ac_x100;
+                                                                cam_distinct_min =
+                                                                    cam_distinct_min.min(fm.distinct);
+                                                                cam_sampled = fm.sampled;
+                                                                cam_shift_abs +=
+                                                                    fm.mean_shift_x100.unsigned_abs();
+                                                            }
                                                             *cam_dma_buf_opt = Some(buf_back);
                                                             *dvp_camera_opt = Some(cam_back);
                                                         }
@@ -692,21 +783,136 @@ pub fn handle_menu_touch(
                                                     };
                                                     hasher.update([frame_idx, (t0 & 0xFF) as u8, 0xCA]);
                                                     hasher.update(ccount.to_le_bytes());
-                                                    let rng_mid = unsafe {
-                                                        core::ptr::read_volatile(0x6003_5144u32 as *const u32)
-                                                    };
+                                                    let rng_mid = crate::crypto::entropy::read_wdev();
                                                     hasher.update(rng_mid.to_le_bytes());
                                                     let hash = hasher.finalize();
                                                     for i in 0..32 { pool[i] ^= hash[i]; }
                                                     got_entropy = true;
+                                                    cam_bytes += pixels.len() as u32;
+                                                    if let Some(fm) =
+                                                        crate::hw::frame_noise::measure(pixels)
+                                                    {
+                                                        cam_meas += 1;
+                                                        cam_changed += fm.changed;
+                                                        cam_mad += fm.mad_x100;
+                                                        cam_ac += fm.ac_x100;
+                                                        cam_distinct_min =
+                                                            cam_distinct_min.min(fm.distinct);
+                                                        cam_sampled = fm.sampled;
+                                                        cam_shift_abs +=
+                                                            fm.mean_shift_x100.unsigned_abs();
+                                                    }
                                                 }
                                             }
                                             delay.delay_millis(30);
+                                        }
+
+                                        // Report the camera the same way the IMU is reported.
+                                        // `changed` near zero means the buffer is not refreshing
+                                        // and the camera contributes nothing while the summary
+                                        // line claims 8 frames.
+                                        if cam_meas > 0 {
+                                            let ch = cam_changed / cam_meas;
+                                            let mad = cam_mad / cam_meas;
+                                            // mean shift is the DC component. If MAD is entirely
+                                            // explained by it, the frame moved as one object and
+                                            // contributed nothing per pixel.
+                                            let ac = cam_ac / cam_meas;
+                                            let sh = cam_shift_abs / cam_meas;
+                                            log!(
+                                                "   Entropy: CAM noise — {}/{} changed/frame, MAD {}.{:02}, AC {}.{:02}, |shift| {}.{:02} LSB, distinct min {}, over {} deltas",
+                                                ch, cam_sampled, mad / 100, mad % 100,
+                                                ac / 100, ac % 100, sh / 100, sh % 100,
+                                                cam_distinct_min, cam_meas
+                                            );
+                                        } else {
+                                            log!("   Entropy: CAM noise — no frame deltas measured");
                                         }
                                         // Waveshare: stop cam_dma after entropy collection
                                         #[cfg(feature = "waveshare")]
                                         if dvp_camera_opt.is_none() {
                                             crate::hw::cam_dma::stop();
+                                        }
+
+                                        // Round 2.5: MEMS gyro noise, both sides of the camera.
+                                        //
+                                        // The only source in this pool that is not the SoC itself.
+                                        // Rounds 1 and 3 are ESP32-S3 registers; round 2 is the
+                                        // camera, which contributes nothing with the lens covered
+                                        // or in the dark.
+                                        //
+                                        // ADDITIVE ONLY. Neither collection sets got_entropy: the
+                                        // camera stays the fail-closed gate. Bytes are mixed even
+                                        // when a collection fails its health check, because
+                                        // folding a frozen axis through SHA-256 and XOR cannot
+                                        // REMOVE entropy, it just adds none; only the reported
+                                        // byte count is gated, so the log never claims a
+                                        // contribution that was not made.
+                                        #[cfg(feature = "waveshare")]
+                                        {
+                                            let mut imu_post = [0u8; 96]; // 32 passes x 3 axes
+                                            let imu_post_n =
+                                                crate::hw::imu::collect(i2c, delay, &mut imu_post);
+
+                                            let sources: [(&str, &[u8], usize); 2] = [
+                                                ("pre-cam", &imu_pre[..], imu_pre_n),
+                                                ("post-cam", &imu_post[..], imu_post_n),
+                                            ];
+
+                                            for (idx, &(label, buf, n)) in sources.iter().enumerate() {
+                                                if n == 0 {
+                                                    log!("   Entropy: IMU {} unavailable, skipped", label);
+                                                    continue;
+                                                }
+                                                let ax = crate::hw::imu::axis_distinct(&buf[..n]);
+                                                let healthy =
+                                                    crate::hw::imu::buffer_is_healthy(&buf[..n]);
+
+                                                use sha2::{Sha256, Digest};
+                                                let mut hasher = Sha256::new();
+                                                hasher.update(&buf[..n]);
+                                                // Length and source index are bound in so a short
+                                                // collection cannot collide with a full one that
+                                                // shares a prefix, and the two sources cannot
+                                                // cancel if they ever return identical bytes.
+                                                hasher.update((n as u32).to_le_bytes());
+                                                hasher.update([0x02, idx as u8]);
+                                                let hash = hasher.finalize();
+                                                for i in 0..32 { pool[i] ^= hash[i]; }
+
+                                                if healthy {
+                                                    _imu_bytes += n;
+                                                    log!(
+                                                        "   Entropy: IMU {} {} bytes mixed (distinct X{} Y{} Z{} of {})",
+                                                        label, n, ax[0], ax[1], ax[2], n / 3
+                                                    );
+                                                } else {
+                                                    // The stuck value names the failure: 0xFF or
+                                                    // 0x00 on an axis with distinct 1 is a
+                                                    // rail-pinned axis (full-scale clip from
+                                                    // handling), anything else is a frozen
+                                                    // register or a bus fault.
+                                                    let fb = crate::hw::imu::axis_first_byte(&buf[..n]);
+                                                    log!(
+                                                        "   Entropy: IMU {} DEGRADED — {} bytes but distinct X{} Y{} Z{} of {} (first X{:02X} Y{:02X} Z{:02X}); contributed ~nothing, NOT counted",
+                                                        label, n, ax[0], ax[1], ax[2], n / 3,
+                                                        fb[0], fb[1], fb[2]
+                                                    );
+                                                }
+
+                                                #[cfg(feature = "imu-dump")]
+                                                {
+                                                    log!("   [imu-dump] source: {}", label);
+                                                    crate::hw::imu::dump_buffer(&buf[..n]);
+                                                }
+                                            }
+
+                                            for b in imu_post.iter_mut() {
+                                                unsafe { core::ptr::write_volatile(b, 0); }
+                                            }
+                                            for b in imu_pre.iter_mut() {
+                                                unsafe { core::ptr::write_volatile(b, 0); }
+                                            }
                                         }
 
                                         // Round 3: Final TRNG + ADC noise whitening
@@ -716,11 +922,9 @@ pub fn handle_menu_touch(
                                             hasher.update(pool);
                                             // 64 more TRNG reads
                                             for _ in 0..64 {
-                                                let rng_val = unsafe {
-                                                    core::ptr::read_volatile(0x6003_5144u32 as *const u32)
-                                                };
+                                                let rng_val = crate::crypto::entropy::read_wdev();
                                                 hasher.update(rng_val.to_le_bytes());
-                                                for _ in 0..160u32 { core::hint::spin_loop(); }
+                                                crate::crypto::entropy::delay_us_systimer(2);
                                             }
                                             // Battery ADC noise (GPIO5) — even if not calibrated, LSBs are noisy
                                             for _ in 0..16 {
@@ -752,8 +956,67 @@ pub fn handle_menu_touch(
                                             pool.copy_from_slice(&final_hash);
                                         }
 
-                                        if got_entropy {
-                                            log!("   Entropy: CAM(8 frames) + eFuse + SYSTIMER + timing → SHA-256");
+                                        // ── Entropy gate ─────────────────────────────────
+                                        //
+                                        // Fail-closed on the property that actually matters: at
+                                        // least one source OUTSIDE the SoC contributed measured,
+                                        // varying data. Rounds 1 and 3 are ESP32-S3 registers and
+                                        // deliberately cannot satisfy this alone, because a
+                                        // firmware that believes it has a TRNG and does not is
+                                        // the failure this subsystem exists to survive.
+                                        //
+                                        // Camera OR IMU, not camera alone. The camera-only gate
+                                        // predates the IMU and became arbitrary once a second
+                                        // independent die with its own point-of-use health check
+                                        // was in the pool. Requiring BOTH would make a healthy
+                                        // device refuse to generate a seed because one of two
+                                        // sources had a bad moment, and in testing both have.
+                                        //
+                                        // The camera check was previously nominal: got_entropy
+                                        // was set because get_entropy_bytes() returned Some, i.e.
+                                        // the pointer was non-null. It never verified the data
+                                        // varied. Now it does.
+                                        //
+                                        // The cam_meas == 0 escape covers the DvpCamera path,
+                                        // which hashes frames without going through cam_dma and
+                                        // so produces no delta measurement. That path keeps its
+                                        // previous behaviour rather than being blocked by a check
+                                        // that never runs on it.
+                                        // One expression, both platforms. The measurement is in
+                                        // hw/frame_noise.rs precisely so this does not need a cfg,
+                                        // and so `cam_ok` means the same thing on M5Stack as on
+                                        // Waveshare.
+                                        //
+                                        // The cam_meas == 0 escape now covers only a capture loop
+                                        // that produced fewer than two frames, i.e. no delta to
+                                        // measure, rather than a whole platform.
+                                        // Enough bytes moved, AND the movement is per-pixel
+                                        // rather than the whole image shifting together. The
+                                        // second condition was briefly a `distinct` threshold,
+                                        // which refused a spatially flat but genuinely noisy dark
+                                        // frame; AC is the honest discriminator.
+                                        let cam_ok = got_entropy
+                                            && (cam_meas == 0
+                                                || (cam_changed / cam_meas
+                                                        >= crate::hw::frame_noise::MIN_CHANGED_FOR_ENTROPY
+                                                    && cam_ac / cam_meas
+                                                        >= crate::hw::frame_noise::MIN_AC_FOR_ENTROPY));
+                                        // _imu_bytes counts only collections that passed the
+                                        // per-axis health check, so non-zero means at least one
+                                        // substantiated IMU contribution. Always 0 on m5stack,
+                                        // which has no IMU module, so the gate there reduces
+                                        // exactly to the previous camera-only behaviour.
+                                        let imu_ok = _imu_bytes > 0;
+
+                                        if cam_ok || imu_ok {
+                                            // "8 frames" overstated by ~28x: a frame is 230400
+                                            // bytes and cam_dma delivers 8064 of them. Report the
+                                            // bytes actually hashed, as the IMU line does.
+                                            log!("   Entropy: CAM({}B){} + IMU({}B){} + eFuse + SYSTIMER + timing → SHA-256",
+                                                cam_bytes,
+                                                if cam_ok { "" } else { " DEGRADED" },
+                                                _imu_bytes,
+                                                if imu_ok { "" } else { " DEGRADED" });
                                             wizard.generate_from_entropy(&pool[..entropy_bytes]);
                                             for b in pool.iter_mut() {
                                                 unsafe { core::ptr::write_volatile(b, 0); }
@@ -764,8 +1027,16 @@ pub fn handle_menu_touch(
                                             ad.pp_input.reset();
                                             ad.app.state = crate::app::input::AppState::PassphraseEntry;
                                         } else {
-                                            log!("   No camera for entropy!");
-                                            boot_display.draw_rejected_screen("Camera not ready");
+                                            log!("   REFUSED: no non-SoC entropy source healthy (cam {}, imu {})",
+                                                if cam_ok { "ok" } else { "FAIL" },
+                                                if imu_ok { "ok" } else { "FAIL" });
+                                            // Actionable, not just accurate. On both boards the
+                                            // fix a user can apply is light: the camera is the
+                                            // only non-SoC source on M5Stack, and on Waveshare a
+                                            // refusal means the IMU failed too. A user who is
+                                            // told only "no entropy source" may go and generate a
+                                            // seed somewhere worse.
+                                            boot_display.draw_rejected_screen("Need more light");
                                             delay.delay_millis(2000);
                                             ad.app.state = crate::app::input::AppState::ToolsMenu;
                                         }
@@ -935,4 +1206,42 @@ pub fn handle_menu_touch(
                     _ => { return None; }
                 }
     Some(needs_redraw)
+}
+
+
+/// Silent duress wipe. Called from main.rs the moment a finger lands in the
+/// logo corner on the main menu; returns true only if it stays there for
+/// HOLD_MS without lifting or drifting.
+///
+/// Deliberately silent: no prompt, no progress bar, no confirmation. A quick
+/// tap is indistinguishable from doing nothing, and an observer sees no
+/// indication that a wipe is in progress. That is the point of a duress
+/// control.
+///
+/// Polls raw `TouchState` rather than `TouchAction`, because `TouchAction`
+/// differs per board: CST816D reports Hold from its hardware gesture engine
+/// after a real long press, FT6336U reports it on every poll while down.
+/// `TouchState::One(TouchPoint)` is identical on both.
+///
+/// The finger is ALREADY down on entry, so there is no arm-wait state and
+/// therefore no way to loop: every poll either extends the hold, completes
+/// it, or returns false.
+pub(crate) fn wipe_hold_confirm(
+    _boot_display: &mut display::BootDisplay<'_>,
+    delay: &mut esp_hal::delay::Delay,
+    i2c: &mut esp_hal::i2c::master::I2c<'_, esp_hal::Blocking>,
+) -> bool {
+    const HOLD_MS: u32 = 4000;
+    let mut held_ms: u32 = 0;
+    loop {
+        delay.delay_millis(50);
+        match crate::hw::touch::read_touch(i2c) {
+            crate::hw::touch::TouchState::One(pt) if pt.x <= 48 && pt.y <= 48 => {
+                held_ms += 50;
+                if held_ms >= HOLD_MS { return true; }
+            }
+            // Lifted, or moved off the corner.
+            _ => return false,
+        }
+    }
 }

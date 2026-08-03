@@ -60,7 +60,7 @@ fn hex8(h: &[u8; 32]) -> [u8; 16] {
 //
 // Kaspa uses KEYED Blake2b-256 for domain separation in sighash.
 // Each sub-hash uses a different ASCII key string (up to 64 bytes).
-// This matches Go kaspad's `blake2b.New256(key)` and Rusty Kaspa's
+// This matches Rusty Kaspa's
 // `blake2b_simd::Params::new().hash_length(32).key(key).to_state()`.
 //
 // Keyed Blake2b:
@@ -465,17 +465,68 @@ fn payload_hash(tx: &Transaction) -> Hash256 {
 /// `sighash_type`: sighash type (normally SigHashAll)
 ///
 /// Returns 32 bytes = keyed Blake2b of the sighash digest.
+/// Input-independent sub-hashes of the sighash, computed ONCE per
+/// (transaction, sighash_type) and reused across every input. Under
+/// SIGHASH_ALL (the standard spend) prev-outputs, sequences, sig-op-counts,
+/// outputs and payload are identical for all inputs — the per-input
+/// recomputation walked the whole transaction N times (N inputs = O(N^2)
+/// hashing) and nested an extra hasher frame inside the deep signing chain.
+pub struct SighashReuse {
+    prev_outputs: Hash256,
+    sequences: Hash256,
+    sig_op_counts: Hash256,
+    outputs_all: Hash256,
+    payload: Hash256,
+    single: bool,
+}
+
+impl SighashReuse {
+    pub fn compute(tx: &Transaction, sighash_type: SigHashType) -> Self {
+        let single = sighash_type.is_sighash_single();
+        SighashReuse {
+            prev_outputs: previous_outputs_hash(tx, sighash_type),
+            sequences: sequences_hash(tx, sighash_type),
+            sig_op_counts: if tx.version < 1 {
+                sig_op_counts_hash(tx, sighash_type)
+            } else {
+                [0u8; 32]
+            },
+            // SINGLE's outputs hash depends on the input index; computed
+            // per input in that (rare) case, cached for everything else.
+            outputs_all: if single { [0u8; 32] } else { outputs_hash(tx, sighash_type, 0) },
+            payload: payload_hash(tx),
+            single,
+        }
+    }
+}
+
 pub fn calculate_sighash(
     tx: &Transaction,
     input_index: usize,
     sighash_type: SigHashType,
 ) -> Hash256 {
+    // Uncached path: identical bytes by construction — the cache is
+    // computed from the same functions the old body called per input.
+    let reuse = SighashReuse::compute(tx, sighash_type);
+    calculate_sighash_cached(tx, input_index, sighash_type, &reuse)
+}
+
+pub fn calculate_sighash_cached(
+    tx: &Transaction,
+    input_index: usize,
+    sighash_type: SigHashType,
+    reuse: &SighashReuse,
+) -> Hash256 {
     let input = &tx.inputs[input_index];
 
-    let prev_outputs = previous_outputs_hash(tx, sighash_type);
-    let sequences = sequences_hash(tx, sighash_type);
-    let outputs = outputs_hash(tx, sighash_type, input_index);
-    let payload = payload_hash(tx);
+    let prev_outputs = reuse.prev_outputs;
+    let sequences = reuse.sequences;
+    let outputs = if reuse.single {
+        outputs_hash(tx, sighash_type, input_index)
+    } else {
+        reuse.outputs_all
+    };
+    let payload = reuse.payload;
 
     // Build the final digest with "TransactionSigningHash" domain key
     let mut h = SigHasher::new();
@@ -491,8 +542,7 @@ pub fn calculate_sighash(
 
     // 4. sigOpCountsHash (32 bytes) — only for version 0
     if tx.version < 1 {
-        let sig_op_counts = sig_op_counts_hash(tx, sighash_type);
-        h.update_hash(&sig_op_counts);
+        h.update_hash(&reuse.sig_op_counts);
     }
 
     // 5. txIn.PreviousOutpoint.TransactionID (32 bytes)
@@ -586,6 +636,18 @@ pub fn sign_input(
     sighash_type: SigHashType,
 ) -> Result<super::schnorr::SchnorrSignature, super::schnorr::SchnorrError> {
     let sighash = calculate_sighash(tx, input_index, sighash_type);
+    super::schnorr::schnorr_sign(private_key, &sighash)
+}
+
+/// sign_input with a precomputed SighashReuse — for multi-input passes.
+pub fn sign_input_cached(
+    tx: &Transaction,
+    input_index: usize,
+    private_key: &[u8; 32],
+    sighash_type: SigHashType,
+    reuse: &SighashReuse,
+) -> Result<super::schnorr::SchnorrSignature, super::schnorr::SchnorrError> {
+    let sighash = calculate_sighash_cached(tx, input_index, sighash_type, reuse);
     super::schnorr::schnorr_sign(private_key, &sighash)
 }
 

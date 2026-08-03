@@ -44,10 +44,57 @@ const SYSTEM_PERIP_RST_EN0: u32 = 0x600C_0020;
 /// Peripheral reset register 1
 const SYSTEM_PERIP_RST_EN1: u32 = 0x600C_0024;
 
-/// WiFi clock enable (PERIP_CLK_EN0 bit 0 + dedicated regs)
-const SYSTEM_WIFI_CLK_EN: u32 = 0x600C_0090;
-/// Bluetooth clock register
-const SYSTEM_BT_LPCK_DIV_FRAC: u32 = 0x600C_00A8;
+/// Modem-domain clock enables, including WiFi and Bluetooth.
+///
+/// ADDRESS CORRECTED 2026-08-02. This was `0x600C_0090` and named
+/// `SYSTEM_WIFI_CLK_EN`. Two things were wrong with that:
+///
+/// 1. The register is not in the SYSTEM peripheral at all. It is `wifi_clk_en`
+///    in APB_CTRL. Verified in the `esp32s3` 0.30.0 PAC:
+///    `APB_CTRL::PTR = 0x6002_6000`, `wifi_clk_en` the sixth u32 in the block.
+/// 2. What actually sits at SYSTEM + 0x90 is `comb_pvt_err_nvt_site2`, a
+///    process/voltage/temperature error register. So `early_lockdown` was
+///    zeroing a PVT register and believing it had disabled the radios.
+///
+/// The boot line "[SEC] Radios disabled (WiFi, BT, USB OTG)" was therefore
+/// FALSE for WiFi and Bluetooth. The USB OTG half was real; those registers
+/// were correct.
+///
+/// Independently confirmed by measurement the same day: `wifi_clk_en` read
+/// `0xFFFCE030` on Waveshare AFTER `early_lockdown` had run. Had the lockdown
+/// been touching that register it would have read zero.
+const APB_CTRL_WIFI_CLK_EN: u32 = 0x6002_6014;
+
+/// Bluetooth low-power clock fractional divider.
+///
+/// ADDRESS CORRECTED 2026-08-02: was `0x600C_00A8`. In the PAC's
+/// `system::RegisterBlock`, `bt_lpck_div_frac` is at offset 0x2C, so
+/// `0x600C_002C`. The old address pointed at an unrelated register.
+const SYSTEM_BT_LPCK_DIV_FRAC: u32 = 0x600C_002C;
+
+/// `SYSTEM_WIFI_CLK_RNG_EN`, bit 15 of `wifi_clk_en`: the RNG's clock enable.
+///
+/// This bit must SURVIVE the lockdown. It shares a register with the radio
+/// clocks but has nothing to do with them, and clearing it kills the hardware
+/// RNG (C-04). `crypto::entropy::enable_rc_fast` sets it, and this function now
+/// preserves it rather than relying on that.
+const APB_CTRL_WIFI_CLK_RNG_EN: u32 = 1 << 15;
+
+/// `RTC_CNTL_DIG_PWC_REG`, the digital-system power configuration register.
+///
+/// From the ESP32-S3 TRM v1.2 (in this project's docs): Low-Power Management
+/// occupies `0x6000_8000..0x6000_8FFF`, and `RTC_CNTL_DIG_PWC_REG` is at offset
+/// `0x0090`. Cross-checks against `crypto::entropy`'s `RTC_CNTL_CLK_CONF` at
+/// `0x6000_8074`, same block.
+const RTC_CNTL_DIG_PWC: u32 = 0x6000_8090;
+
+/// `RTC_CNTL_WIFI_FORCE_PD`, bit 17. "Set this bit to FPD Wi-Fi." (TRM 10.30)
+const RTC_CNTL_WIFI_FORCE_PD: u32 = 1 << 17;
+/// `RTC_CNTL_WIFI_FORCE_PU`, bit 18. "Set this bit to FPU Wi-Fi." (TRM 10.30)
+///
+/// **Reset value is 1**, so the wireless power domain is held ON by default.
+/// Clock gating alone therefore left a powered block with its clocks stopped.
+const RTC_CNTL_WIFI_FORCE_PU: u32 = 1 << 18;
 
 // PERIP_CLK_EN0 bits
 const USB_CLK_EN: u32 = 1 << 23; // USB OTG
@@ -103,10 +150,43 @@ pub fn early_lockdown() {
         // NOTE: This register is shared. If SD card fails after this,
         // do a hard power cycle — a prior panic may have left SDHOST
         // in a bad state that persists across soft resets.
-        reg_write(SYSTEM_WIFI_CLK_EN, 0);
+        //
+        // Clear every modem clock EXCEPT the RNG's. A bare `reg_write(_, 0)`
+        // would take bit 15 with it, and the RNG is not a radio.
+        let wifi_clk = core::ptr::read_volatile(APB_CTRL_WIFI_CLK_EN as *const u32);
+        core::ptr::write_volatile(
+            APB_CTRL_WIFI_CLK_EN as *mut u32,
+            wifi_clk & APB_CTRL_WIFI_CLK_RNG_EN,
+        );
 
         // Zero the BT low-power clock divider
         reg_write(SYSTEM_BT_LPCK_DIV_FRAC, 0);
+
+        // ── Power down the wireless domain, not just its clocks ──
+        //
+        // Clock gating stops a block; it does not unpower it.
+        // `RTC_CNTL_WIFI_FORCE_PU` has reset value 1, so `xpd_wireless` was
+        // held ON from boot on every device. Setting FORCE_PD and clearing
+        // FORCE_PU turns the domain off outright.
+        //
+        // Safe because `xpd_wireless` is its own domain. The TRM lists it
+        // separately from `xpd_cpu`, `xpd_pd_peri` and `xpd_dg_wrap`, and
+        // nothing this firmware uses lives in it.
+        //
+        // Limit, stated by the TRM and not something a fix can change:
+        // "RF Circuits and Phase Lock Loop (PLL) are controlled by internal
+        // signals and cannot be modified by users." So this powers down the
+        // wireless DIGITAL circuit. The RF analog block is not under software
+        // control on this part.
+        //
+        // Addresses and bit positions taken from the ESP32-S3 TRM v1.2 register
+        // 10.30, in this project's docs, not inferred. Inferring them is what
+        // produced H-13.
+        let pwc = core::ptr::read_volatile(RTC_CNTL_DIG_PWC as *const u32);
+        core::ptr::write_volatile(
+            RTC_CNTL_DIG_PWC as *mut u32,
+            (pwc & !RTC_CNTL_WIFI_FORCE_PU) | RTC_CNTL_WIFI_FORCE_PD,
+        );
 
         // ── Kill USB OTG ──
         // Gate USB OTG peripheral clock (not USB Serial/JTAG — that's
@@ -115,7 +195,40 @@ pub fn early_lockdown() {
         reg_set_bits(SYSTEM_PERIP_RST_EN0, USB_CLK_EN);
     }
 
-    log!("   [SEC] Radios disabled (WiFi, BT, USB OTG)");
+    // Claims only what is measured. "Radios disabled" was the old wording and it
+    // was false for over a year (H-13): the write went to a PVT error register.
+    //
+    // What IS verified: `wifi_clk_en` reads 0x00008000 after this runs, i.e.
+    // every bit cleared except 15, the RNG's. Measured on Waveshare 2026-08-02.
+    //
+    // What is NOT verified, and is why the wording is narrow:
+    //
+    //  - Which bits of this register correspond to WiFi MAC, baseband, or BT.
+    //    The `esp32s3` 0.30.0 PAC exposes `wifi_clk_en` and `wifi_rst_en` as
+    //    single opaque 32-bit fields with no named bits, and esp-hal names only
+    //    bit 15. No source available here gives the rest, so no further bits are
+    //    written: guessing bit meanings in this register is exactly what caused
+    //    H-13.
+    //  - The RF/PHY analog power domain, which has its own control and is not
+    //    touched by clock gating at all.
+    //
+    // What makes the residual acceptable: there is no radio firmware in this
+    // binary. esp-hal without the `wifi` feature never initialises the PHY,
+    // never calls `phy_enable`, never loads calibration. A radio that is never
+    // brought up does not transmit whether its clock runs or not. That was true
+    // before this function was fixed, which is why H-13 was High and not
+    // Critical.
+    #[cfg(not(feature = "silent"))]
+    {
+        let pwc = unsafe { core::ptr::read_volatile(RTC_CNTL_DIG_PWC as *const u32) };
+        log!(
+            "   [SEC] Wireless powered down (DIG_PWC 0x{:08X}: FORCE_PD {}, FORCE_PU {}), \
+             modem clocks gated, USB OTG off (RNG clock retained)",
+            pwc,
+            (pwc & RTC_CNTL_WIFI_FORCE_PD) != 0,
+            (pwc & RTC_CNTL_WIFI_FORCE_PU) != 0,
+        );
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -156,11 +269,22 @@ pub fn post_boot_lockdown() {
         }
     }
 
+    // These messages describe what THIS CODE did, not what the device is.
+    //
+    // What actually closes JTAG is the eFuses: DIS_PAD_JTAG and DIS_USB_JTAG
+    // (ESP32-S3 TRM Table 5-1), burned per docs/EFUSE_RUNBOOK.md Step 8. On a
+    // board where Step 8 was never run, JTAG is fully open regardless of
+    // anything below.
+    //
+    // The dev path above only clears two pad-configuration bits in
+    // USB_SERIAL_JTAG_CONF0. It does not disable the JTAG TAP. The previous
+    // message claimed "JTAG disabled", which was untrue on an unprovisioned
+    // board and misattributed the eFuse's work on a provisioned one. See H-04.
     #[cfg(feature = "production")]
-    log!("   [SEC] USB Serial/JTAG disabled (production)");
+    log!("   [SEC] USB Serial/JTAG peripheral gated and held in reset");
 
     #[cfg(not(feature = "production"))]
-    log!("   [SEC] JTAG disabled (USB UART kept for dev)");
+    log!("   [SEC] USB pad config hardened (JTAG is closed by eFuse, not here)");
 }
 
 // ═══════════════════════════════════════════════════════════════════

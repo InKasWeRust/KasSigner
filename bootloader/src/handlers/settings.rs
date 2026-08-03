@@ -22,7 +22,6 @@ use crate::log;
 use crate::{app::data::AppData, hw::display, hw::sdcard, hw::sound, hw::touch};
 use crate::ui::helpers::format_test_line;
 
-#[cfg(not(feature = "silent"))]
 /// Handle touch events for settings screens (display, audio, SD card, about).
 #[inline(never)]
 pub fn handle_settings_touch(

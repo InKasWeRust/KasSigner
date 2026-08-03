@@ -27,7 +27,6 @@ use crate::ui::helpers::pp_keyboard_hit;
 // Helper functions from helpers.rs
 use crate::ui::helpers::{suggestion_hit_test, validate_mnemonic, compute_last_word};
 
-#[cfg(not(feature = "silent"))]
 fn hex_nibble(ch: u8) -> u8 {
     match ch {
         b'0'..=b'9' => ch - b'0',
@@ -70,22 +69,25 @@ pub fn handle_seed_touch(
                             if ad.seed_loaded {
                                 boot_display.draw_bip85_deriving();
 
-                                // Get seed from active slot
+                                // Get seed from active slot.
+                                // BIP85 needs a real BIP39 seed. A raw-key (wc=1) or
+                                // xprv (wc=2) slot has none: `mnemonic_indices` holds
+                                // packed key bytes or stale data from a previous slot.
+                                // This site had no slot-type check, so both fell into
+                                // the 24-word branch, derived a child from garbage, and
+                                // then stored AND activated it as a new slot.
                                 let pp = ad.seed_mgr.active_slot().map(|s: &seed_manager::SeedSlot| s.passphrase_str()).unwrap_or("");
-                                let seed = if ad.word_count == 12 {
-                                    let m = wallet::bip39::Mnemonic12 {
-                                        indices: {
-                                            let mut idx = [0u16; 12];
-                                            idx.copy_from_slice(&ad.mnemonic_indices[..12]);
-                                            idx
-                                        }
-                                    };
-                                    wallet::bip39::seed_from_mnemonic_12(&m, pp)
-                                } else {
-                                    let m = wallet::bip39::Mnemonic24 {
-                                        indices: ad.mnemonic_indices,
-                                    };
-                                    wallet::bip39::seed_from_mnemonic_24(&m, pp)
+                                let seed = match crate::app::signing::derive_seed(
+                                    &ad.mnemonic_indices, ad.word_count, pp,
+                                ) {
+                                    Some(s) => s,
+                                    None => {
+                                        boot_display.draw_rejected_screen("Slot has no mnemonic");
+                                        sound::beep_error(delay);
+                                        delay.delay_millis(2000);
+                                        ad.app.state = crate::app::input::AppState::SeedToolsMenu;
+                                        return Some(true);
+                                    }
                                 };
 
                                 if bwc == 12 {
@@ -93,19 +95,17 @@ pub fn handle_seed_touch(
                                         Ok(child) => {
                                             ad.bip85_child_wc = 12;
                                             for i in 0..12 { ad.bip85_child_indices[i] = child.indices[i]; }
-                                            // Auto-load child seed into a new slot immediately
-                                            if let Some(slot_idx) = ad.seed_mgr.store(
-                                                &ad.bip85_child_indices, 12, b"", 0,
-                                            ) {
-                                                ad.seed_mgr.activate(slot_idx);
-                                                ad.seed_loaded = true;
-                                                ad.word_count = 12;
-                                                ad.mnemonic_indices = [0u16; 24];
-                                                for j in 0..12 { ad.mnemonic_indices[j] = ad.bip85_child_indices[j]; }
-                                                ad.pubkeys_cached = false;
-                                                ad.current_addr_index = 0;
-                                                ad.extra_pubkey_index = 0xFFFF;
-                                            }
+                                            // Auto-load child seed into a new slot immediately.
+                                            // The shared loader reads mnemonic_indices and
+                                            // word_count, so publish the child first.
+                                            ad.mnemonic_indices = [0u16; 24];
+                                            for j in 0..12 { ad.mnemonic_indices[j] = ad.bip85_child_indices[j]; }
+                                            ad.word_count = 12;
+                                            crate::app::signing::load_active_mnemonic(
+                                                ad,
+                                                boot_display,
+                                                crate::app::signing::PassphraseSource::Empty,
+                                            );
                                             sound::success(delay);
                                             ad.app.state = crate::app::input::AppState::Bip85ShowWord { word_idx: 0, word_count: 12 };
                                             needs_redraw = true;
@@ -121,19 +121,17 @@ pub fn handle_seed_touch(
                                         Ok(child) => {
                                             ad.bip85_child_wc = 24;
                                             for i in 0..24 { ad.bip85_child_indices[i] = child.indices[i]; }
-                                            // Auto-load child seed into a new slot immediately
-                                            if let Some(slot_idx) = ad.seed_mgr.store(
-                                                &ad.bip85_child_indices, 24, b"", 0,
-                                            ) {
-                                                ad.seed_mgr.activate(slot_idx);
-                                                ad.seed_loaded = true;
-                                                ad.word_count = 24;
-                                                ad.mnemonic_indices = [0u16; 24];
-                                                for j in 0..24 { ad.mnemonic_indices[j] = ad.bip85_child_indices[j]; }
-                                                ad.pubkeys_cached = false;
-                                                ad.current_addr_index = 0;
-                                                ad.extra_pubkey_index = 0xFFFF;
-                                            }
+                                            // Auto-load child seed into a new slot immediately.
+                                            // The shared loader reads mnemonic_indices and
+                                            // word_count, so publish the child first.
+                                            ad.mnemonic_indices = [0u16; 24];
+                                            for j in 0..24 { ad.mnemonic_indices[j] = ad.bip85_child_indices[j]; }
+                                            ad.word_count = 24;
+                                            crate::app::signing::load_active_mnemonic(
+                                                ad,
+                                                boot_display,
+                                                crate::app::signing::PassphraseSource::Empty,
+                                            );
                                             sound::success(delay);
                                             ad.app.state = crate::app::input::AppState::Bip85ShowWord { word_idx: 0, word_count: 24 };
                                             needs_redraw = true;
@@ -212,6 +210,11 @@ pub fn handle_seed_touch(
                                                     ad.word_count = 1;
                                                     ad.current_addr_index = 0;
                                                     ad.extra_pubkey_index = 0xFFFF;
+                                                    // Wipe the previous slot's account
+                                                    // cache and banks (wc==1 skips the
+                                                    // stretch inside; raw keys have no
+                                                    // BIP32 account).
+                                                    crate::app::signing::prime_after_seed_load(ad);
                                                     ad.pubkey_cache[0].copy_from_slice(&xpub);
                                                     ad.pubkeys_cached = true;
                                                     log!("[IMPORT-KEY] Raw key stored in slot {}", slot_idx);
@@ -406,22 +409,12 @@ pub fn handle_seed_touch(
                                 5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "PASSPHRASE"); } // char
                                 6 => { // OK — store with passphrase
-                                    let pp_bytes = &ad.pp_input.buf[..ad.pp_input.len];
-                                    if let Some(slot_idx) = ad.seed_mgr.store(
-                                        &ad.mnemonic_indices, ad.word_count,
-                                        pp_bytes, ad.pp_input.len as u8,
+                                    if let Some(_slot_idx) = crate::app::signing::load_active_mnemonic(
+                                        ad,
+                                        boot_display,
+                                        crate::app::signing::PassphraseSource::PpInput,
                                     ) {
-                                        ad.seed_mgr.activate(slot_idx);
-                                        ad.seed_loaded = true;
-                                        ad.pubkeys_cached = false;
-                                        ad.current_addr_index = 0;
-                                        ad.extra_pubkey_index = 0xFFFF;
-                                        // Log only whether a passphrase was used, never its
-                                        // length (length narrows brute-force space).
-                                        log!("   Seed stored in slot {} (pp={})", slot_idx,
-                                            if ad.pp_input.len > 0 { "yes" } else { "no" });
                                         sound::success(delay);
-                                        ad.pp_input.reset();
                                         // If mid-multisig creation, return to seed picker
                                         if ad.ms_creating.n > 0 && !ad.ms_creating.active {
                                             let mut ki: u8 = 0;
@@ -437,7 +430,6 @@ pub fn handle_seed_touch(
                                             ad.app.state = crate::app::input::AppState::SeedBackup { word_idx: 0 };
                                         }
                                     } else {
-                                        ad.pp_input.reset();
                                         boot_display.draw_rejected_screen("All 4 slots full!");
                                         delay.delay_millis(2000);
                                         ad.app.state = crate::app::input::AppState::SeedToolsMenu;
@@ -515,9 +507,13 @@ pub fn handle_seed_touch(
                                         if slot_wc == 1 {
                                             // Raw key — derive pubkey directly
                                             if !ad.pubkeys_cached {
-                                                if let Some(slot) = ad.seed_mgr.active_slot() as Option<&seed_manager::SeedSlot> {
-                                                    let mut key = [0u8; 32];
-                                                    slot.raw_key_bytes(&mut key);
+                                                // `as_raw_key` checks the slot kind
+                                                // and returns None otherwise, so the
+                                                // `slot_wc == 1` test above and the
+                                                // decode cannot disagree (H-08).
+                                                if let Some(mut key) = ad.seed_mgr.active_slot()
+                                                    .and_then(|s| s.as_raw_key())
+                                                {
                                                     if let Ok(xpub) = wallet::bip32::pubkey_from_raw_key(&key) {
                                                         ad.pubkey_cache[0].copy_from_slice(&xpub);
                                                     }
@@ -590,9 +586,9 @@ pub fn handle_seed_touch(
                                         // ── Export ──
                                         if slot_wc == 1 {
                                             // Raw key → export hex directly
-                                            if let Some(slot) = ad.seed_mgr.active_slot() as Option<&seed_manager::SeedSlot> {
-                                                let mut key = [0u8; 32];
-                                                slot.raw_key_bytes(&mut key);
+                                            if let Some(mut key) = ad.seed_mgr.active_slot()
+                                                .and_then(|s| s.as_raw_key())
+                                            {
                                                 for i in 0..32 {
                                                     const HX: &[u8; 16] = b"0123456789abcdef";
                                                     ad.export_key_hex[i * 2] = HX[(key[i] >> 4) as usize];
@@ -632,23 +628,79 @@ pub fn handle_seed_touch(
                                             needs_redraw = true;
                                             break;
                                         }
+                                        // Re-tapping the slot that is ALREADY
+                                        // active must not re-run the stretch.
+                                        // The Address and Export columns are
+                                        // reached through this same card tap,
+                                        // so an unguarded prime charged the
+                                        // full derivation a second time for a
+                                        // seed that was already warm.
+                                        let same_warm = ad.seed_mgr.active as usize == i
+                                            && ad.acct_key_raw[..32].iter().any(|&b| b != 0);
                                         // Select/activate slot — redraw cards only (no full clear)
                                         ad.seed_mgr.activate(i);
-                                        ad.mnemonic_indices = ad.seed_mgr.slots[i].indices;
                                         ad.word_count = ad.seed_mgr.slots[i].word_count;
+                                        // Non-mnemonic slots leave this zeroed
+                                        // rather than receiving a packed private
+                                        // key in a field named for word indices
+                                        // (H-08). Same change as tx.rs.
+                                        ad.mnemonic_indices =
+                                            match ad.seed_mgr.slots[i].as_mnemonic() {
+                                                Some((idx, _)) => *idx,
+                                                None => [0u16; 24],
+                                            };
                                         ad.seed_loaded = true;
                                         ad.pubkeys_cached = false;
                                         ad.current_addr_index = 0;
                                         ad.extra_pubkey_index = 0xFFFF;
-                                        if ad.word_count == 2 {
-                                            let slot = &ad.seed_mgr.slots[i];
-                                            for j in 0..16 {
-                                                let le = slot.indices[j].to_le_bytes();
-                                                ad.acct_key_raw[j * 2] = le[0];
-                                                ad.acct_key_raw[j * 2 + 1] = le[1];
-                                            }
-                                            ad.acct_key_raw[32..64].copy_from_slice(&slot.passphrase[..32]);
-                                            ad.acct_key_raw[64] = slot.passphrase[32];
+                                        // `as_xprv` rather than reaching into
+                                        // `indices` and `passphrase` directly:
+                                        // those fields mean different things per
+                                        // slot kind, and the accessor checks the
+                                        // kind before decoding (H-08). Returns
+                                        // None for anything that is not an xprv
+                                        // slot, so the `word_count == 2` test and
+                                        // the decode can no longer disagree.
+                                        if let Some((key, chain_code, depth)) =
+                                            ad.seed_mgr.slots[i].as_xprv()
+                                        {
+                                            ad.acct_key_raw[..32].copy_from_slice(&key);
+                                            ad.acct_key_raw[32..64].copy_from_slice(&chain_code);
+                                            ad.acct_key_raw[64] = depth;
+                                            ad.ext_recv_n = 0;
+                                            ad.ext_chg_n = 0;
+                                            ad.chain_cache = None;
+                                            // Fill the display caches here. An
+                                            // xprv slot has no mnemonic, so
+                                            // leaving pubkeys_cached false sent
+                                            // the signing path into
+                                            // derive_all_pubkeys, which read the
+                                            // packed key bytes as BIP39 word
+                                            // indices and panicked.
+                                            crate::app::signing::fill_display_caches(ad);
+                                        } else if ad.active_kind() == crate::ui::seed_manager::SlotKind::RawKey {
+                                            // Raw key: one key, one address, no
+                                            // BIP32 chain. Same packed-indices
+                                            // hazard as xprv above.
+                                            ad.acct_key_raw = [0u8; 65];
+                                            ad.ext_recv_n = 0;
+                                            ad.ext_chg_n = 0;
+                                            ad.chain_cache = None;
+                                            crate::app::signing::fill_display_caches(ad);
+                                        } else if same_warm {
+                                            // Cache already belongs to this
+                                            // very slot, so nothing was
+                                            // invalidated. Restore the flag
+                                            // cleared above and skip.
+                                            ad.pubkeys_cached = true;
+                                        } else {
+                                            // Mnemonic slot: invalidate any cached
+                                            // account key from the previous slot
+                                            // (stale bytes would sign with the
+                                            // WRONG slot's key), then synchronously
+                                            // prime the new one behind this tap.
+                                            boot_display.draw_saving_screen("Deriving keys...");
+                                            crate::app::signing::prime_after_seed_load(ad);
                                         }
                                         sound::success(delay);
                                         needs_redraw = true;
@@ -740,43 +792,79 @@ pub fn handle_seed_touch(
                                         let was_active = ad.seed_mgr.active == i as u8;
                                         ad.seed_mgr.delete(i);
                                         if was_active {
+                                            // ORDER MATTERS. Zeroize the deleted
+                                            // seed's derived material FIRST, then
+                                            // activate the fallback slot.
+                                            //
+                                            // This used to run the other way round,
+                                            // and the wipe destroyed what the
+                                            // activation had just written: an xprv
+                                            // fallback copies its account key
+                                            // straight into `acct_key_raw`, and
+                                            // that copy IS its session cache since
+                                            // an xprv has nothing to re-derive
+                                            // from. The wipe erased it and the
+                                            // session could not sign until the slot
+                                            // was tapped again in SeedList. A
+                                            // mnemonic fallback hid the bug because
+                                            // it re-derives on demand.
+                                            //
+                                            // Everything wiped here belongs to the
+                                            // seed just deleted, so doing it before
+                                            // any repopulation is both correct and
+                                            // simpler: the wipe now only ever
+                                            // touches dead material.
+                                            ad.chain_cache = None;
+                                            for sl in ad.pubkey_cache.iter_mut() { for b in sl.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } } }
+                                            for b in ad.acct_key_raw.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
+                                            for b in ad.extra_pubkey.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
+                                            for b in ad.our_privkey.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
+                                            for b in ad.change_pubkey_cache.iter_mut() { for x in b.iter_mut() { unsafe { core::ptr::write_volatile(x as *mut u8, 0); } } }
+                                            ad.ext_recv_n = 0;
+                                            ad.ext_chg_n = 0;
+                                            ad.pubkeys_cached = false;
+                                            ad.current_addr_index = 0;
+                                            ad.extra_pubkey_index = 0xFFFF;
+
                                             // Try to activate the next available seed
                                             let mut found_next = false;
                                             for si in 0..seed_manager::MAX_SLOTS {
                                                 if !ad.seed_mgr.slots[si].is_empty() {
                                                     ad.seed_mgr.activate(si);
-                                                    ad.mnemonic_indices = ad.seed_mgr.slots[si].indices;
                                                     ad.word_count = ad.seed_mgr.slots[si].word_count;
+                                                    // See the note above (H-08).
+                                                    ad.mnemonic_indices =
+                                                        match ad.seed_mgr.slots[si].as_mnemonic() {
+                                                            Some((idx, _)) => *idx,
+                                                            None => [0u16; 24],
+                                                        };
                                                     ad.seed_loaded = true;
-                                                    ad.pubkeys_cached = false;
-                                                    ad.current_addr_index = 0;
-                                                    ad.extra_pubkey_index = 0xFFFF;
-                                                    if ad.word_count == 2 {
-                                                        let slot = &ad.seed_mgr.slots[si];
-                                                        for j in 0..16 {
-                                                            let le = slot.indices[j].to_le_bytes();
-                                                            ad.acct_key_raw[j * 2] = le[0];
-                                                            ad.acct_key_raw[j * 2 + 1] = le[1];
-                                                        }
-                                                        ad.acct_key_raw[32..64].copy_from_slice(&slot.passphrase[..32]);
-                                                        ad.acct_key_raw[64] = slot.passphrase[32];
+                                                    // xprv: the slot IS the account
+                                                    // key. Survives now, because the
+                                                    // wipe already happened above.
+                                                    // Kind-checked via `as_xprv` (H-08).
+                                                    if let Some((key, chain_code, depth)) =
+                                                        ad.seed_mgr.slots[si].as_xprv()
+                                                    {
+                                                        ad.acct_key_raw[..32].copy_from_slice(&key);
+                                                        ad.acct_key_raw[32..64].copy_from_slice(&chain_code);
+                                                        ad.acct_key_raw[64] = depth;
                                                     }
                                                     found_next = true;
                                                     break;
                                                 }
                                             }
                                             if !found_next {
-                                                // No seeds left
+                                                // No seeds left. State is already
+                                                // wiped above; just drop the flag.
                                                 ad.seed_loaded = false;
-                                                ad.pubkeys_cached = false;
-                                                ad.current_addr_index = 0;
-                                                ad.extra_pubkey_index = 0xFFFF;
+                                            } else if matches!(ad.word_count, 12 | 24) {
+                                                // Mnemonic fallback: prime behind
+                                                // this press so the new slot is warm
+                                                // (wc==1/2 skip inside the helper).
+                                                boot_display.draw_saving_screen("Deriving keys...");
+                                                crate::app::signing::prime_after_seed_load(ad);
                                             }
-                                            // Zeroize old keys
-                                            for sl in ad.pubkey_cache.iter_mut() { for b in sl.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } } }
-                                            for b in ad.acct_key_raw.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
-                                            for b in ad.extra_pubkey.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
-                                            for b in ad.our_privkey.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
                                         }
                                     }
                                     sound::warning(delay);

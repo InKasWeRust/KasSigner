@@ -1140,6 +1140,20 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly covenant_oracle_mb: (a: bigint, b: bigint, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number) => [number, number, number, number];
+    readonly covenant_oracle_mb_heartbeat: (a: number, b: number) => [number, number, number, number];
+    readonly covenant_oracle_mb_test_consumer: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly covenant_split_vault: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly covenant_tagged_vault: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly create_oracle_mb_consume: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: bigint, n: number, o: number) => any;
+    readonly create_oracle_mb_heartbeat_roll: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number, i: number) => any;
+    readonly create_oracle_mb_publish: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number, s: number, t: number, u: number, v: number, w: number, x: number, y: number, z: number, a1: number, b1: number, c1: bigint, d1: number, e1: number, f1: number, g1: number, h1: number, i1: number, j1: number) => any;
+    readonly split_vault_genesis: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: bigint, i: number, j: number, k: number, l: number) => any;
+    readonly split_vault_spend: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: bigint, j: number, k: number, l: number, m: number) => any;
+    readonly tagged_vault_covenant_id: (a: number, b: number, c: number, d: bigint, e: number, f: number) => [number, number, number, number];
+    readonly tagged_vault_genesis: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: bigint, i: number, j: number, k: number, l: number) => any;
+    readonly tagged_vault_keygen: (a: number, b: number) => [number, number, number, number];
+    readonly tagged_vault_spend: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: bigint, j: number, k: number, l: number, m: number) => any;
     readonly coinbase_lane_key: () => [number, number];
     readonly create_stealth_spend: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number, i: number, j: number, k: number) => any;
     readonly get_seq_commit_lane_proof: (a: number, b: number, c: number, d: number, e: number, f: number) => any;
@@ -1179,20 +1193,6 @@ export interface InitOutput {
     readonly schnorr_sign_with_key: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly zk_crowdfund_prove: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly zk_crowdfund_setup: () => [number, number, number, number];
-    readonly covenant_oracle_mb: (a: bigint, b: bigint, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number) => [number, number, number, number];
-    readonly covenant_oracle_mb_heartbeat: (a: number, b: number) => [number, number, number, number];
-    readonly covenant_oracle_mb_test_consumer: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly covenant_split_vault: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly covenant_tagged_vault: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly create_oracle_mb_consume: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: bigint, n: number, o: number) => any;
-    readonly create_oracle_mb_heartbeat_roll: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number, i: number) => any;
-    readonly create_oracle_mb_publish: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number, s: number, t: number, u: number, v: number, w: number, x: number, y: number, z: number, a1: number, b1: number, c1: bigint, d1: number, e1: number, f1: number, g1: number, h1: number, i1: number, j1: number) => any;
-    readonly split_vault_genesis: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: bigint, i: number, j: number, k: number, l: number) => any;
-    readonly split_vault_spend: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: bigint, j: number, k: number, l: number, m: number) => any;
-    readonly tagged_vault_covenant_id: (a: number, b: number, c: number, d: bigint, e: number, f: number) => [number, number, number, number];
-    readonly tagged_vault_genesis: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: bigint, i: number, j: number, k: number, l: number) => any;
-    readonly tagged_vault_keygen: (a: number, b: number) => [number, number, number, number];
-    readonly tagged_vault_spend: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: bigint, j: number, k: number, l: number, m: number) => any;
     readonly covenant_additive_address: (a: number, b: number, c: bigint, d: bigint, e: number, f: number) => [number, number, number, number];
     readonly covenant_allowance: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: bigint, h: number, i: number) => [number, number, number, number];
     readonly covenant_atomic_swap: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number, i: number, j: number, k: number) => [number, number, number, number];

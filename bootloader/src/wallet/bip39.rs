@@ -28,9 +28,9 @@
 //   - Compatible with official BIP39 test vectors
 
 
-use sha2::{Sha256, Digest};
+use sha2::{Sha256, Sha512, Digest};
 use super::bip39_wordlist::WORDLIST;
-use super::hmac::{hmac_sha512, zeroize_buf};
+use super::hmac::zeroize_buf;
 
 // ─── Errores ──────────────────────────────────────────────────────────
 
@@ -81,6 +81,45 @@ impl Seed {
 }
 
 impl Drop for Seed {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl Mnemonic12 {
+    /// Securely zeroize the word indices. The indices ARE the entropy: 12
+    /// values of 11 bits each is the 128-bit secret plus checksum, so this
+    /// type is exactly as sensitive as `Seed` (L-07).
+    pub fn zeroize(&mut self) {
+        for w in self.indices.iter_mut() {
+            unsafe {
+                core::ptr::write_volatile(w, 0);
+            }
+        }
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Drop for Mnemonic12 {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl Mnemonic24 {
+    /// Securely zeroize the word indices. Same rationale as `Mnemonic12`:
+    /// the indices are the 256-bit entropy itself (L-07).
+    pub fn zeroize(&mut self) {
+        for w in self.indices.iter_mut() {
+            unsafe {
+                core::ptr::write_volatile(w, 0);
+            }
+        }
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Drop for Mnemonic24 {
     fn drop(&mut self) {
         self.zeroize();
     }
@@ -377,11 +416,27 @@ fn serialize_mnemonic_24(indices: &[u16; 24], buf: &mut [u8]) -> usize {
     pos
 }
 
-/// Builds the BIP39 salt: "mnemonic" + passphrase
+/// Builds the BIP39 salt: "mnemonic" + passphrase.
+///
+/// INVARIANT (L-05): `passphrase` must fit in `buf` after the 8-byte prefix.
+/// Both callers pass a 256-byte buffer and every passphrase in the firmware
+/// originates from `PassphraseInput::buf`, which is 128 bytes, so the margin
+/// is 2x. The check below makes the invariant explicit and the failure
+/// deliberate.
+///
+/// A hard panic is the correct failure mode here, not truncation: a silently
+/// truncated passphrase would derive a DIFFERENT wallet than the user typed,
+/// with no indication, and funds sent to it would be lost to them. The panic
+/// handler zeroizes key material and halts, which is the designed fail-loud
+/// path for "the firmware is in a state it was never built to be in".
 fn build_salt(passphrase: &str, buf: &mut [u8]) -> usize {
     let prefix = b"mnemonic";
-    buf[..8].copy_from_slice(prefix);
     let pp_bytes = passphrase.as_bytes();
+    assert!(
+        pp_bytes.len() <= buf.len() - prefix.len(),
+        "BIP39 passphrase exceeds salt buffer"
+    );
+    buf[..8].copy_from_slice(prefix);
     buf[8..8 + pp_bytes.len()].copy_from_slice(pp_bytes);
     8 + pp_bytes.len()
 }
@@ -422,6 +477,53 @@ fn str_cmp(a: &str, b: &str) -> core::cmp::Ordering {
 fn pbkdf2_hmac_sha512(password: &[u8], salt: &[u8], iterations: u32) -> Seed {
     // For BIP39 we only need 64 bytes = one SHA512 block
     // So we only compute T1 (block_index = 1)
+    //
+    // The HMAC key is the mnemonic sentence and is constant across all
+    // 2048 iterations, so both pad blocks are hashed ONCE and each
+    // iteration resumes from the midstate via `clone()`.
+    //
+    // Calling `hmac_sha512` per iteration rebuilt k_prime and both pads
+    // and hashed 128 bytes of pad plus 64 of message on each side: two
+    // 128-byte blocks in, two out, FOUR SHA-512 compressions. From the
+    // midstates it is 64 bytes plus padding on each side, one block each,
+    // TWO compressions. Same output, half the work; this is the standard
+    // PBKDF2 structure, and the official BIP39 vectors plus the BIP85
+    // boot vector both exercise it.
+    const BLK: usize = 128;
+    let mut k_prime = [0u8; BLK];
+    if password.len() > BLK {
+        let mut h = Sha512::new();
+        h.update(password);
+        let hash = h.finalize();
+        k_prime[..64].copy_from_slice(&hash);
+    } else {
+        k_prime[..password.len()].copy_from_slice(password);
+    }
+    let mut ipad_key = [0u8; BLK];
+    let mut opad_key = [0u8; BLK];
+    for i in 0..BLK {
+        ipad_key[i] = k_prime[i] ^ 0x36;
+        opad_key[i] = k_prime[i] ^ 0x5C;
+    }
+    let mut inner_base = Sha512::new();
+    inner_base.update(ipad_key);
+    let mut outer_base = Sha512::new();
+    outer_base.update(opad_key);
+    zeroize_buf(&mut k_prime);
+    zeroize_buf(&mut ipad_key);
+    zeroize_buf(&mut opad_key);
+
+    let hmac_from_mid = |msg: &[u8]| -> [u8; 64] {
+        let mut inner = inner_base.clone();
+        inner.update(msg);
+        let inner_hash = inner.finalize();
+        let mut outer = outer_base.clone();
+        outer.update(inner_hash);
+        let outer_hash = outer.finalize();
+        let mut out = [0u8; 64];
+        out.copy_from_slice(&outer_hash);
+        out
+    };
 
     // U1 = HMAC(password, salt || BE32(1))
     let mut salt_with_index = [0u8; 260]; // 256 max salt + 4 bytes index
@@ -430,13 +532,13 @@ fn pbkdf2_hmac_sha512(password: &[u8], salt: &[u8], iterations: u32) -> Seed {
     let idx_bytes = 1u32.to_be_bytes();
     salt_with_index[salt.len()..salt.len() + 4].copy_from_slice(&idx_bytes);
 
-    let mut u_prev = hmac_sha512(password, &salt_with_index[..salt.len() + 4]);
+    let mut u_prev = hmac_from_mid(&salt_with_index[..salt.len() + 4]);
     let mut result = [0u8; 64];
     result.copy_from_slice(&u_prev);
 
     // U2..Uc
     for _ in 1..iterations {
-        let u_next = hmac_sha512(password, &u_prev);
+        let u_next = hmac_from_mid(&u_prev);
         for j in 0..64 {
             result[j] ^= u_next[j];
         }
@@ -463,7 +565,7 @@ fn pbkdf2_hmac_sha512(password: &[u8], salt: &[u8], iterations: u32) -> Seed {
 /// Entropy: 00000000000000000000000000000000 (16 bytes)
 /// Expected mnemonic: "abandon abandon abandon abandon abandon abandon
 ///                     abandon abandon abandon abandon abandon about"
-#[cfg(any(test, feature = "verbose-boot"))]
+#[cfg(any(test, not(feature = "skip-tests")))]
 /// BIP39 test: 12-word mnemonic from all-zero entropy.
 pub fn test_vector_12_zeros() -> bool {
     let entropy = [0u8; 16];
@@ -486,7 +588,7 @@ pub fn test_vector_12_zeros() -> bool {
 /// Entropy: 7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f
 /// Expected: "legal winner thank year wave sausage worth useful
 ///            legal winner thank yellow"
-#[cfg(any(test, feature = "verbose-boot"))]
+#[cfg(any(test, not(feature = "skip-tests")))]
 /// BIP39 test: 12-word mnemonic from 0x7F entropy.
 pub fn test_vector_12_7f() -> bool {
     let entropy: [u8; 16] = [
@@ -512,7 +614,7 @@ pub fn test_vector_12_7f() -> bool {
 /// Test vector 3: 24-word mnemonic (256 bits entropy all zeros)
 /// Entropy: 0000...0000 (32 bytes)
 /// Expected: "abandon" × 23 + "art"
-#[cfg(any(test, feature = "verbose-boot"))]
+#[cfg(any(test, not(feature = "skip-tests")))]
 /// BIP39 test: 24-word mnemonic from all-zero entropy.
 pub fn test_vector_24_zeros() -> bool {
     let entropy = [0u8; 32];
@@ -541,7 +643,7 @@ pub fn test_vector_24_zeros() -> bool {
 /// Expected seed (hex):
 ///   c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e7e24052f0b7c87c5
 ///   67a677d12fbc157e164023a3cf9b11f9c7cf61e3da79e1c6aba8e9e5c369c429
-#[cfg(any(test, feature = "verbose-boot"))]
+#[cfg(any(test, not(feature = "skip-tests")))]
 /// BIP39 test: seed derivation matches Trezor test vectors.
 pub fn test_seed_derivation_trezor() -> bool {
     let entropy = [0u8; 16];
@@ -565,7 +667,7 @@ pub fn test_seed_derivation_trezor() -> bool {
 }
 
 /// Test: word lookup (binary search)
-#[cfg(any(test, feature = "verbose-boot"))]
+#[cfg(any(test, not(feature = "skip-tests")))]
 pub fn test_word_lookup() -> bool {
     // Test first word
     if word_to_index("abandon") != Ok(0) {
@@ -588,7 +690,11 @@ pub fn test_word_lookup() -> bool {
 
 /// Run all BIP39 tests.
 /// Returns (passed, total).
-#[cfg(any(test, feature = "verbose-boot"))]
+// Reachable in shipped builds. Gated on `skip-tests` only: NOT on
+// `verbose-boot` (which also enables the sighash debug dump and must
+// never ship) and NOT on `silent` (a logging flag must not be able to
+// switch off a correctness check). Called from boot_test::run_crypto_kats.
+#[cfg(any(test, not(feature = "skip-tests")))]
 pub fn run_bip39_tests() -> (u32, u32) {
     let mut passed = 0u32;
     let total = 5u32;

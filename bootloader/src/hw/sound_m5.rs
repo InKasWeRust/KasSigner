@@ -29,7 +29,6 @@
 //
 // Init sequence matches M5Unified exactly (SYSCTRL=0x4040).
 
-#[cfg(not(feature = "silent"))]
 use crate::log;
 use esp_hal::delay::Delay;
 use esp_hal::i2c::master::I2c;
@@ -80,9 +79,14 @@ pub fn init_aw88298(i2c: &mut I2c<'_, esp_hal::Blocking>, delay: &mut Delay) -> 
     if i2c.write_read(AW88298_ADDR, &[0x00], &mut buf).is_err() {
         return Err("AW88298 not found on I2C");
     }
-    let chip_id = ((buf[0] as u16) << 8) | buf[1] as u16;
+    // Diagnostic only, hence the underscore: the value is read and reported but
+    // never checked, so under `silent` nothing consumes it. Left as a report
+    // rather than promoted to an identity check because the expected ID (0x1852
+    // on the units measured) has not been confirmed across board revisions, and
+    // a wrong constant here would disable audio on hardware that is fine.
+    let _chip_id = ((buf[0] as u16) << 8) | buf[1] as u16;
     #[cfg(not(feature = "silent"))]
-    log!("   AW88298 chip ID: {:#06X}", chip_id);
+    log!("   AW88298 chip ID: {:#06X}", _chip_id);
 
     // Match M5Unified init exactly
     // Source: M5Unified/src/M5Unified.cpp _speaker_enabled_cb_core2
@@ -140,6 +144,17 @@ fn write_tone(freq_hz: u16, amplitude: i16) {
         let buf = core::slice::from_raw_parts_mut(ptr, len);
         fill_tone_buf(buf, freq_hz, amplitude);
     }
+}
+
+/// Force the speaker silent immediately.
+///
+/// The I2S DMA buffer REPEATS FOREVER until it is overwritten, so every tone
+/// here is a matched pair: fill, wait, silence. If anything blocks between
+/// the two halves, the tone plays indefinitely — which is what a long
+/// operation after `task_done` sounded like, and it masked whether the device
+/// was working or stuck. Call this before any long-running work.
+pub fn silence() {
+    write_silence();
 }
 
 /// Play a short click sound (~30ms)

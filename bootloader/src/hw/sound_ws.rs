@@ -22,6 +22,8 @@
 use esp_hal::delay::Delay;
 
 pub fn set_volume(_vol: u8) {}
+/// No speaker on this board; present so callers need no cfg.
+pub fn silence() {}
 pub fn click(_delay: &mut Delay) {}
 pub fn beep_error(_delay: &mut Delay) {}
 pub fn success(_delay: &mut Delay) {}

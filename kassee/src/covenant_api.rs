@@ -123,12 +123,22 @@ pub async fn create_covenant_timelocked_savings_claim(
 
     let tx_locktime = locktime_daa;
 
-    let utxos = rpc::fetch_utxos_for_address(ws_url, covenant_address)
+    let mut utxos = rpc::fetch_utxos_for_address(ws_url, covenant_address)
         .await
         .map_err(|e| JsValue::from_str(&e))?;
     if utxos.is_empty() {
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
+    // Cap covenant inputs at the KasSigner ceiling (MAX_INPUTS=16). A flooded
+    // covenant is drained by repeating the spend; without this a larger UTXO
+    // set builds a TX the device can't sign. Largest-first moves the most
+    // value per spend. (Redeem script is small — 16 copies fit the firmware
+    // redeem pool; fee scales with input count below.)
+    if utxos.len() > 16 {
+        utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
+        utxos.truncate(32);
+    }
+
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
     if total <= fee {
@@ -429,12 +439,22 @@ pub async fn create_covenant_timeout_refund(
     let redeem_bytes = hex::decode(redeem_script_hex)
         .map_err(|e| JsValue::from_str(&format!("Bad redeem hex: {}", e)))?;
 
-    let utxos = rpc::fetch_utxos_for_address(ws_url, covenant_address)
+    let mut utxos = rpc::fetch_utxos_for_address(ws_url, covenant_address)
         .await
         .map_err(|e| JsValue::from_str(&e))?;
     if utxos.is_empty() {
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
+    // Cap covenant inputs at the KasSigner ceiling (MAX_INPUTS=16). A flooded
+    // covenant is drained by repeating the spend; without this a larger UTXO
+    // set builds a TX the device can't sign. Largest-first moves the most
+    // value per spend. (Redeem script is small — 16 copies fit the firmware
+    // redeem pool; fee scales with input count below.)
+    if utxos.len() > 16 {
+        utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
+        utxos.truncate(32);
+    }
+
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
     if total <= fee {
@@ -538,13 +558,23 @@ pub async fn create_covenant_beneficiary_spend(
     let tx_locktime = if csv_seq > 0 { 0 } else { locktime_daa };
 
     // Fetch UTXOs for the covenant address
-    let utxos = rpc::fetch_utxos_for_address(ws_url, covenant_address)
+    let mut utxos = rpc::fetch_utxos_for_address(ws_url, covenant_address)
         .await
         .map_err(|e| JsValue::from_str(&e))?;
 
     if utxos.is_empty() {
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
+    // Cap covenant inputs at the KasSigner ceiling (MAX_INPUTS=16). A flooded
+    // covenant is drained by repeating the spend; without this a larger UTXO
+    // set builds a TX the device can't sign. Largest-first moves the most
+    // value per spend. (Redeem script is small — 16 copies fit the firmware
+    // redeem pool; fee scales with input count below.)
+    if utxos.len() > 16 {
+        utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
+        utxos.truncate(32);
+    }
+
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
     if total <= fee {
@@ -757,12 +787,22 @@ pub async fn create_covenant_allowance_withdraw(
     let redeem_bytes = hex::decode(redeem_script_hex)
         .map_err(|e| JsValue::from_str(&format!("Bad redeem hex: {}", e)))?;
 
-    let all_utxos = rpc::fetch_utxos_for_address(ws_url, covenant_address)
+    let mut all_utxos = rpc::fetch_utxos_for_address(ws_url, covenant_address)
         .await
         .map_err(|e| JsValue::from_str(&e))?;
     if all_utxos.is_empty() {
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
+    // Cap covenant inputs at the KasSigner ceiling (MAX_INPUTS=16). A flooded
+    // covenant is drained by repeating the spend; without this a larger UTXO
+    // set builds a TX the device can't sign. Largest-first moves the most
+    // value per spend. (Redeem script is small — 16 copies fit the firmware
+    // redeem pool; fee scales with input count below.)
+    if all_utxos.len() > 16 {
+        all_utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
+        all_utxos.truncate(32);
+    }
+
 
     let total_balance: u64 = all_utxos.iter().map(|u| u.amount).sum();
     if withdraw_sompi + fee > total_balance {
@@ -898,12 +938,22 @@ pub async fn create_covenant_atomic_claim(
     let _preimage_bytes = hex::decode(preimage_hex)
         .map_err(|e| JsValue::from_str(&format!("Bad preimage hex: {}", e)))?;
 
-    let utxos = rpc::fetch_utxos_for_address(ws_url, covenant_address)
+    let mut utxos = rpc::fetch_utxos_for_address(ws_url, covenant_address)
         .await
         .map_err(|e| JsValue::from_str(&e))?;
     if utxos.is_empty() {
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
+    // Cap covenant inputs at the KasSigner ceiling (MAX_INPUTS=16). A flooded
+    // covenant is drained by repeating the spend; without this a larger UTXO
+    // set builds a TX the device can't sign. Largest-first moves the most
+    // value per spend. (Redeem script is small — 16 copies fit the firmware
+    // redeem pool; fee scales with input count below.)
+    if utxos.len() > 16 {
+        utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
+        utxos.truncate(32);
+    }
+
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
     if total <= fee {
@@ -1018,13 +1068,23 @@ pub async fn create_covenant_owner_spend(
         .map_err(|e| JsValue::from_str(&format!("Bad redeem hex: {}", e)))?;
 
     // Fetch UTXOs for the covenant address
-    let utxos = rpc::fetch_utxos_for_address(ws_url, covenant_address)
+    let mut utxos = rpc::fetch_utxos_for_address(ws_url, covenant_address)
         .await
         .map_err(|e| JsValue::from_str(&e))?;
 
     if utxos.is_empty() {
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
+    // Cap covenant inputs at the KasSigner ceiling (MAX_INPUTS=16). A flooded
+    // covenant is drained by repeating the spend; without this a larger UTXO
+    // set builds a TX the device can't sign. Largest-first moves the most
+    // value per spend. (Redeem script is small — 16 copies fit the firmware
+    // redeem pool; fee scales with input count below.)
+    if utxos.len() > 16 {
+        utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
+        utxos.truncate(32);
+    }
+
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
     if total <= fee {
@@ -1387,7 +1447,7 @@ pub async fn create_global_spending_limit_topup(
             .then_with(|| a.index.cmp(&b.index))
     });
 
-    let manual_indices: Vec<usize> = utxo_indices_csv
+    let mut manual_indices: Vec<usize> = utxo_indices_csv
         .split(',')
         .filter_map(|s| s.trim().parse().ok())
         .collect();
@@ -1395,6 +1455,11 @@ pub async fn create_global_spending_limit_topup(
         return Err(JsValue::from_str(
             "Select at least one wallet UTXO to fold into the thread",
         ));
+    }
+    // 1 thread input + N wallet inputs must stay within MAX_INPUTS=16, so cap
+    // the folded wallet UTXOs at 15. A larger fold is done over repeated topups.
+    if manual_indices.len() > 31 {
+        manual_indices.truncate(31);
     }
     let mut selected = Vec::new();
     let mut wallet_total = 0u64;
@@ -1741,7 +1806,7 @@ pub async fn create_global_allowance_topup(
             .then_with(|| a.index.cmp(&b.index))
     });
 
-    let manual_indices: Vec<usize> = utxo_indices_csv
+    let mut manual_indices: Vec<usize> = utxo_indices_csv
         .split(',')
         .filter_map(|s| s.trim().parse().ok())
         .collect();
@@ -1749,6 +1814,11 @@ pub async fn create_global_allowance_topup(
         return Err(JsValue::from_str(
             "Select at least one wallet UTXO to fold into the thread",
         ));
+    }
+    // 1 thread input + N wallet inputs must stay within MAX_INPUTS=16, so cap
+    // the folded wallet UTXOs at 15. A larger fold is done over repeated topups.
+    if manual_indices.len() > 31 {
+        manual_indices.truncate(31);
     }
     let mut selected = Vec::new();
     let mut wallet_total = 0u64;
@@ -2034,6 +2104,15 @@ pub async fn create_covenant_borrower_spend(
             needed, funding_total
         )));
     }
+    // 1 covenant input + N borrower funding inputs must stay within
+    // MAX_INPUTS=16, so at most 15 funding inputs. Consolidate first if the
+    // payment needs more (truncating would drop below `needed`).
+    if funding_utxos.len() > 31 {
+        return Err(JsValue::from_str(&format!(
+            "Payment needs {} borrower UTXOs (max 31 + 1 covenant input = 32). Consolidate your wallet UTXOs first.",
+            funding_utxos.len()
+        )));
+    }
 
     let covenant_spk_hex = format!(
         "0000{}",
@@ -2221,6 +2300,15 @@ pub async fn create_covenant_borrower_withdraw(
         return Err(JsValue::from_str(&format!(
             "Borrower needs {} sompi for fee but only has {}",
             fee, funding_total
+        )));
+    }
+    // 1 covenant input + N borrower funding inputs must stay within
+    // MAX_INPUTS=16, so at most 15 funding inputs. Consolidate first if the
+    // fee needs more (truncating would drop below the fee).
+    if funding_utxos.len() > 31 {
+        return Err(JsValue::from_str(&format!(
+            "Fee needs {} borrower UTXOs (max 31 + 1 covenant input = 32). Consolidate your wallet UTXOs first.",
+            funding_utxos.len()
         )));
     }
 
@@ -2787,12 +2875,20 @@ pub async fn create_covenant_payjoin_claim(
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
 
-    // Cap the covenant inputs per claim so the signed PSKB stays within
-    // KasSigner's multi-frame QR budget (the same 5-input ceiling as UTXO
-    // consolidation): MAX_COV_INPUTS covenant inputs + 1 mixing input = 5 total.
+    // Cap covenant inputs per claim. Raised 4 -> 15 -> 31 as the constraints were
+    // measured rather than assumed:
+    //   - QR budget: obsolete. The old comment cited "the same 5-input ceiling
+    //     as UTXO consolidation"; both are gone (V11/248 frames, MAX_INPUTS=16).
+    //   - Firmware MAX_INPUTS=16 is the binding limit, and this claim always
+    //     adds 1 mixing input, so 15 covenant + 1 mix = 16 exactly.
+    //   - Redeem pool: the PayJoin redeem script is 94 bytes; 15 copies = 1410 B,
+    //     inside REDEEM_POOL_SIZE (2048). (No dedup needed at this script size.)
+    //   - Signed response: 16 inputs + ~3 outputs ~= 2679 B, inside the 4096-byte
+    //     signed_qr_buf.
+    //   - Fee auto-scales below (n_inputs), so a higher cap can't underpay.
     // Largest-first so the most value moves per claim; a packed address is
     // drained by repeating the claim until no covenant UTXOs remain.
-    const MAX_COV_INPUTS: usize = 4;
+    const MAX_COV_INPUTS: usize = 31; // + 1 mixing input = firmware's 32
     if cov_utxos.len() > MAX_COV_INPUTS {
         cov_utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
         cov_utxos.truncate(MAX_COV_INPUTS);
@@ -3000,13 +3096,23 @@ pub async fn create_covenant_oracle_claim(
     }
 
     // Fetch UTXOs for the covenant address
-    let utxos = rpc::fetch_utxos_for_address(ws_url, covenant_address)
+    let mut utxos = rpc::fetch_utxos_for_address(ws_url, covenant_address)
         .await
         .map_err(|e| JsValue::from_str(&e))?;
 
     if utxos.is_empty() {
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
+    // Cap covenant inputs at the KasSigner ceiling (MAX_INPUTS=16). A flooded
+    // covenant is drained by repeating the spend; without this a larger UTXO
+    // set builds a TX the device can't sign. Largest-first moves the most
+    // value per spend. (Redeem script is small — 16 copies fit the firmware
+    // redeem pool; fee scales with input count below.)
+    if utxos.len() > 16 {
+        utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
+        utxos.truncate(32);
+    }
+
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
     if total <= fee {

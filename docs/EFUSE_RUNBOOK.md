@@ -188,10 +188,6 @@ python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
 python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse DIS_USB_JTAG
 
-# Disable USB Serial/JTAG  
-python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
-    burn_efuse DIS_USB_SERIAL_JTAG
-
 # Disable direct boot (force secure boot path)
 python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse DIS_DIRECT_BOOT
@@ -200,6 +196,19 @@ python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
 python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse ENABLE_SECURITY_DOWNLOAD
 ```
+
+**DO NOT burn `DIS_USB_SERIAL_JTAG`.** It is deliberately left unburned. Note the two fuse names differ by one word and do very different things:
+
+| eFuse | ESP32-S3 TRM Table 5-1 | Effect |
+|---|---|---|
+| `DIS_USB_JTAG` | "whether the function of usb_serial_jtag that switch usb to jtag is disabled" | Closes the JTAG debug path. **Serial console still works.** Burned above. |
+| `DIS_USB_SERIAL_JTAG` | "whether usb_serial_jtag function is disabled" | Disables the **whole** peripheral. No console, no flashing over USB, permanently. |
+
+`DIS_USB_JTAG` above is what closes USB JTAG. Burning `DIS_USB_SERIAL_JTAG` as well would additionally remove the only interface for signed firmware updates and for reading boot diagnostics, and it cannot be undone.
+
+This matches `KasSigner_Security_Architecture.pdf` section 3 (eFuse Hardening), which lists the production configuration as `DIS_PAD_JTAG = True`, `DIS_USB_JTAG = True`, `DIS_USB_SERIAL_JTAG = False` ("USB Serial preserved", by design), and KasSigner-Specific Note 3 below, which recommends preserving UART download with `ENABLE_SECURITY_DOWNLOAD`. Earlier revisions of this runbook burned it here, contradicting both.
+
+**Step 8 is required, not optional.** `DIS_PAD_JTAG` and `DIS_USB_JTAG` are what remove debug access to a device holding key material. A board with Secure Boot burned but JTAG left open is not hardened.
 
 **DO NOT burn `DIS_DOWNLOAD_MODE` unless you are absolutely sure.** This permanently prevents any firmware updates via UART, even signed ones. Only do this for final production units where OTA is the only update path (and KasSigner has no OTA since it's air-gapped).
 

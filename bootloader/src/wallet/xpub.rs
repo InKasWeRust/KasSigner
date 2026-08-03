@@ -149,6 +149,36 @@ fn base58check_encode(data: &[u8], out: &mut [u8]) -> usize {
 
 // ─── BIP32 xpub Serialization ─────────────────────────────────────────
 
+/// BIP32 parent fingerprint: `RIPEMD160(SHA256(compressed_pubkey))[0..4]`.
+///
+/// This was `SHA256(pubkey)[0..4]` until 2026-08-01, because RIPEMD160 was not
+/// among the dependencies. Two other serializers in this file then copied it.
+///
+/// The authority is `rusty-kaspa-2.0.1/wallet/bip32/src/public_key.rs:20-23`:
+///
+/// ```ignore
+/// let digest = Ripemd160::digest(Sha256::digest(self.to_bytes()));
+/// digest[..4]
+/// ```
+///
+/// Standard BIP32 HASH160 over the 33-byte compressed key, since `to_bytes()`
+/// there is `secp256k1::PublicKey::serialize()`.
+///
+/// Reported externally as KS-07. The fingerprint is metadata: nothing derives
+/// from it, KasSee ignores it when deriving children, and no wallet needs it to
+/// spend. It is fixed because the project claims BIP32 interoperability, and an
+/// external wallet that validates the field would see a value that is simply
+/// wrong.
+///
+/// Every kpub, xprv and raw export produced before this change carries the old
+/// value. Anything that stored one and compares it will now mismatch.
+fn parent_fingerprint(parent_pubkey_compressed: &[u8]) -> [u8; 4] {
+    use ripemd::Ripemd160;
+    let sha = Sha256::digest(parent_pubkey_compressed);
+    let h160 = Ripemd160::digest(sha);
+    [h160[0], h160[1], h160[2], h160[3]]
+}
+
 /// Serialize an account-level extended public key in BIP32 format.
 ///
 /// Format (78 bytes):
@@ -174,17 +204,9 @@ pub fn serialize_kpub(
     // Depth = 3 (m / 44' / 111111' / 0')
     payload[4] = 3;
 
-    // Parent fingerprint: HASH160(parent_compressed_pubkey)[0..4]
-    // HASH160 = RIPEMD160(SHA256(pubkey))
-    // Since we don't have RIPEMD160, we use SHA256 and take first 4 bytes.
-    // This matches kaspad's behavior for Schnorr keys.
-    let parent_sha = {
-        let mut h = Sha256::new();
-        h.update(parent_pubkey_compressed);
-        let result: [u8; 32] = h.finalize().into();
-        result
-    };
-    payload[5..9].copy_from_slice(&parent_sha[..4]);
+    // Parent fingerprint: HASH160(parent_compressed_pubkey)[0..4]. See
+    // `parent_fingerprint` for why this is no longer SHA-256.
+    payload[5..9].copy_from_slice(&parent_fingerprint(parent_pubkey_compressed));
 
     // Child index (big-endian)
     payload[9] = (child_index >> 24) as u8;
@@ -205,6 +227,30 @@ pub fn serialize_kpub(
     // Zeroize payload (contains chain code which is sensitive)
     zeroize_buf(&mut payload);
 
+    Ok(len)
+}
+
+/// Serialize a kpub directly from an already-derived ACCOUNT-level key
+/// (xprv-imported slots cache exactly this key; the parent key is not
+/// available, so the parent fingerprint is 0x00000000 — the BIP32
+/// convention for "unknown parent". Child derivation only consumes the
+/// key + chain code, so watch-only wallets resolve identical addresses.)
+pub fn serialize_kpub_from_account(
+    account_key: &ExtendedPrivKey,
+    out: &mut [u8; KPUB_MAX_LEN],
+) -> Result<usize, Bip32Error> {
+    let mut payload = [0u8; XPUB_PAYLOAD_LEN];
+    payload[0..4].copy_from_slice(&KASPA_XPUB_VERSION);
+    payload[4] = 3; // account depth
+    // payload[5..9] parent fingerprint: zeros (unknown parent)
+    // Child index 0' (hardened)
+    payload[9] = 0x80;
+    // payload[10..13] remain 0
+    payload[13..45].copy_from_slice(account_key.chain_code_bytes());
+    let pubkey = account_key.public_key_compressed()?;
+    payload[45..78].copy_from_slice(&pubkey);
+    let len = base58check_encode(&payload, out);
+    zeroize_buf(&mut payload);
     Ok(len)
 }
 
@@ -271,15 +317,8 @@ pub fn derive_account_raw_kpub_payload(
     // Depth = 3
     out[4] = 3;
 
-    // Parent fingerprint: SHA256 of compressed parent pubkey, first 4 bytes
-    // (matches kaspad convention — see serialize_kpub for rationale).
-    let parent_sha = {
-        let mut h = Sha256::new();
-        h.update(parent_pubkey);
-        let result: [u8; 32] = h.finalize().into();
-        result
-    };
-    out[5..9].copy_from_slice(&parent_sha[..4]);
+    // Parent fingerprint: HASH160(compressed parent pubkey)[0..4].
+    out[5..9].copy_from_slice(&parent_fingerprint(&parent_pubkey));
 
     // Child index (0x80000000 = 0' hardened), big-endian
     let child_index = KASPA_ACCOUNT_PATH[2];
@@ -336,6 +375,26 @@ pub const XPRV_MAX_LEN: usize = 120;
 
 /// Derive the account-level extended private key at m/44'/111111'/0'
 /// and serialize as a Kaspa xprv string.
+/// Serialize a kprv directly from an already-derived ACCOUNT-level key
+/// (xprv-imported slots: re-export the stored key; parent unknown, so the
+/// fingerprint is 0x00000000, same convention as the kpub counterpart).
+pub fn serialize_xprv_from_account(
+    account_key: &ExtendedPrivKey,
+    out: &mut [u8; XPRV_MAX_LEN],
+) -> Result<usize, Bip32Error> {
+    let mut payload = [0u8; XPUB_PAYLOAD_LEN];
+    payload[0..4].copy_from_slice(&KASPA_XPRV_VERSION);
+    payload[4] = 3;
+    // parent fingerprint: zeros (unknown parent)
+    payload[9] = 0x80; // child 0' hardened
+    payload[13..45].copy_from_slice(account_key.chain_code_bytes());
+    payload[45] = 0x00;
+    payload[46..78].copy_from_slice(account_key.private_key_bytes());
+    let len = base58check_encode(&payload, out);
+    zeroize_buf(&mut payload);
+    Ok(len)
+}
+
 pub fn derive_and_serialize_xprv(
     seed: &[u8; 64],
     out: &mut [u8; XPRV_MAX_LEN],
@@ -357,14 +416,8 @@ pub fn derive_and_serialize_xprv(
     // Depth = 3
     payload[4] = 3;
 
-    // Parent fingerprint
-    let parent_sha = {
-        let mut h = Sha256::new();
-        h.update(parent_pubkey);
-        let result: [u8; 32] = h.finalize().into();
-        result
-    };
-    payload[5..9].copy_from_slice(&parent_sha[..4]);
+    // Parent fingerprint: HASH160(compressed parent pubkey)[0..4].
+    payload[5..9].copy_from_slice(&parent_fingerprint(&parent_pubkey));
 
     // Child index (0x80000000 = 0' hardened)
     payload[9..13].copy_from_slice(&KASPA_ACCOUNT_PATH[2].to_be_bytes());

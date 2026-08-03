@@ -688,40 +688,242 @@ pub fn sign_transaction_in_place(
 /// Returns the number of inputs signed successfully.
 /// Inputs whose pubkey doesn't match any of our addresses (0..=MAX_ADDR_INDEX)
 /// are skipped (sig_len stays 0).
+/// DKSAP stealth: the combined spending key for this transaction.
+///
+/// Returns (combined private scalar bytes, combined pubkey compressed).
+/// The same pair serves every stealth input in the transaction, so it is
+/// computed once by the caller rather than per input.
+///
+/// The stealth address is derived from the EVEN-Y form of the account
+/// spend pubkey B. Both the sender (`pubkey_from_xonly`) and the device
+/// scan (0x02 prefix) lift_x B as even-Y, so the address is
+/// P = B_even + t*G. If the real account pubkey has odd Y the scalar must
+/// be negated so that acct_scalar*G == B_even; otherwise (acct + tweak)*G
+/// lands on the wrong x, the caller's match guard fails, the input is
+/// never signed, and the stealth UTXO is permanently unspendable (~50% of
+/// wallets).
+///
+/// Note that P itself has no parity guarantee: only its x is compared
+/// against the script pubkey, so the returned compressed encoding may
+/// begin 0x02 or 0x03 and callers must carry it whole.
+#[inline(never)]
+fn stealth_combined_key(
+    account_key: &super::bip32::ExtendedPrivKey,
+    tweak: &[u8; 32],
+) -> Option<([u8; 32], [u8; 33])> {
+    use k256::elliptic_curve::ScalarPrimitive;
+    use k256::elliptic_curve::ops::Add;
+    use k256::elliptic_curve::sec1::ToEncodedPoint;
+    use k256::{ProjectivePoint, Scalar};
+
+    let acct_prim =
+        ScalarPrimitive::<k256::Secp256k1>::from_slice(account_key.private_key_bytes()).ok()?;
+    let acct_scalar = {
+        let s = Scalar::from(acct_prim);
+        let s_pt = (ProjectivePoint::GENERATOR * s).to_affine();
+        let s_enc = s_pt.to_encoded_point(true);
+        if s_enc.as_bytes()[0] == 0x03 { -s } else { s }
+    };
+
+    let tweak_prim = ScalarPrimitive::<k256::Secp256k1>::from_slice(tweak).ok()?;
+    let combined_scalar = acct_scalar.add(&Scalar::from(tweak_prim));
+
+    let combined_point = (ProjectivePoint::GENERATOR * combined_scalar).to_affine();
+    let combined_encoded = combined_point.to_encoded_point(true);
+    let enc = combined_encoded.as_bytes();
+    if enc.len() != 33 {
+        return None;
+    }
+
+    let mut priv_bytes = [0u8; 32];
+    priv_bytes.copy_from_slice(&combined_scalar.to_bytes());
+    let mut pk_c = [0u8; 33];
+    pk_c.copy_from_slice(enc);
+    Some((priv_bytes, pk_c))
+}
+
 pub fn sign_transaction_multi_addr(
     tx: &mut Transaction,
-    seed: &[u8; 64],
+    account_key: &super::bip32::ExtendedPrivKey,
     sighash_type: SigHashType,
+    mut ext: Option<crate::app::signing::ExtBanksMut<'_>>,
 ) -> Result<usize, PsktError> {
     use super::sighash;
     use super::bip32;
 
-    let account_key = bip32::derive_account_key(seed)
-        .map_err(|_| PsktError::NoInputs)?;
+
+    // PHASE 1 — resolve (shallow stack). Resolve every input's
+    // (index, chain) first, then run the sign loop below without any of
+    // this on the frame.
+    //   flags: 0 = not P2PK / skip, 1 = wallet key found, 2 = unmatched
+    //   (stealth candidate); bit 1 of flags carries is_change when found.
+    //
+    // The 40-entry AddrPubkeyTable that used to be built here is gone.
+    // It existed to replace an older per-input 2x100-derivation scan, but
+    // `ext_scan_find` supersedes it on every axis: depth EXT_BANK_DEPTH
+    // instead of 20, results PERSISTED into the banks instead of thrown
+    // away with the table, and 1.4KB off this frame. It was also actively
+    // wasteful from cold: the table derived receive 0..19 and change
+    // 0..19, discarded them, and then the scan re-derived the same
+    // indices from empty banks. Measured 40 derivations, ~4.7s of a
+    // 13.3s 32-input cold sign.
+    let mut resolved_idx = [0u16; crate::wallet::transaction::MAX_INPUTS];
+    let mut resolved_flags = [0u8; crate::wallet::transaction::MAX_INPUTS];
+
+    // DKSAP stealth: the combined key P = B_even + t*G is the SAME for
+    // every stealth input in this transaction, so compute it once here
+    // instead of per input inside the sign loop.
+    //
+    // Computing it before resolve also short-circuits the bank scan.
+    // Stealth inputs are unmatched by construction: their pubkey is not
+    // on either derivation chain, so `ext_scan_find` used to walk the
+    // entire bank depth for each one before reporting nothing. At
+    // EXT_BANK_DEPTH = 1000 that is ~78s from cold. Comparing against
+    // the combined pubkey first costs one comparison and skips the walk
+    // entirely.
+    // (combined private scalar, combined pubkey compressed 33 bytes).
+    let mut stealth: Option<([u8; 32], [u8; 33])> = if tx.has_stealth_tweak {
+        stealth_combined_key(account_key, &tx.stealth_tweak)
+    } else {
+        None
+    };
+
+    {
+        let mut deep_memo: Option<([u8; 32], (u16, bool))> = None;
+        for i in 0..tx.num_inputs {
+            let script = &tx.inputs[i].utxo_entry.script_public_key;
+            if script.script_len != 34 || script.script[0] != 0x20 || script.script[33] != 0xAC {
+                continue; // not a standard P2PK script we can sign
+            }
+            let mut target_pk = [0u8; 32];
+            target_pk.copy_from_slice(&script.script[1..33]);
+            // Stealth first: an input that matches the combined key is
+            // ours but is on no derivation chain, so the banks can never
+            // find it. Flag it now and skip the scan.
+            if let Some((_, ref combined_pk)) = stealth {
+                if combined_pk[1..33] == target_pk {
+                    resolved_flags[i] = 2;
+                    continue;
+                }
+            }
+            // Memo next: consolidations repeat one source address, so
+            // this hits without touching the banks at all.
+            let mut found = match deep_memo {
+                Some((pk, hit)) if pk == target_pk => Some(hit),
+                _ => None,
+            };
+            if found.is_none() {
+                // Extended banks. `ext_scan_find` searches the filled
+                // region first and then KEEPS deriving into the banks,
+                // storing every result, so this both replaces the old
+                // idle-only lookup and the 2x100-derivation discard scan
+                // that used to follow it. Cost is bounded by the bank
+                // length (EXT_BANK_DEPTH), and it is paid at most once
+                // per signing pass rather than once per unmatched input:
+                // by the time the fronts reach capacity, every later
+                // input resolves from RAM.
+                if let Some((er, ern, ec, ecn)) = ext.as_mut() {
+                    found = crate::app::signing::ext_scan_find(
+                        account_key, &mut **er, &mut **ern, &mut **ec, &mut **ecn,
+                        &target_pk);
+                } else {
+                    // No banks available (self-test path): fall back to
+                    // the original discard scan.
+                    found = bip32::find_address_index_for_pubkey(account_key, &target_pk);
+                }
+                if let Some(hit) = found { deep_memo = Some((target_pk, hit)); }
+            }
+            match found {
+                Some((idx, is_change)) => {
+                    resolved_idx[i] = idx;
+                    resolved_flags[i] = 1 | ((is_change as u8) << 1);
+                }
+                None => { resolved_flags[i] = 2; }
+            }
+        }
+    } // table dropped here — the sign loop below runs without it on stack
+
+    // PHASE 2 — sign (deep stack, shallow locals). Key memo: consolidations
+    // spend many UTXOs of ONE address; derive the key once, reuse for
+    // repeats of the same pubkey.
+    let mut key_memo: Option<([u8; 32], [u8; 32], [u8; 33])> = None; // (pubkey_tag, privkey, pubkey_c)
+
+    // Compute the input-independent sighash parts ONCE. Per-input
+    // recomputation walked the whole tx per signature (O(N^2) hashing for
+    // N inputs) and nested an extra hasher frame in the deep sign chain.
+    let sighash_reuse = sighash::SighashReuse::compute(tx, sighash_type);
 
     let mut signed_count = 0usize;
 
+    // Chain parents for the per-input key derivation, built at most once
+    // each and only when actually needed.
+    //
+    // `derive_address_key(account_key, idx)` costs three scalar
+    // multiplies: the account key's pubkey to reach the chain key, the
+    // chain key's pubkey to reach the address key, and the address key's
+    // own pubkey. Only the last varies with `idx`. Through `ChainParent`
+    // the first two are paid once per chain and the per-input cost drops
+    // to one, so a 32-input consolidation across distinct addresses goes
+    // from ~96 multiplies to ~34.
+    //
+    // Lazy so a transaction that only touches one chain never pays for
+    // the other, and so a single-input send is no worse than before: two
+    // multiplies to build, one to derive, which is the three it paid
+    // already. Note that laziness saves MULTIPLIES, not stack: these two
+    // slots exist for the whole frame either way. That is ~198 bytes on
+    // the deep half of the signing pass, offset several times over by the
+    // 1.4KB table removed from phase 1 above.
+    let mut chain_recv: Option<bip32::ChainParent> = None;
+    let mut chain_chg: Option<bip32::ChainParent> = None;
+
     for i in 0..tx.num_inputs {
-        let script = &tx.inputs[i].utxo_entry.script_public_key;
-        // P2PK Schnorr script: OP_DATA_32 (0x20) + 32-byte pubkey + OP_CHECKSIG (0xAC)
-        if script.script_len != 34 || script.script[0] != 0x20 || script.script[33] != 0xAC {
-            continue; // not a standard P2PK script we can sign
-        }
-
+        if resolved_flags[i] == 0 { continue; }
         let mut target_pk = [0u8; 32];
-        target_pk.copy_from_slice(&script.script[1..33]);
-
-        // Find which address index this pubkey belongs to (receive or change)
-        if let Some((idx, is_change)) = bip32::find_address_index_for_pubkey(&account_key, &target_pk) {
-            // Derive the privkey for this index on the correct chain
-            let key_result = if is_change {
-                bip32::derive_change_key(&account_key, idx)
-            } else {
-                bip32::derive_address_key(&account_key, idx)
+        {
+            let script = &tx.inputs[i].utxo_entry.script_public_key;
+            target_pk.copy_from_slice(&script.script[1..33]);
+        }
+        if resolved_flags[i] & 1 != 0 {
+            let idx = resolved_idx[i];
+            let is_change = resolved_flags[i] & 2 != 0;
+            // Resolve the address key: reuse the memo when this input's
+            // pubkey matches the last one (the consolidation common case),
+            // otherwise derive once and memoize.
+            // Reuse the memo when this input repeats the previous pubkey
+            // (consolidation); else derive once and store the light form.
+            let need_derive = match key_memo {
+                Some((pk, _, _)) => pk != target_pk,
+                None => true,
             };
-            if let Ok(addr_key) = key_result {
-                let privkey = addr_key.private_key_bytes();
-                let sig = sighash::sign_input(tx, i, privkey, sighash_type)
+            if need_derive {
+                let slot = if is_change { &mut chain_chg } else { &mut chain_recv };
+                if slot.is_none() {
+                    *slot = bip32::ChainParent::new(
+                        account_key,
+                        if is_change { 1 } else { 0 },
+                    ).ok();
+                }
+                let key_result = match slot {
+                    Some(chain) => chain.derive(idx as u32),
+                    // Chain derivation failed: fall back to the direct
+                    // path so a single bad chain cannot silently drop
+                    // every signature on that chain.
+                    None => if is_change {
+                        bip32::derive_change_key(account_key, idx)
+                    } else {
+                        bip32::derive_address_key(account_key, idx)
+                    },
+                };
+                if let Ok(addr_key) = key_result {
+                    if let Ok(pk_c) = addr_key.public_key_compressed() {
+                        let mut pk32 = [0u8; 32];
+                        pk32.copy_from_slice(addr_key.private_key_bytes());
+                        key_memo = Some((target_pk, pk32, pk_c));
+                    }
+                }
+            }
+            if let Some((_, ref privkey_arr, pk_c)) = key_memo {
+                let sig = sighash::sign_input_cached(tx, i, privkey_arr, sighash_type, &sighash_reuse)
                     .map_err(|_| PsktError::NoInputs)?;
 
                 tx.inputs[i].signature = sig.bytes;
@@ -731,59 +933,27 @@ pub fn sign_transaction_multi_addr(
                 tx.inputs[i].sigs[0].sighash_type = sighash_type.to_byte();
                 tx.inputs[i].sigs[0].pubkey_pos = 0;
                 tx.inputs[i].sigs[0].present = true;
-                if let Ok(pk_c) = addr_key.public_key_compressed() {
-                    tx.inputs[i].sigs[0].pubkey_compressed = pk_c;
-                }
+                tx.inputs[i].sigs[0].pubkey_compressed = pk_c;
                 tx.inputs[i].sig_count = 1;
                 signed_count += 1;
             }
-        } else if tx.has_stealth_tweak {
+        } else if resolved_flags[i] == 2 && tx.has_stealth_tweak {
             // Stealth spend: signing key = account_privkey + tweak
-            use k256::elliptic_curve::ScalarPrimitive;
-            use k256::elliptic_curve::ops::Add;
-            use k256::elliptic_curve::sec1::ToEncodedPoint;
-            use k256::{ProjectivePoint, Scalar, SecretKey};
+            // Combined key already computed once for the whole
+            // transaction (see `stealth` above); resolve only flagged
+            // this input because its pubkey matched it.
+            if let Some((ref combined_privkey_src, ref combined_pk)) = stealth {
+                if combined_pk[1..33] != target_pk { continue; }
 
-            let acct_priv = account_key.private_key_bytes();
-            let acct_prim = ScalarPrimitive::<k256::Secp256k1>::from_slice(acct_priv)
-                .map_err(|_| PsktError::NoInputs)?;
-            // DKSAP: the stealth address is derived from the EVEN-Y form of the
-            // account spend pubkey B. Both the sender (pubkey_from_xonly) and the
-            // device scan (0x02 prefix) lift_x B as even-Y, so the address is
-            // P = B_even + t*G. If the real account pubkey has odd Y we must
-            // negate the scalar so acct_scalar*G == B_even; otherwise
-            // (acct + tweak)*G lands on the wrong x, the combined_x == target_pk
-            // guard below fails, the input is never signed, and the stealth UTXO
-            // is permanently unspendable (~50% of wallets).
-            let acct_scalar = {
-                let s = Scalar::from(acct_prim);
-                let s_pt = (ProjectivePoint::GENERATOR * s).to_affine();
-                let s_enc = s_pt.to_encoded_point(true);
-                if s_enc.as_bytes()[0] == 0x03 { -s } else { s }
-            };
+                let mut combined_privkey = *combined_privkey_src;
 
-            let tweak_prim = ScalarPrimitive::<k256::Secp256k1>::from_slice(&tx.stealth_tweak)
-                .map_err(|_| PsktError::NoInputs)?;
-            let tweak_scalar = Scalar::from(tweak_prim);
-
-            // Combined key: even-Y account base + tweak
-            let combined_scalar = acct_scalar.add(&tweak_scalar);
-
-            // Verify the combined pubkey matches the target
-            let combined_point = (ProjectivePoint::GENERATOR * combined_scalar).to_affine();
-            let combined_encoded = combined_point.to_encoded_point(true);
-            let combined_x = &combined_encoded.as_bytes()[1..33];
-
-            if combined_x == target_pk {
-                // Sign with the combined key
-                let mut combined_privkey = [0u8; 32];
-                combined_privkey.copy_from_slice(&combined_scalar.to_bytes());
-
-                let sig = sighash::sign_input(tx, i, &combined_privkey, sighash_type)
+                let sig = sighash::sign_input_cached(tx, i, &combined_privkey, sighash_type, &sighash_reuse)
                     .map_err(|_| PsktError::NoInputs)?;
 
-                // Zeroize the combined privkey
-                combined_privkey.fill(0);
+                // Zeroize the working copy of the combined privkey.
+                for b in combined_privkey.iter_mut() {
+                    unsafe { core::ptr::write_volatile(b as *mut u8, 0) };
+                }
 
                 tx.inputs[i].signature = sig.bytes;
                 tx.inputs[i].sig_len = 64;
@@ -792,10 +962,11 @@ pub fn sign_transaction_multi_addr(
                 tx.inputs[i].sigs[0].sighash_type = sighash_type.to_byte();
                 tx.inputs[i].sigs[0].pubkey_pos = 0;
                 tx.inputs[i].sigs[0].present = true;
-                // Use combined pubkey compressed
-                let mut pk_c = [0u8; 33];
-                pk_c.copy_from_slice(combined_encoded.as_bytes());
-                tx.inputs[i].sigs[0].pubkey_compressed = pk_c;
+                // Combined pubkey, compressed. Carried whole from the
+                // hoisted computation: only its X was compared above, so
+                // its Y parity is NOT guaranteed even and the real
+                // prefix must be preserved.
+                tx.inputs[i].sigs[0].pubkey_compressed = *combined_pk;
                 tx.inputs[i].sig_count = 1;
                 signed_count += 1;
             }
@@ -806,6 +977,15 @@ pub fn sign_transaction_multi_addr(
         return Err(PsktError::NoInputs);
     }
 
+    // Volatile-zero the memoized private key before returning.
+    if let Some((_, ref mut privkey_arr, _)) = key_memo {
+        for b in privkey_arr.iter_mut() { unsafe { core::ptr::write_volatile(b, 0); } }
+    }
+    // Same for the hoisted stealth scalar: it now lives for the whole
+    // function rather than one loop iteration, so it must be wiped here.
+    if let Some((ref mut sk, _)) = stealth {
+        for b in sk.iter_mut() { unsafe { core::ptr::write_volatile(b as *mut u8, 0); } }
+    }
     Ok(signed_count)
 }
 
@@ -819,10 +999,39 @@ pub fn analyze_input_script(tx: &Transaction, input_idx: usize) -> (ScriptType, 
     let script = &tx.inputs[input_idx].utxo_entry.script_public_key;
     let st = detect_script_type(&script.script, script.script_len);
 
-    // P2SH: use the redeem script for pubkey analysis
+    // P2SH: use the redeem script for pubkey analysis, but ONLY after
+    // verifying it is the script this UTXO actually commits to.
+    //
+    // A P2SH scriptPublicKey is
+    //     OP_BLAKE2B  OP_DATA_32  <32-byte hash>  OP_EQUAL
+    // so the commitment is script[2..34]. The redeem script arrives in the
+    // PSKT from the host, which is untrusted by definition on an air-gapped
+    // signer. Without this check the device would parse and DISPLAY multisig
+    // details, key positions and script types derived from a script the
+    // attacker chose, while the UTXO is something else entirely.
+    //
+    // A forged script cannot steal funds: the sighash commits to
+    // utxo_entry.script_public_key, which a node recomputes from its own UTXO
+    // set, so the resulting sig_script fails the on-chain P2SH check. The
+    // exposure is user deception, and on a device whose entire purpose is
+    // showing the user what they are signing, that is enough.
+    //
+    // On mismatch the input is reported as Unknown rather than P2SH, so no
+    // caller treats it as an analysed multisig input and the review screen
+    // shows it as unrecognised.
     if st == ScriptType::P2SH && tx.inputs[input_idx].redeem_script_len > 0 {
         let rs = tx.redeem_bytes(input_idx);
         let rs_len = rs.len();
+
+        if script.script_len != 35 {
+            return (ScriptType::Unknown, None);
+        }
+        let commitment = &script.script[2..34];
+        let actual = crate::wallet::sighash::blake2b_hash(rs);
+        if actual[..] != commitment[..] {
+            return (ScriptType::Unknown, None);
+        }
+
         let rs_type = detect_script_type(rs, rs_len);
         let ms = if rs_type == ScriptType::Multisig {
             parse_multisig_script(rs, rs_len)
@@ -1025,7 +1234,18 @@ pub fn sign_transaction_multisig(
                                         addr_tables[s] =
                                             Some(bip32::AddrPubkeyTable::build(acct));
                                     }
-                                    let tbl = addr_tables[s].as_ref().unwrap();
+                                    let tbl = match addr_tables[s].as_ref() {
+                                        Some(t) => t,
+                                        // Built immediately above by the
+                                        // is_none() branch, so this is
+                                        // unreachable today. Matched rather
+                                        // than unwrapped because the invariant
+                                        // is non-local: it holds only as long
+                                        // as that branch stays directly above
+                                        // this line, and a panic here is on
+                                        // the signing path.
+                                        None => continue,
+                                    };
                                     if let Some((idx, is_chg)) = tbl.find_by_pubkey(target_pk) {
                                         let key_result = if is_chg {
                                             bip32::derive_change_key(acct, idx)
@@ -1170,7 +1390,18 @@ pub fn sign_transaction_multisig(
                                             addr_tables[s] =
                                                 Some(bip32::AddrPubkeyTable::build(acct));
                                         }
-                                        let tbl = addr_tables[s].as_ref().unwrap();
+                                        let tbl = match addr_tables[s].as_ref() {
+                                        Some(t) => t,
+                                        // Built immediately above by the
+                                        // is_none() branch, so this is
+                                        // unreachable today. Matched rather
+                                        // than unwrapped because the invariant
+                                        // is non-local: it holds only as long
+                                        // as that branch stays directly above
+                                        // this line, and a panic here is on
+                                        // the signing path.
+                                        None => continue,
+                                    };
                                         if let Some((idx, is_chg)) = tbl.find_by_pubkey(&target_pk) {
                                             let key_result = if is_chg {
                                                 bip32::derive_change_key(acct, idx)
@@ -1235,7 +1466,18 @@ pub fn sign_transaction_multisig(
                                     if addr_tables[s].is_none() {
                                         addr_tables[s] = Some(bip32::AddrPubkeyTable::build(acct));
                                     }
-                                    let tbl = addr_tables[s].as_ref().unwrap();
+                                    let tbl = match addr_tables[s].as_ref() {
+                                        Some(t) => t,
+                                        // Built immediately above by the
+                                        // is_none() branch, so this is
+                                        // unreachable today. Matched rather
+                                        // than unwrapped because the invariant
+                                        // is non-local: it holds only as long
+                                        // as that branch stays directly above
+                                        // this line, and a panic here is on
+                                        // the signing path.
+                                        None => continue,
+                                    };
                                     if let Some((idx, is_chg)) = tbl.find_by_pubkey(&target_pk) {
                                         let key_result = if is_chg {
                                             bip32::derive_change_key(acct, idx)

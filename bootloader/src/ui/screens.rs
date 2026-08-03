@@ -485,13 +485,18 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                     let w = measure_title(ms_text.as_str());
                     draw_lato_title(&mut self.display, ms_text.as_str(), (320 - w) / 2, 190, KASPA_ACCENT);
 
-                    // Show existing signature count
+                    // Show existing signature count.
+                    //
+                    // Left-aligned, not centred: the payload token shares this
+                    // row, is right-aligned, and reaches x=119 in the worst
+                    // case (all-zero hash, 191 px). "Sigs: 15/15" from x=12
+                    // ends at x=101, so the two cannot meet. Both figures
+                    // measured against LATO_15_WIDTHS.
                     let sig_count = tx.inputs[0].sig_count;
                     if sig_count > 0 {
                         let mut sig_text = heapless::String::<24>::new();
                         write!(&mut sig_text, "Sigs: {}/{}", sig_count, ms.m).ok();
-                        let w = measure_body(sig_text.as_str());
-                        draw_lato_body(&mut self.display, sig_text.as_str(), (320 - w) / 2, 210, COLOR_ORANGE);
+                        draw_lato_body(&mut self.display, sig_text.as_str(), 12, 210, COLOR_ORANGE);
                     }
                 }
             } else if st == ScriptType::P2SH {
@@ -503,18 +508,41 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                 }
             }
 
-            // Payload verification hash: SHA-256(payload)[..4] as "PL xxxxxxxx"
-            // User compares with KasSee's review screen to verify backup integrity.
+            // Payload verification token: SHA-256(payload)[..8] rendered as
+            // "PL xxxxxxxx xxxxxxxx". The user compares it against the same
+            // token on KasSee's review screen.
+            //
+            // M-12: this was SHA-256(payload)[..4]. The token exists to catch
+            // an adversary who has substituted the payload, and 32 bits is
+            // grindable in seconds to minutes, so that adversary could pick a
+            // payload whose token matched the one KasSee had already shown.
+            // The check was defeated by exactly the party it was aimed at.
+            // 64 bits is not grindable, so the comparison means something.
+            // KasSee's two render sites are widened in the same change; the
+            // two must move together or every comparison mismatches.
+            //
+            // Grouped in fours: the whole point is a human comparing two
+            // strings across two screens, and 4-character groups are compared
+            // reliably where 16-character runs are not.
             if tx.payload_len > 0 {
                 use sha2::{Sha256, Digest};
                 let hash = Sha256::digest(&tx.payload[..tx.payload_len]);
                 let hx = b"0123456789abcdef";
-                let mut h: heapless::String<16> = heapless::String::new();
+                let mut h: heapless::String<24> = heapless::String::new();
                 let _ = core::fmt::Write::write_str(&mut h, "PL ");
-                for i in 0..4usize {
+                for i in 0..8usize {
+                    if i == 4 {
+                        let _ = h.push(' ');
+                    }
                     let _ = h.push(hx[(hash[i] >> 4) as usize] as char);
                     let _ = h.push(hx[(hash[i] & 0x0F) as usize] as char);
                 }
+                // Right-aligned (maintainer 2026-08-02: keep as shipped;
+                // centring was considered and reverted, it forces the sig
+                // count off this row for no functional gain). Typical width
+                // 178 px so it starts near x=132, x=119 at worst; the
+                // left-aligned sig count ends at x=101. See the multisig
+                // block above.
                 let hw = measure_body(h.as_str());
                 draw_lato_body(&mut self.display, h.as_str(), 320 - hw - 10, 210, COLOR_HINT);
             }
@@ -538,6 +566,64 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                     if !is_own {
                         for pk in change_pks.iter() {
                             if *pk != [0u8; 32] && *pk == out_pk { is_change = true; break; }
+                        }
+                    }
+                } else if spk.script_len == 35
+                    && spk.script[0] == 0xAA
+                    && spk.script[1] == 0x20
+                    && spk.script[34] == 0x87
+                {
+                    // P2SH. Until now only P2PK was recognised, so a change
+                    // output paying back to a multisig address rendered as an
+                    // ordinary destination, indistinguishable from a redirected
+                    // one. That mattered: multisig change legitimately returns
+                    // to the very address being spent from, so "it looks like my
+                    // address" is exactly the intuition that fails, and the
+                    // review screen is the control the whole design rests on.
+                    //
+                    // The test is byte equality against the scriptPublicKey of a
+                    // UTXO being spent, which works because multisig change
+                    // returns to the source address. No cosigner keys and no
+                    // derivation are needed.
+                    //
+                    // The comparison is ONLY against inputs proven to be ours.
+                    // Comparing against every input would let a hostile PSKT add
+                    // an input carrying the attacker's scriptPublicKey and have a
+                    // matching output labelled CHANGE. An input counts as ours
+                    // when its redeem script both hashes to its own P2SH
+                    // commitment and contains one of our pubkeys.
+                    for i in 0..tx.num_inputs {
+                        let in_spk = &tx.inputs[i].utxo_entry.script_public_key;
+                        if in_spk.script_len != spk.script_len {
+                            continue;
+                        }
+                        if in_spk.script[..in_spk.script_len] != spk.script[..spk.script_len] {
+                            continue;
+                        }
+                        // Same script. Now prove that input is ours.
+                        let rs = tx.redeem_bytes(i);
+                        if rs.is_empty() {
+                            continue;
+                        }
+                        // Bind the redeem script to the UTXO it claims to
+                        // unlock, so a forged script cannot vouch for itself.
+                        let h = crate::wallet::sighash::blake2b_hash(rs);
+                        if h[..] != in_spk.script[2..34] {
+                            continue;
+                        }
+                        // One of our pubkeys must appear in it.
+                        let mut mine = false;
+                        'scan: for w in rs.windows(32) {
+                            for pk in receive_pks.iter().chain(change_pks.iter()) {
+                                if *pk != [0u8; 32] && w == &pk[..] {
+                                    mine = true;
+                                    break 'scan;
+                                }
+                            }
+                        }
+                        if mine {
+                            is_change = true;
+                            break;
                         }
                     }
                 }
@@ -2483,13 +2569,22 @@ pub fn draw_home_grid(&mut self) {
                 draw_lato_title(&mut self.display, fp_str, start_x + 36, row_y + 28, fp_color);
 
                 // Slot type label
-                let type_str = match slot.word_count {
-                    1 => "KEY", 2 => "xprv", 12 => "12w", 24 => "24w", _ => "??",
+                // Matched on `kind()` rather than on the raw `word_count`, so
+                // the label and the slot's actual contents cannot disagree, and
+                // adding a slot kind makes this arm fail to compile (H-08).
+                let type_str = match slot.kind() {
+                    crate::ui::seed_manager::SlotKind::RawKey => "KEY",
+                    crate::ui::seed_manager::SlotKind::Xprv => "xprv",
+                    crate::ui::seed_manager::SlotKind::Mnemonic { word_count: 12 } => "12w",
+                    crate::ui::seed_manager::SlotKind::Mnemonic { word_count: 24 } => "24w",
+                    _ => "??",
                 };
                 draw_lato_body(&mut self.display, type_str, start_x + 130, row_y + 28, fp_color);
 
                 // Passphrase indicator
-                if (slot.word_count == 12 || slot.word_count == 24) && slot.passphrase_len > 0 {
+                // `as_passphrase` returns None for an xprv slot, where those
+                // same bytes are the chain code (H-08).
+                if slot.as_passphrase().map(|p| !p.is_empty()).unwrap_or(false) {
                     draw_lato_hint(&mut self.display, "PP", start_x + 170, row_y + 26, COLOR_ORANGE);
                 }
 
@@ -2562,8 +2657,8 @@ pub fn draw_home_grid(&mut self) {
         sound::stop_ticking(); // result QR means work is done: halt the busy tick (M5 buzzer; no-op on WS)
         self.display.clear(COLOR_BG).ok();
 
-        // Guard: QR encoder supports V1-V6 (max 134 bytes).
-        if data.len() > 134 {
+        // Guard: QR encoder supports V1-V9 (max 230 bytes).
+        if data.len() > 230 {
             let ew = measure_title("QR Error — too large");
             draw_lato_title(&mut self.display, "QR Error — too large", (320 - ew) / 2, 120, COLOR_DANGER);
             return;
@@ -3490,8 +3585,13 @@ pub fn draw_home_grid(&mut self) {
     /// Blit a grayscale camera frame into the viewfinder area.
     /// Renders at (40, 30) with 240x180 pixels, leaving top 30px for back button.
     /// Redraws back button after blit so it's always visible during streaming.
+    /// scan_state: 0 = searching (red), 2 = symbol in view (flashing green,
+    /// held by the caller while the code is found, released when it leaves).
+    /// The whole viewfinder border is the indicator — bench feedback preferred
+    /// it over corner brackets and overlays, and two states over three.
     pub fn blit_camera_frame(&mut self, frame: &[u8], width: usize, height: usize,
-                             qr_guide_info: u8) {
+                             qr_guide_info: u8, scan_state: u8) {
+        let _ = qr_guide_info; // read under cfg(waveshare) only (cam-tune bit)
         use embedded_graphics::primitives::{Rectangle, PrimitiveStyle};
         use embedded_graphics::prelude::*;
         use embedded_graphics::pixelcolor::Rgb565;
@@ -3516,13 +3616,11 @@ pub fn draw_home_grid(&mut self) {
         let dw = vf_w;
         let dh = vf_h;
 
-        // Decode guide info: bit 7 = finders active
-        let finders_active = (qr_guide_info & 0x80) != 0;
-
-        // Frame border: 2px thick around entire viewfinder
-        // Red/orange when idle, flashing green when finders detected
+        // Frame border: 2px thick around the entire viewfinder.
+        // red = searching, flashing green = decoded (held while a multi-frame
+        // stream keeps landing, back to red when it stops).
         let border_w = 2i32;
-        let border_color = if finders_active {
+        let border_color = if scan_state >= 2 {
             // Flash between bright and dim green using frame data parity
             let flash = (frame[0] as u16 + frame[width/2] as u16) & 1;
             if flash == 0 {
@@ -3531,7 +3629,7 @@ pub fn draw_home_grid(&mut self) {
                 Rgb565::new(0, 42, 0)
             }
         } else {
-            Rgb565::new(20, 8, 0) // dim red/amber — "scanning"
+            Rgb565::new(24, 6, 0) // red — searching
         };
 
         for vy in 0..dh {
@@ -3984,13 +4082,22 @@ pub fn draw_home_grid(&mut self) {
                 draw_lato_title(&mut self.display, fp_str, start_x + 36, row_y + 28, COLOR_TEXT);
 
                 // Word count
-                let type_str = match slot.word_count {
-                    1 => "KEY", 2 => "xprv", 12 => "12w", 24 => "24w", _ => "??",
+                // Matched on `kind()` rather than on the raw `word_count`, so
+                // the label and the slot's actual contents cannot disagree, and
+                // adding a slot kind makes this arm fail to compile (H-08).
+                let type_str = match slot.kind() {
+                    crate::ui::seed_manager::SlotKind::RawKey => "KEY",
+                    crate::ui::seed_manager::SlotKind::Xprv => "xprv",
+                    crate::ui::seed_manager::SlotKind::Mnemonic { word_count: 12 } => "12w",
+                    crate::ui::seed_manager::SlotKind::Mnemonic { word_count: 24 } => "24w",
+                    _ => "??",
                 };
                 draw_lato_body(&mut self.display, type_str, start_x + 130, row_y + 28, COLOR_TEXT_DIM);
 
                 // Passphrase indicator
-                if (slot.word_count == 12 || slot.word_count == 24) && slot.passphrase_len > 0 {
+                // `as_passphrase` returns None for an xprv slot, where those
+                // same bytes are the chain code (H-08).
+                if slot.as_passphrase().map(|p| !p.is_empty()).unwrap_or(false) {
                     draw_lato_hint(&mut self.display, "PP", start_x + 170, row_y + 26, COLOR_ORANGE);
                 }
 
@@ -4207,7 +4314,7 @@ pub fn draw_home_grid(&mut self) {
 
     }
     /// Draw steganography JPEG file picker
-    pub fn draw_stego_jpeg_pick(&mut self, disp_names: &[[u8; 32]; 8], disp_lens: &[u8; 8], count: u8, selected: u8) {
+    pub fn draw_stego_jpeg_pick(&mut self, disp_names: &[[u8; 32]], disp_lens: &[u8], count: u8, selected: u8) {
         self.clear_keep_nav();
         let tw = measure_header("SELECT JPEG");
         draw_oswald_header(&mut self.display, "SELECT JPEG", (320 - tw) / 2, 30, COLOR_TEXT);
@@ -4303,6 +4410,54 @@ pub fn draw_home_grid(&mut self) {
 
     /// Draw descriptor input choice: Type manually / Load from SD
     /// Uses standard template layout with rows and icons
+    /// Carrier picker: Descriptor (EXIF) vs Picture (DCT coefficients).
+    ///
+    /// Both rows show the tradeoff, because that is the only thing that
+    /// should decide it: metadata survives recompression and dies to
+    /// stripping, image data does the reverse.
+    pub fn draw_stego_mode_choice(&mut self, selected: u8) {
+        self.clear_keep_nav();
+        let tw = measure_header("HIDE SEED IN");
+        draw_oswald_header(&mut self.display, "HIDE SEED IN", (320 - tw) / 2, 30, COLOR_TEXT);
+        Line::new(Point::new(20, 40), Point::new(300, 40))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        // Three lines per card, each on its own baseline. The tradeoff used
+        // to be right-aligned on the SAME baseline as the description, which
+        // overprinted: measured against the font tables, the descriptions run
+        // to 185 px in Lato-15 and the tradeoffs to 174 px in Lato-12, and the
+        // card only has 232 px of inner width, so they were always going to
+        // collide. They each get a line instead.
+        //
+        // Card geometry follows from that: 76 px tall to hold three baselines
+        // at +22, +42 and +62, two cards from y=56 with a 10 px gap, ending at
+        // y=218 inside a 240 px screen. The tap zones in handlers/stego.rs
+        // must match these bounds.
+        let card_h: i32 = 76;
+        let card_gap: i32 = 10;
+        let start_y: i32 = 56;
+        let start_x: i32 = 30;
+        let card_w: u32 = 260;
+        let card_corner = CornerRadii::new(Size::new(6, 6));
+        let text_x = start_x + 14;
+
+        for (i, m) in crate::features::stego::ALL_MODES.iter().enumerate() {
+            let y = start_y + (i as i32) * (card_h + card_gap);
+            let r = Rectangle::new(Point::new(start_x, y), Size::new(card_w, card_h as u32));
+            RoundedRectangle::new(r, card_corner)
+                .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
+                .draw(&mut self.display).ok();
+            let border = if selected == i as u8 { KASPA_ACCENT } else { KASPA_TEAL };
+            RoundedRectangle::new(r, card_corner)
+                .into_styled(PrimitiveStyle::with_stroke(border, 1))
+                .draw(&mut self.display).ok();
+            draw_lato_title(&mut self.display, m.label(), text_x, y + 22, COLOR_TEXT);
+            draw_lato_body(&mut self.display, m.description(), text_x, y + 42, COLOR_TEXT_DIM);
+            draw_lato_hint(&mut self.display, m.tradeoff(), text_x, y + 62, COLOR_ORANGE);
+        }
+    }
+
     pub fn draw_stego_desc_choice(&mut self, is_import: bool) {
         self.clear_keep_nav();
         let tw = measure_header("DESCRIPTOR");
@@ -4352,7 +4507,13 @@ pub fn draw_home_grid(&mut self) {
     }
 
     /// Draw .TXT file picker with LFN display names — standard template layout
-    pub fn draw_stego_txt_pick(&mut self, disp_names: &[[u8; 32]; 8], disp_lens: &[u8; 8], count: u8) {
+    /// TXT file picker. `scroll` is the index of the first visible row.
+    ///
+    /// This previously ignored paging entirely and rendered
+    /// `disp_names[0..4]` no matter how many files were present, while
+    /// still painting the left/right arrows below. The arrows were live
+    /// pixels attached to nothing.
+    pub fn draw_stego_txt_pick(&mut self, disp_names: &[[u8; 32]], disp_lens: &[u8], count: u8, scroll: u8) {
         self.clear_keep_nav();
         let tw = measure_header("SELECT TXT");
         draw_oswald_header(&mut self.display, "SELECT TXT", (320 - tw) / 2, 30, COLOR_TEXT);
@@ -4370,7 +4531,7 @@ pub fn draw_home_grid(&mut self) {
         let teal_dark = Rgb565::new(0b00001, 0b000100, 0b00010);
 
         for vis in 0..max_visible {
-            let idx = vis;
+            let idx = scroll + vis;
             let row_y = start_y + (vis as i32) * (card_h + card_gap);
             let slot_rect = Rectangle::new(Point::new(start_x, row_y), Size::new(card_w, card_h as u32));
 
@@ -4410,15 +4571,20 @@ pub fn draw_home_grid(&mut self) {
             }
         }
 
-        // Arrows always visible
+        // Arrows always drawn, but lit only in the direction that can
+        // actually page. Both were filled `teal_dark` unconditionally,
+        // so they never indicated whether more files existed. Same
+        // can_up / can_down test the JPEG picker uses.
         let arrow_cy = start_y + (max_visible as i32 * (card_h + card_gap) - card_gap) / 2;
+        let can_up = scroll > 0;
+        let can_down = (scroll + max_visible) < count;
         Triangle::new(
             Point::new(5, arrow_cy), Point::new(30, arrow_cy - 17), Point::new(30, arrow_cy + 17),
-        ).into_styled(PrimitiveStyle::with_fill(teal_dark))
+        ).into_styled(PrimitiveStyle::with_fill(if can_up { KASPA_TEAL } else { teal_dark }))
             .draw(&mut self.display).ok();
         Triangle::new(
             Point::new(315, arrow_cy), Point::new(290, arrow_cy - 17), Point::new(290, arrow_cy + 17),
-        ).into_styled(PrimitiveStyle::with_fill(teal_dark))
+        ).into_styled(PrimitiveStyle::with_fill(if can_down { KASPA_TEAL } else { teal_dark }))
             .draw(&mut self.display).ok();
 
     }
@@ -4716,6 +4882,11 @@ pub fn draw_home_grid(&mut self) {
     }
 
     /// Draw firmware update verification result
+    /// Unreferenced. The firmware-update-over-QR path it belonged to was an
+    /// abandoned design and is commented out across camera_loop.rs, input.rs,
+    /// data.rs, redraw.rs and stego.rs. Kept so the screen can be restored if
+    /// that path is ever finished. See H-03.
+    #[allow(dead_code)]
     pub fn draw_fw_update_screen(&mut self, version: &str, verified: bool) {
         self.display.clear(COLOR_BG).ok();
         let tw = measure_header("FIRMWARE UPDATE");

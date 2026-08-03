@@ -71,7 +71,68 @@ const ESP_IMAGE_MAGIC: u8 = 0xE9;
 const ESP_IMAGE_HEADER_SIZE: usize = 24;
 const SEGMENT_HEADER_SIZE: usize = 8;
 
+/// Check `compute_challenge` against the BIP-340 specification.
+///
+/// Runs before anything is signed, and aborts if it fails.
+///
+/// This exists because the function it tests was wrong for the life of the
+/// project (H-12): it computed a plain `SHA256(R.x || P.x || m)` instead of the
+/// BIP-340 tagged hash, so every signature this tool produced was rejected by
+/// the firmware and by any other verifier. Nothing caught it. The device had a
+/// Schnorr known-answer test, but that test signs and verifies with the device's
+/// own code, so an implementation that is wrong and self-consistent passes. This
+/// tool had no test at all, and the only place the two met was behind
+/// `--features production`, which did not compile.
+///
+/// So both sides are now anchored to the specification rather than to each
+/// other: `wallet/schnorr.rs::test_bip340_published_vector` verifies the same
+/// published vector on the device. Neither can drift without failing.
+///
+/// The values come from BIP-340 test vector 0, derived from first principles
+/// rather than copied:
+///   secret key 0x03, message all zeros, aux_rand all zeros
+///   R.x    = first 32 bytes of the published signature
+///   P.x    = F9308A01...BCE036F9
+///   e      = tagged_hash("BIP0340/challenge", R.x || P.x || m) mod n
+fn self_test_challenge() {
+    const RX: [u8; 32] = [
+        0xE9, 0x07, 0x83, 0x1F, 0x80, 0x84, 0x8D, 0x10,
+        0x69, 0xA5, 0x37, 0x1B, 0x40, 0x24, 0x10, 0x36,
+        0x4B, 0xDF, 0x1C, 0x5F, 0x83, 0x07, 0xB0, 0x08,
+        0x4C, 0x55, 0xF1, 0xCE, 0x2D, 0xCA, 0x82, 0x15,
+    ];
+    const PX: [u8; 32] = [
+        0xF9, 0x30, 0x8A, 0x01, 0x92, 0x58, 0xC3, 0x10,
+        0x49, 0x34, 0x4F, 0x85, 0xF8, 0x9D, 0x52, 0x29,
+        0xB5, 0x31, 0xC8, 0x45, 0x83, 0x6F, 0x99, 0xB0,
+        0x86, 0x01, 0xF1, 0x13, 0xBC, 0xE0, 0x36, 0xF9,
+    ];
+    const MSG: [u8; 32] = [0u8; 32];
+    const EXPECTED_E: [u8; 32] = [
+        0x6B, 0xB6, 0xB9, 0x3A, 0x91, 0xF2, 0xEC, 0xC0,
+        0xCD, 0x92, 0x4F, 0x4F, 0x9B, 0xAA, 0xBB, 0x5E,
+        0x6E, 0xB2, 0x17, 0x45, 0xBB, 0x00, 0xF2, 0xCE,
+        0xBD, 0xAA, 0xC9, 0x08, 0xBB, 0x5D, 0x86, 0xCE,
+    ];
+
+    let e = compute_challenge(&RX, &PX, &MSG);
+    if scalar_to_bytes(&e) != EXPECTED_E {
+        eprintln!("  FATAL: BIP-340 challenge self-test FAILED.");
+        eprintln!("  compute_challenge does not match the specification, so any");
+        eprintln!("  signature produced here would be rejected by the firmware.");
+        eprintln!("  expected {}", hex(&EXPECTED_E));
+        eprintln!("  got      {}", hex(&scalar_to_bytes(&e)));
+        std::process::exit(2);
+    }
+}
+
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{:02x}", x)).collect()
+}
+
 fn main() {
+    self_test_challenge();
+
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 || args.len() > 3 {
@@ -507,9 +568,38 @@ fn generate_rfc6979_nonce(privkey: &[u8; 32], message: &[u8; 32]) -> Result<Scal
     Ok(k_scalar)
 }
 
+/// BIP-340 challenge: e = tagged_hash("BIP0340/challenge", R.x || P.x || m) mod n
+///
+/// The tag prefix was missing until 2026-08-02. This function computed a plain
+/// `SHA256(R.x || P.x || m)`, while the device verifier in
+/// `bootloader/src/wallet/schnorr.rs:241` computes the BIP-340 tagged hash,
+/// `SHA256(SHA256(tag) || SHA256(tag) || R.x || P.x || m)`.
+///
+/// The two therefore disagreed on the challenge, so every signature this tool
+/// produced was rejected by the firmware, and by any other BIP-340 verifier.
+/// It went unnoticed because `--features production` never compiled, and the
+/// development path skips the signature check entirely. Confirmed on hardware:
+/// a signed production build halted with "Signature invalid".
+///
+/// The device is the correct side. This is the fix.
+///
+/// Consequence: every signed release from 1.0.0 through 1.0.4 carries a
+/// signature that cannot verify. Re-signing those artifacts is the only way to
+/// make their signatures meaningful.
 fn compute_challenge(rx: &[u8; 32], px: &[u8; 32], message: &[u8; 32]) -> Scalar {
     use sha2::{Sha256, Digest};
+
+    // SHA256("BIP0340/challenge"), verified independently.
+    const TAG_HASH: [u8; 32] = [
+        0x7b, 0xb5, 0x2d, 0x7a, 0x9f, 0xef, 0x58, 0x32,
+        0x3e, 0xb1, 0xbf, 0x7a, 0x40, 0x7d, 0xb3, 0x82,
+        0xd2, 0xf3, 0xf2, 0xd8, 0x1b, 0xb1, 0x22, 0x4f,
+        0x49, 0xfe, 0x51, 0x8f, 0x6d, 0x48, 0xd3, 0x7c,
+    ];
+
     let mut hasher = Sha256::new();
+    hasher.update(TAG_HASH);
+    hasher.update(TAG_HASH);
     hasher.update(rx);
     hasher.update(px);
     hasher.update(message);

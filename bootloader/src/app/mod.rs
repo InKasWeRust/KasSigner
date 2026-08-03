@@ -21,3 +21,11 @@ pub mod data;
 pub mod input;
 pub mod signing;
 pub mod boot_test;
+/// Stack paint-and-measure. Replaces inference from register dumps with a
+/// number, and exposes the linker addresses that show whether static memory
+/// growth has moved the stack floor.
+pub mod stack_probe;
+/// SHA hardware-vs-software benchmark. Measurement only, compiled out
+/// unless the `sha-bench` feature is on; nothing in production calls it.
+#[cfg(feature = "sha-bench")]
+pub mod sha_bench;

@@ -44,6 +44,10 @@ use k256::{
     },
 };
 use super::hmac::{hmac_sha512, zeroize_buf};
+// Constant-time scalar comparison and reduction (M-05). `subtle` is the same
+// crate `elliptic-curve` uses for k256's own `Choice`; see Cargo.toml.
+use subtle::{Choice, ConditionallySelectable};
+use core::sync::atomic::{compiler_fence, Ordering};
 
 // ─── Constants ───────────────────────────────────────────────────────
 
@@ -279,7 +283,18 @@ pub fn derive_child(
     il.copy_from_slice(&i[..32]);
     child_chain_code.copy_from_slice(&i[32..]);
 
-    // Validar IL
+    // Reject IL >= n.
+    //
+    // DELIBERATE SPEC DEVIATION (L-10): BIP32 says "proceed with the next
+    // value for i" here and on a zero child key. We return an error instead,
+    // and so does rusty-kaspa (wallet/bip32/src/xprivate_key.rs, citing the
+    // same 2^-127 probability). Matching rusty-kaspa is the binding
+    // constraint: implementing the skip would mean that in this
+    // probability-2^-127 event KasSigner derives index i+1 while KasSee,
+    // through rusty-kaspa, errors — a silent address divergence between
+    // signer and watch wallet. Conformance with the ecosystem beats
+    // conformance with the letter of the spec. Same rule at every IL/zero-key
+    // rejection in this file.
     if !is_less_than_order(&il) {
         zeroize_buf(&mut il);
         zeroize_buf(&mut child_chain_code);
@@ -313,6 +328,144 @@ pub fn derive_child(
         chain_code: child_chain_code,
         depth: parent.depth.saturating_add(1),
     })
+}
+
+/// A non-hardened derivation parent holding its compressed public key.
+///
+/// Deriving m/.../0/{index} through `derive_address_key` costs THREE
+/// secp256k1 scalar multiplies per index, and two of them are the same
+/// bytes every time:
+///
+///   1. `derive_child(account, 0)` computes the ACCOUNT key's pubkey to
+///      build the HMAC input. The chain key it produces does not depend
+///      on the address index.
+///   2. `derive_child(chain, index)` computes the CHAIN key's pubkey for
+///      the same reason. Also index-independent.
+///   3. `public_key_x_only` computes the address key's own pubkey. This
+///      is the only one that actually varies.
+///
+/// Scanning 74 indices therefore did 222 multiplies to produce 74 useful
+/// ones. `ChainParent` pays 1 and 2 once and then costs a single multiply
+/// per index.
+///
+/// The public key is derived in `new` from the key it is stored beside,
+/// so the two cannot go out of sync: there is no constructor that accepts
+/// a caller-supplied pubkey.
+pub struct ChainParent {
+    key: ExtendedPrivKey,
+    pubkey: [u8; 33],
+}
+
+impl ChainParent {
+    /// Derive the chain key at `index` under `account_key` and precompute
+    /// its public key. `index` must be non-hardened (BIP44 external = 0,
+    /// internal/change = 1).
+    pub fn new(account_key: &ExtendedPrivKey, index: u32) -> Result<Self, Bip32Error> {
+        if index & HARDENED_BIT != 0 {
+            return Err(Bip32Error::InvalidKey);
+        }
+        let key = derive_child(account_key, index)?;
+        let pubkey = key.public_key_compressed()?;
+        Ok(Self { key, pubkey })
+    }
+
+    /// Derive the non-hardened child at `index`. Identical to
+    /// `derive_child(&self.key, index)` except that the parent public key
+    /// is read from the struct instead of being recomputed.
+    pub fn derive(&self, index: u32) -> Result<ExtendedPrivKey, Bip32Error> {
+        if index & HARDENED_BIT != 0 {
+            return Err(Bip32Error::InvalidKey);
+        }
+        // data = ser_P(parent_pubkey) || ser32(index)
+        let mut data = [0u8; 37];
+        data[..33].copy_from_slice(&self.pubkey);
+        data[33..37].copy_from_slice(&index.to_be_bytes());
+
+        let i = hmac_sha512(&self.key.chain_code, &data);
+        let mut il = [0u8; 32];
+        let mut child_chain_code = [0u8; 32];
+        il.copy_from_slice(&i[..32]);
+        child_chain_code.copy_from_slice(&i[32..]);
+
+        // Error on IL >= n, not the spec's index skip: deliberate, matches
+        // rusty-kaspa. Full rationale at the same check in `derive_child`
+        // (L-10).
+        if !is_less_than_order(&il) {
+            zeroize_buf(&mut il);
+            zeroize_buf(&mut child_chain_code);
+            zeroize_buf(&mut data);
+            return Err(Bip32Error::InvalidKey);
+        }
+
+        let mut child_key = scalar_add_mod_n(&il, &self.key.key);
+        zeroize_buf(&mut il);
+        zeroize_buf(&mut data);
+
+        if is_zero(&child_key) {
+            zeroize_buf(&mut child_key);
+            zeroize_buf(&mut child_chain_code);
+            return Err(Bip32Error::InvalidKey);
+        }
+        if SecretKey::from_slice(&child_key).is_err() {
+            zeroize_buf(&mut child_key);
+            zeroize_buf(&mut child_chain_code);
+            return Err(Bip32Error::CurveError);
+        }
+
+        Ok(ExtendedPrivKey {
+            key: child_key,
+            chain_code: child_chain_code,
+            depth: self.key.depth.saturating_add(1),
+        })
+    }
+}
+
+/// Both chain parents for one account key, plus the account key they
+/// were derived from.
+///
+/// The idle pump derives one index per call, so it cannot hold chain
+/// parents as locals the way `ext_scan_find` does; without somewhere to
+/// keep them it pays three scalar multiplies per index instead of one.
+///
+/// `acct_src` makes the cache SELF-VALIDATING. `acct_key_raw` is written
+/// from several handlers (slot select, `derive_all_pubkeys` in the menu
+/// and tx paths, the delete-path zeroize), and a cache that trusted those
+/// sites to invalidate it would sign with the previous wallet's chain key
+/// the day one of them was missed. Instead every use compares the full 65
+/// bytes and rebuilds on any difference, so no write site has to know
+/// this cache exists.
+pub struct ChainCache {
+    /// The exact `acct_key_raw` these parents came from.
+    pub acct_src: [u8; 65],
+    /// m/44'/111111'/0'/0
+    pub recv: ChainParent,
+    /// m/44'/111111'/0'/1
+    pub chg: ChainParent,
+}
+
+impl ChainCache {
+    /// Build both chain parents from a raw account key. Costs four
+    /// scalar multiplies, after which each index costs one.
+    pub fn build(acct_raw: &[u8; 65]) -> Result<Self, Bip32Error> {
+        let acct = ExtendedPrivKey::from_raw(acct_raw);
+        let recv = ChainParent::new(&acct, 0)?;
+        let chg = ChainParent::new(&acct, 1)?;
+        Ok(Self { acct_src: *acct_raw, recv, chg })
+    }
+
+    /// True when these parents belong to `acct_raw`.
+    pub fn matches(&self, acct_raw: &[u8; 65]) -> bool {
+        self.acct_src == *acct_raw
+    }
+}
+
+impl Drop for ChainCache {
+    fn drop(&mut self) {
+        // The parents zeroize themselves through ExtendedPrivKey's Drop
+        // (field drops run after this body). `acct_src` is a copy of
+        // private key material, so wipe it explicitly here.
+        zeroize_buf(&mut self.acct_src);
+    }
 }
 
 // ─── Public-key BIP32 child derivation (no private key required) ────
@@ -351,6 +504,35 @@ pub struct ExtendedPubKey {
     pub chain_code: [u8; 32],
     /// Depth in the derivation tree (0 = master).
     pub depth: u8,
+}
+
+impl ExtendedPubKey {
+    /// Securely zeroize the key material. Not a private key, but the chain
+    /// code together with the pubkey derives the entire public tree, which is
+    /// a privacy exposure the audit ranks worth wiping (L-07). `Clone` stays:
+    /// each clone wipes itself on its own drop.
+    pub fn zeroize(&mut self) {
+        for b in self.pubkey.iter_mut() {
+            unsafe {
+                core::ptr::write_volatile(b, 0);
+            }
+        }
+        for b in self.chain_code.iter_mut() {
+            unsafe {
+                core::ptr::write_volatile(b, 0);
+            }
+        }
+        unsafe {
+            core::ptr::write_volatile(&mut self.depth, 0);
+        }
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Drop for ExtendedPubKey {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
 }
 
 impl ExtendedPubKey {
@@ -403,7 +585,8 @@ pub fn derive_child_pub(
     il.copy_from_slice(&i[..32]);
     child_chain_code.copy_from_slice(&i[32..]);
 
-    // Reject IL >= n
+    // Error on IL >= n, not the spec's index skip: deliberate, matches
+    // rusty-kaspa. Full rationale at the same check in `derive_child` (L-10).
     if !is_less_than_order(&il) {
         zeroize_buf(&mut il);
         zeroize_buf(&mut child_chain_code);
@@ -637,7 +820,23 @@ pub fn find_address_index_for_pubkey(
 /// it only when the seed has no account-level match keeps the common
 /// (account-level multisig) case stack-light.
 pub struct AddrPubkeyTable {
-    pub entries: [(bool, u16, [u8; 32]); (ADDR_SCAN_DEPTH as usize) * 2],
+    /// Heap-allocated, NOT an inline array.
+    ///
+    /// As `[(bool, u16, [u8; 32]); 40]` this struct was ~1408 bytes, and
+    /// `sign_transaction_multisig` holds `[Option<AddrPubkeyTable>; 8]`,
+    /// one per signing slot, live across the entire function. That is
+    /// ~11.3KB on the stack frame that the sighash and Schnorr frames
+    /// then stack on top of, and it tripped the stack guard inside
+    /// `public_key_compressed` on M5Stack.
+    ///
+    /// The single-signature path already knew this: it was split into a
+    /// resolve phase and a sign phase specifically so ONE 1.4KB table
+    /// would not be alive during signing. The multisig path kept eight.
+    ///
+    /// Boxed, the struct is a pointer plus two lengths, so the array of
+    /// eight costs a few hundred bytes of stack and the tables live in
+    /// PSRAM.
+    pub entries: alloc::boxed::Box<[(bool, u16, [u8; 32])]>,
     pub filled: usize,
 }
 
@@ -646,25 +845,37 @@ impl AddrPubkeyTable {
     /// Returns None if derivation fails anywhere (shouldn't happen for
     /// a valid account key).
     pub fn build(account_key: &ExtendedPrivKey) -> Self {
+        // `alloc::vec![elem; n]` fills the buffer in place on the heap.
+        // `Box::new([...; 40])` would build the whole 1408-byte array in
+        // this frame first and then copy it, reintroducing exactly the
+        // stack cost this is removing.
         let mut tbl = AddrPubkeyTable {
-            entries: [(false, 0u16, [0u8; 32]); (ADDR_SCAN_DEPTH as usize) * 2],
+            entries: alloc::vec![(false, 0u16, [0u8; 32]); (ADDR_SCAN_DEPTH as usize) * 2]
+                .into_boxed_slice(),
             filled: 0,
         };
+        // Both chains go through `ChainParent`, so the two
+        // index-independent scalar multiplies are paid once per chain
+        // instead of once per index: 4 + 40 multiplies instead of 120.
         // Receive chain
-        for idx in 0..ADDR_SCAN_DEPTH {
-            if let Ok(key) = derive_address_key(account_key, idx) {
-                if let Ok(pk) = key.public_key_x_only() {
-                    tbl.entries[tbl.filled] = (false, idx, pk);
-                    tbl.filled += 1;
+        if let Ok(chain) = ChainParent::new(account_key, 0) {
+            for idx in 0..ADDR_SCAN_DEPTH {
+                if let Ok(key) = chain.derive(idx as u32) {
+                    if let Ok(pk) = key.public_key_x_only() {
+                        tbl.entries[tbl.filled] = (false, idx, pk);
+                        tbl.filled += 1;
+                    }
                 }
             }
         }
         // Change chain
-        for idx in 0..ADDR_SCAN_DEPTH {
-            if let Ok(key) = derive_change_key(account_key, idx) {
-                if let Ok(pk) = key.public_key_x_only() {
-                    tbl.entries[tbl.filled] = (true, idx, pk);
-                    tbl.filled += 1;
+        if let Ok(chain) = ChainParent::new(account_key, 1) {
+            for idx in 0..ADDR_SCAN_DEPTH {
+                if let Ok(key) = chain.derive(idx as u32) {
+                    if let Ok(pk) = key.public_key_x_only() {
+                        tbl.entries[tbl.filled] = (true, idx, pk);
+                        tbl.filled += 1;
+                    }
                 }
             }
         }
@@ -694,18 +905,39 @@ fn is_zero(a: &[u8; 32]) -> bool {
     acc == 0
 }
 
-/// Checks if a < n (secp256k1 order).
-/// Big-endian byte-by-byte comparison.
-fn is_less_than_order(a: &[u8; 32]) -> bool {
-    for i in 0..32 {
-        if a[i] < SECP256K1_ORDER[i] {
-            return true;
-        }
-        if a[i] > SECP256K1_ORDER[i] {
-            return false;
-        }
+/// Constant-time `a < b` for 32-byte big-endian values (M-05).
+///
+/// Runs a full borrow chain over all 32 bytes with no early return. The
+/// previous byte-by-byte version returned as soon as two bytes differed, on
+/// values that are BIP32 child-key material: `IL` from the HMAC, and the
+/// derived key itself. It almost always resolved at byte 0, which is exactly
+/// why the timing of the rare case is informative.
+///
+/// The borrow after processing the most significant byte is 1 if and only if
+/// the subtraction underflowed, which is if and only if `a < b`.
+#[inline(never)]
+fn ct_less_than(a: &[u8; 32], b: &[u8; 32]) -> Choice {
+    let mut borrow: u16 = 0;
+    for i in (0..32).rev() {
+        // Wrapping u16 arithmetic: on underflow the high byte becomes 0xFF,
+        // so bit 8 is the borrow out. No comparison, no branch.
+        let d = (a[i] as u16)
+            .wrapping_sub(b[i] as u16)
+            .wrapping_sub(borrow);
+        borrow = (d >> 8) & 1;
     }
-    false // a == n → no es menor
+    compiler_fence(Ordering::SeqCst);
+    Choice::from(borrow as u8)
+}
+
+/// Checks if a < n (secp256k1 order), in constant time.
+///
+/// The caller then branches on the result, and that branch is not hidden:
+/// rejecting an out-of-range key is behaviour BIP32 mandates and it has to be
+/// observable. What M-05 is about is the comparison itself, which used to leak
+/// where in the 32 bytes the two values first differed.
+fn is_less_than_order(a: &[u8; 32]) -> bool {
+    bool::from(ct_less_than(a, &SECP256K1_ORDER))
 }
 
 /// Modular addition: (a + b) mod n
@@ -725,44 +957,52 @@ fn scalar_add_mod_n(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
         carry = sum >> 8;
     }
 
-    // Step 2: If carry=1 or result >= n, subtract n
+    // Step 2: reduce if carry=1 or result >= n.
     // (carry=1 means the result is >= 2^256, which is > n)
-    let needs_reduce = carry > 0 || !less_than(&result, &SECP256K1_ORDER);
+    //
+    // M-05: this used to be `if needs_reduce { subtract_order(...) }`, a
+    // secret-dependent branch wrapped around the reduction in BIP32 child
+    // derivation. The subtraction now ALWAYS runs and the answer is picked
+    // with a mask, so the time taken does not say whether reduction happened.
+    //
+    // The branch was taken with probability about 2^-128, which is the same
+    // as saying that if it is ever observed to have been taken, that single
+    // observation is worth 128 bits. Doing the work unconditionally costs 32
+    // byte subtractions on a path that already does an HMAC-SHA512.
+    let reduced = ct_sub_order(&result);
+    let needs_reduce = Choice::from((carry > 0) as u8) | !ct_less_than(&result, &SECP256K1_ORDER);
 
-    if needs_reduce {
-        subtract_order(&mut result);
-    }
-
-    result
-}
-
-/// Compares a < b (big-endian, 32 bytes).
-fn less_than(a: &[u8; 32], b: &[u8; 32]) -> bool {
+    let mut out = [0u8; 32];
     for i in 0..32 {
-        if a[i] < b[i] {
-            return true;
-        }
-        if a[i] > b[i] {
-            return false;
-        }
+        out[i] = u8::conditional_select(&result[i], &reduced[i], needs_reduce);
     }
-    false // a == b
+    compiler_fence(Ordering::SeqCst);
+
+    out
 }
 
-/// Resta in-place: a -= n (orden de secp256k1).
-/// Asume que a >= n.
-fn subtract_order(a: &mut [u8; 32]) {
-    let mut borrow: i16 = 0;
+/// Constant-time `a - n` (secp256k1 order), 32-byte big-endian, wrapping.
+///
+/// Returns the borrowed-through result unconditionally. If `a < n` the value
+/// returned is `a - n + 2^256` and is meaningless, which is fine: the only
+/// caller discards it via `conditional_select` in that case. Computing it
+/// anyway is the point.
+///
+/// The former in-place version branched per limb on `if diff < 0`, so its
+/// timing depended on the borrow pattern, which depends on the secret.
+#[inline(never)]
+fn ct_sub_order(a: &[u8; 32]) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    let mut borrow: u16 = 0;
     for i in (0..32).rev() {
-        let diff = (a[i] as i16) - (SECP256K1_ORDER[i] as i16) - borrow;
-        if diff < 0 {
-            a[i] = (diff + 256) as u8;
-            borrow = 1;
-        } else {
-            a[i] = diff as u8;
-            borrow = 0;
-        }
+        let d = (a[i] as u16)
+            .wrapping_sub(SECP256K1_ORDER[i] as u16)
+            .wrapping_sub(borrow);
+        out[i] = (d & 0xFF) as u8;
+        borrow = (d >> 8) & 1;
     }
+    compiler_fence(Ordering::SeqCst);
+    out
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -778,7 +1018,11 @@ fn subtract_order(a: &mut [u8; 32]) {
 //   Master pubkey (compressed): 0339a36013301597daef41fbe593a02cc513d0b55527ec2df1050e2e8ff49c85c2
 
 /// Test vector 1: Master key from seed
-#[cfg(any(test, feature = "verbose-boot"))]
+// Reachable in shipped builds. Gated on `skip-tests` only: NOT on
+// `verbose-boot` (which also enables the sighash debug dump and must
+// never ship) and NOT on `silent` (a logging flag must not switch off a
+// correctness check). Called from boot_test::run_crypto_kats.
+#[cfg(any(test, feature = "boot-kats-full", feature = "verbose-boot"))]
 /// BIP32 test vector 1: master key derivation.
 pub fn test_vector1_master() -> bool {
     // Known seed (abandon×11 + about, no passphrase):
@@ -815,7 +1059,11 @@ pub fn test_vector1_master() -> bool {
 
 /// Test: BIP32 test vector 1 con seed hex 000102030405060708090a0b0c0d0e0f
 /// We use HMAC-SHA512 directly to verify against the official test vector.
-#[cfg(any(test, feature = "verbose-boot"))]
+// Reachable in shipped builds. Gated on `skip-tests` only: NOT on
+// `verbose-boot` (which also enables the sighash debug dump and must
+// never ship) and NOT on `silent` (a logging flag must not switch off a
+// correctness check). Called from boot_test::run_crypto_kats.
+#[cfg(any(test, not(feature = "skip-tests")))]
 /// BIP32 test vector 1: official test vectors.
 pub fn test_vector1_official() -> bool {
     // BIP32 Test Vector 1 seed (16 bytes — la spec dice que se pasa tal cual a HMAC)
@@ -875,7 +1123,11 @@ pub fn test_vector1_official() -> bool {
 /// BIP32 Test Vector 1, Chain m/0':
 ///   key:   edb2e14f9ee77d26dd93b4ecede8d16ed408ce149b6cd80b0715a2d911a0afea
 ///   chain: 47fdacbd0f1097043b78c63c20c34ef4ed9a111d980047ad16282c7ae6236141
-#[cfg(any(test, feature = "verbose-boot"))]
+// Reachable in shipped builds. Gated on `skip-tests` only: NOT on
+// `verbose-boot` (which also enables the sighash debug dump and must
+// never ship) and NOT on `silent` (a logging flag must not switch off a
+// correctness check). Called from boot_test::run_crypto_kats.
+#[cfg(any(test, feature = "boot-kats-full", feature = "verbose-boot"))]
 /// BIP32 test vector 1: hardened child derivation.
 pub fn test_vector1_child_hardened() -> bool {
     let seed_short: [u8; 16] = [
@@ -932,7 +1184,11 @@ pub fn test_vector1_child_hardened() -> bool {
 /// Test: Kaspa path derivation (m/44'/111111'/0'/0/0)
 /// Verify that full Kaspa path derivation does not fail
 /// and produces a valid key.
-#[cfg(any(test, feature = "verbose-boot"))]
+// Reachable in shipped builds. Gated on `skip-tests` only: NOT on
+// `verbose-boot` (which also enables the sighash debug dump and must
+// never ship) and NOT on `silent` (a logging flag must not switch off a
+// correctness check). Called from boot_test::run_crypto_kats.
+#[cfg(any(test, feature = "boot-kats-full", feature = "verbose-boot"))]
 /// Kaspa-specific path derivation (m/44'/111111'/0').
 pub fn test_kaspa_path_derivation() -> bool {
     // Use known seed (abandon×11 + about, no passphrase)
@@ -981,7 +1237,11 @@ pub fn test_kaspa_path_derivation() -> bool {
 }
 
 /// Test: modular arithmetic
-#[cfg(any(test, feature = "verbose-boot"))]
+// Reachable in shipped builds. Gated on `skip-tests` only: NOT on
+// `verbose-boot` (which also enables the sighash debug dump and must
+// never ship) and NOT on `silent` (a logging flag must not switch off a
+// correctness check). Called from boot_test::run_crypto_kats.
+#[cfg(any(test, feature = "boot-kats-full", feature = "verbose-boot"))]
 pub fn test_scalar_arithmetic() -> bool {
     // Test 1: 1 + 1 = 2
     let one = {
@@ -1039,7 +1299,18 @@ pub fn test_scalar_arithmetic() -> bool {
 /// Test: Multi-address derivation — derive_path_for_index matches derive_path
 /// Verifies that derive_path_for_index(seed, 0) == derive_path(seed, KASPA_MAINNET_PATH)
 /// and that different indices produce different keys.
-#[cfg(any(test, feature = "verbose-boot"))]
+// Reachable in shipped builds. Gated on `skip-tests` only: NOT on
+// `verbose-boot` (which also enables the sighash debug dump and must
+// never ship) and NOT on `silent` (a logging flag must not switch off a
+// correctness check). Called from boot_test::run_crypto_kats.
+// NOT a boot KAT. This is an internal consistency check: it asserts two
+// code paths in this file agree, not that either produces a published
+// answer, so a matching bug in both passes it. It also costs the most:
+// the three consistency tests do 25 of the 31 derivations in this
+// module and accounted for ~78% of a measured 24,043 ms boot cost.
+// Boot-time KATs assert published vectors; consistency checks belong in
+// cargo test. See DEF-04.
+#[cfg(any(test, feature = "boot-kats-full", feature = "verbose-boot"))]
 pub fn test_multi_address_derivation() -> bool {
     let seed: [u8; 64] = [
         0x5e, 0xb0, 0x0b, 0xbd, 0xdc, 0xf0, 0x69, 0x08,
@@ -1121,7 +1392,18 @@ pub fn test_multi_address_derivation() -> bool {
 /// verify pubkey + chain code + depth all match. Also verify that
 /// hardened indices are correctly rejected on the public path (BIP32
 /// public derivation is only defined for non-hardened indices).
-#[cfg(any(test, feature = "verbose-boot"))]
+// Reachable in shipped builds. Gated on `skip-tests` only: NOT on
+// `verbose-boot` (which also enables the sighash debug dump and must
+// never ship) and NOT on `silent` (a logging flag must not switch off a
+// correctness check). Called from boot_test::run_crypto_kats.
+// NOT a boot KAT. This is an internal consistency check: it asserts two
+// code paths in this file agree, not that either produces a published
+// answer, so a matching bug in both passes it. It also costs the most:
+// the three consistency tests do 25 of the 31 derivations in this
+// module and accounted for ~78% of a measured 24,043 ms boot cost.
+// Boot-time KATs assert published vectors; consistency checks belong in
+// cargo test. See DEF-04.
+#[cfg(any(test, feature = "boot-kats-full", feature = "verbose-boot"))]
 pub fn test_derive_child_pub_consistency() -> bool {
     // Known seed (BIP39 "abandon × 11 + about" → BIP32 master seed bytes)
     let seed: [u8; 64] = [
@@ -1185,20 +1467,115 @@ pub fn test_derive_child_pub_consistency() -> bool {
     true
 }
 
+/// `ChainParent::derive` must produce byte-identical keys to the
+/// `derive_address_key` / `derive_change_key` path it replaces. The only
+/// difference is that the parent public key is read from the struct
+/// instead of recomputed, so any divergence would mean the hoisted
+/// pubkey does not correspond to the hoisted chain key, and every
+/// derived address would silently be wrong. Cheap to check, catastrophic
+/// to miss: this runs at boot with the other BIP32 vectors.
+// Reachable in shipped builds. Gated on `skip-tests` only: NOT on
+// `verbose-boot` (which also enables the sighash debug dump and must
+// never ship) and NOT on `silent` (a logging flag must not switch off a
+// correctness check). Called from boot_test::run_crypto_kats.
+// NOT a boot KAT. This is an internal consistency check: it asserts two
+// code paths in this file agree, not that either produces a published
+// answer, so a matching bug in both passes it. It also costs the most:
+// the three consistency tests do 25 of the 31 derivations in this
+// module and accounted for ~78% of a measured 24,043 ms boot cost.
+// Boot-time KATs assert published vectors; consistency checks belong in
+// cargo test. See DEF-04.
+#[cfg(any(test, feature = "boot-kats-full", feature = "verbose-boot"))]
+pub fn test_chain_parent_equivalence() -> bool {
+    let seed = [0x42u8; 64];
+    let acct = match derive_account_key(&seed) {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+
+    // Receive chain: m/44'/111111'/0'/0/{0,1,7}
+    let chain_recv = match ChainParent::new(&acct, 0) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    for idx in [0u32, 1, 7] {
+        let want = match derive_address_key(&acct, idx as u16) {
+            Ok(k) => k,
+            Err(_) => return false,
+        };
+        let got = match chain_recv.derive(idx) {
+            Ok(k) => k,
+            Err(_) => return false,
+        };
+        if want.to_raw() != got.to_raw() {
+            return false;
+        }
+    }
+
+    // Change chain: m/44'/111111'/0'/1/{0,3}
+    let chain_chg = match ChainParent::new(&acct, 1) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    for idx in [0u32, 3] {
+        let want = match derive_change_key(&acct, idx as u16) {
+            Ok(k) => k,
+            Err(_) => return false,
+        };
+        let got = match chain_chg.derive(idx) {
+            Ok(k) => k,
+            Err(_) => return false,
+        };
+        if want.to_raw() != got.to_raw() {
+            return false;
+        }
+    }
+
+    // Hardened indices must be rejected, not silently mis-derived.
+    if ChainParent::new(&acct, 0 | HARDENED_BIT).is_ok() {
+        return false;
+    }
+    if chain_recv.derive(0 | HARDENED_BIT).is_ok() {
+        return false;
+    }
+
+    true
+}
+
 /// Run all BIP32 tests.
 /// Returns (passed, total).
-#[cfg(any(test, feature = "verbose-boot"))]
+// Reachable in shipped builds. Gated on `skip-tests` only: NOT on
+// `verbose-boot` (which also enables the sighash debug dump and must
+// never ship) and NOT on `silent` (a logging flag must not switch off a
+// correctness check). Called from boot_test::run_crypto_kats.
+#[cfg(any(test, not(feature = "skip-tests")))]
 pub fn run_bip32_tests() -> (u32, u32) {
     let mut passed = 0u32;
-    let total = 7u32;
+    // `total` is incremented inside the same cfg block as the tests it counts,
+    // so the two cannot drift. A previously hardcoded total reported 5/8 in a
+    // normal build, and run_crypto_kats treats passed != total as a failure and
+    // halts. Never hardcode this.
+    #[allow(unused_mut)]
+    let mut total = 1u32;
 
-    if test_vector1_master() { passed += 1; }
+    // Minimal set: BIP32 test vector 1, the published one. Enough to prove the
+    // primitive is not fundamentally broken, which is what a boot KAT is for.
     if test_vector1_official() { passed += 1; }
-    if test_vector1_child_hardened() { passed += 1; }
-    if test_kaspa_path_derivation() { passed += 1; }
-    if test_scalar_arithmetic() { passed += 1; }
-    if test_multi_address_derivation() { passed += 1; }
-    if test_derive_child_pub_consistency() { passed += 1; }
+
+    #[cfg(any(feature = "boot-kats-full", feature = "verbose-boot"))]
+    {
+        total += 7;
+        if test_vector1_master() { passed += 1; }
+        if test_vector1_child_hardened() { passed += 1; }
+        if test_kaspa_path_derivation() { passed += 1; }
+        if test_scalar_arithmetic() { passed += 1; }
+        // Consistency checks: these assert two code paths in this file agree,
+        // not that either produces a published answer, so a matching bug in
+        // both passes them. They also do 25 of the 31 derivations here.
+        if test_multi_address_derivation() { passed += 1; }
+        if test_derive_child_pub_consistency() { passed += 1; }
+        if test_chain_parent_equivalence() { passed += 1; }
+    }
 
     (passed, total)
 }

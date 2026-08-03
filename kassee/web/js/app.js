@@ -385,9 +385,40 @@ function bytesToHex(bytes) {
     return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// ─── Payload verification token (M-12) ───
+//
+// SHA-256(payload)[..8] rendered as "xxxxxxxx xxxxxxxx", to be compared by
+// eye against the "PL" line on KasSigner's TX review screen.
+//
+// Was 4 bytes. The token's whole job is to detect a substituted payload, and
+// 32 bits is grindable in seconds to minutes, so the adversary it was aimed
+// at could choose a payload that produced the token the user had already
+// been shown. 64 bits closes that. Grouped in fours because a person is
+// doing the comparing.
+//
+// Defined once because there are two render sites, the pre-signing review
+// and the signed-QR view, and they must produce byte-identical strings; a
+// literal `slice(0, 4)` in each was how they could silently diverge.
+// KasSigner's `ui/screens.rs` must stay in step with this: if one side is
+// widened alone, every comparison mismatches and the check reads as an
+// attack.
+const PL_TOKEN_BYTES = 8;
+
+async function payloadToken(payloadHex) {
+    const plBytes = hexToBytes(payloadHex);
+    const hashBuf = await crypto.subtle.digest('SHA-256', plBytes.buffer);
+    const h = new Uint8Array(hashBuf);
+    return bytesToHex(h.slice(0, 4)) + ' ' + bytesToHex(h.slice(4, PL_TOKEN_BYTES));
+}
+
 // ─── State ───
 
 let walletData = null;
+// L-13: pending KSPT hex for the copy button. Top-level `let`, deliberately
+// NOT a `window` property: its only consumer is the copy-KSPT click handler
+// in this file. It previously sat on `window._currentKsptHex`, advertising
+// the full pending transaction to any script in the page.
+let _currentKsptHex = null;
 let customNodeUrl = null;
 let lastFeeEstimate = null;
 let covFeeLevel = 'normal';
@@ -501,6 +532,12 @@ let scanStream = null;
 let scanAnimFrame = null;
 let qrFrames = null;
 let qrFrameIdx = 0;
+// Sender frame period for animated multi-frame QRs. Default 850ms — field
+// value that reads first-pass on the M5Stack (synchronous SRAM decoder,
+// ~400-480ms cycle with a symbol in view) with comfortable margin, and
+// effortless on the Waveshare. The Waveshare dual-core f32 decoder can go
+// much lower (~450ms); use the speed slider to drop it live per board.
+let qrFrameMs = 850;
 let qrCycleTimer = null;
 let refreshing = false; // debounce guard
 let network = 'mainnet';
@@ -948,7 +985,10 @@ window.broadcast_signed = broadcast_signed;
 window.parse_kpub = parse_kpub;
 window.covenant_additive_address = covenant_additive_address;
 window.create_covenant_borrower_spend = create_covenant_borrower_spend;
-window.getWalletData = () => walletData;
+// L-13: `window.getWalletData` removed. It handed any page script the kpub,
+// every derived address and the UTXO set in one call. Its single consumer
+// (oracleMbOpenSkeletonForSigning) reads the `walletData` variable directly;
+// nothing outside this file ever called it.
 window.derive_covenant_payload_key = derive_covenant_payload_key;
 window.build_covenant_payload = build_covenant_payload;
 window.parse_covenant_payload = parse_covenant_payload;
@@ -975,7 +1015,7 @@ let customRestUrl = null;
 // Stealth indexer (keeper): pull R's from the always-on Linode keeper instead of
 // walking the lane in-browser. Toggle persists; URL is fixed.
 let stealthIndexerEnabled = localStorage.getItem('kassee-stealth-indexer') === '1';
-const STEALTH_INDEXER_URL = 'https://keeper.kassigner.org/keeper';
+const STEALTH_INDEXER_URL = 'https://172-239-20-116.nip.io/keeper';
 let autoRefreshTimer = null;
 const AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
 
@@ -1747,7 +1787,7 @@ function covShowExportModal(cov, blobHex, blobBytes, isEncrypted) {
                     if (playing) { frameIdx = (frameIdx + 1) % frames.length; renderFrame(); }
                 }
                 renderFrame();
-                const timer = setInterval(autoAdvance, 1600);
+                const timer = setInterval(autoAdvance, qrFrameMs);
                 modal._qrTimer = timer;
                 this.style.display = 'none';
             } catch (e2) {
@@ -3939,11 +3979,35 @@ el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handle
                 total += BigInt(utxos[idx].amount);
             }
         });
+        // Cap selection at the KasSigner input ceiling (MAX_INPUTS=32). A
+        // flooded covenant is drained in batches of 32 by repeating the claim;
+        // without this cap a larger selection builds a TX the device can't sign
+        // ("too many inputs"). Uncheck the overflow and tell the user.
+        if (count > 32) {
+            let seen = 0;
+            checks.forEach(cb => {
+                if (cb.checked) {
+                    seen++;
+                    if (seen > 32) {
+                        cb.checked = false;
+                        const idx = parseInt(cb.dataset.utxoIdx);
+                        total -= BigInt(utxos[idx].amount);
+                    }
+                }
+            });
+            count = 32;
+            toast('Max 32 UTXOs per claim — drain a flooded covenant in batches', 'info', 1800);
+        }
         const kas = (Number(total) / 1e8).toFixed(4);
         el('cov-consol-summary').textContent = count + ' UTXO' + (count !== 1 ? 's' : '') + ' selected: ' + kas + ' KAS';
     }
     el('btn-consol-select-all').onclick = () => {
-        el('cov-consol-list').querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+        // Respect the 32-input ceiling: check at most the first 32.
+        let n = 0;
+        el('cov-consol-list').querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            cb.checked = n < 32;
+            if (cb.checked) n++;
+        });
         updateConsolSummary();
     };
     el('btn-consol-select-none').onclick = () => {
@@ -3959,6 +4023,7 @@ el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handle
         const selected = [];
         checks.forEach(cb => { if (cb.checked) selected.push(utxos[parseInt(cb.dataset.utxoIdx)]); });
         if (selected.length < 1) { toast('Select at least 1 UTXO', 'error'); return; }
+        if (selected.length > 32) { toast('Max 32 UTXOs per claim — the KasSigner signs up to 32 inputs', 'error'); return; }
         const destAddr = el('cov-consol-dest').value.trim();
         if (!destAddr) { toast('Enter a destination address', 'error'); return; }
         const covAddr = lastCovenantResult.address;
@@ -6040,7 +6105,7 @@ el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handle
     };
     el('btn-scan-next-sig').onclick = () => { pauseQrCycle(); startScanner('Scan signed QR', handleSignedScan); };
     el('btn-qr-scan-signed').onclick = () => { pauseQrCycle(); startScanner('Scan signed QR', handleSignedScan); };
-    el('btn-copy-kspt').onclick = () => { if (window._currentKsptHex) { navigator.clipboard.writeText(window._currentKsptHex); toast('KSPT hex copied — share with next signer', 'ok', 2000); } };
+    el('btn-copy-kspt').onclick = () => { if (_currentKsptHex) { navigator.clipboard.writeText(_currentKsptHex); toast('KSPT hex copied — share with next signer', 'ok', 2000); } };
     el('btn-scanner-cancel').onclick = () => stopScanner();
     el('btn-copy-address').onclick = () => copyAddress();
     el('btn-receive-back').onclick = () => showScreen('dashboard');
@@ -6804,8 +6869,8 @@ function toggleSendUtxos() {
                 check.textContent = '☐';
                 check.style.color = 'var(--border)';
                 item.style.borderColor = '';
-            } else if (selectedUtxoIndices.length >= 8) {
-                toast('Max 8 UTXOs per transaction', 'info', 1500);
+            } else if (selectedUtxoIndices.length >= 32) {
+                toast('Max 32 UTXOs per transaction', 'info', 1500);
                 return;
             } else {
                 selectedUtxoIndices.push(idx);
@@ -7397,11 +7462,30 @@ function renderQrTxInfo() {
     // Fee
     html += `<div style="margin-bottom:8px;color:var(--text-dim)">Fee: ${fmtKas(s.fee_sompi)} KAS</div>`;
 
+    // Addresses of the multisig inputs, needed before the outputs are drawn.
+    //
+    // `addrLabel` only knows the single-sig receive/change lists, so a P2SH
+    // multisig address returns nothing and falls through to the P2SH branch
+    // below, which labels ANY p2sh output COVENANT. Multisig change returns to
+    // the address being spent from, so it was displayed as a covenant rather
+    // than as change, and a redirected change output would have looked exactly
+    // the same.
+    //
+    // Restricted to multisig inputs on purpose: a covenant output paying back
+    // to its own address is a covenant continuation, and COVENANT is the more
+    // informative label for it.
+    const msInputAddrs = new Set();
+    s.inputs.forEach(inp => {
+        if (inp.script_kind !== 'p2sh-multisig') return;
+        const a = scriptAddr(inp.script_hex, inp.script_kind);
+        if (a) msInputAddrs.add(a);
+    });
+
     // Outputs (most important for verification)
     html += '<div style="font-weight:600;margin-bottom:4px">Outputs</div>';
     s.outputs.forEach((out, i) => {
         const addr = out.address || scriptAddr(out.script_hex, out.script_kind);
-        const cls = addrLabel(addr);
+        const cls = addrLabel(addr) || (addr && msInputAddrs.has(addr) ? 'CHANGE' : '');
         const isCovP2sh = out.script_kind === 'p2sh';
         const label = cls || (isCovP2sh ? 'COVENANT' : (addr ? 'DESTINATION' : ''));
         html += `<div style="margin-bottom:8px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px">`;
@@ -7436,9 +7520,7 @@ function renderQrTxInfo() {
 
     // Payload verification hash (same as pre-signing review)
     if (window._covPayloadHex && window._covPayloadHex.length > 0) {
-        const plBytes = hexToBytes(window._covPayloadHex);
-        crypto.subtle.digest('SHA-256', plBytes.buffer).then(hashBuf => {
-            const h = bytesToHex(new Uint8Array(hashBuf).slice(0, 4));
+        payloadToken(window._covPayloadHex).then(h => {
             const plDiv = document.getElementById('qrtx-pl-hash');
             if (plDiv) { plDiv.textContent = 'PL ' + h; plDiv.style.display = ''; }
         });
@@ -7466,7 +7548,7 @@ function displayKsptQr(ksptHex, title) {
         const isRelay = title && title.includes('Relay');
         el('btn-scan-next-sig').style.display = isRelay ? 'block' : 'none';
         el('btn-copy-kspt').style.display = 'none'; // hidden until advanced tab
-        window._currentKsptHex = ksptHex;
+        _currentKsptHex = ksptHex; // L-13: module-scope, not window
 
         if (frames.length === 1) {
             el('qr-container').innerHTML = frames[0].svg;
@@ -7481,13 +7563,15 @@ function displayKsptQr(ksptHex, title) {
             dots += '<button class="btn-frame" id="btn-frame-prev">\u23EA</button>';
             dots += '<button class="btn-frame" id="btn-frame-pause" title="Pause/Play">\u23F8</button>';
             dots += '<button class="btn-frame" id="btn-frame-next">\u23E9</button>';
+            dots += '<input type="range" id="qr-speed" min="250" max="1000" step="50" value="' + qrFrameMs + '" title="Frame period">';
+            dots += '<span id="qr-speed-val">' + qrFrameMs + 'ms</span>';
             dots += '</div>';
             el('qr-frame-info').innerHTML = dots;
             renderQrFrame(0);
             qrCycleTimer = setInterval(() => {
                 qrFrameIdx = (qrFrameIdx + 1) % qrFrames.length;
                 renderQrFrame(qrFrameIdx);
-            }, 1600);
+            }, qrFrameMs);
             el('btn-frame-prev').onclick = () => {
                 qrFrameIdx = (qrFrameIdx - 1 + qrFrames.length) % qrFrames.length;
                 renderQrFrame(qrFrameIdx);
@@ -7497,7 +7581,7 @@ function displayKsptQr(ksptHex, title) {
                     qrCycleTimer = setInterval(() => {
                         qrFrameIdx = (qrFrameIdx + 1) % qrFrames.length;
                         renderQrFrame(qrFrameIdx);
-                    }, 1600);
+                    }, qrFrameMs);
                 }
             };
             el('btn-frame-next').onclick = () => {
@@ -7509,7 +7593,18 @@ function displayKsptQr(ksptHex, title) {
                     qrCycleTimer = setInterval(() => {
                         qrFrameIdx = (qrFrameIdx + 1) % qrFrames.length;
                         renderQrFrame(qrFrameIdx);
-                    }, 1600);
+                    }, qrFrameMs);
+                }
+            };
+            el('qr-speed').oninput = () => {
+                qrFrameMs = parseInt(el('qr-speed').value, 10);
+                el('qr-speed-val').textContent = qrFrameMs + 'ms';
+                if (qrCycleTimer) {
+                    clearInterval(qrCycleTimer);
+                    qrCycleTimer = setInterval(() => {
+                        qrFrameIdx = (qrFrameIdx + 1) % qrFrames.length;
+                        renderQrFrame(qrFrameIdx);
+                    }, qrFrameMs);
                 }
             };
             el('btn-frame-pause').onclick = () => {
@@ -7521,7 +7616,7 @@ function displayKsptQr(ksptHex, title) {
                     qrCycleTimer = setInterval(() => {
                         qrFrameIdx = (qrFrameIdx + 1) % qrFrames.length;
                         renderQrFrame(qrFrameIdx);
-                    }, 1600);
+                    }, qrFrameMs);
                     el('btn-frame-pause').textContent = '\u23F8';
                 }
             };
@@ -7565,7 +7660,7 @@ function resumeQrCycleIfPossible() {
     qrCycleTimer = setInterval(() => {
         qrFrameIdx = (qrFrameIdx + 1) % qrFrames.length;
         renderQrFrame(qrFrameIdx);
-    }, 1600);
+    }, qrFrameMs);
     // Re-sync pause-button icon to the play state
     const pb = el('btn-frame-pause');
     if (pb) pb.textContent = '\u23F8';
@@ -7872,14 +7967,13 @@ function openPsktReview(wireHex) {
     el('pskt-total-in').textContent = fmtKas(summary.total_in_sompi);
     el('pskt-total-out').textContent = fmtKas(summary.total_out_sompi);
 
-    // Payload verification hash: if covenant payload exists, show SHA-256[..4]
-    // User compares this with KasSigner's "PL xxxxxxxx" on its review screen.
+    // Payload verification token: if a covenant payload exists, show
+    // SHA-256(payload)[..8] grouped in fours. The user compares this with
+    // KasSigner's "PL xxxxxxxx xxxxxxxx" on its review screen (M-12).
     const plHashEl = el('pskt-payload-hash');
     if (plHashEl) {
         if (window._covPayloadHex && window._covPayloadHex.length > 0) {
-            const plBytes = hexToBytes(window._covPayloadHex);
-            crypto.subtle.digest('SHA-256', plBytes.buffer).then(hashBuf => {
-                const h = bytesToHex(new Uint8Array(hashBuf).slice(0, 4));
+            payloadToken(window._covPayloadHex).then(h => {
                 plHashEl.textContent = 'PL ' + h;
                 plHashEl.style.display = '';
             });
@@ -8334,8 +8428,8 @@ async function toggleMsUtxos() {
                 check.textContent = '☐';
                 check.style.color = 'var(--border)';
                 item.style.borderColor = '';
-            } else if (msSelectedUtxoIndices.length >= 8) {
-                toast('Max 8 UTXOs per transaction', 'info', 1500);
+            } else if (msSelectedUtxoIndices.length >= 32) {
+                toast('Max 32 UTXOs per transaction', 'info', 1500);
                 return;
             } else {
                 msSelectedUtxoIndices.push(idx);
@@ -13400,10 +13494,10 @@ async function showUtxos() {
                     const idx = parseInt(item.dataset.utxoIdx);
                     if (consolidateSelection.has(idx)) {
                         consolidateSelection.delete(idx);
-                    } else if (consolidateSelection.size < 8) {
+                    } else if (consolidateSelection.size < 32) {
                         consolidateSelection.add(idx);
                     } else {
-                        toast('Max 8 UTXOs per consolidation', 'info', 1500);
+                        toast('Max 32 UTXOs per consolidation', 'info', 1500);
                         return;
                     }
                     // Update checkbox visual
@@ -13443,8 +13537,9 @@ function updateConsolidateButtons(totalCount) {
 
 async function handleConsolidate() {
     if (!walletData) return;
-    // Builder takes up to 5 largest UTXOs; size the fee to that actual count.
-    const fee = consolidateFee(Math.min(5, (cachedUtxos && cachedUtxos.length) || 5));
+    // Builder (create_consolidate_pskb) takes up to 32 largest UTXOs; size
+    // the fee to that same count. This 32 MUST match the take(N) in kspt.rs.
+    const fee = consolidateFee(Math.min(32, (cachedUtxos && cachedUtxos.length) || 32));
 
     showLoading('Building consolidation TX...');
     try {
@@ -13496,11 +13591,31 @@ async function handleConsolidateSelected() {
 // ─── Transaction history (UTXO diff tracking) ───
 
 function trackUtxoChangesAndUsed(currentUtxos) {
+    // Session-history persistence: entries built here live in page memory,
+    // so a reload (e.g. picking up a new app.js) erased the user's own
+    // broadcasts from History until the archival indexer caught up
+    // (minutes+ of lag). localStorage is KasSee's sanctioned performance
+    // cache: restore once per page load, persist after every update.
+    if (!window.__histKey && walletData) {
+        try {
+            const w = JSON.parse(walletData);
+            window.__histKey = 'kassee_hist_' + (w.receive_addresses && w.receive_addresses[0] || 'default');
+            const stored = localStorage.getItem(window.__histKey);
+            if (stored && historyEntries.length === 0) {
+                const parsed = JSON.parse(stored);
+                if (Array.isArray(parsed)) historyEntries = parsed;
+            }
+        } catch (_) {}
+    }
     const now = Date.now();
 
     if (!utxoSnapshot) {
         // First snapshot — record all existing UTXOs as initial balance
         for (const u of currentUtxos) {
+            // Skip UTXOs already present in restored history — synthesizing
+            // them again would duplicate entries and stamp stale coins as
+            // "just now".
+            if (historyEntries.some(h => h.tx_id === u.tx_id && h.index === u.index)) continue;
             historyEntries.push({
                 type: 'in',
                 amount: u.amount,
@@ -13511,6 +13626,7 @@ function trackUtxoChangesAndUsed(currentUtxos) {
         }
         if (historyEntries.length > 100) historyEntries.length = 100;
         utxoSnapshot = currentUtxos;
+        persistSessionHistory();
         return;
     }
 
@@ -13580,6 +13696,16 @@ function trackUtxoChangesAndUsed(currentUtxos) {
 
     if (historyEntries.length > 100) historyEntries.length = 100;
     utxoSnapshot = currentUtxos;
+    persistSessionHistory();
+}
+
+// Persist the session history entries (capped) so page reloads keep the
+// user's own broadcasts until the archival indexer catches up.
+function persistSessionHistory() {
+    if (!window.__histKey) return;
+    try {
+        localStorage.setItem(window.__histKey, JSON.stringify(historyEntries.slice(0, 100)));
+    } catch (_) {}
 }
 
 function hex_to_bytes(hex) {
@@ -13608,6 +13734,21 @@ function showHistory() {
 
 async function fetchArchivalHistory() {
     if (!walletData) return;
+    // Cooldown: a full sweep hits api.kaspa.org once per address (~40
+    // requests). Re-running it on every history open / broadcast tripped
+    // the public rate limiter (429 floods). At most one sweep per 2 min;
+    // between sweeps the session entries and the last sweep's results
+    // render as-is.
+    const nowMs = Date.now();
+    // The cooldown must survive page reloads (a window var reset every
+    // reload, so each reload re-swept and kept feeding the rate limiter).
+    let lastSweep = 0, penaltyUntil = 0;
+    try {
+        lastSweep = parseInt(localStorage.getItem('kassee_last_sweep') || '0', 10) || 0;
+        penaltyUntil = parseInt(localStorage.getItem('kassee_sweep_penalty') || '0', 10) || 0;
+    } catch (_) {}
+    if (nowMs < penaltyUntil) return;      // rate-limited recently: stay away 10 min
+    if (nowMs - lastSweep < 120000) return;
     const wallet = JSON.parse(walletData);
     const allAddresses = [...wallet.receive_addresses, ...wallet.change_addresses];
     const myAddressSet = new Set(allAddresses);
@@ -13617,13 +13758,22 @@ async function fetchArchivalHistory() {
 
     const txMap = new Map(); // tx_id → processed entry
 
-    // Fetch full-transactions for each address in parallel
-    const fetches = allAddresses.map(async (addr) => {
+    // Fetch full-transactions per address SEQUENTIALLY with spacing.
+    // The parallel map fired 40 simultaneous requests at api.kaspa.org,
+    // which rate-limits (429) — and the 429 responses carry no CORS
+    // headers, flooding the console with paired CORS+429 errors. One
+    // in-flight request with a small gap stays under the limit; on a
+    // 429 we back off once and retry, then give up quietly for that
+    // address (session history still renders).
+    const fetchOne = async (addr, attempt) => {
         try {
             const r = await fetch(
                 `${apiBase}/addresses/${addr}/full-transactions?resolve_previous_outpoints=light`,
                 { signal: AbortSignal.timeout(10000) }
             );
+            // No retry on 429: retrying against an active penalty just
+            // doubles the hits and refreshes the ban.
+            if (r.status === 429) return 'rate-limited';
             if (!r.ok) return;
             const txs = await r.json();
             if (!Array.isArray(txs)) return;
@@ -13685,9 +13835,27 @@ async function fetchArchivalHistory() {
                 });
             }
         } catch (_) {}
-    });
+    };
 
-    await Promise.all(fetches);
+    let consecutive429 = 0;
+    for (const addr of allAddresses) {
+        const outcome = await fetchOne(addr, 0);
+        if (outcome === 'rate-limited') {
+            consecutive429++;
+            // Circuit breaker: the limiter is refusing us — back off hard.
+            // Persist a 10-minute penalty window so reloads don't keep
+            // poking the limiter and refreshing the ban.
+            if (consecutive429 >= 2) {
+                try { localStorage.setItem('kassee_sweep_penalty', String(Date.now() + 600000)); } catch (_) {}
+                console.log('[KasSee] archival sweep paused 10 min: rate-limited (' + txMap.size + ' txs so far)');
+                break;
+            }
+        } else {
+            consecutive429 = 0;
+        }
+        await new Promise(res => setTimeout(res, 400));
+    }
+    try { localStorage.setItem('kassee_last_sweep', String(Date.now())); } catch (_) {}
 
     // Merge archival data into historyEntries, replacing session-only entries
     if (txMap.size > 0) {
@@ -13701,6 +13869,7 @@ async function fetchArchivalHistory() {
 
         // Cap at 200
         if (historyEntries.length > 200) historyEntries.length = 200;
+        persistSessionHistory();
     }
 }
 
@@ -13713,7 +13882,14 @@ function renderHistory() {
 
     el('history-summary').textContent = historyEntries.length + ' transaction' + (historyEntries.length !== 1 ? 's' : '');
     let html = '';
-    historyEntries.forEach(h => {
+    // Render newest-first by date. Session entries pushed live land at the
+    // array end, so sort a view: unknown/zero time = just broadcast = top.
+    const sortedEntries = [...historyEntries].sort((a, b) => {
+        const ta = (a.time && a.time > 0) ? a.time : Number.MAX_SAFE_INTEGER;
+        const tb = (b.time && b.time > 0) ? b.time : Number.MAX_SAFE_INTEGER;
+        return tb - ta;
+    });
+    sortedEntries.forEach(h => {
         const kas = (Math.abs(h.amount) / 1e8).toFixed(8);
         const sign = h.type === 'in' ? '+' : '-';
         const cls = h.type === 'in' ? 'incoming' : 'outgoing';
@@ -14113,7 +14289,7 @@ const ORACLE_MB = {
   hashfnHex:    "01",                       // poseidon2
   network:      "mainnet",                   // <-- the network string KasSee passes to the wasm
   restBase:     "https://api.kaspa.org",
-  proverBase:   "https://keeper.kassigner.org", // PUBLIC prover (Caddy -> 127.0.0.1:8799), CORS-open. Domain proxies the VPS so the IP can rotate without a code change.
+  proverBase:   "https://172-239-20-116.nip.io", // PUBLIC prover (Caddy on Linode -> 127.0.0.1:8799), CORS-open
   // Service fee, paid per roll to the operator's prover (see /quote). v1 fixed address; rotate later.
   feeAddress:   "kaspa:qq5zdr7cwuyrqu0zmr03v3qx0tnf6psmangl4f9aecp8a4xkjmz0x5e2ejesy",
   feeSpk:       "00002028268fd877083071e2d8df1644067ae69d061becd1faa4bdce027ed4d696c4f3ac", // version-0 P2PK SPK of feeAddress
@@ -14572,7 +14748,7 @@ function oracleMbSetFee(totalKas, fromCustom) {
 }
 
 async function oracleMbOpenSkeletonForSigning(journalHex, show) {
-  const wd = getWalletData();
+  const wd = walletData; // L-13: direct read, window.getWalletData removed
   if (!wd) { show('Unlock your wallet first.', '#ffd600'); return false; }
   if (!_oracleMbState) { show('Could not read the current oracle to spend.', '#ff4d4d'); return false; }
   const wallet = JSON.parse(wd);

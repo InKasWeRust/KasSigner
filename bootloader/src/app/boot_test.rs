@@ -39,7 +39,6 @@ fn rqrr_test_decode(img: &[u8], w: usize, h: usize) -> Option<alloc::vec::Vec<u8
     None
 }
 
-#[cfg(not(feature = "silent"))]
 /// Run all boot-time validation tests.
 pub fn run_boot_tests() {
     {
@@ -167,6 +166,232 @@ pub fn run_boot_tests() {
         let bip85_ok = wallet::bip85::test_bip85_12word_index0();
         log!("   BIP85 test vector: {}", if bip85_ok { "OK" } else { "FAIL" });
     }
+
+    // Crypto known-answer tests, called from here so main.rs needs no change.
+    // NOTE: run_boot_tests is #[cfg(not(feature = "silent"))] and `production`
+    // implies `silent`, so these do NOT run in a production build. Real gap,
+    // tracked as P-09; closing it needs a call site in main.rs.
+    #[cfg(not(feature = "skip-tests"))]
+    run_crypto_kats();
+}
+
+/// Cryptographic known-answer tests. Runs on every boot, on every target.
+///
+/// A KAT feeds a primitive a fixed input whose correct output is published and
+/// independently verified, then checks the primitive reproduces it exactly.
+/// Crypto needs this because it has no natural failure signal: a subtly wrong
+/// BIP32 derivation still yields a valid 32-byte key, deriving a valid address
+/// that renders correctly and accepts funds nobody can ever spend. Nothing
+/// crashes and nothing logs. So a failure here HALTS rather than warns, the
+/// same way run_phase1_tests halts on a hardware fault.
+///
+/// Gating: `skip-tests` only. Deliberately not `verbose-boot`, which also turns
+/// on the sighash debug dump and must never ship, and deliberately not `silent`,
+/// because a logging flag must not be able to disable a correctness check.
+/// Note `production` implies `silent`, so anything behind `silent` is absent
+/// from exactly the builds that most need these to run.
+///
+/// STACK BUDGET. main's ProCpu stack is about 8 KB. Every test reached from
+/// here must stay well inside that. `wallet::sighash::run_sighash_tests` and
+/// `wallet::pskt::run_pskt_tests` are deliberately ABSENT: measured,
+/// `size_of::<Transaction>()` is 78,952 bytes, sighash builds one per test
+/// (sighash.rs:679, 723, 788) and pskt builds two per test, so a single pskt
+/// test needs about 154 KB. Both stay in the verbose-boot block until
+/// Transaction gains a heap-allocating constructor. Do not move them here
+/// without that: it is a guaranteed stack overflow at boot.
+// Gated to match its call site in main.rs. Without this the body still
+// references run_bip39_tests / run_storage_tests, which skip-tests configures
+/// Entropy health check. Two independent collections must differ, and neither
+/// may be degenerate.
+///
+/// This exists because of the July 2026 COLDCARD disclosure. Mk2/Mk3 firmware
+/// bound `ngu.random` to MicroPython's deterministic Yasmarang fallback instead
+/// of the STM32 hardware RNG, because libngu tested whether a macro was DEFINED
+/// rather than whether it was ENABLED. Wallet seeds were derived from MCU UID
+/// and timer registers for five years and nothing at runtime noticed. A quorum
+/// of researchers found it only after roughly 594 BTC was swept.
+///
+/// KasSigner is not vulnerable to that specific bug: TRM 25.4 requires the SAR
+/// ADC, the high-speed ADC, or RC_FAST_CLK to be enabled or "pseudo-random
+/// numbers will be returned", and crypto::entropy enables both RC_FAST_CLK and
+/// the SAR ADC before sampling. This check is here so that if that ever stops
+/// being true, the device says so instead of quietly generating guessable keys.
+///
+/// STACK: two 64-byte buffers plus a handful of scalars, about 150 bytes,
+/// inside a function that is already #[inline(never)].
+///
+/// Deliberately weak as a statistical test. It catches a stuck, dead or
+/// constant generator, which is the realistic failure mode, and nothing else.
+/// It is not a randomness test and must not be described as one.
+#[cfg(not(feature = "skip-tests"))]
+#[inline(never)]
+fn entropy_health_check() -> Result<(), &'static str> {
+    let mut a = [0u8; 64];
+    let mut b = [0u8; 64];
+    // A refusal here is the check failing, not an error to swallow.
+    crate::crypto::entropy::fill(&mut a)
+        .map_err(|_| "hardware RNG failed continuous health tests")?;
+    crate::crypto::entropy::fill(&mut b)
+        .map_err(|_| "hardware RNG failed continuous health tests")?;
+
+    if a == b {
+        return Err("two collections identical");
+    }
+    if a.iter().all(|&x| x == 0) || b.iter().all(|&x| x == 0) {
+        return Err("all-zero output");
+    }
+    if a.iter().all(|&x| x == a[0]) || b.iter().all(|&x| x == b[0]) {
+        return Err("constant output");
+    }
+
+    // The three checks above test `fill`'s OUTPUT, which is a SHA-256 digest.
+    // That is why they cannot see a dead source: 32 zero words hash to a
+    // perfectly varied, non-constant, non-repeating 64 bytes. This test
+    // reported "ENTROPY: ok" on every boot for the life of the project while
+    // the hardware RNG returned 0x00000000 on every read (C-04). The statement
+    // was true and meaningless.
+    //
+    // The health figures below are taken from INSIDE `fill`, over the raw WDEV
+    // window before hashing, which is the only place a dead source is visible.
+    //
+    // Reported, not enforced. Whether a failure should refuse the operation is
+    // a product decision still to be taken; this measures first.
+    match crate::crypto::entropy::last_wdev_health() {
+        Some(h) => {
+            log!(
+                "   [rng-health] repeats {}  distinct {}/32  ones {}/1024  stuck {}/32  mono {}  {}",
+                h.repeats,
+                h.distinct,
+                h.ones,
+                h.stuck_bits,
+                h.monotonic,
+                if h.healthy { "OK" } else { "DEGRADED" }
+            );
+            if !h.healthy {
+                log!("   [rng-health] WARNING: hardware RNG failed its continuous tests");
+            }
+        }
+        None => log!("   [rng-health] no window recorded"),
+    }
+
+    Ok(())
+}
+
+// out, so --features skip-tests failed to compile.
+#[cfg(not(feature = "skip-tests"))]
+#[inline(never)]
+pub fn run_crypto_kats() {
+    use esp_hal::time::Instant;
+
+    // M-13, third sample point. The two around `early_lockdown` both read all
+    // zeros, which does not distinguish "lockdown killed it" from "it was never
+    // alive". This runs after every peripheral is up, so if it is still zero
+    // here then the WDEV contribution to `fill()` has always been nil and the
+    // entropy pool has been running on its other sources the whole time.
+    #[cfg(feature = "rng-probe")]
+    {
+        let (d, o, z, r) = crate::crypto::entropy::probe_wdev(256);
+        log!("   [rng-probe] LATE (post-init): distinct {}/256  ones {}/8192  zero_words {}  repeats {}",
+            d, o, z, r);
+        log!("   [rng-probe] SYSTEM_WIFI_CLK_EN = 0x{:08X}",
+            crate::crypto::entropy::read_wifi_clk_en());
+        let (d2, o2, z2, r2, saved) =
+            crate::crypto::entropy::probe_wdev_with_modem_clk(256);
+        log!("   [rng-probe] WITH modem clk:    distinct {}/256  ones {}/8192  zero_words {}  repeats {}  (restored 0x{:08X})",
+            d2, o2, z2, r2, saved);
+    }
+
+    log!("Crypto Known-Answer Tests");
+    log!("─────────────────────────────");
+
+    let t_start = Instant::now();
+    let mut failed: Option<&'static str> = None;
+
+    let mut t_prev = t_start;
+    macro_rules! kat {
+        ($label:expr, $call:expr) => {{
+            let (p, t) = $call;
+            let now = Instant::now();
+            log!("   {}: {}/{} [kat_t] {} ms", $label, p, t, (now - t_prev).as_millis());
+            t_prev = now;
+            if p != t && failed.is_none() { failed = Some($label); }
+        }};
+    }
+
+    // Hash-only KATs. Both are pure SHA2/HMAC/PBKDF2 with sub-kilobyte
+    // stack use, so they are safe in the boot frame on both targets.
+    kat!("BIP39",   wallet::bip39::run_bip39_tests());
+    kat!("STORAGE", wallet::storage::run_storage_tests());
+    // DEF-04. These were excluded because main.rs documented k256 Schnorr
+    // signing as needing ~16 KB of stack, which the boot frame did not have:
+    // 57,600 bytes of internal SRAM were held by a QR_SRAM_IMG static in
+    // camera_loop.rs (section 2a). That static is gone, so the margin should
+    // now exist. If it does not, the symptom is a stack-guard panic during
+    // this block at boot, not a wrong answer.
+    kat!("BIP32",   wallet::bip32::run_bip32_tests());
+    kat!("SCHNORR", wallet::schnorr::run_schnorr_tests());
+    // The last kat! writes t_prev and nothing reads it. Consume it explicitly
+    // so adding a KAT below needs no change here and no warning is emitted.
+    let _ = t_prev;
+
+
+    // Entropy health check. Not a KAT (there is no known answer for a random
+    // number), so it is reported separately and has its own failure message.
+    // Timed with SYSTIMER directly, in MICROSECONDS, not with Duration.
+    //
+    // The figure that matters is whether entropy::delay_us_systimer actually
+    // spaces the 32 RNG reads by 2 us each. Two fill() calls should therefore
+    // cost on the order of 1000 us. Milliseconds truncate that to "0 ms",
+    // which is equally consistent with the spacing working and with it being
+    // a no-op, so it cannot answer the question it was added to answer.
+    //
+    // SYSTIMER runs at 16 MHz (see the /16_000 ms conversions in
+    // handlers/camera_loop.rs). The 20-cycle pause after latching mirrors
+    // crypto::entropy::mix_systimer, which waits before reading the latched
+    // value; delay_us_systimer does not, and if that turns out to matter this
+    // measurement is what will show it.
+    let t_ent0 = unsafe {
+        core::ptr::write_volatile(0x6002_3004u32 as *mut u32, 1 << 30);
+        for _ in 0..20u32 { core::hint::spin_loop(); }
+        core::ptr::read_volatile(0x6002_3044u32 as *const u32)
+    };
+    let entropy_err = entropy_health_check().err();
+    let t_ent1 = unsafe {
+        core::ptr::write_volatile(0x6002_3004u32 as *mut u32, 1 << 30);
+        for _ in 0..20u32 { core::hint::spin_loop(); }
+        core::ptr::read_volatile(0x6002_3044u32 as *const u32)
+    };
+    log!("   ENTROPY: {} [kat_t] {} us",
+         if entropy_err.is_none() { "ok" } else { "FAILED" },
+         t_ent1.wrapping_sub(t_ent0) / 16);
+
+    log!("   [kat_t] total {} ms", (Instant::now() - t_start).as_millis());
+
+    if let Some(why) = entropy_err {
+        log!();
+        log!("CRITICAL: entropy health check FAILED: {}", why);
+        log!("   The RNG is not producing varying output. Any seed, nonce or");
+        log!("   ephemeral key generated now would be predictable. This is the");
+        log!("   failure that cost COLDCARD Mk3 users their funds. Refusing to boot.");
+        loop { core::hint::spin_loop(); }
+    }
+
+    if let Some(module) = failed {
+        log!();
+        log!("CRITICAL: {} known-answer test FAILED.", module);
+        log!("   A crypto primitive is producing wrong output.");
+        log!("   This device would derive or sign incorrectly with no other");
+        log!("   visible symptom. Refusing to boot.");
+        // Halt rather than return. A failing KAT means a primitive is emitting
+        // well-formed wrong output, which has no other symptom: a wrong BIP32
+        // child is still a valid key, deriving a valid address that accepts
+        // funds nobody can ever spend. No BootDisplay is reachable from
+        // run_boot_tests, so this halts on the log alone.
+        loop { core::hint::spin_loop(); }
+    }
+
+    log!("   All crypto KATs passed");
+    log!();
 }
 
 /// Run Phase 1 self-tests (crypto, BIP39, QR encoder, etc.)
@@ -307,6 +532,16 @@ pub fn run_phase1_tests(delay: &mut esp_hal::delay::Delay) {
             log!("   SeedManager verified OK");
         }
 
+        // SD backup container KATs. Costs one 100k PBKDF2 derivation, so this
+        // is the slow one in this block.
+        let (passed_sdb, total_sdb) = crate::hw::sd_backup::run_sd_backup_tests();
+        log!("   SD backup tests: {}/{} passed", passed_sdb, total_sdb);
+        if passed_sdb != total_sdb {
+            log!("   CRITICAL: SD backup container has failures!");
+        } else {
+            log!("   SD backup container verified OK");
+        }
+
         // Address encoding tests (verified against official rusty-kaspa vectors)
         let (passed_addr, total_addr) = wallet::address::run_address_tests();
         log!("   Address tests: {}/{} passed", passed_addr, total_addr);
@@ -328,8 +563,14 @@ pub fn run_phase1_tests(delay: &mut esp_hal::delay::Delay) {
     }
 }
 
-/// Signing pipeline self-test — M5Stack only (called at boot)
+/// Signing pipeline self-test, M5Stack only (called at boot).
+/// Waveshare cannot run this at boot: k256 Schnorr signing needs ~16 KB of
+/// stack, which the boot frame does not have.
+/// `#[inline(never)]` for the same reason as `run_signing_pipeline_test` in
+/// main.rs: `acct_key_raw` here is a real derived account key, and inlining it
+/// into `main` makes its 65 bytes a permanent slot that no wipe path can reach.
 #[cfg(feature = "m5stack")]
+#[inline(never)]
 pub fn test_signing_pipeline(ad: &mut crate::app::data::AppData) -> bool {
     use crate::app::signing::{derive_all_pubkeys, sign_and_serialize_multi, derive_seed};
     use crate::wallet;
@@ -351,7 +592,17 @@ pub fn test_signing_pipeline(ad: &mut crate::app::data::AppData) -> bool {
     log!("[SIGN-TEST] Derived pubkey[0]: {:02x}{:02x}{:02x}{:02x}...",
         pk[0], pk[1], pk[2], pk[3]);
 
-    let mut tx = alloc::boxed::Box::new(wallet::transaction::Transaction::new());
+    // Heap-in-place, same reason as `AppData::new`. Whether LLVM elides the
+    // temporary for a given `Box::new(Transaction::new())` is not something to
+    // rely on: it did not elide it in `AppData::new`, where the 79 KB slot
+    // ended up permanently reserved in `main`'s frame.
+    let mut tx = match wallet::transaction::Transaction::new_boxed() {
+        Some(t) => t,
+        None => {
+            log!("[SIGN-TEST] FAIL: transaction allocation failed");
+            return false;
+        }
+    };
     tx.version = 0;
     tx.num_inputs = 1;
     tx.num_outputs = 1;
@@ -375,9 +626,19 @@ pub fn test_signing_pipeline(ad: &mut crate::app::data::AppData) -> bool {
     tx.outputs[0].script_public_key.script[33] = 0xAC;
     tx.outputs[0].script_public_key.script_len = 34;
 
-    let seed = derive_seed(&ad.mnemonic_indices, ad.word_count, pp);
+    // The boot test always runs a fixed 12-word mnemonic, so None here
+    // would mean word_count was corrupted before the test ran; report it
+    // as a test failure rather than unwrapping.
+    let seed = match derive_seed(&ad.mnemonic_indices, ad.word_count, pp) {
+        Some(s) => s,
+        None => {
+            log!("[SIGN-TEST] FAIL: word_count {} is not a mnemonic", ad.word_count);
+            return false;
+        }
+    };
     let mut signed_buf = [0u8; 1024];
-    let signed_len = sign_and_serialize_multi(&mut tx, &seed.bytes, &mut signed_buf);
+    let acct = wallet::bip32::derive_account_key(&seed.bytes).expect("boot-test account derive");
+    let signed_len = sign_and_serialize_multi(&mut tx, &acct.to_raw(), None, &mut signed_buf);
 
     log!("[SIGN-TEST] Signed response: {} bytes", signed_len);
     if signed_len == 0 {

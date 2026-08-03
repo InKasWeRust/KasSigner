@@ -464,7 +464,9 @@ impl<'a> BootDisplay<'a> {
         draw_lato_title(&mut self.display, version_text.as_str(), (320 - vw) / 2, 135, COLOR_TEXT);
 
         let mut hash_text = heapless::String::<48>::new();
-        let hash_display = &hash[..core::cmp::min(16, hash.len())];
+        // 17 chars: 8 hex, a space, 8 hex (M-12). Was capped at 16, which
+        // silently ate the last digit of the widened token.
+        let hash_display = &hash[..core::cmp::min(17, hash.len())];
         write!(&mut hash_text, "Hash: {hash_display}").ok();
         let hw = measure_body(hash_text.as_str());
         draw_lato_body(&mut self.display, hash_text.as_str(), (320 - hw) / 2, 165, COLOR_TEXT_DIM);
@@ -472,6 +474,7 @@ impl<'a> BootDisplay<'a> {
         let status_text = match status {
             BootStatus::Verifying => "Verifying...",
             BootStatus::Valid => "Verified OK",
+            BootStatus::DevBuild => "Dev Build",
             BootStatus::Invalid => "INVALID!",
             BootStatus::Error => "ERROR!",
         };
@@ -663,6 +666,10 @@ impl<'a> BootDisplay<'a> {
 pub enum BootStatus {
     Verifying,
     Valid,
+    /// Development build: the hash was computed and compared, but a mismatch
+    /// does not block boot. Distinct from Valid so the screen cannot claim
+    /// verification the build did not perform. See H-02.
+    DevBuild,
     Invalid,
     Error,
 }

@@ -14,11 +14,11 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
-pub use self::decode::{MetaData, RawData, Version, MAX_PAYLOAD_SIZE};
+pub use self::decode::{MetaData, RawData, Version, MAX_PAYLOAD_SIZE, RQRR_HEAP_BACKED};
 pub(crate) use self::detect::{capstones_from_image, CapStone};
 pub use self::identify::Point;
 pub(crate) use self::identify::SkewedGridLocation;
-pub use self::prepare::PreparedImage;
+pub use self::prepare::{BorrowedImageBuffer, PreparedImage};
 
 mod decode;
 mod detect;

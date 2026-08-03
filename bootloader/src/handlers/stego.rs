@@ -24,7 +24,6 @@ use crate::log;
 use crate::{app::data::AppData, hw::display, hw::sd_backup, hw::sdcard, hw::sound, ui::seed_manager, features::stego, hw::touch, wallet};
 use crate::ui::helpers::pp_keyboard_hit;
 
-#[cfg(not(feature = "silent"))]
 use crate::ui::helpers::validate_mnemonic;
 
 /// Shared state for stego touch handlers.
@@ -46,12 +45,22 @@ pub fn handle_stego_touch(
 
     match ad.app.state {
                     crate::app::input::AppState::StegoModeSelect => {
-                        // Single mode (JPEG EXIF) — back goes to export menu,
-                        // any tap starts the JPEG scan flow directly
+                        // Two carriers now. The cards are drawn at y=56 and
+                        // y=142, each 76 px tall and 260 px wide from x=30
+                        // (see draw_stego_mode_choice); a tap inside one
+                        // selects it and continues into the JPEG scan.
+                        // These bounds must track that function.
                         if is_back {
                             ad.app.state = crate::app::input::AppState::ExportChoice;
                             needs_redraw = true;
                         } else {
+                            if (30..290).contains(&x) {
+                                if (56..132).contains(&y) {
+                                    ad.stego_mode_idx = 0;   // Descriptor (EXIF)
+                                } else if (142..218).contains(&y) {
+                                    ad.stego_mode_idx = 1;   // Picture (DCT)
+                                }
+                            }
                             // Check seed loaded
                             let active = ad.seed_mgr.active_slot();
                             let has_seed = matches!(active, Some(s) if !s.is_empty());
@@ -75,7 +84,7 @@ pub fn handle_stego_touch(
                                     let fat32 = sdcard::mount_fat32(ct)?;
                                     sdcard::list_root_dir_lfn(ct, &fat32, |entry, disp_name, disp_len| {
                                         if !entry.is_dir() && entry.file_size > 0
-                                            && ((ad.jpeg_file_count) as usize) < 8 {
+                                            && ((ad.jpeg_file_count) as usize) < crate::app::data::SD_FILE_LIST_MAX {
                                             let ext = &entry.name[8..11];
                                             let first = entry.name[0];
                                             let is_hidden = first == b'.' || first == b'_' || first == 0xE5;
@@ -178,12 +187,13 @@ pub fn handle_stego_touch(
                             boot_display.update_progress_bar(50);
                             delay.delay_millis(50);
                             (ad.txt_file_count) = 0;
+                            ad.txt_file_scroll = 0;
                             let scan_ok = sdcard::with_sd_card(i2c, delay, |ct| {
                                 let fat32 = sdcard::mount_fat32(ct)?;
                                 sdcard::list_root_dir_lfn(ct, &fat32, |entry, disp_name, disp_len| {
                                     if !entry.is_dir() && entry.file_size > 0
                                         && entry.file_size <= 256
-                                        && ((ad.txt_file_count) as usize) < 8 {
+                                        && ((ad.txt_file_count) as usize) < crate::app::data::SD_FILE_LIST_MAX {
                                         let ext = &entry.name[8..11];
                                         let first = entry.name[0];
                                         let is_hidden = first == b'.' || first == b'_' || first == 0xE5;
@@ -215,10 +225,30 @@ pub fn handle_stego_touch(
                             ad.app.state = crate::app::input::AppState::StegoJpegDescChoice;
                             needs_redraw = true;
                         } else {
-                            let scroll = 0u8; // TXT files don't have paging yet (max 8)
+                            // Page arrows, matching the triangles that
+                            // draw_stego_txt_pick paints at x 5..30 and
+                            // 290..315. Same hit thresholds the SD picker
+                            // uses. Previously the arrows were drawn but
+                            // wired to nothing, so only the first four
+                            // files were ever reachable.
+                            //
+                            // A flag rather than an else-block, so the row
+                            // loop below keeps its original nesting.
+                            const PAGE: u8 = 4;
+                            let mut paged = false;
+                            if x < 40 && y >= 42 && ad.txt_file_scroll > 0 {
+                                ad.txt_file_scroll = ad.txt_file_scroll.saturating_sub(PAGE);
+                                needs_redraw = true;
+                                paged = true;
+                            } else if x >= 280 && y >= 42
+                                && (ad.txt_file_scroll + PAGE) < ad.txt_file_count {
+                                ad.txt_file_scroll += PAGE;
+                                needs_redraw = true;
+                                paged = true;
+                            }
                             for slot in 0..4u8 {
-                                if list_zones[slot as usize].contains(x, y) {
-                                    let idx = scroll + slot;
+                                if !paged && list_zones[slot as usize].contains(x, y) {
+                                    let idx = ad.txt_file_scroll + slot;
                                     if idx < (ad.txt_file_count) {
                                     // Read .TXT file content into ad.jpeg_desc_buf
                                     boot_display.draw_loading_screen("Reading...");
@@ -348,19 +378,14 @@ pub fn handle_stego_touch(
                                         // Encrypt hint with descriptor as password
                                         boot_display.draw_loading_screen("Encrypting hint...");
                                         let password = &ad.jpeg_desc_buf[..ad.jpeg_desc_len];
-                                        let mut nonce_src = [0u8; 128];
-                                        let ns_len = (ad.stego_pp_len + ad.jpeg_desc_len).min(128);
-                                        nonce_src[..(ad.stego_pp_len).min(64)].copy_from_slice(&ad.stego_pp_buf[..(ad.stego_pp_len).min(64)]);
-                                        if ad.jpeg_desc_len > 0 && (ad.stego_pp_len) < 128 {
-                                            let copy = (ad.jpeg_desc_len).min(128 - (ad.stego_pp_len));
-                                            nonce_src[ad.stego_pp_len..(ad.stego_pp_len) + copy].copy_from_slice(&ad.jpeg_desc_buf[..copy]);
-                                        }
-                                        let hash = wallet::hmac::hmac_sha512(b"stego-pp-nonce", &nonce_src[..ns_len]);
-                                        let mut nonce = [0u8; 12];
-                                        nonce.copy_from_slice(&hash[..12]);
+                                        // Nonce and salt from the TRNG. Both used to be keyed
+                                        // hashes over the hint text itself, i.e. a public
+                                        // function of the very secret being encrypted (C-02).
+                                        let nonce = crate::handlers::sd::generate_trng_nonce();
+                                        let salt = crate::handlers::sd::generate_trng_salt();
 
-                                        match sd_backup::encrypt_raw_progress(
-                                            &ad.stego_pp_buf, ad.stego_pp_len, password, &nonce,
+                                        match sd_backup::encrypt_raw_v3(
+                                            &ad.stego_pp_buf, ad.stego_pp_len, password, &salt, &nonce,
                                             &mut ad.stego_pp_encrypted,
                                             &mut |cur, total| {
                                                 boot_display.update_progress_bar((cur as u64 * 100 / total as u64) as u8);
@@ -407,19 +432,14 @@ pub fn handle_stego_touch(
                                     if ad.stego_pp_len > 0 {
                                         boot_display.draw_loading_screen("Encrypting hint...");
                                         let password = &ad.jpeg_desc_buf[..ad.jpeg_desc_len];
-                                        let mut nonce_src = [0u8; 128];
-                                        let ns_len = (ad.stego_pp_len + ad.jpeg_desc_len).min(128);
-                                        nonce_src[..(ad.stego_pp_len).min(64)].copy_from_slice(&ad.stego_pp_buf[..(ad.stego_pp_len).min(64)]);
-                                        if ad.jpeg_desc_len > 0 && (ad.stego_pp_len) < 128 {
-                                            let copy = (ad.jpeg_desc_len).min(128 - (ad.stego_pp_len));
-                                            nonce_src[ad.stego_pp_len..(ad.stego_pp_len) + copy].copy_from_slice(&ad.jpeg_desc_buf[..copy]);
-                                        }
-                                        let hash = wallet::hmac::hmac_sha512(b"stego-pp-nonce", &nonce_src[..ns_len]);
-                                        let mut nonce = [0u8; 12];
-                                        nonce.copy_from_slice(&hash[..12]);
+                                        // Nonce and salt from the TRNG. Both used to be keyed
+                                        // hashes over the hint text itself, i.e. a public
+                                        // function of the very secret being encrypted (C-02).
+                                        let nonce = crate::handlers::sd::generate_trng_nonce();
+                                        let salt = crate::handlers::sd::generate_trng_salt();
 
-                                        match sd_backup::encrypt_raw_progress(
-                                            &ad.stego_pp_buf, ad.stego_pp_len, password, &nonce,
+                                        match sd_backup::encrypt_raw_v3(
+                                            &ad.stego_pp_buf, ad.stego_pp_len, password, &salt, &nonce,
                                             &mut ad.stego_pp_encrypted,
                                             &mut |cur, total| {
                                                 boot_display.update_progress_bar((cur as u64 * 100 / total as u64) as u8);
@@ -464,26 +484,34 @@ pub fn handle_stego_touch(
                                     delay.delay_millis(1500);
                                     ad.app.state = crate::app::input::AppState::ExportChoice;
                                     needs_redraw = true;
-                                } else if let Some(slot) = active {
+                                } else if let Some((mnemonic_indices, mnemonic_wc)) =
+                                    active.and_then(|s| s.as_mnemonic())
+                                {
+                                    // `as_mnemonic`, not `slot.indices`. The guard
+                                    // above only checks the slot is non-empty, so a
+                                    // raw-key or xprv slot reached here and had its
+                                    // packed PRIVATE KEY handed to a seed-backup
+                                    // encryptor as if it were word indices. It failed
+                                    // safe only because `encrypt_backup_progress`
+                                    // rejects a word count that is not 12 or 24, which
+                                    // is validation in the wrong place. Now those kinds
+                                    // never reach it (H-08).
                                     boot_display.draw_loading_screen("Encrypting...");
 
-                                    // Generate nonce from seed data (deterministic per slot)
-                                    let mut nonce = [0u8; 12];
-                                    let mut nonce_src = [0u8; 48];
-                                    let src_len = (slot.word_count as usize * 2).min(48);
-                                    for i in 0..src_len.min(24) {
-                                        nonce_src[i * 2] = (slot.indices[i] >> 8) as u8;
-                                        nonce_src[i * 2 + 1] = slot.indices[i] as u8;
-                                    }
-                                    let hash = wallet::hmac::hmac_sha512(b"stego-nonce", &nonce_src[..src_len]);
-                                    nonce.copy_from_slice(&hash[..12]);
+                                    // Nonce and salt from the TRNG. The nonce used to be
+                                    // hmac_sha512("stego-nonce", mnemonic indices), a public
+                                    // keyed hash of the plaintext secret (C-02). Nothing
+                                    // recomputes it on the read side: both are stored in the
+                                    // container, so determinism bought nothing.
+                                    let nonce = crate::handlers::sd::generate_trng_nonce();
+                                    let salt = crate::handlers::sd::generate_trng_salt();
 
                                     // Encrypt with progress bar
                                     let pp = &ad.jpeg_desc_buf[..ad.jpeg_desc_len];
                                     let mut backup = [0u8; sd_backup::MAX_BACKUP_SIZE];
                                     let enc_result = sd_backup::encrypt_backup_progress(
-                                        &slot.indices, slot.word_count,
-                                        pp, &nonce, &mut backup,
+                                        mnemonic_indices, mnemonic_wc,
+                                        pp, &salt, &nonce, &mut backup,
                                         &mut |cur, total| {
                                             let pct = (cur as u64 * 100 / total as u64) as u8;
                                             boot_display.update_progress_bar(pct);
@@ -491,43 +519,54 @@ pub fn handle_stego_touch(
 
                                     if let Ok(enc_len) = enc_result {
                                         sound::task_done(delay);
-                                        let mut b64 = [0u8; 128];
-                                        let b64_len = stego::base64_encode(
-                                            &backup[..enc_len], enc_len, &mut b64);
+                                        // Embedded blob format v2 (D-01): raw container bytes
+                                        // with the constant 7-byte prefix stripped, seed then
+                                        // optional hint, NO separator. See the format notes in
+                                        // features/stego.rs.
+                                        //
+                                        // v1 wrote base64, which put the ASCII "S0FT" at the
+                                        // head of every artifact ever exported and made a photo
+                                        // dump greppable. Raw bytes are legal here: UserComment
+                                        // is EXIF type 7 (UNDEFINED).
+                                        //
+                                        // Sizes: seed container 100 - 7 = 93, hint container
+                                        // 116 - 7 = 109, total 202 into a 384-byte buffer.
+                                        let mut uc_buf = [0u8; 384];
+                                        let mut uc_len = stego::strip_v3_prefix(
+                                            &backup[..enc_len], &mut uc_buf);
 
-                                        // If hint was encrypted, base64-encode it and append
-                                        // to UserComment with "|" separator:
-                                        // UserComment = base64(seed) | base64(hint)
-                                        let mut uc_buf = [0u8; 256];
-                                        let mut uc_len = b64_len;
-                                        uc_buf[..b64_len].copy_from_slice(&b64[..b64_len]);
-
-                                        if ad.stego_pp_enc_len > 0 {
-                                            let mut hint_b64 = [0u8; 128];
-                                            let hint_b64_len = stego::base64_encode(
+                                        if uc_len > 0 && ad.stego_pp_enc_len > 0 {
+                                            // Appended with no delimiter. The hint blob carries
+                                            // its own leading length byte, which is what the
+                                            // reader uses to find the boundary. A '|' separator
+                                            // cannot be used once the payload is raw: the byte
+                                            // 0x7C occurs inside ciphertext.
+                                            let hint_len = stego::strip_v3_prefix(
                                                 &ad.stego_pp_encrypted[..ad.stego_pp_enc_len],
-                                                ad.stego_pp_enc_len, &mut hint_b64);
-                                            if hint_b64_len > 0 && uc_len + 1 + hint_b64_len < uc_buf.len() {
-                                                uc_buf[uc_len] = b'|';
-                                                uc_len += 1;
-                                                uc_buf[uc_len..uc_len + hint_b64_len].copy_from_slice(&hint_b64[..hint_b64_len]);
-                                                uc_len += hint_b64_len;
-                                            }
+                                                &mut uc_buf[uc_len..]);
+                                            uc_len += hint_len;
                                         }
 
-                                        // ImageDescription = plain user text (no ZW, no padding)
-                                        // UserComment = seed blob [| hint blob]
-                                        let mut app1_buf = [0u8; 2048];
-                                        let app1_len = stego::build_exif_app1(
-                                            &ad.jpeg_desc_buf[..ad.jpeg_desc_len], ad.jpeg_desc_len,
-                                            &uc_buf, uc_len,
-                                            &mut app1_buf);
+                                        // The APP1 is now built INSIDE the SD closure, because
+                                        // copy-forward needs the host photo's own EXIF and the
+                                        // photo is not in memory until it is read below.
+                                        //
+                                        // Description copied to a local first: the closure must
+                                        // not borrow `ad`.
+                                        let mut desc_local = [0u8; 128];
+                                        let desc_len = ad.jpeg_desc_len.min(desc_local.len());
+                                        desc_local[..desc_len]
+                                            .copy_from_slice(&ad.jpeg_desc_buf[..desc_len]);
 
-                                    if app1_len > 0 {
+                                    if uc_len > 0 {
                                         boot_display.draw_saving_screen("Writing to SD...");
                                         boot_display.update_progress_bar(50);
                                         delay.delay_millis(50);
                                         let fname83 = ad.jpeg_file_names[(ad.jpeg_selected) as usize];
+                                        // Carrier chosen on the StegoModeSelect
+                                        // screen. Copied out before the closure,
+                                        // which must not borrow `ad`.
+                                        let picture_mode = ad.stego_mode_idx == 1;
                                         let sd_result = sdcard::with_sd_card(i2c, delay, |ct| {
                                             let fat32 = sdcard::mount_fat32(ct)?;
                                             let (entry, _, _) = sdcard::find_file_in_root(ct, &fat32, &fname83)?;
@@ -538,12 +577,160 @@ pub fn handle_stego_touch(
                                             if read_len < 2 || jpeg_buf[0] != 0xFF || jpeg_buf[1] != 0xD8 {
                                                 return Err("Not a valid JPEG");
                                             }
-                                            let mut out_buf = alloc::vec![0u8; read_len + app1_len + 16];
-                                            let out_len = stego::inject_exif_into_jpeg(
-                                                &jpeg_buf[..read_len], read_len,
-                                                &app1_buf, app1_len,
-                                                &mut out_buf);
-                                            if out_len == 0 { return Err("EXIF inject failed"); }
+
+                                            // Heap, not a 2 KB stack array: a real camera APP1
+                                            // with an embedded thumbnail runs tens of KB, and
+                                            // copy-forward carries all of it.
+                                            // Skipped in Picture mode: that carrier leaves
+                                            // metadata untouched, and running this here would
+                                            // let an EXIF-side verify failure abort an export
+                                            // that never needed EXIF at all.
+                                            let host = if picture_mode { None } else {
+                                                stego::find_exif_app1(&jpeg_buf[..read_len], read_len)
+                                            };
+                                            let host_size = host.map_or(0, |(_, sz)| sz);
+                                            let cap = core::cmp::max(4096, host_size + 2048);
+                                            let mut app1_buf = alloc::vec![0u8; cap];
+
+                                            // Preferred: carry the photo's own EXIF forward, so
+                                            // IFD0 keeps Make, Model, DateTime and the Exif
+                                            // sub-IFD instead of collapsing to two entries
+                                            // (D-01 fingerprint 2).
+                                            let mut app1_len = 0usize;
+                                            if let Some((ho, hs)) = host {
+                                                let hend = ho.saturating_add(hs);
+                                                if hend <= read_len {
+                                                    app1_len = stego::build_exif_app1_copyforward(
+                                                        &jpeg_buf[ho..hend], hs,
+                                                        &desc_local[..desc_len],
+                                                        &uc_buf[..uc_len],
+                                                        &mut app1_buf);
+                                                }
+                                            }
+
+                                            // Fallback: the photo has no EXIF (screenshot,
+                                            // messaging-app download, editor export), an
+                                            // unsupported byte order, or the result would not
+                                            // fit. Synthesize a software-export-shaped block
+                                            // rather than emitting a two-entry IFD0, which is
+                                            // the single most identifying feature in the
+                                            // Kee/Johnson/Farid signature work.
+                                            //
+                                            // No Make and no Model: a fabricated camera claim
+                                            // can be contradicted by the file's own
+                                            // quantization tables. `Software` cannot, because
+                                            // re-encoding chains are ordinary.
+                                            //
+                                            // Both varying fields are drawn per export, so two
+                                            // artifacts share no constant. Dimensions come from
+                                            // the file's own SOF marker so they always agree
+                                            // with the image.
+                                            if app1_len == 0 && !picture_mode {
+                                                let rnd = crate::handlers::sd::generate_trng_nonce();
+                                                let sw = stego::SOFTWARE_TABLE[
+                                                    (rnd[6] as usize) % stego::SOFTWARE_TABLE.len()];
+                                                let mut dt = [0u8; 19];
+                                                stego::format_exif_datetime(&rnd, &mut dt);
+                                                let (w, h) = stego::jpeg_dimensions(
+                                                    &jpeg_buf[..read_len], read_len)
+                                                    .unwrap_or((0, 0));
+                                                if w > 0 && h > 0 {
+                                                    app1_len = stego::build_exif_app1_template(
+                                                        &desc_local[..desc_len],
+                                                        &uc_buf[..uc_len],
+                                                        w, h, sw.as_bytes(), &dt,
+                                                        &mut app1_buf);
+                                                }
+                                            }
+
+                                            // Last resort: the minimal two-tag block. Reached
+                                            // only if the SOF is unreadable, i.e. the file is
+                                            // barely a JPEG. Detectable, but readable, which
+                                            // beats refusing to back up the seed.
+                                            if app1_len == 0 && !picture_mode {
+                                                app1_len = stego::build_exif_app1(
+                                                    &desc_local[..desc_len], desc_len,
+                                                    &uc_buf, uc_len,
+                                                    &mut app1_buf);
+                                            }
+                                            if app1_len == 0 && !picture_mode {
+                                                return Err("EXIF build failed");
+                                            }
+
+                                            // VERIFY BEFORE WRITING. This is a seed backup: a
+                                            // malformed host photo that produced a subtly wrong
+                                            // offset would otherwise be discovered on the day
+                                            // the user needs to restore. Read our own payload
+                                            // back out of the segment we just built, and if it
+                                            // does not match byte for byte, drop to the minimal
+                                            // builder and verify that too.
+                                            let mut vbuf = [0u8; 384];
+                                            let mut vlen = if picture_mode { uc_len } else {
+                                                stego::extract_user_comment(
+                                                    &app1_buf[..app1_len], app1_len, &mut vbuf)
+                                            };
+                                            if !picture_mode
+                                                && (vlen != uc_len || vbuf[..vlen] != uc_buf[..uc_len])
+                                            {
+                                                app1_len = stego::build_exif_app1(
+                                                    &desc_local[..desc_len], desc_len,
+                                                    &uc_buf, uc_len,
+                                                    &mut app1_buf);
+                                                if app1_len == 0 { return Err("EXIF build failed"); }
+                                                vlen = stego::extract_user_comment(
+                                                    &app1_buf[..app1_len], app1_len, &mut vbuf);
+                                                if vlen != uc_len || vbuf[..vlen] != uc_buf[..uc_len] {
+                                                    return Err("EXIF verify failed");
+                                                }
+                                            }
+
+                                            // Carrier: Descriptor writes the
+                                            // payload into EXIF; Picture writes
+                                            // it into the DCT coefficients and
+                                            // leaves metadata untouched.
+                                            let out_len;
+                                            let mut out_buf;
+                                            if picture_mode {
+                                                // The speaker's I2S DMA buffer repeats until
+                                                // overwritten, so the `task_done` tone above
+                                                // would play for the whole embed and make a
+                                                // slow run indistinguishable from a hang.
+                                                // Silence it before the long part.
+                                                sound::silence();
+
+                                                // Coefficient domain. Output can
+                                                // be a few hundred bytes either
+                                                // side of the input once changed
+                                                // coefficients re-encode.
+                                                log!("   [dct] jpeg {} B, allocating {} B out + {} B window",
+                                                    read_len,
+                                                    read_len + 4096,
+                                                    crate::features::stego_dct::RANK_WINDOW as usize * 2);
+                                                let t_dct = esp_hal::time::Instant::now();
+                                                out_buf = alloc::vec![0u8; read_len + 4096];
+                                                out_len = crate::features::stego_dct::embed(
+                                                    &jpeg_buf[..read_len],
+                                                    &uc_buf[..uc_len],
+                                                    &desc_local[..desc_len],
+                                                    &mut out_buf,
+                                                ).map_err(|e| match e {
+                                                    crate::features::stego_dct::DctError::NotBaseline =>
+                                                        "Progressive JPEG",
+                                                    crate::features::stego_dct::DctError::NoCapacity =>
+                                                        "Photo too small",
+                                                    _ => "Stego encode failed",
+                                                })?;
+                                                log!("   [dct] embed {} B -> {} B in {} ms",
+                                                    read_len, out_len,
+                                                    (esp_hal::time::Instant::now() - t_dct).as_millis());
+                                            } else {
+                                                out_buf = alloc::vec![0u8; read_len + app1_len + 16];
+                                                out_len = stego::inject_exif_into_jpeg(
+                                                    &jpeg_buf[..read_len], read_len,
+                                                    &app1_buf, app1_len,
+                                                    &mut out_buf);
+                                                if out_len == 0 { return Err("EXIF inject failed"); }
+                                            }
                                             sdcard::overwrite_file(ct, &fat32, &fname83, &out_buf[..out_len])?;
                                             Ok(())
                                         });
@@ -581,10 +768,11 @@ pub fn handle_stego_touch(
                         }
                         
                     }
-                    crate::app::input::AppState::FwUpdateResult => {
-                        ad.app.go_main_menu();
-                        needs_redraw = true;
-                    }
+                    // H-03: firmware-update-over-QR was an abandoned design. Nothing ever
+                    // installed anything: the flow stopped at a screen showing a verified tick,
+                    // and the signature covered only the hash, never the version, so a replayed
+                    // signature with any version number displayed as verified. Commented out
+                    // rather than deleted so the abandoned design stays visible.
                     // ─── Stego Import Flow ────────────
                     crate::app::input::AppState::StegoImportPick => {
                         if is_back {
@@ -631,12 +819,13 @@ pub fn handle_stego_touch(
                             boot_display.update_progress_bar(50);
                             delay.delay_millis(50);
                             (ad.txt_file_count) = 0;
+                            ad.txt_file_scroll = 0;
                             let scan_ok = sdcard::with_sd_card(i2c, delay, |ct| {
                                 let fat32 = sdcard::mount_fat32(ct)?;
                                 sdcard::list_root_dir_lfn(ct, &fat32, |entry, disp_name, disp_len| {
                                     if !entry.is_dir() && entry.file_size > 0
                                         && entry.file_size <= 256
-                                        && ((ad.txt_file_count) as usize) < 8 {
+                                        && ((ad.txt_file_count) as usize) < crate::app::data::SD_FILE_LIST_MAX {
                                         let ext = &entry.name[8..11];
                                         let first = entry.name[0];
                                         let is_hidden = first == b'.' || first == b'_' || first == 0xE5;
@@ -669,10 +858,30 @@ pub fn handle_stego_touch(
                             ad.app.state = crate::app::input::AppState::StegoImportDescChoice;
                             needs_redraw = true;
                         } else {
-                            let scroll = 0u8;
+                            // Page arrows, matching the triangles that
+                            // draw_stego_txt_pick paints at x 5..30 and
+                            // 290..315. Same hit thresholds the SD picker
+                            // uses. Previously the arrows were drawn but
+                            // wired to nothing, so only the first four
+                            // files were ever reachable.
+                            //
+                            // A flag rather than an else-block, so the row
+                            // loop below keeps its original nesting.
+                            const PAGE: u8 = 4;
+                            let mut paged = false;
+                            if x < 40 && y >= 42 && ad.txt_file_scroll > 0 {
+                                ad.txt_file_scroll = ad.txt_file_scroll.saturating_sub(PAGE);
+                                needs_redraw = true;
+                                paged = true;
+                            } else if x >= 280 && y >= 42
+                                && (ad.txt_file_scroll + PAGE) < ad.txt_file_count {
+                                ad.txt_file_scroll += PAGE;
+                                needs_redraw = true;
+                                paged = true;
+                            }
                             for slot in 0..4u8 {
-                                if list_zones[slot as usize].contains(x, y) {
-                                    let idx = scroll + slot;
+                                if !paged && list_zones[slot as usize].contains(x, y) {
+                                    let idx = ad.txt_file_scroll + slot;
                                     if idx < (ad.txt_file_count) {
                                     // Read .TXT file content into pp_input for decrypt
                                     boot_display.draw_loading_screen("Reading...");
@@ -736,8 +945,18 @@ pub fn handle_stego_touch(
                                     boot_display.update_progress_bar(10);
                                     delay.delay_millis(50); // flush display before SD + PBKDF2
 
-                                    // Step 1: Read EXIF from selected JPEG on SD card
+                                    // Step 1: read the payload from the selected
+                                    // JPEG on SD, trying both carriers.
                                     ad.import_exif_b64_len = 0;
+                                    // The descriptor doubles as the Picture
+                                    // carrier's permutation key. Copied out
+                                    // before the closure, which cannot borrow
+                                    // `ad` while `ad.import_exif_b64` is
+                                    // mutably borrowed inside it.
+                                    let mut pp_local = [0u8; 128];
+                                    let pp_local_len = ad.pp_input.len.min(pp_local.len());
+                                    pp_local[..pp_local_len]
+                                        .copy_from_slice(&ad.pp_input.buf[..pp_local_len]);
                                     let fname83 = ad.import_jpeg_names[(ad.import_jpeg_selected) as usize];
                                     let exif_ok = sdcard::with_sd_card(i2c, delay, |ct| {
                                         let fat32 = sdcard::mount_fat32(ct)?;
@@ -746,71 +965,184 @@ pub fn handle_stego_touch(
                                         if fsize > 2_000_000 { return Err("JPEG >2MB"); }
                                         let mut jpeg_buf = alloc::vec![0u8; fsize];
                                         let read_len = sdcard::read_file(ct, &fat32, &entry, &mut jpeg_buf)?;
-                                        if let Some((app1_off, app1_size)) = stego::find_exif_app1(&jpeg_buf[..read_len], read_len) {
-                                            let app1_end: usize = app1_off.checked_add(app1_size).unwrap_or(usize::MAX);
-                                            if app1_end > read_len { return Err("EXIF overflow"); }
-                                            let extracted = stego::extract_user_comment(
-                                                &jpeg_buf[app1_off..app1_end],
-                                                app1_size,
-                                                &mut ad.import_exif_b64);
-                                            ad.import_exif_b64_len = extracted;
-                                            if extracted == 0 { return Err("no data"); }
-                                            Ok(())
-                                        } else {
-                                            Err("no data")
+                                        // Carrier order is chosen by one bit of TRNG,
+                                        // not fixed.
+                                        //
+                                        // The user is never asked which carrier they
+                                        // used: they should not have to remember, and a
+                                        // wrong answer would be indistinguishable from a
+                                        // wrong password.
+                                        //
+                                        // WHY RANDOM RATHER THAN ALWAYS-EXIF-FIRST. A photo
+                                        // can hold BOTH payloads — nothing in an export
+                                        // removes the other carrier, by design, since
+                                        // running both modes in turn is how a user gets
+                                        // redundancy against the two opposite risks
+                                        // (metadata stripping vs recompression). With a
+                                        // fixed order, a photo carrying two different
+                                        // backups always returns the same one, silently,
+                                        // and the other is unreachable. Randomising the
+                                        // order makes both reachable across retries.
+                                        //
+                                        // This is deliberately asymmetric in the owner's
+                                        // favour, which is the whole point of the feature:
+                                        // the owner knows the photo carries a backup and
+                                        // can simply import again, while an attacker must
+                                        // rule out both carriers on every candidate photo
+                                        // without the descriptor.
+                                        //
+                                        // Cost: when only one carrier holds data and the
+                                        // coin picks the other first, the import pays one
+                                        // wasted coefficient decode (~6 s on a 250 KB
+                                        // photo) before falling through.
+                                        //
+                                        // If the RNG health tests fail, `generate_trng_nonce`
+                                        // returns zeros and this degrades to Descriptor
+                                        // first, which is the previous behaviour: no worse,
+                                        // and it cannot fail closed on an import path whose
+                                        // job is to recover a seed.
+                                        let picture_first =
+                                            (crate::handlers::sd::generate_trng_nonce()[0] & 1) == 1;
+                                        let mut extracted = 0usize;
+                                        let mut from_picture = false;
+
+                                        for attempt in 0..2u8 {
+                                            let try_picture = if attempt == 0 { picture_first } else { !picture_first };
+                                            if try_picture {
+                                                // The descriptor keys the permutation as
+                                                // well as the container, so a wrong
+                                                // descriptor yields a different walk and no
+                                                // payload — the same uniform failure as a
+                                                // wrong password everywhere else.
+                                                extracted = crate::features::stego_dct::extract(
+                                                    &jpeg_buf[..read_len],
+                                                    &pp_local[..pp_local_len],
+                                                    &mut ad.import_exif_b64,
+                                                ).unwrap_or(0);
+                                                if extracted > 0 { from_picture = true; }
+                                            } else if let Some((app1_off, app1_size)) =
+                                                stego::find_exif_app1(&jpeg_buf[..read_len], read_len)
+                                            {
+                                                let app1_end: usize =
+                                                    app1_off.checked_add(app1_size).unwrap_or(usize::MAX);
+                                                if app1_end > read_len { return Err("EXIF overflow"); }
+                                                extracted = stego::extract_user_comment(
+                                                    &jpeg_buf[app1_off..app1_end],
+                                                    app1_size,
+                                                    &mut ad.import_exif_b64);
+                                            }
+                                            if extracted > 0 { break; }
                                         }
+
+                                        ad.import_exif_b64_len = extracted;
+                                        if extracted == 0 { return Err("no data"); }
+                                        // Which carrier produced the payload. Without this
+                                        // line a stale payload from the other carrier looks
+                                        // exactly like a correct import, which is how a
+                                        // wrong seed reached slot 1 unnoticed.
+                                        log!("   [stego] payload from {} ({} B)",
+                                            if from_picture { "picture" } else { "descriptor" },
+                                            extracted);
+                                        Ok(())
                                     });
                                     boot_display.update_progress_bar(30);
 
-                                    // Step 2: Parse base64 and decrypt — or fail uniformly
-                                    let mut seed_b64_len = ad.import_exif_b64_len;
-                                    let mut hint_b64_start: usize = 0;
-                                    let mut hint_b64_len: usize = 0;
-
+                                    // Step 2: reassemble the container(s) and decrypt, or fail
+                                    // uniformly.
+                                    //
+                                    // Two wire formats are accepted, permanently:
+                                    //
+                                    //   v1  base64(seed) ['|' base64(hint)]. Every artifact ever
+                                    //       written begins with the ASCII "S0FT" (base64 of the
+                                    //       container magic), which is exactly the fingerprint
+                                    //       v2 exists to remove — and exactly what makes the two
+                                    //       formats trivial to tell apart.
+                                    //   v2  raw seed blob [|| raw hint blob], each stripped of
+                                    //       the constant 7-byte container prefix and each
+                                    //       beginning with its own payload-length byte.
+                                    //
+                                    // Export writes v2 only. Discrimination costs no key
+                                    // derivation, so a wrong guess cannot be timed.
                                     let mut decrypt_ok = false;
 
+                                    // a v3 seed container is 100 bytes; 128 was exact for the old 81-byte one
+                                    let mut decoded = [0u8; 128];
+                                    let mut dec_len = 0usize;
+                                    // a v3 hint container is 116 bytes; 128 was exact for the old 97-byte one
+                                    let mut hint_decoded = [0u8; 160];
+                                    let mut hint_dec_len = 0usize;
+
                                     if exif_ok.is_ok() && ad.import_exif_b64_len > 0 {
-                                        for i in 0..ad.import_exif_b64_len {
-                                            if ad.import_exif_b64[i] == b'|' {
-                                                seed_b64_len = i;
-                                                hint_b64_start = i + 1;
-                                                hint_b64_len = ad.import_exif_b64_len - hint_b64_start;
-                                                break;
+                                        let payload_len = ad.import_exif_b64_len;
+
+                                        if stego::is_legacy_b64_payload(&ad.import_exif_b64[..payload_len]) {
+                                            let mut seed_b64_len = payload_len;
+                                            let mut hint_b64_start: usize = 0;
+                                            let mut hint_b64_len: usize = 0;
+                                            for i in 0..payload_len {
+                                                if ad.import_exif_b64[i] == b'|' {
+                                                    seed_b64_len = i;
+                                                    hint_b64_start = i + 1;
+                                                    hint_b64_len = payload_len - hint_b64_start;
+                                                    break;
+                                                }
+                                            }
+                                            dec_len = stego::base64_decode(
+                                                &ad.import_exif_b64, seed_b64_len, &mut decoded);
+                                            if hint_b64_len > 0 {
+                                                hint_dec_len = stego::base64_decode(
+                                                    &ad.import_exif_b64[hint_b64_start..],
+                                                    hint_b64_len, &mut hint_decoded);
+                                            }
+                                        } else {
+                                            // v2: the seed blob's own length byte gives the
+                                            // boundary; whatever follows is the hint blob.
+                                            let seed_blob = stego::embedded_blob_len(
+                                                &ad.import_exif_b64[..payload_len]);
+                                            if seed_blob > 0 && seed_blob <= payload_len {
+                                                dec_len = stego::restore_v3_prefix(
+                                                    &ad.import_exif_b64[..seed_blob],
+                                                    sd_backup::PURPOSE_SEED,
+                                                    &mut decoded);
+                                                let rest_len = payload_len - seed_blob;
+                                                if rest_len > 0 {
+                                                    let hint_blob = stego::embedded_blob_len(
+                                                        &ad.import_exif_b64[seed_blob..payload_len]);
+                                                    if hint_blob > 0 && hint_blob <= rest_len {
+                                                        hint_dec_len = stego::restore_v3_prefix(
+                                                            &ad.import_exif_b64[seed_blob..seed_blob + hint_blob],
+                                                            sd_backup::PURPOSE_RAW,
+                                                            &mut hint_decoded);
+                                                    }
+                                                }
                                             }
                                         }
-
-                                        let mut decoded = [0u8; 128];
-                                        let dec_len = stego::base64_decode(
-                                            &ad.import_exif_b64, seed_b64_len, &mut decoded);
 
                                         if dec_len >= 57 {
                                             let pp_bytes = &ad.pp_input.buf[..ad.pp_input.len];
                                             let mut import_indices = [0u16; 24];
-                                            match sd_backup::decrypt_backup_progress(
+                                            match sd_backup::decrypt_backup_versioned(
                                                 &decoded[..dec_len], pp_bytes, &mut import_indices,
                                                 &mut |cur, total| {
                                                     boot_display.update_progress_bar(30 + (cur as u64 * 70 / total as u64) as u8);
                                                 })
                                             {
-                                                Ok(wc) => {
+                                                Ok((wc, legacy)) => {
                                                     if validate_mnemonic(&import_indices, wc) {
                                                         (ad.recovered_hint_len) = 0;
 
-                                                        if hint_b64_len > 0 {
-                                                            let mut hint_decoded = [0u8; 128];
-                                                            let hint_dec_len = stego::base64_decode(
-                                                                &ad.import_exif_b64[hint_b64_start..],
-                                                                hint_b64_len, &mut hint_decoded);
-                                                            if hint_dec_len > 0 {
-                                                                if let Ok(h_len) = sd_backup::decrypt_raw_progress(
-                                                                    &hint_decoded[..hint_dec_len], pp_bytes, &mut ad.recovered_hint,
-                                                                    &mut |cur, total| {
-                                                                        boot_display.update_progress_bar((cur as u64 * 100 / total as u64) as u8);
-                                                                    })
-                                                                {
-                                                                    (ad.recovered_hint_len) = h_len.min(sd_backup::MAX_RAW_PAYLOAD);
-                                                                    log!("   Recovery hint found: {} bytes", (ad.recovered_hint_len));
-                                                                }
+                                                        if hint_dec_len > 0 {
+                                                            // Container already reassembled above,
+                                                            // for whichever wire format this file
+                                                            // uses.
+                                                            if let Ok((h_len, _)) = sd_backup::decrypt_raw_versioned(
+                                                                &hint_decoded[..hint_dec_len], pp_bytes, &mut ad.recovered_hint,
+                                                                &mut |cur, total| {
+                                                                    boot_display.update_progress_bar((cur as u64 * 100 / total as u64) as u8);
+                                                                })
+                                                            {
+                                                                (ad.recovered_hint_len) = h_len.min(sd_backup::MAX_RAW_PAYLOAD);
+                                                                log!("   Recovery hint found: {} bytes", (ad.recovered_hint_len));
                                                             }
                                                         }
 
@@ -820,6 +1152,21 @@ pub fn handle_stego_touch(
                                                         ad.pp_input.reset();
                                                         decrypt_ok = true;
 
+                                                        // A pre-v3 artifact carries the shared
+                                                        // salt, so one precomputed dictionary
+                                                        // table attacks every one ever made. The
+                                                        // SD restore path already says so; this
+                                                        // one discarded the flag, which meant no
+                                                        // stego artifact could ever produce the
+                                                        // warning. Shown before the hint or the
+                                                        // success screen, since both of those
+                                                        // move the flow on.
+                                                        if legacy {
+                                                            log!("   Stego: legacy format, prompting re-export");
+                                                            boot_display.draw_rejected_screen("Old format: re-export");
+                                                            delay.delay_millis(2500);
+                                                        }
+
                                                         if (ad.recovered_hint_len) > 0 {
                                                             // Has hint → show it, then passphrase keyboard
                                                             sound::success(delay);
@@ -827,14 +1174,11 @@ pub fn handle_stego_touch(
                         needs_redraw = true;
                                                         } else {
                                                             // No hint → store now without passphrase
-                                                            if let Some(slot_idx) = ad.seed_mgr.store(
-                                                                &ad.mnemonic_indices, ad.word_count, &[], 0,
-                                                            ) {
-                                                                ad.seed_mgr.activate(slot_idx);
-                                                                (ad.seed_loaded) = true;
-                                                                (ad.pubkeys_cached) = false;
-                                                                (ad.current_addr_index) = 0;
-                                                                (ad.extra_pubkey_index) = 0xFFFF;
+                                                            if crate::app::signing::load_active_mnemonic(
+                                                                ad,
+                                                                boot_display,
+                                                                crate::app::signing::PassphraseSource::Empty,
+                                                            ).is_some() {
                                                                 boot_display.draw_success_screen("Seed Recovered!");
                                                                 sound::success(delay);
                                                                 delay.delay_millis(2000);
@@ -870,14 +1214,14 @@ pub fn handle_stego_touch(
                         if is_back {
                             // Skip passphrase — store without it
                             (ad.recovered_hint_len) = 0;
-                            if let Some(slot_idx) = ad.seed_mgr.store(
-                                &ad.mnemonic_indices, ad.word_count, &[], 0,
-                            ) {
-                                ad.seed_mgr.activate(slot_idx);
-                                (ad.seed_loaded) = true;
-                                (ad.pubkeys_cached) = false;
-                                (ad.current_addr_index) = 0;
-                                (ad.extra_pubkey_index) = 0xFFFF;
+                            if crate::app::signing::load_active_mnemonic(
+                                ad,
+                                boot_display,
+                                crate::app::signing::PassphraseSource::Empty,
+                            ).is_none() {
+                                boot_display.draw_rejected_screen("All slots full!");
+                                sound::beep_error(delay);
+                                delay.delay_millis(2000);
                             }
                             ad.app.state = crate::app::input::AppState::SeedList;
                             needs_redraw = true;
@@ -892,14 +1236,14 @@ pub fn handle_stego_touch(
                     crate::app::input::AppState::StegoHintPassphrase => {
                         if is_back {
                             // Back from passphrase — store without it
-                            if let Some(slot_idx) = ad.seed_mgr.store(
-                                &ad.mnemonic_indices, ad.word_count, &[], 0,
-                            ) {
-                                ad.seed_mgr.activate(slot_idx);
-                                (ad.seed_loaded) = true;
-                                (ad.pubkeys_cached) = false;
-                                (ad.current_addr_index) = 0;
-                                (ad.extra_pubkey_index) = 0xFFFF;
+                            if crate::app::signing::load_active_mnemonic(
+                                ad,
+                                boot_display,
+                                crate::app::signing::PassphraseSource::Empty,
+                            ).is_none() {
+                                boot_display.draw_rejected_screen("All slots full!");
+                                sound::beep_error(delay);
+                                delay.delay_millis(2000);
                             }
                             ad.app.state = crate::app::input::AppState::SeedList;
                             needs_redraw = true;
@@ -910,36 +1254,24 @@ pub fn handle_stego_touch(
                                 5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "25TH WORD"); }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "25TH WORD"); }
                                 6 => {
-                                    let pp_str = ad.pp_input.as_str();
-                                    let pp_len = pp_str.len().min(64);
-                                    let pp_bytes = &ad.pp_input.buf[..pp_len];
                                     // Store with passphrase (or empty if user hit OK without typing)
-                                    if let Some(slot_idx) = ad.seed_mgr.store(
-                                        &ad.mnemonic_indices, ad.word_count,
-                                        pp_bytes, pp_len as u8,
-                                    ) {
-                                        ad.seed_mgr.activate(slot_idx);
-                                        (ad.seed_loaded) = true;
-                                        (ad.pubkeys_cached) = false;
-                                        (ad.current_addr_index) = 0;
-                                        (ad.extra_pubkey_index) = 0xFFFF;
-                                        // Log only whether a passphrase was used, never its
-                                        // length (length narrows brute-force space).
-                                        log!("   Stego seed stored in slot {} (pp={})", slot_idx,
-                                            if pp_len > 0 { "yes" } else { "no" });
+                                    let stored = crate::app::signing::load_active_mnemonic(
+                                        ad,
+                                        boot_display,
+                                        crate::app::signing::PassphraseSource::PpInput,
+                                    );
+                                    (ad.recovered_hint_len) = 0;
+                                    if stored.is_some() {
+                                        boot_display.draw_success_screen("Full Recovery!");
+                                        sound::success(delay);
+                                        delay.delay_millis(2000);
                                     } else {
                                         boot_display.draw_rejected_screen("All slots full!");
                                         sound::beep_error(delay);
                                         delay.delay_millis(2000);
                                     }
-                                    ad.pp_input.reset();
-                                    (ad.recovered_hint_len) = 0;
-                                    boot_display.draw_success_screen("Full Recovery!");
-                                    sound::success(delay);
-                                    delay.delay_millis(2000);
                                     ad.app.state = crate::app::input::AppState::SeedList;
-                            needs_redraw = true;
-                                    
+                                    needs_redraw = true;
                                 }
                                 _ => {}
                             }

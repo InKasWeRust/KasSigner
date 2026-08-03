@@ -44,7 +44,6 @@
 //   CMD17 → READ_SINGLE_BLOCK
 //   CMD24 → WRITE_BLOCK
 
-#[cfg(not(feature = "silent"))]
 use crate::log;
 use esp_hal::delay::Delay;
 

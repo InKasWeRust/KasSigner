@@ -18,6 +18,15 @@
 // features/ — Steganography, KRC-20, firmware update, NVS, verification
 
 pub mod stego;
+// Traversal primitive for coefficient-domain stego. Not yet wired to
+// anything: the JPEG entropy codec that would use it is unwritten. Present
+// so the design and its validation are in the tree rather than in a chat log.
+pub mod stego_perm;
+// JPEG entropy-layer codec that uses it. Validated against a reference
+// implementation but NOT yet called from any handler: wiring it into the
+// export/import flow, and deciding whether it runs alongside the EXIF path
+// or instead of it, is a separate change.
+pub mod stego_dct;
 pub mod krc20;
 pub mod fw_update;
 pub mod verify;

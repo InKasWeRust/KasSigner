@@ -146,19 +146,127 @@ use crate::app::input::HandlerGroup;
 
 extern crate alloc;
 
+// ─── Build-time guards against shipping diagnostic features (M-14) ───
+//
+// Each of these exists to measure or debug something and none belongs in a
+// released binary. `production` implies `silent`, so testing `silent` rejects
+// both shipping them and building them with the log stubbed out, which is the
+// same reasoning as the `imu-dump` guard in hw/imu_ws.rs.
+//
+// The guards live here rather than beside each feature so that adding a
+// diagnostic feature means adding a line to this list, in one visible place.
+
+#[cfg(all(feature = "sentinel-scan", feature = "silent"))]
+compile_error!(
+    "sentinel-scan compiles a derived PRIVATE KEY into the binary as a search \
+     pattern and must never ship. Drop --features sentinel-scan."
+);
+
+#[cfg(all(feature = "sha-bench", feature = "silent"))]
+compile_error!(
+    "sha-bench is a measurement harness no production path calls. Drop \
+     --features sha-bench."
+);
+
+#[cfg(all(feature = "rng-probe", feature = "silent"))]
+compile_error!(
+    "rng-probe is a measurement harness for M-13 and reports raw RNG statistics. \
+     Drop --features rng-probe."
+);
+
+#[cfg(all(feature = "screenshot", feature = "silent"))]
+compile_error!(
+    "screenshot streams framebuffer contents off the device, including seed \
+     and passphrase screens. Drop --features screenshot / mirror."
+);
+
+#[cfg(all(feature = "imu-dump", feature = "silent"))]
+compile_error!(
+    "imu-dump prints raw gyro samples to the serial log, the same physical \
+     noise bytes the seed pool is fed from, and is useless with the log \
+     stubbed out. Drop --features imu-dump."
+);
+
+// skip-tests is not a diagnostic, it is the ABSENCE of one: it removes the
+// crypto known-answer tests. P-09 was exactly this feature reaching the
+// Dockerfile release stages, so every documented build shipped with the KATs
+// unreachable. A release binary that has never verified its own primitives
+// against a published vector is the condition H-12 hid in.
+#[cfg(all(feature = "skip-tests", feature = "silent"))]
+compile_error!(
+    "skip-tests removes the crypto known-answer tests. A shipped build must \
+     verify its own primitives at boot. Drop --features skip-tests."
+);
+
+// icon-browser replaces the normal UI with a developer icon gallery. Harmless
+// to secrets, but a released binary that boots into it is not a signer.
+#[cfg(all(feature = "icon-browser", feature = "silent"))]
+compile_error!(
+    "icon-browser replaces the device UI with a developer gallery. Drop \
+     --features icon-browser."
+);
+
+// verbose-boot is not merely noisy: section 2b of the audit records it dumping
+// sighash material over USB (I-04). It is stubbed out by `silent` rather than
+// removed, so the combination is a build that thinks it is diagnostic and is
+// not.
+#[cfg(all(feature = "verbose-boot", feature = "silent"))]
+compile_error!(
+    "verbose-boot leaks transaction contents over USB and is inert with the \
+     log stubbed out. Drop --features verbose-boot."
+);
+
 // ─── Logging macro (available to all modules via `use crate::log`) ───
 #[cfg(not(feature = "silent"))]
 #[macro_export]
 macro_rules! log {
     ($($arg:tt)*) => { esp_println::println!($($arg)*) };
 }
+// `{{ }}`, not `{ }`. A macro arm expanding to `{ }` is a block with no value,
+// so every `log!(...)` sitting where an expression is required failed with
+// "macro expansion ends with an incomplete expression". Rust then declines to
+// publish a macro whose definition did not parse, so `#[macro_export]` had no
+// effect and every other module reported "cannot find macro `log`", taking with
+// it the modules that define FIRMWARE_SIZE, run_boot_tests, handle_menu_touch
+// and the rest. 67 errors, one cause.
+//
+// The arguments are still consumed, so unused-variable warnings do not appear
+// and drop order is unchanged.
+//
+// This is why `--features production` had never built: P-08, confirmed
+// 2026-08-02.
 #[cfg(feature = "silent")]
 #[macro_export]
 macro_rules! log {
-    ($($arg:tt)*) => { };
+    // Bare `log!()` with no arguments. There are 15 of them, used as blank
+    // lines. `format_args!()` requires at least a format string, so a single
+    // catch-all arm cannot serve both cases.
+    () => {{ }};
+    ($($arg:tt)*) => {{
+        // Consume the arguments without formatting them, so that a `log!` in
+        // expression position still yields `()` and nothing is left unused.
+        let _ = format_args!($($arg)*);
+    }};
 }
 
 use features::verify::{FirmwareInfo, VerificationResult, FIRMWARE_START_ADDR, FIRMWARE_MAX_SIZE};
+
+/// Main-loop iterations between IMU entropy restagings.
+///
+/// MEASURED, not estimated. The self-timing heartbeat in crypto::entropy
+/// reported 623 ms/stage at 512 ticks on a Waveshare board idling at the
+/// menu, so one iteration is 1.22 ms and this fires every ~0.62 s.
+///
+/// An earlier comment here guessed ~2 ms per iteration and "about one
+/// collection per second". The guess was 1.6x off. The value is kept anyway:
+/// a 3 ms collection every 623 ms is a 0.48% I2C duty cycle, and a fresher
+/// stage is worth more than the saving from halving it.
+///
+/// Note the heartbeat returned the same 39910 ms on two consecutive boots,
+/// to the millisecond. The idle loop is deterministic, which is worth
+/// remembering whenever a comment claims loop timing is an entropy source.
+#[cfg(feature = "waveshare")]
+const IMU_RESTAGE_TICKS: u32 = 512;
 
 // App descriptor — v0.2 macro
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -167,6 +275,10 @@ esp_bootloader_esp_idf::esp_app_desc!();
 /// AtomicBool (Relaxed): same single instruction on Xtensa as the old
 /// `static mut bool`, but sound if ever touched from an interrupt, and
 /// clean under the 2024-edition `static_mut_refs` rules.
+/// Core 1 rqrr worker is up; camera loop uses the pipelined decode path.
+pub static CORE1_OK: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
 pub static QR_RESET_FLAG: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 
@@ -183,9 +295,12 @@ pub static mut SENSOR_OV2640: bool = false;
 fn main() -> ! {
     log!();
     log!("╔════════════════════════════════════╗");
-    log!("║      KasSigner Bootloader v1.0     ║");
+    log!("║      KasSigner Bootloader          ║");
     log!("║   Secure Boot for Kaspa Signer     ║");
     log!("╚════════════════════════════════════╝");
+    // Version from the single source of truth (bootloader/Cargo.toml, via
+    // version.rs). Always correct, never hand-edited.
+    log!("   Firmware v{}", crate::version::STRING);
     log!();
 
     // ─── ESP32-S3 initialization ─────────────────────────────────
@@ -194,14 +309,88 @@ fn main() -> ! {
 
     esp_alloc::psram_allocator!(peripherals.PSRAM, esp_hal::psram);
     log!("   PSRAM: initialized via psram_allocator!");
+
+    // Measurement only, and only under the `sha-bench` feature. Placed
+    // here because the SHA peripheral is otherwise unclaimed and this
+    // runs before any display or camera setup, so nothing contends with
+    // it. Consumes peripherals.SHA, which no other code touches.
+    #[cfg(feature = "sha-bench")]
+    app::sha_bench::run(peripherals.SHA);
+
     let mut delay = Delay::new();
 
-    // ─── Security: kill radios immediately (Waveshare only — M5Stack has no lockdown yet) ───
+    // ─── Core 1: rqrr decode worker (Waveshare) ───
+    // The viewfinder halted for every decode while rqrr ran on the main core.
+    // Park rqrr on the second LX7 instead; the camera loop hands it jobs and
+    // keeps blitting. On any failure the flag stays false and the camera loop
+    // uses the original synchronous path.
     #[cfg(feature = "waveshare")]
+    {
+        use esp_hal::system::{CpuControl, Stack};
+        // 48KB: measured need after the rqrr heap-backing fix is ~4KB on a
+        // host build; 12x field margin for the Xtensa windowed ABI's register
+        // spills. (With rqrr's payload buffers inline on the stack the true
+        // need was >96KB, which is what smashed the original 16KB guard.)
+        static mut APP_CORE_STACK: Stack<49152> = Stack::new();
+        let mut cpu_control = CpuControl::new(peripherals.CPU_CTRL);
+        match cpu_control.start_app_core(
+            unsafe { &mut *core::ptr::addr_of_mut!(APP_CORE_STACK) },
+            || hw::decode_core::core1_main(),
+        ) {
+            Ok(guard) => {
+                core::mem::forget(guard); // parked on drop — keep it running
+                CORE1_OK.store(true, core::sync::atomic::Ordering::Relaxed);
+                log!("   Core 1: rqrr worker started (48KB stack, heap-backed rqrr)");
+            }
+            Err(_) => {
+                log!("   Core 1: start failed — decode stays on core 0");
+            }
+        }
+        // cpu_control drops normally here: CpuControl has no Drop impl, so
+        // nothing happens — only the guard's drop would park the core, and
+        // that one is forgotten above.
+    }
+
+    // ─── Security: kill radios immediately (Waveshare only — M5Stack has no lockdown yet) ───
+    //
+    // M-13 probe: `early_lockdown` zeroes the whole of SYSTEM_WIFI_CLK_EN, a
+    // shared register, and the concern is that it also gates the clock feeding
+    // the WDEV RNG. Measured either side rather than argued about.
+    #[cfg(feature = "rng-probe")]
+    {
+        let (d, o, z, r) = crypto::entropy::probe_wdev(256);
+        log!("   [rng-probe] BEFORE lockdown: distinct {}/256  ones {}/8192  zero_words {}  repeats {}  wifi_clk_en 0x{:08X}",
+            d, o, z, r, crypto::entropy::read_wifi_clk_en());
+    }
+
+    // Both boards as of 2026-08-02. This was Waveshare-only with the note
+    // "M5Stack has no lockdown yet", which was never a technical constraint:
+    // every register `early_lockdown` touches is SoC-level and identical on
+    // both, and M5Stack had exactly the same wireless domain powered on at
+    // reset. It was untested, not incompatible.
     hw::lockdown::early_lockdown();
+
+    #[cfg(feature = "rng-probe")]
+    {
+        // `wifi_clk_en` here is the proof that `early_lockdown` now reaches the
+        // right register: everything cleared except bit 15, the RNG's clock.
+        // Before the address fix it read 0xFFFCE030 after the lockdown, because
+        // the lockdown was writing to a PVT error register instead.
+        let (d, o, z, r) = crypto::entropy::probe_wdev(256);
+        log!("   [rng-probe] AFTER  lockdown: distinct {}/256  ones {}/8192  zero_words {}  repeats {}  wifi_clk_en 0x{:08X}",
+            d, o, z, r, crypto::entropy::read_wifi_clk_en());
+    }
+
+    // ─── Stack paint ─────────────────────────────────────────────
+    // As early and as shallow as possible: everything below this frame gets
+    // painted, so painting from deeper would leave the deep region unmeasured.
+    // Must run before the self-tests, which are themselves a deep call chain.
+    let (paint_lo, paint_hi) = app::stack_probe::paint();
+    app::stack_probe::report_layout(paint_lo, paint_hi);
 
     // ─── Phase 1: Hardware self-tests ────────────────────────────
     app::boot_test::run_phase1_tests(&mut delay);
+    app::stack_probe::report("after phase 1");
 
     // ═══════════════════════════════════════════════════════════════
     // Phase 2: Initialize peripherals (PLATFORM-SPECIFIC)
@@ -246,6 +435,18 @@ fn main() -> ! {
                 log!("   Battery: read failed");
             }
         }
+
+        // IMU entropy source (QMI8658C, waveshare only).
+        //
+        // On the shared GPIO47/48 bus alongside the touch controller, NOT the
+        // GPIO21/16 camera bus the boot scan above uses. Configured once here
+        // rather than at seed time: the part needs 60 ms + 3/ODR after enable
+        // before the gyro produces valid data, and a soft reset would cost
+        // 1.75 s of system turn-on.
+        //
+        // Additive only. Failure marks the IMU absent and contributes nothing
+        // to the entropy pool; the camera remains the fail-closed gate.
+        hw::imu::init(&mut i2c, &mut delay);
 
         // Gate unused peripheral clocks
         unsafe {
@@ -355,8 +556,8 @@ fn main() -> ! {
                 Err(e) => log!("   LEDC backlight channel FAILED: {:?}", e),
             }
 
-            hw::pmu::set_brightness(&mut i2c, 102);
-            log!("   Backlight ON via PWM (brightness=102)");
+            hw::pmu::set_brightness(&mut i2c, app::data::DEFAULT_BRIGHTNESS);
+            log!("   Backlight ON via PWM (brightness={})", app::data::DEFAULT_BRIGHTNESS);
         }
 
         // ── Verify XCLK toggling ──
@@ -401,10 +602,10 @@ fn main() -> ! {
         // ── Camera auto-detect: OV5640 first, OV2640 fallback ──
         log!("   Camera auto-detect...");
         if hw::camera::detect(&mut cam_i2c) {
-            log!("   OV5640 found — init 480x480 Y8...");
-            match hw::camera::init_480(&mut cam_i2c, &mut delay) {
+            log!("   OV5640 found — init {}x{} Y8...", hw::cam_dma::FRAME_W, hw::cam_dma::FRAME_H);
+            match hw::camera::init_hires(&mut cam_i2c, &mut delay) {
                 Ok(()) => {
-                    log!("   OV5640 OK — 480x480 configured");
+                    log!("   OV5640 OK — {}x{} configured", hw::cam_dma::FRAME_W, hw::cam_dma::FRAME_H);
                     cam_status = hw::camera::CameraStatus::SensorReady;
                 }
                 Err(e) => log!("   OV5640 init FAILED: {}", e),
@@ -414,6 +615,8 @@ fn main() -> ! {
             match hw::camera_ov2640::init_480(&mut cam_i2c, &mut delay) {
                 Ok(()) => {
                     log!("   OV2640 OK — 480x480 Y8 configured");
+                    #[cfg(feature = "cam640")]
+                    log!("   WARNING: cam640 build expects 640x640 frames — OV2640 outputs 480x480, scanning will NOT work. Rebuild without cam640 for OV2640 modules.");
                     cam_status = hw::camera::CameraStatus::SensorReady;
                     unsafe { SENSOR_OV2640 = true; }
                 }
@@ -438,8 +641,8 @@ fn main() -> ! {
                 delay.delay_millis(100);
                 hw::camera_ov2640::log_diagnostics(&mut cam_i2c);
             } else {
-                match hw::camera::init_480(&mut cam_i2c, &mut delay) {
-                    Ok(()) => log!("   OV5640 re-init with XCLK (480x480): OK"),
+                match hw::camera::init_hires(&mut cam_i2c, &mut delay) {
+                    Ok(()) => log!("   OV5640 re-init with XCLK ({}x{}): OK", hw::cam_dma::FRAME_W, hw::cam_dma::FRAME_H),
                     Err(e) => log!("   OV5640 re-init with XCLK: {}", e),
                 }
                 delay.delay_millis(100);
@@ -482,7 +685,7 @@ fn main() -> ! {
 
         if cam_status == hw::camera::CameraStatus::SensorReady {
             if hw::cam_dma::init() {
-                log!("   cam_dma: PSRAM pipeline ready — 480x480 Y8");
+                log!("   cam_dma: PSRAM pipeline ready — {}x{} Y8", hw::cam_dma::FRAME_W, hw::cam_dma::FRAME_H);
                 hw::cam_dma::log_status();
             } else {
                 log!("   cam_dma: INIT FAILED — falling back to no camera");
@@ -515,9 +718,49 @@ fn main() -> ! {
         // PMU + IO expander
         init_pmu_m5(&mut i2c, &mut delay);
 
+        // NOTE, recorded so nobody re-proposes it: the AXP2101 VBAT ADC was
+        // probed as an entropy candidate and is DEAD. On battery, USB
+        // unplugged, 32 samples 20 ms apart: 1 distinct value, spread 0 mV.
+        // Almost certainly internally averaged. The first probe was run
+        // plugged in and full, where the charger regulates VBAT and pins the
+        // reading, and back-to-back so every read returned the same latched
+        // conversion; both flaws were fixed and the answer did not change.
+
+        // ES7210 identification. READ ONLY: two register reads, no writes,
+        // nothing powered up. Confirms the codec is on the bus and settles the
+        // address before any configuration is attempted.
+        match hw::mic_m5::probe(&mut i2c) {
+            Some(id) => log!(
+                "   [mic] ES7210 at 0x{:02X}, id {:02X}{:02X}, ver {:02X}",
+                id.addr, id.id1, id.id0, id.version
+            ),
+            None => log!("   [mic] ES7210 not found on I2C"),
+        }
+
         // I2S audio + speaker
         {
             log!("   I2S1 hardware peripheral init...");
+            // TX DMA buffer. 16368 bytes of internal DRAM, which is a lot on a
+            // board whose measured margin is 768 bytes (audit 2a), and it
+            // holds silence almost all the time: hw/sound_m5.rs treats it as a
+            // scratchpad, overwriting it in place with a square wave for a
+            // beep and then rewriting silence, with the circular DMA never
+            // stopping.
+            //
+            // REDUCING IT TO 2*4092 WAS TRIED AND KILLED AUDIO COMPLETELY.
+            // Not distorted, not clipped: no sound anywhere, clicks included.
+            // Reverted. The reason is not understood — the size arithmetic
+            // says 8184 bytes is 2046 frames, ~43 ms, ~42 cycles of a 1 kHz
+            // tone, which should be ample — so the fault is something other
+            // than tone length. Two candidates, neither verified: circular DMA
+            // may need more than the two descriptor chunks that size yields,
+            // or write_dma_circular may be failing outright and leaving
+            // _i2s_tx_ready false, which would also silence the AW88298 since
+            // its init requires the I2S clocks to be already running.
+            //
+            // Do not shrink this again without reading the esp-hal circular
+            // DMA implementation first and checking the boot log for
+            // "I2S1 circular DMA failed".
             let (_, _, mut tx_buffer, tx_descriptors) = esp_hal::dma_buffers!(0, 4 * 4092);
             use esp_hal::i2s::master::{I2s, Config as I2sConfig2, DataFormat, Channels};
 
@@ -590,7 +833,7 @@ fn main() -> ! {
                 continue_without_display(&mut delay);
             }
         };
-        hw::pmu::set_brightness(&mut i2c, 102);
+        hw::pmu::set_brightness(&mut i2c, app::data::DEFAULT_BRIGHTNESS);
 
         // Camera (GC0308 + DVP)
         log!("   GC0308 Camera init...");
@@ -630,16 +873,21 @@ fn main() -> ! {
                     .with_data6(peripherals.GPIO48)
                     .with_data7(peripherals.GPIO47);
 
-                let xclk_tog = hw::camera::verify_xclk_running();
-                if xclk_tog > 100 {
-                    match hw::camera::reinit_gc0308(&mut i2c, &mut delay) {
-                        Ok(()) => log!("   GC0308 re-init OK with XCLK"),
-                        Err(e) => log!("   GC0308 re-init FAILED: {}", e),
-                    }
-                    delay.delay_millis(500);
-                } else {
-                    log!("   XCLK not running, skipping re-init");
+                // Re-init unconditionally.
+                //
+                // This was gated on verify_xclk_running() > 100, which sampled
+                // GPIO2 for an XCLK that does not exist on this board. The
+                // GC0308 module supplies its own 20 MHz clock and XCLK is not
+                // routed to the SoC (esp-bsp: BSP_CAMERA_GPIO_XCLK =
+                // GPIO_NUM_NC; M5Stack pinmap: "System Clock XCLK -1"), so the
+                // sampler read 0 on every boot and which branch ran came down
+                // to codegen luck rather than hardware state. The re-init is
+                // idempotent, so running it always is both correct and stable.
+                match hw::camera::reinit_gc0308(&mut i2c, &mut delay) {
+                    Ok(()) => log!("   GC0308 re-init OK"),
+                    Err(e) => log!("   GC0308 re-init FAILED: {}", e),
                 }
+                delay.delay_millis(500);
 
                 hw::camera::setup_cam_gpio_routing();
                 dvp_camera_opt = Some(cam);
@@ -660,8 +908,11 @@ fn main() -> ! {
     // ─── Phase 3: Verify firmware integrity ──────────────────────
     app::signing::run_firmware_verify(&mut boot_display, &mut delay);
 
-    // ─── Security: disable JTAG + USB data (Waveshare only) ─────
-    #[cfg(feature = "waveshare")]
+    // ─── Security: disable JTAG + USB data (both boards) ─────
+    //
+    // Also un-gated 2026-08-02. In a development build this only clears two
+    // bits in USB_SERIAL_JTAG_CONF0; the USB Serial/JTAG peripheral itself is
+    // killed only under `production`, so the serial monitor is unaffected here.
     hw::lockdown::post_boot_lockdown();
 
     // ─── Phase 5: Boot into main application ─────────────────────
@@ -672,6 +923,13 @@ fn main() -> ! {
 
     #[cfg(not(feature = "skip-tests"))]
     app::boot_test::run_boot_tests();
+    app::stack_probe::report("after boot tests");
+
+    // Crypto KATs are invoked from inside boot_test::run_boot_tests, called
+    // just above, so there is no call here. See P-09: run_boot_tests is
+    // #[cfg(not(feature = "silent"))] and production implies silent, so the
+    // KATs do not run in a production build. Closing that needs a call site
+    // here plus a run_crypto_kats that takes a display for the halt screen.
 
     let (grid_zones, list_zones, page_up_zone, page_down_zone) = touch_zones();
     // AppData is ~13 KB after all the PSKT migration additions
@@ -682,6 +940,15 @@ fn main() -> ! {
     // so main's frame only holds a pointer; downstream code reborrows
     // through `ad` unchanged.
     let mut ad_box = alloc::boxed::Box::new(AppData::new());
+    // Publish the AppData address for the panic handler. It cannot take
+    // &mut AppData: a panic may fire while AppData is already mutably
+    // borrowed further up the stack, and forming a second &mut would be UB.
+    AD_PTR.store(&*ad_box as *const AppData as usize, core::sync::atomic::Ordering::SeqCst);
+    // Address of the chain_cache slot. Registered directly rather than via
+    // offset_of!: the field address is fixed for the life of the Box, this
+    // needs no per-assignment bookkeeping, and it avoids a macro that
+    // requires Rust 1.77.
+    AD_CC_SLOT.store(&ad_box.chain_cache as *const _ as usize, core::sync::atomic::Ordering::SeqCst);
     #[allow(unused_mut)]
     let mut ad: &mut AppData = &mut ad_box;
 
@@ -691,7 +958,9 @@ fn main() -> ! {
         ad.cam_tune_vals = [0x20, 0x0C, 0x8B, 0x08, 0x70, 0x50];
     }
 
-    // M5Stack runs signing pipeline test at boot
+    // M5Stack runs signing pipeline test at boot.
+    // NOT waveshare: k256 Schnorr signing needs ~16 KB of stack and the boot
+    // frame does not have it. See the note inside run_signing_pipeline_test.
     #[cfg(feature = "m5stack")]
     #[cfg(not(feature = "skip-tests"))]
     run_signing_pipeline_test(ad);
@@ -702,12 +971,41 @@ fn main() -> ! {
     log!("   [MIRROR] Live display mirror active");
 
     // ─── Main loop ───────────────────────────────────────────────
-    const IDLE_DIM_TICKS: u32 = 36000;
-    const IDLE_SLEEP_TICKS: u32 = 72000;
+    const IDLE_DIM_TICKS: u32 = 15000;
+    const IDLE_SLEEP_TICKS: u32 = 50000;
+    // Wipe key material this long after the last user interaction.
+    //
+    // WALL CLOCK, not loop iterations. See IDLE_MARK_TICKS for why an
+    // iteration count cannot express a duration in this loop.
+    //
+    // Expressed in raw 16 MHz SYSTIMER ticks. 240 s = 3,840,000,000 ticks,
+    // which fits u32 (max 4,294,967,295).
+    //
+    // The hard ceiling is the counter wrap. `systimer_ticks` reads only the low
+    // 32 bits of the 52-bit SYSTIMER, so it wraps at 4.29e9 / 16e6 = 268.4 s.
+    // Do not raise this past that without reading the high word too.
+    //
+    // MARGIN, 2026-08-02: raised from 180 s to 240 s at the maintainer's
+    // request. That cuts the slack from 88 s to 28 s. Still safe, because the
+    // check runs on every main-loop pass and nothing blocks the loop for
+    // anywhere near 28 s: the longest single operation is a PBKDF2 stretch at
+    // about 9 s. If a future operation could block longer than that, widen the
+    // counter rather than lowering this back.
+    const IDLE_WIPE_S: u32 = 240;
+    const IDLE_WIPE_TICKS_16M: u32 = IDLE_WIPE_S * 16_000_000;
+    // M5Stack: camera-exit lockout. After leaving a camera screen, any
+    // transition back into a camera state within this window is forced back
+    // to the main menu. The serial log proved re-entry happens through a
+    // NON-tap path (wake_debounce was active and it re-entered anyway), so
+    // this gates the state itself, not the input.
+    #[cfg(feature = "m5stack")]
+    let mut cam_exit_lockout: u32 = 0;
     #[cfg(feature = "waveshare")]
     let mut wake_debounce: u32 = 200; // suppress phantom touches at boot
     #[cfg(feature = "m5stack")]
-    let mut wake_debounce: u32 = 0;
+    let mut wake_debounce: u32 = 200; // suppress phantom touches at boot: a press
+    // on the blocking logo/verify screens (no touch reads for ~5.5s) otherwise
+    // fires into the menu on the first loop read — the coin sits over Scan QR.
     let mut dim_active: bool = false;
     // Wake-from-sleep needs N consecutive frames of "finger present" to fire.
     // Single-frame noise from ambient light / EMI on the CST816D would
@@ -738,7 +1036,66 @@ fn main() -> ! {
         };
 
         ad.idle_ticks = ad.idle_ticks.saturating_add(1);
+
         let is_touch = !matches!(action, hw::touch::TouchAction::None);
+
+        // ─── IMU entropy restaging (Waveshare) ───────────────────
+        //
+        // crypto::entropy::fill() has no I2C handle and its most important
+        // caller, wallet::schnorr, has none anywhere in its call graph. This
+        // is the only place in the crate that holds the handle and runs
+        // continuously, so this is where MEMS noise enters the staging buffer
+        // that fill() mixes.
+        //
+        // Idle only, so a ~3 ms collection never sits in front of a touch
+        // event, and only once every IMU_RESTAGE_TICKS iterations. idle_ticks
+        // resets to 0 on interaction, so this fires during quiet periods and
+        // stops as soon as the user touches anything.
+        #[cfg(feature = "waveshare")]
+        if !is_touch && ad.idle_ticks > 0 && ad.idle_ticks % IMU_RESTAGE_TICKS == 0 {
+            crypto::entropy::stage_imu(&mut i2c, &mut delay);
+        }
+
+        // Camera-exit lockout enforcement: during the window, force any
+        // camera-state re-entry back to the menu and log it (this exposes
+        // the non-tap path that has been re-arming the viewfinder).
+        #[cfg(feature = "m5stack")]
+        {
+            if cam_exit_lockout > 0 {
+                cam_exit_lockout -= 1;
+                let in_cam = matches!(
+                    ad.app.state,
+                    app::input::AppState::ScanQR
+                    | app::input::AppState::SignMsgScanQr
+                    | app::input::AppState::DecryptSecretScan
+                );
+                if in_cam {
+                    ad.app.go_main_menu();
+                    ad.needs_redraw = true;
+                }
+            }
+        }
+
+        // Idle wipe. ABOVE the sleep block deliberately: that block ends in an
+        // unconditional `continue`, so anything below it stops running once
+        // display_asleep is set, and the whole point of this is to fire after
+        // the device has gone to sleep.
+        //
+        // Without this, key material stays resident in PSRAM for the entire
+        // session: seed_mgr slots, acct_key_raw, and the separately allocated
+        // chain_cache holding the 65-byte account xprv plus a private key per
+        // chain. A warm reset is not a substitute: SRAM and PSRAM retain
+        // contents until firmware overwrites them.
+        //
+        // Fires once, because wipe_secrets clears seed_loaded and only user
+        // action can set it again, which resets idle_ticks.
+        if systimer_ticks().wrapping_sub(IDLE_MARK_TICKS.load(core::sync::atomic::Ordering::Relaxed))
+            >= IDLE_WIPE_TICKS_16M && ad.seed_loaded
+        {
+            log!("   [SEC] Idle timeout: wiping seed material");
+            ad.wipe_secrets();
+            ad.app.go_main_menu();
+        }
 
         // Sleep/wake
         if ad.display_asleep {
@@ -779,6 +1136,7 @@ fn main() -> ! {
         // Dim-first-touch suppression
         if is_touch {
             ad.idle_ticks = 0;
+            IDLE_MARK_TICKS.store(systimer_ticks(), core::sync::atomic::Ordering::Relaxed);
             if dim_active {
                 hw::pmu::set_brightness(&mut i2c, ad.brightness);
                 dim_active = false;
@@ -801,6 +1159,53 @@ fn main() -> ! {
         // Idle dimming / sleep
         handle_idle(ad, &mut i2c, &mut dim_active, IDLE_DIM_TICKS, IDLE_SLEEP_TICKS);
 
+        // Extended-bank idle pump: one BIP32 derivation (~110ms) per quiet
+        // iteration while resting on the main menu — no camera contention
+        // there, and any touch naturally pauses it for the iteration. The
+        // full 200+200 bank completes in ~45s of cumulative idle, after
+        // which the call is a no-op. Raises input matching and output
+        // labeling to depth 200 as pure RAM lookups.
+        {
+            static mut PUMP_IDLE: u32 = 0;
+            unsafe {
+                if matches!(action, hw::touch::TouchAction::None)
+                    && matches!(ad.app.state, app::input::AppState::MainMenu)
+                    && !ad.display_asleep
+                {
+                    PUMP_IDLE = PUMP_IDLE.saturating_add(1);
+                    // ~1-2s of consecutive quiet before any pump work.
+                    // Hybrid throttle: while the display is bright, one
+                    // ~110ms derivation every 64th tick (~300ms apart)
+                    // keeps touch sampling responsive; once dimmed,
+                    // full speed, since nobody is interacting. The key
+                    // stretch itself runs at seed load now; the pump
+                    // only fills banks (its prime branch remains as a
+                    // safety net for paths that missed the load prime).
+                    if PUMP_IDLE > 400 && (dim_active || PUMP_IDLE % 64 == 0) {
+                        app::signing::pump_ext_pubkeys(ad);
+                    }
+                } else {
+                    PUMP_IDLE = 0;
+                }
+            }
+        }
+
+        // ─── Silent duress wipe ──────────────────────────────────
+        // Watches raw touch_state, NOT TouchAction::Tap, because Tap fires on
+        // RELEASE: by then the finger is up and a hold cannot be measured.
+        // Finger down in the logo corner on the main menu starts the timer
+        // immediately; lifting or drifting before 4 s does nothing at all,
+        // with no prompt shown either way.
+        if ad.app.state == app::input::AppState::MainMenu && wake_debounce == 0 {
+            if let hw::touch::TouchState::One(pt) = touch_state {
+                if pt.x <= 48 && pt.y <= 48 {
+                    try_duress_wipe(ad, &mut boot_display, &mut delay, &mut i2c);
+                    ad.needs_redraw = true;
+                    continue;
+                }
+            }
+        }
+
         // ─── Touch dispatch ──────────────────────────────────────
         if wake_debounce > 0 {
             wake_debounce -= 1;
@@ -814,6 +1219,44 @@ fn main() -> ! {
                 | app::input::AppState::DecryptSecretScan);
             if !is_scan_cam || is_back {
                 hw::sound::click(&mut delay);
+            }
+            // M5Stack: a back tap on a camera screen exits to a menu whose
+            // "Scan QR" card sits under this same position — suppress the
+            // lift-bounce so it can't immediately re-enter the scan screen.
+            // (Applies from the NEXT iteration; this tap still dispatches.)
+            // M5Stack: a back tap on a camera screen is handled COMPLETELY
+            // here and consumed. Previously it fell through to the zone
+            // handlers, which routed the corner coordinates into another
+            // screen first (log: state=99 painted between the tap and the
+            // menu) — the "different menus popping". Navigate and stop.
+            #[cfg(feature = "m5stack")]
+            if is_scan_cam && is_back {
+                wake_debounce = 150;
+                cam_exit_lockout = 300;
+                if ad.ms_creating.n > 0 && !ad.ms_creating.active {
+                    let mut ki: u8 = 0;
+                    for i in 0..ad.ms_creating.n {
+                        if ad.ms_creating.slot_empty(i as usize) { ki = i; break; }
+                    }
+                    ad.app.state = app::input::AppState::MultisigAddKey { key_idx: ki };
+                } else if ad.app.state == app::input::AppState::DecryptSecretScan {
+                    ad.app.state = app::input::AppState::SingleSigMenu;
+                } else {
+                    ad.app.go_main_menu();
+                }
+                ad.needs_redraw = true;
+                continue;
+            }
+            // M5Stack: the main menu's Scan QR card sits under the camera's
+            // back-button position, so a corner tap on the menu re-opened the
+            // camera — the entire back/viewfinder "ping-pong" (log-proven: the
+            // lockout blocked retaps at 44/60/97/131 left; re-entries were
+            // retaps landing after the window lapsed). The main menu has no
+            // back action, so a corner tap there is a deliberate no-op; the
+            // card's body extends well beyond the corner and still works.
+            #[cfg(feature = "m5stack")]
+            if is_back && ad.app.state == app::input::AppState::MainMenu {
+                continue;
             }
             if is_scan_cam && !is_back {
                 // Camera scan screens: taps anywhere except the back
@@ -1044,8 +1487,38 @@ fn main() -> ! {
             ad.needs_redraw = true;
         }
 
+        // Third lockout enforcement, pre-redraw: the log proved the state
+        // flips to a camera screen between the loop-top check and here (armed
+        // 300, top check passed, then the camera screen painted with no gate
+        // hit). Reverting before the paint closes the last window: during
+        // lockout the menu is repainted, never the viewfinder.
+        #[cfg(feature = "m5stack")]
+        if cam_exit_lockout > 0
+            && matches!(
+                ad.app.state,
+                app::input::AppState::ScanQR
+                | app::input::AppState::SignMsgScanQr
+                | app::input::AppState::DecryptSecretScan
+            )
+        {
+            ad.app.go_main_menu();
+            ad.needs_redraw = true;
+        }
+        // Apply this screen's keyboard length cap. Single assignment,
+        // board-independent, so a new keyboard screen needs one match arm in
+        // AppState::keyboard_max_len() rather than an edit at every state
+        // transition that opens it.
+        //
+        // Placed here, AFTER the handlers, not before them. The handlers are
+        // what change ad.app.state, so setting it earlier meant the frame that
+        // enters a keyboard screen drew the header with the PREVIOUS screen's
+        // cap. Since the header is only painted on a full redraw, it then
+        // never corrected: PASSPHRASE showed 0/128 instead of 0/64.
+        ad.pp_input.max_len = ad.app.state.keyboard_max_len();
+
         if ad.needs_redraw {
             ad.idle_ticks = 0;
+            IDLE_MARK_TICKS.store(systimer_ticks(), core::sync::atomic::Ordering::Relaxed);
             ad.needs_redraw = false;
             // Reset sub-menu scroll positions on MainMenu
             if ad.app.state == app::input::AppState::MainMenu {
@@ -1068,20 +1541,33 @@ fn main() -> ! {
             }
         }
 
-        // Auto-trigger: stego JPEG scan
-        if ad.stego_auto_scan && ad.app.state == app::input::AppState::StegoModeSelect {
-            ad.stego_auto_scan = false;
-            let result = handlers::stego::handle_stego_touch(
-                ad, &mut boot_display, &mut delay, &mut i2c,
-                &_bb_card_type, &list_zones, &page_up_zone, &page_down_zone,
-                160, 120, false,
-            );
-            if let Some(r) = result { ad.needs_redraw = r; }
-        }
+        // The stego mode screen used to be auto-skipped, because there was
+        // only ever one carrier. There are two now (Descriptor and Picture),
+        // so the screen is a real choice and the user makes it.
+        ad.stego_auto_scan = false;
 
         // ─── Camera loop ─────────────────────────────────────────
         // Active on ScanQR (normal decode).
         // On Waveshare, also on CameraSettings (cam-tune only, no decode).
+        // Second lockout enforcement, at the camera gate: the immediate
+        // re-entries slipped between the loop-top check and this point (state
+        // flipped mid-iteration), so the camera restarted before the next
+        // iteration's check could catch it. Enforcing here is airtight: no
+        // path can start the camera during the lockout window, wherever in
+        // the iteration it flipped the state.
+        #[cfg(feature = "m5stack")]
+        if cam_exit_lockout > 0
+            && matches!(
+                ad.app.state,
+                app::input::AppState::ScanQR
+                | app::input::AppState::SignMsgScanQr
+                | app::input::AppState::DecryptSecretScan
+            )
+        {
+            ad.app.go_main_menu();
+            ad.needs_redraw = true;
+        }
+
         #[cfg(feature = "waveshare")]
         let camera_active = matches!(
             ad.app.state,
@@ -1095,7 +1581,17 @@ fn main() -> ! {
             | app::input::AppState::SignMsgScanQr | app::input::AppState::DecryptSecretScan
         );
 
-        if camera_active
+        // M5Stack: the camera is HARD-GATED during the post-back lockout —
+        // the re-entry travels under a state outside the three-state guard
+        // lists (log-proven: pre-redraw gate works but never fires for the
+        // immediate re-entries), so guarding state names is a losing game.
+        // Gating the call itself is state-independent: during lockout the
+        // viewfinder cannot restart, period.
+        #[cfg(feature = "m5stack")]
+        let camera_allowed = camera_active && cam_exit_lockout == 0;
+        #[cfg(feature = "waveshare")]
+        let camera_allowed = camera_active;
+        if camera_allowed
             && (cam_status == hw::camera::CameraStatus::SensorReady
                 || cam_status == hw::camera::CameraStatus::Streaming)
         {
@@ -1118,6 +1614,29 @@ fn main() -> ! {
                 &mut dvp_camera_opt, &mut cam_status,
                 &mut cam_dma_buf_opt, &mut tracker,
             );
+            // M5Stack: if the state left the camera family during this cycle,
+            // a back tap inside the camera loop just fired. The main menu's
+            // "Scan QR" card sits under the back button's position, so the
+            // same press (finger still down, a lift bounce, or the user's
+            // immediate retap at the "same" button) would re-enter the scan
+            // screen — the menu flashes for one frame and the camera resumes,
+            // which reads as "back doesn't work" (log-proven: S3 tap →
+            // main_menu paint → non-menu paint → rqrr resumes). Suppress tap
+            // dispatch briefly using the existing wake_debounce mechanism
+            // (same primitive as boot=200 / dim-wake=100 phantom suppression).
+            #[cfg(feature = "m5stack")]
+            {
+                let still_camera = matches!(
+                    ad.app.state,
+                    app::input::AppState::ScanQR
+                    | app::input::AppState::SignMsgScanQr
+                    | app::input::AppState::DecryptSecretScan
+                );
+                if !still_camera {
+                    wake_debounce = 150;
+                    cam_exit_lockout = 300;
+                }
+            }
 
             // Waveshare: process taps captured during DMA wait
             #[cfg(feature = "waveshare")]
@@ -1278,7 +1797,22 @@ fn touch_zones() -> (
 }
 
 /// M5Stack: signing pipeline self-test at boot
+///
+/// `#[inline(never)]` is load-bearing. Inlined into `main`, this function's
+/// locals become permanent slots in `main`'s frame, which never returns and
+/// which no wipe path reaches: `wipe_below_sp` clears only up to
+/// `wipe_secrets`'s frame, below `main`'s. The sentinel scan found the account
+/// private key derived here sitting at 0x3FCD8D28, above the wipe ceiling,
+/// surviving boot cleanup and every duress wipe.
+///
+/// That instance is harmless, since the mnemonic below is a plaintext constant
+/// and its key is public. The mechanism is not: whether a local holding key
+/// material lands in a transient frame or a permanent one is otherwise the
+/// optimiser's choice. Keeping this out of line puts it below the ceiling where
+/// a wipe can reach it, and makes a clean sentinel scan the expected baseline
+/// rather than a known exception.
 #[cfg(feature = "m5stack")]
+#[inline(never)]
 fn run_signing_pipeline_test(ad: &mut AppData) {
     let test_words = ["girl", "mad", "pet", "galaxy", "egg", "matter",
                       "matrix", "prison", "refuse", "sense", "ordinary", "nose"];
@@ -1300,11 +1834,22 @@ fn run_signing_pipeline_test(ad: &mut AppData) {
     #[cfg(feature = "waveshare")]
     log!("   Signing pipeline test: skipped (waveshare stack limit)");
 
+    // Before the cleanup below, so the sentinel is still where the test left it.
+    // Expect hits here: without them the post-wipe scan proves nothing.
+    #[cfg(feature = "sentinel-scan")]
+    app::stack_probe::scan_sentinel("after signing test");
+
     ad.seed_mgr.delete(0);
     ad.seed_loaded = false;
     ad.word_count = 0;
     ad.mnemonic_indices = [0; 24];
     ad.pubkeys_cached = false;
+
+    // After the slot delete and the index clear. Any hit still here is stack
+    // residue: the frames that held it have returned, and returning does not
+    // erase.
+    #[cfg(feature = "sentinel-scan")]
+    app::stack_probe::scan_sentinel("after slot delete");
 }
 
 /// Handle wake-from-sleep on touch. Returns true if main loop should `continue`.
@@ -1337,6 +1882,7 @@ fn handle_wake(
     ad.display_asleep = false;
     ad.needs_redraw = true;
     ad.idle_ticks = 0;
+    IDLE_MARK_TICKS.store(systimer_ticks(), core::sync::atomic::Ordering::Relaxed);
 
     // Wait for finger lift (3 consecutive NoTouch reads)
     let mut no_touch_count: u8 = 0;
@@ -1380,6 +1926,12 @@ fn handle_idle(
         hw::pmu::set_brightness(i2c, 1);
         ad.display_asleep = true;
     }
+
+    // NOTE: the idle wipe is NOT here. This function is called from below the
+    // `if ad.display_asleep { ... continue; }` block in the main loop, so it
+    // stops being reached the moment the display sleeps, which is exactly when
+    // the wipe needs to fire. The check now lives above that block.
+
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1387,6 +1939,159 @@ fn handle_idle(
 // ═══════════════════════════════════════════════════════════════════════
 
 /// Fatal halt — never returns.
+/// Duress wipe action, deliberately out-of-line.
+///
+/// `#[inline(never)]` is load-bearing, not decoration. Rust sizes a stack frame
+/// as the maximum across everything in it, so inlining this into `main` grows
+/// main's frame for the entire program, including the iteration that calls
+/// `rqrr_decode_inplace`. On M5Stack that decode runs on ProCpu's 8 KB stack
+/// (there is no core-1 rqrr worker, `main.rs:219` is waveshare-only), and it
+/// was already close enough to the limit that `rqrr_decode_inplace` carries its
+/// own `#[inline(never)]`. Having this body inline tipped it: V11 QR decodes
+/// that worked began tripping the stack guard.
+///
+/// The drawing and sound calls are the expensive part; font rendering and
+/// framebuffer work carry large frames.
+#[inline(never)]
+fn try_duress_wipe(
+    ad: &mut AppData,
+    boot_display: &mut hw::display::BootDisplay<'_>,
+    delay: &mut esp_hal::delay::Delay,
+    i2c: &mut esp_hal::i2c::master::I2c<'_, esp_hal::Blocking>,
+) {
+    if handlers::menu::wipe_hold_confirm(boot_display, delay, i2c) {
+        ad.wipe_secrets();
+        ad.app.go_main_menu();
+        boot_display.draw_success_screen("Wiped");
+        hw::sound::success(delay);
+        delay.delay_millis(1500);
+        log!("   [SEC] Duress wipe: key material cleared");
+    }
+}
+
+/// Raw SYSTIMER low word, 16 MHz ticks. NOT microseconds.
+///
+/// Deliberately undivided. An earlier version returned `ticks / 16` and the
+/// callers did `wrapping_sub` on that, which is WRONG: the raw counter wraps
+/// at 2^32, but a divided value only ever reaches 2^32/16 = 268,435,455, so
+/// at the hardware wrap it steps from 268,435,455 to 0 and `wrapping_sub`
+/// yields ~4.0e9 instead of a small delta. That fires a spurious idle wipe
+/// every ~268 s.
+///
+/// Subtract raw, then divide. Intervals up to 268 s measure correctly.
+fn systimer_ticks() -> u32 {
+    // `let` binding rather than `unsafe { .. } / 16`: an unsafe block in tail
+    // position parses as a statement, so a trailing operator has no left
+    // operand.
+    unsafe {
+        core::ptr::write_volatile(0x6002_3004u32 as *mut u32, 1 << 30);
+        for _ in 0..20u32 { core::hint::spin_loop(); }
+        core::ptr::read_volatile(0x6002_3044u32 as *const u32)
+    }
+}
+
+/// `systimer_ticks()` at the last user interaction. Stamped everywhere
+/// `idle_ticks` is reset.
+///
+/// The idle wipe cannot use `idle_ticks`, because a tick is a loop iteration
+/// and its period varies by two orders of magnitude:
+///
+/// | phase                | per tick | why                                  |
+/// |----------------------|----------|--------------------------------------|
+/// | awake, undimmed      | ~1.2 ms  | measured: 1000 ticks in 1.204 s      |
+/// | dimmed, pump running | ~110 ms  | pump_ext_pubkeys drops its 1-in-64   |
+/// |                      |          | throttle once dim_active is set      |
+/// | asleep               | ~100 ms  | delay_millis(100) in the sleep block |
+///
+/// So a threshold in ticks means a different wall-clock time depending on
+/// what else the loop happens to be doing. Three attempts at a tick-based
+/// threshold each failed for that reason. This is wall-clock instead.
+static IDLE_MARK_TICKS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// Address of the heap-allocated `AppData`, published at boot for the panic
+/// handler. Zero until registered.
+static AD_PTR: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// Address of the `chain_cache` field inside that `AppData`. Zero until
+/// registered.
+static AD_CC_SLOT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// Zeroize key material from a panic context, through raw pointers only.
+///
+/// ORDER MATTERS, same reason as `AppData::wipe_secrets`: `chain_cache` is a
+/// separate PSRAM allocation holding the 65-byte account xprv plus a private
+/// key per chain, and `AppData` stores only a pointer to it. Wiping the
+/// `AppData` block first would destroy the pointer and strand the keys.
+///
+/// `Option<Box<ChainCache>>` is niche-optimised to a nullable pointer, so the
+/// slot can be read directly as `*mut u8`.
+///
+/// SAFETY: called only from the panic handler, which never returns. No
+/// reference to `AppData` is formed, so this is sound even if the panic fired
+/// while `AppData` was mutably borrowed.
+unsafe fn panic_wipe_appdata() {
+    use core::sync::atomic::Ordering;
+    let base = AD_PTR.load(Ordering::SeqCst);
+    if base == 0 { return; }
+
+    let slot = AD_CC_SLOT.load(Ordering::SeqCst);
+    let cc = if slot == 0 { core::ptr::null_mut() }
+             else { core::ptr::read_volatile(slot as *const *mut u8) };
+    if !cc.is_null() {
+        for i in 0..core::mem::size_of::<wallet::bip32::ChainCache>() {
+            core::ptr::write_volatile(cc.add(i), 0);
+        }
+    }
+
+    let p = base as *mut u8;
+    let n = core::mem::size_of::<AppData>();
+    for i in 0..n { core::ptr::write_volatile(p.add(i), 0); }
+
+    // Read back and confirm. The "second pass (anti-glitch)" in
+    // hw/lockdown.rs is a second write with no read and verifies nothing.
+    let mut acc: u8 = 0;
+    for i in 0..n { acc |= core::ptr::read_volatile(p.add(i)); }
+    if acc != 0 {
+        for i in 0..n { core::ptr::write_volatile(p.add(i), 0); }
+    }
+}
+
+/// Panic handler. Wipes first, prints second, then halts.
+///
+/// Wipe order is deliberate: serial output is slow, and key material would
+/// stay resident in PSRAM for its entire duration if the message went first.
+///
+/// `hw::lockdown::panic_wipe` (the broad SRAM sweep) is deliberately NOT
+/// called here. It zeroes SRAM1 through the data-bus alias, which also
+/// destroys IRAM and this function's own stack, so a fault mid-sweep would be
+/// a double panic.
+///
+/// The H-01 residual is closed instead by `stack_probe::wipe_below_sp`, which
+/// clears only between the guard and this frame. That span is stack by
+/// definition, so it cannot reach the IRAM alias and cannot hold anything live.
+/// It catches what the targeted wipe cannot: PBKDF2 intermediate state, the
+/// 64-byte BIP39 seed from `ensure_session_account_key`, Schnorr scalars, and
+/// any `SeedSlot` temporary, all of which sit in returned frames below the
+/// current stack pointer.
+///
+/// ORDER MATTERS. The heap wipe runs first, because it dereferences a pointer
+/// and the machinery to do that lives on the stack. Then the stack wipe, which
+/// destroys nothing it needs. Then the logging, because serial is slow and
+/// nothing should stay live for the length of a message.
+///
+/// Interrupts are already down here, which is the precondition
+/// `wipe_below_sp` requires: an ISR would push a frame into the region being
+/// zeroed.
+#[panic_handler]
+fn kassigner_panic(info: &core::panic::PanicInfo) -> ! {
+    unsafe { panic_wipe_appdata(); }
+    let wiped = app::stack_probe::wipe_below_sp();
+    log!("");
+    log!("PANIC: {}", info);
+    log!("   Key material wiped, {} B of stack cleared. Halted.", wiped);
+    loop { core::hint::spin_loop(); }
+}
+
 pub fn halt_forever(delay: &mut Delay) -> ! {
     delay.delay_millis(5000);
     loop { delay.delay_millis(1000); }

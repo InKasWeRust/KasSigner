@@ -12,6 +12,17 @@
 #     docker build --platform linux/amd64 --secret id=signkey,src=dev_signing_key.bin -t kassigner-build .
 #
 # Output files (firmware only — KasSee is browser-deployed via gh-pages):
+# skip-tests removed from every stage, 2026-08-02 (P-09).
+#
+# That flag does not merely silence the boot output: it compiles out the KAT
+# functions themselves in wallet/schnorr.rs, wallet/bip32.rs, wallet/storage.rs
+# and qr/payload.rs. Every released binary therefore performed no
+# self-verification of its own Schnorr or BIP32 implementation before signing.
+#
+# Cost is about one second of boot. The default KAT set is deliberately minimal,
+# one published vector per primitive: measured 952 ms on M5Stack and 1,062 ms on
+# Waveshare. The expensive full set is a separate feature, boot-kats-full.
+#
 #   kassigner-waveshare.bin       — app-only image (for developers, hash verification)
 #   kassigner-m5stack.bin         — app-only image (for developers, hash verification)
 #   kassigner-waveshare-full.bin  — merged full-flash image (bootloader + partition table + app)
@@ -65,7 +76,7 @@ RUN cargo build --manifest-path tools/Cargo.toml --bin gen-hash --release 2>&1 |
 # Pass 1: Initial compilation
 RUN source /root/esp-env.sh && \
     cd bootloader && \
-    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features skip-tests
+    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release
 
 # Pass 1: Generate .bin, compute hash, write firmware_hash.rs
 RUN --mount=type=secret,id=signkey,required=false \
@@ -84,7 +95,7 @@ RUN --mount=type=secret,id=signkey,required=false \
 # Pass 2: Recompile with embedded hash
 RUN source /root/esp-env.sh && \
     cd bootloader && \
-    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features skip-tests
+    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release
 
 # Pass 2: Recompute hash — should converge
 RUN --mount=type=secret,id=signkey,required=false \
@@ -103,7 +114,7 @@ RUN --mount=type=secret,id=signkey,required=false \
 # Pass 3: Final recompile + verify convergence
 RUN source /root/esp-env.sh && \
     cd bootloader && \
-    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features skip-tests
+    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release
 
 # Final app-only image (unchanged — preserves existing hash)
 RUN source /root/esp-env.sh && \
@@ -213,7 +224,7 @@ RUN source /root/esp-env.sh && \
 # Pass 1: Initial compilation
 RUN source /root/esp-env.sh && \
     cd bootloader && \
-    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features skip-tests,ov5640-af
+    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features ov5640-af
 
 # Pass 1: Generate .bin, compute hash, write firmware_hash.rs
 RUN --mount=type=secret,id=signkey,required=false \
@@ -232,7 +243,7 @@ RUN --mount=type=secret,id=signkey,required=false \
 # Pass 2: Recompile with embedded hash
 RUN source /root/esp-env.sh && \
     cd bootloader && \
-    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features skip-tests,ov5640-af
+    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features ov5640-af
 
 # Pass 2: Recompute hash — should converge
 RUN --mount=type=secret,id=signkey,required=false \
@@ -251,7 +262,7 @@ RUN --mount=type=secret,id=signkey,required=false \
 # Pass 3: Final recompile + verify convergence
 RUN source /root/esp-env.sh && \
     cd bootloader && \
-    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features skip-tests,ov5640-af
+    ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features ov5640-af
 
 # Final app-only image (unchanged — preserves existing hash)
 RUN source /root/esp-env.sh && \

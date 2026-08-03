@@ -39,7 +39,6 @@ fn zeroize_seed(buf: &mut [u8]) {
 use crate::hw::display::BootStatus;
 use crate::halt_forever;
 
-#[cfg(not(feature = "silent"))]
 /// Derive all 20 Kaspa pubkeys from the active seed into cache.
 pub fn derive_all_pubkeys(
     mnemonic_indices: &[u16; 24],
@@ -48,14 +47,28 @@ pub fn derive_all_pubkeys(
     cache: &mut [[u8; 32]; 20],
     acct_raw: &mut [u8; 65],
 ) {
-    let seed = derive_seed(mnemonic_indices, wc, passphrase);
+    // HARD GUARD, do not remove. `mnemonic_indices` is only BIP39 word
+    // indices when wc is 12 or 24. Raw-key slots (wc==1) and xprv slots
+    // (wc==2) pack their 32 raw key bytes into the SAME array, and
+    // `derive_seed` routes everything that is not 12 into the 24-word
+    // path, which indexes a 2048-entry wordlist with those bytes and
+    // panics (observed: index 44263). Callers should use
+    // `fill_display_caches`, which dispatches on word_count; this guard
+    // is here so that forgetting to is harmless rather than fatal.
+    let seed = match derive_seed(mnemonic_indices, wc, passphrase) {
+        Some(s) => s,
+        None => return, // not a mnemonic slot: caches stay as they were
+    };
     if let Ok(acct) = wallet::bip32::derive_account_key(&seed.bytes) {
         *acct_raw = acct.to_raw();
         // Receive addresses: m/44'/111111'/0'/0/{0..19}
-        for idx in 0..20u16 {
-            if let Ok(key) = wallet::bip32::derive_address_key(&acct, idx) {
-                if let Ok(pk) = key.public_key_x_only() {
-                    cache[idx as usize] = pk;
+        // Via ChainParent: 4 + 20 scalar multiplies instead of 60.
+        if let Ok(chain) = wallet::bip32::ChainParent::new(&acct, 0) {
+            for idx in 0..20u32 {
+                if let Ok(key) = chain.derive(idx) {
+                    if let Ok(pk) = key.public_key_x_only() {
+                        cache[idx as usize] = pk;
+                    }
                 }
             }
         }
@@ -71,10 +84,14 @@ pub fn derive_change_pubkeys(
     change_cache: &mut [[u8; 32]; 5],
 ) {
     let acct = wallet::bip32::ExtendedPrivKey::from_raw(acct_raw);
-    for idx in 0..5u16 {
-        if let Ok(key) = wallet::bip32::derive_change_key(&acct, idx) {
-            if let Ok(pk) = key.public_key_x_only() {
-                change_cache[idx as usize] = pk;
+    // Via ChainParent: 4 + 5 scalar multiplies instead of 15. See the
+    // type's docs; the win applies to all callers of this helper.
+    if let Ok(chain) = wallet::bip32::ChainParent::new(&acct, 1) {
+        for idx in 0..5u32 {
+            if let Ok(key) = chain.derive(idx) {
+                if let Ok(pk) = key.public_key_x_only() {
+                    change_cache[idx as usize] = pk;
+                }
             }
         }
     }
@@ -90,7 +107,12 @@ pub fn derive_privkey(
     addr_index: u16,
     privkey: &mut [u8; 32],
 ) {
-    let seed = derive_seed(mnemonic_indices, wc, passphrase);
+    // No mnemonic means no BIP39 seed; leave `privkey` untouched, which
+    // is what this function already did when derivation failed.
+    let seed = match derive_seed(mnemonic_indices, wc, passphrase) {
+        Some(s) => s,
+        None => return,
+    };
     if let Ok(kaspa_key) = wallet::bip32::derive_path_for_index(&seed.bytes, addr_index) {
         privkey.copy_from_slice(kaspa_key.private_key_bytes());
     }
@@ -99,11 +121,32 @@ pub fn derive_privkey(
 /// Derive the BIP39 seed from mnemonic indices + passphrase.
 /// Returns the raw 64-byte seed for use with account-level caching.
 #[inline(never)]
+/// Returns `None` unless `wc` is 12 or 24.
+///
+/// This used to return a Seed unconditionally, routing every word count
+/// that was not 12 into the 24-word branch. That is wrong for the two
+/// non-mnemonic slot types: raw-key slots (wc==1) and xprv slots (wc==2)
+/// pack their 32 raw key bytes into the SAME `indices` array a mnemonic
+/// uses for BIP39 word indices. Reading those bytes as word indices
+/// panics on the first value above 2047, which with key material is a
+/// near certainty.
+///
+/// That was not only theoretical: Sign Message, the stealth scan and the
+/// ECIES decrypt path all call this with whatever word count is active,
+/// so all three crashed outright on an xprv or raw-key slot.
+///
+/// Returning `Option` rather than guarding internally is deliberate. A
+/// guard that returned a zeroed seed would turn a crash into silently
+/// signing with the wrong key, which is far worse. `None` forces every
+/// caller to say what it does for a slot that has no mnemonic.
 pub fn derive_seed(
     mnemonic_indices: &[u16; 24],
     wc: u8,
     passphrase: &str,
-) -> wallet::bip39::Seed {
+) -> Option<wallet::bip39::Seed> {
+    if !matches!(wc, 12 | 24) {
+        return None;
+    }
     if wc == 12 {
         let m12 = wallet::bip39::Mnemonic12 {
             indices: {
@@ -112,7 +155,7 @@ pub fn derive_seed(
                 arr
             }
         };
-        wallet::bip39::seed_from_mnemonic_12(&m12, passphrase)
+        Some(wallet::bip39::seed_from_mnemonic_12(&m12, passphrase))
     } else {
         let m24 = wallet::bip39::Mnemonic24 {
             indices: {
@@ -121,8 +164,581 @@ pub fn derive_seed(
                 arr
             }
         };
-        wallet::bip39::seed_from_mnemonic_24(&m24, passphrase)
+        Some(wallet::bip39::seed_from_mnemonic_24(&m24, passphrase))
     }
+}
+
+/// The extended pubkey banks as handed to the signing path:
+/// (receive bank, receive fill front, change bank, change fill front).
+///
+/// Slices rather than fixed arrays: the banks are heap-allocated boxed
+/// slices on `AppData`, so the depth is set once by
+/// `crate::app::data::EXT_BANK_DEPTH` and read back with `.len()` instead
+/// of being repeated as a literal in every signature.
+///
+/// The fronts are `&mut u16` because the deep scan advances them as it
+/// derives, and the banks are `&mut` because it stores what it derives.
+/// Both call sites borrow these as four disjoint fields of `AppData`,
+/// alongside `&mut demo_tx` and `&mut signed_qr_buf`, so no bank is ever
+/// copied onto the sign stack.
+pub type ExtBanksMut<'a> = (&'a mut [[u8; 32]], &'a mut u16, &'a mut [[u8; 32]], &'a mut u16);
+
+/// Ensure `ad.chain_cache` holds the chain parents for the CURRENT
+/// account key, rebuilding if the account key has changed or the cache
+/// is empty. Returns false when no usable account key is loaded.
+///
+/// Validity is decided by comparing the full 65-byte account key the
+/// cache was built from, not by any write site remembering to clear it.
+/// `acct_key_raw` is written from slot select, from `derive_all_pubkeys`
+/// in the menu and tx handlers, and zeroed in the delete path; a cache
+/// that trusted all of those would eventually sign with the wrong
+/// wallet's chain key.
+#[inline(never)]
+pub fn ensure_chain_cache(ad: &mut crate::app::data::AppData) -> bool {
+    if ad.acct_key_raw[..32].iter().all(|&b| b == 0) {
+        ad.chain_cache = None;
+        return false;
+    }
+    let fresh = match ad.chain_cache.as_ref() {
+        Some(c) => c.matches(&ad.acct_key_raw),
+        None => false,
+    };
+    if !fresh {
+        match wallet::bip32::ChainCache::build(&ad.acct_key_raw) {
+            Ok(c) => ad.chain_cache = Some(alloc::boxed::Box::new(c)),
+            Err(_) => {
+                ad.chain_cache = None;
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Idle pump: derive ONE next extended pubkey (alternating chains) into
+/// the ext banks. Called from the main menu when the user is idle; each
+/// call costs one BIP32 derivation (~110ms). Full banks (200+200) fill in
+/// ~45s of cumulative idle and then this returns false forever (until a
+/// slot switch wipes the banks).
+///
+/// The pump primes the session account key itself: on a cold cache its
+/// FIRST act is the one-time PBKDF2 stretch (~6s, placed in genuine
+/// idleness by the caller's quiet gate), after which bank filling
+/// proceeds normally. Without this, a fresh session's idle time filled
+/// nothing and the first sign fell through empty banks to the deep scan.
+pub fn pump_ext_pubkeys(ad: &mut crate::app::data::AppData) -> bool {
+    if ad.acct_key_raw[..32].iter().all(|&b| b == 0) {
+        // Cold cache. Prime it from here only for a loaded MNEMONIC
+        // seed (12 or 24 words). xprv slots (wc==2) arrive pre-cached
+        // at slot select, so an empty cache there means nothing to
+        // derive from; raw-key slots (wc==1) have no BIP32 account and
+        // stretching their stale mnemonic_indices would cache garbage.
+        // The stretch normally runs at seed load now; this branch is a
+        // safety net for any path that missed the load-time prime.
+        if !ad.seed_loaded || !matches!(ad.word_count, 12 | 24) {
+            return false;
+        }
+        // One-time stretch, fired from idle. Serial shows
+        // "[acct] session cache MISS — PBKDF2 stretch".
+        if !ensure_session_account_key(ad) {
+            return false;
+        }
+        // The stretch was this iteration's work; banks start next call.
+        return true;
+    }
+    let (recv_n, chg_n) = (ad.ext_recv_n as usize, ad.ext_chg_n as usize);
+    let (recv_cap, chg_cap) = (ad.ext_recv.len(), ad.ext_chg.len());
+    if recv_n >= recv_cap && chg_n >= chg_cap {
+        return false;
+    }
+    // Chain parents held across pump calls: one scalar multiply per
+    // index instead of three, so a full 200+200 fill costs ~16s of idle
+    // instead of ~47s and each tick blocks touch for ~39ms instead of
+    // ~117ms. Rebuild happens here, inside the same tick, if the active
+    // account key changed.
+    if !ensure_chain_cache(ad) {
+        return false;
+    }
+    let cache = match ad.chain_cache.as_ref() {
+        Some(c) => c,
+        None => return false,
+    };
+    // `cache` borrows ad.chain_cache; the bank writes below borrow
+    // ad.ext_* . Disjoint fields, so both borrows coexist.
+    // Alternate chains so both fronts advance together.
+    if recv_n <= chg_n && recv_n < recv_cap {
+        if let Ok(key) = cache.recv.derive(recv_n as u32) {
+            if let Ok(pk) = key.public_key_x_only() {
+                ad.ext_recv[recv_n] = pk;
+                ad.ext_recv_n = (recv_n + 1) as u16;
+            }
+        } else {
+            ad.ext_recv_n = (recv_n + 1) as u16; // skip unusable index
+        }
+    } else if chg_n < chg_cap {
+        if let Ok(key) = cache.chg.derive(chg_n as u32) {
+            if let Ok(pk) = key.public_key_x_only() {
+                ad.ext_chg[chg_n] = pk;
+                ad.ext_chg_n = (chg_n + 1) as u16;
+            }
+        } else {
+            ad.ext_chg_n = (chg_n + 1) as u16;
+        }
+    }
+    true
+}
+
+/// Look up a pubkey in the extended banks. Returns (index, is_change).
+pub fn ext_find_pubkey(
+    ext_recv: &[[u8; 32]], recv_n: u16,
+    ext_chg: &[[u8; 32]], chg_n: u16,
+    target: &[u8; 32],
+) -> Option<(u16, bool)> {
+    for i in 0..(recv_n as usize) {
+        if &ext_recv[i] == target { return Some((i as u16, false)); }
+    }
+    for i in 0..(chg_n as usize) {
+        if &ext_chg[i] == target { return Some((i as u16, true)); }
+    }
+    None
+}
+
+/// Find a pubkey's (index, is_change), extending the banks as it searches.
+///
+/// This replaces `bip32::find_address_index_for_pubkey` in the signing
+/// resolve path. That function walked 100 receive indices and then 100
+/// change indices and DISCARDED every derivation, so a change-chain
+/// address at index 37 cost 137 derivations and the next signature at a
+/// nearby index paid the same price again from scratch.
+///
+/// Three differences, all consequences of writing the results down:
+///
+/// 1. The already-filled part of the banks is a RAM comparison, so work
+///    the idle pump has done is never repeated.
+/// 2. New derivations are stored at their bank slot and the front is
+///    advanced, so they serve every later lookup, later input, later
+///    signature, and the pump resumes from the new front instead of
+///    recovering ground already walked.
+/// 3. Both chains advance together rather than the receive chain being
+///    exhausted first, which halves the cost of a change-chain hit:
+///    index 37 on the change chain is ~74 derivations, not 137.
+///
+/// The bound is the bank length, so `EXT_BANK_DEPTH` is the single place
+/// the signing wall is defined. Raising it raises the real ceiling rather
+/// than only the ceiling the idle pump happens to have reached.
+///
+/// Stack: this calls exactly what the function it replaces called
+/// (`derive_address_key` / `derive_change_key` / `public_key_x_only`),
+/// so the resolve-phase frame is unchanged. That matters because phase 1
+/// in `sign_transaction_multi_addr` is deliberately the shallow half of
+/// the signing pass.
+pub fn ext_scan_find(
+    acct: &wallet::bip32::ExtendedPrivKey,
+    ext_recv: &mut [[u8; 32]], recv_n: &mut u16,
+    ext_chg: &mut [[u8; 32]], chg_n: &mut u16,
+    target: &[u8; 32],
+) -> Option<(u16, bool)> {
+    // Filled region first: no derivation, pure RAM.
+    if let Some(hit) = ext_find_pubkey(ext_recv, *recv_n, ext_chg, *chg_n, target) {
+        return Some(hit);
+    }
+    // Hoist the two chain keys and their public keys out of the loop.
+    // `derive_address_key` / `derive_change_key` rebuild both on every
+    // single index, which is two redundant scalar multiplies per step;
+    // see `ChainParent`. Built here rather than by the caller so the
+    // RAM-only fast path above never pays for them.
+    let chain_recv = match wallet::bip32::ChainParent::new(acct, 0) {
+        Ok(p) => p,
+        Err(_) => return None,
+    };
+    let chain_chg = match wallet::bip32::ChainParent::new(acct, 1) {
+        Ok(p) => p,
+        Err(_) => return None,
+    };
+    loop {
+        let r = *recv_n as usize;
+        let c = *chg_n as usize;
+        if r >= ext_recv.len() && c >= ext_chg.len() {
+            return None;
+        }
+        // Advance the shorter chain, but never a chain that is already
+        // full. Written as an explicit choice rather than an if/else-if
+        // pair so that every iteration provably advances one front and
+        // the loop cannot spin when the banks differ in length.
+        let take_recv = r < ext_recv.len() && (r <= c || c >= ext_chg.len());
+        if take_recv {
+            // A derivation failure at an index is not fatal: skip it the
+            // way the idle pump does, leaving the slot zeroed. A zeroed
+            // slot cannot false-match, since an all-zero x-only pubkey is
+            // not a valid point.
+            *recv_n = (r + 1) as u16;
+            if let Ok(key) = chain_recv.derive(r as u32) {
+                if let Ok(pk) = key.public_key_x_only() {
+                    ext_recv[r] = pk;
+                    if &pk == target {
+                        return Some((r as u16, false));
+                    }
+                }
+            }
+        } else {
+            *chg_n = (c + 1) as u16;
+            if let Ok(key) = chain_chg.derive(c as u32) {
+                if let Ok(pk) = key.public_key_x_only() {
+                    ext_chg[c] = pk;
+                    if &pk == target {
+                        return Some((c as u16, true));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Fill the display pubkey caches (20 receive, 5 change) from an already
+/// derived BIP32 account key. Used by slot types that HAVE an account key
+/// but no mnemonic to re-derive it from, i.e. xprv slots.
+pub fn fill_caches_from_acct(
+    acct_raw: &[u8; 65],
+    cache: &mut [[u8; 32]; 20],
+    change_cache: &mut [[u8; 32]; 5],
+) -> bool {
+    if acct_raw[..32].iter().all(|&b| b == 0) {
+        return false;
+    }
+    let acct = wallet::bip32::ExtendedPrivKey::from_raw(acct_raw);
+    let chain = match wallet::bip32::ChainParent::new(&acct, 0) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    for idx in 0..20u32 {
+        if let Ok(key) = chain.derive(idx) {
+            if let Ok(pk) = key.public_key_x_only() {
+                cache[idx as usize] = pk;
+            }
+        }
+    }
+    derive_change_pubkeys(acct_raw, change_cache);
+    true
+}
+
+/// Restore a raw-key slot's single pubkey into `cache[0]`.
+///
+/// Raw-key slots (word_count == 1) have no BIP32 chain: one private key,
+/// one address. Its bytes are packed into the slot's `indices` array the
+/// same way an xprv's are, so the key has to be unpacked rather than
+/// treated as BIP39 word indices.
+/// Takes the decoded 32-byte key, not the packed `[u16; 24]`.
+///
+/// It used to take the raw slot array and unpack it here, which meant the
+/// caller had to know that a raw-key slot stores its key in the field named
+/// `indices`. `SeedSlot::as_raw_key` owns that encoding now (H-08).
+pub fn fill_cache_from_raw_key(
+    key_in: &[u8; 32],
+    cache: &mut [[u8; 32]; 20],
+) -> bool {
+    let mut key = [0u8; 32];
+    {
+        key.copy_from_slice(key_in);
+    }
+    let ok = match wallet::bip32::pubkey_from_raw_key(&key) {
+        Ok(pk) => {
+            cache[0] = pk;
+            true
+        }
+        Err(_) => false,
+    };
+    for b in key.iter_mut() {
+        unsafe { core::ptr::write_volatile(b as *mut u8, 0) };
+    }
+    ok
+}
+
+/// Where the passphrase for a seed load comes from.
+pub enum PassphraseSource {
+    /// Store with no passphrase.
+    Empty,
+    /// Take it from `ad.pp_input`.
+    PpInput,
+}
+
+/// The one way a mnemonic becomes the active wallet.
+///
+/// Store, activate, reset the display state, then prime the account key behind
+/// a "Deriving keys..." screen. Returns the slot index, or `None` if every slot
+/// is occupied (the caller owns the rejection screen, since the wording and the
+/// state to return to differ per entry point).
+///
+/// Every source of a mnemonic ends here: manual word entry, SeedQR from the
+/// camera, dice, TRNG, SD restore and stego recovery. That is the point. The
+/// tail used to be copied at each site, and the stego copy had dropped the
+/// prime call, so a stego-recovered slot carried no account key and, once the
+/// fingerprint moved behind that key, no fingerprint either. Same shape as
+/// DEF-01 and the root of H-07: a flow duplicated instead of shared, with the
+/// copies drifting apart.
+///
+/// Reads `ad.mnemonic_indices` and `ad.word_count`, so callers that produce a
+/// new mnemonic (BIP85, for instance) must write those two first.
+///
+/// One deliberate exception: `run_signing_pipeline_test` in main.rs calls
+/// `SeedManager::store` directly. It runs at boot with no display, loads a
+/// fixed test mnemonic, and deletes the slot before the UI ever sees it.
+///
+/// The mnemonic and passphrase are passed to `store` as borrows of their live
+/// fields rather than copied into locals, so this adds no second copy of either
+/// to the stack.
+pub fn load_active_mnemonic(
+    ad: &mut AppData,
+    boot_display: &mut display::BootDisplay<'_>,
+    pp_source: PassphraseSource,
+) -> Option<usize> {
+    let (stored, had_pp) = match pp_source {
+        PassphraseSource::PpInput => {
+            let n = ad.pp_input.len.min(64);
+            (
+                ad.seed_mgr.store(
+                    &ad.mnemonic_indices,
+                    ad.word_count,
+                    &ad.pp_input.buf[..n],
+                    n as u8,
+                ),
+                n > 0,
+            )
+        }
+        PassphraseSource::Empty => (
+            ad.seed_mgr.store(&ad.mnemonic_indices, ad.word_count, &[], 0),
+            false,
+        ),
+    };
+
+    // Clear the keyboard buffer on every path, including the ones that stored
+    // without a passphrase: backing out of the keyboard used to leave whatever
+    // had been typed sitting in `pp_input`.
+    ad.pp_input.reset();
+
+    let slot_idx = match stored {
+        Some(i) => i,
+        None => return None,
+    };
+    // Log only whether a passphrase was used, never its length: length narrows
+    // the brute-force space.
+    log!("   Seed stored in slot {} (pp={})", slot_idx, if had_pp { "yes" } else { "no" });
+
+    ad.seed_mgr.activate(slot_idx);
+    ad.seed_loaded = true;
+    ad.pubkeys_cached = false;
+    ad.current_addr_index = 0;
+    ad.extra_pubkey_index = 0xFFFF;
+
+    // Synchronous prime behind the confirming tap: wipes any stale cache from
+    // the previous slot, then runs the one-time PBKDF2 stretch HERE so it never
+    // freezes the menu later and signing starts warm. Also the point at which
+    // the slot's fingerprint becomes computable.
+    boot_display.draw_saving_screen("Deriving keys...");
+    prime_after_seed_load(ad);
+    Some(slot_idx)
+}
+
+/// Fill in the active slot's display fingerprint from the account key.
+///
+/// The fingerprint is `SHA256(controlling private key)[0..4]`, so for a
+/// mnemonic slot it cannot exist until the PBKDF2 stretch and the three
+/// hardened BIP32 derivations have run. `SeedManager::store` therefore leaves
+/// it zeroed and this fills it in, from the two places that produce a valid
+/// `acct_key_raw`: `ensure_session_account_key` and `fill_display_caches`.
+///
+/// Deriving it inside `store` instead would pay the stretch twice, since every
+/// caller of `store` primes the account key immediately afterwards.
+///
+/// Cheap (one SHA-256) and idempotent, so calling it on every prime is fine.
+/// Raw-key and xprv slots already carry a fingerprint from their own store
+/// path and are left alone.
+pub fn refresh_active_fingerprint(ad: &mut AppData) {
+    if !matches!(ad.word_count, 12 | 24) {
+        return;
+    }
+    if ad.acct_key_raw[..32].iter().all(|&b| b == 0) {
+        return;
+    }
+    // Hashed straight out of `acct_key_raw`. `seed_mgr` and `acct_key_raw` are
+    // disjoint fields, so this borrows both without a 32-byte copy on the
+    // stack: this runs on the seed-load path, which has no headroom to spare.
+    let key = &ad.acct_key_raw[..32];
+    if let Some(slot) = ad.seed_mgr.active_slot_mut() {
+        slot.set_fingerprint_from_key(key);
+    }
+}
+
+/// Fill the display pubkey caches for whatever kind of slot is active.
+///
+/// CRITICAL: `derive_all_pubkeys` must never be reached for word_count 1
+/// or 2. Both raw-key and xprv slots pack their 32 key bytes into
+/// `slot.indices`, the same array a mnemonic slot uses for BIP39 word
+/// indices, and `derive_seed` routes anything that is not 12 into the
+/// 24-word path. That reads key bytes as word indices and panics on the
+/// first value above 2047 (observed: index 44263 into a 2048-entry
+/// wordlist). Dispatch on word_count here so no caller has to remember.
+///
+/// Returns true if the caches are now valid.
+pub fn fill_display_caches(ad: &mut crate::app::data::AppData) -> bool {
+    let ok = match ad.word_count {
+        12 | 24 => {
+            // Copy the passphrase out first: `passphrase_str` borrows
+            // ad.seed_mgr, and the derive call below needs &mut on other
+            // fields of ad.
+            let mut pp_buf = [0u8; 64];
+            let mut pp_len = 0usize;
+            if let Some(slot) = ad.seed_mgr.active_slot() {
+                let pp = slot.passphrase_str();
+                pp_len = pp.len().min(64);
+                pp_buf[..pp_len].copy_from_slice(&pp.as_bytes()[..pp_len]);
+            }
+            let pp = core::str::from_utf8(&pp_buf[..pp_len]).unwrap_or("");
+            derive_all_pubkeys(
+                &ad.mnemonic_indices,
+                ad.word_count,
+                pp,
+                &mut ad.pubkey_cache,
+                &mut ad.acct_key_raw,
+            );
+            derive_change_pubkeys(&ad.acct_key_raw, &mut ad.change_pubkey_cache);
+            true
+        }
+        2 => fill_caches_from_acct(
+            &ad.acct_key_raw,
+            &mut ad.pubkey_cache,
+            &mut ad.change_pubkey_cache,
+        ),
+        1 => {
+            // `as_raw_key` decodes only for a raw-key slot, so the arm and the
+            // decode cannot drift apart (H-08).
+            let key = match ad.seed_mgr.active_slot().and_then(|s| s.as_raw_key()) {
+                Some(k) => k,
+                None => return false,
+            };
+            fill_cache_from_raw_key(&key, &mut ad.pubkey_cache)
+        }
+        _ => false,
+    };
+    if ok {
+        ad.pubkeys_cached = true;
+        // The mnemonic branch above has just produced the account key. This is
+        // the lazy path (stego restore, slot switch), so it is the first point
+        // at which the slot's fingerprint can exist.
+        refresh_active_fingerprint(ad);
+    }
+    ok
+}
+
+/// Ensure the session account key is cached in `ad.acct_key_raw`.
+/// First call of a session pays the PBKDF2 seed stretch ONCE (the ~20s
+/// "Deriving" phase that used to run on EVERY signing session); afterwards
+/// every sign starts instantly. xprv slots arrive pre-cached at slot
+/// select. Returns false if no key could be produced.
+#[inline(never)]
+pub fn ensure_session_account_key(
+    ad: &mut crate::app::data::AppData,
+) -> bool {
+    if ad.acct_key_raw[..32].iter().any(|&b| b != 0) {
+        crate::log!("   [acct] session cache HIT");
+        return true;
+    }
+    if ad.active_kind() == crate::ui::seed_manager::SlotKind::Xprv {
+        return false; // xprv slot with empty cache: nothing to derive from
+    }
+    crate::log!("   [acct] session cache MISS — PBKDF2 stretch");
+    // Copy the passphrase out of the slot borrow before mutating ad.
+    let (mut pp_bytes, pp_len) = match ad.seed_mgr.active_slot() {
+        Some(slot) => {
+            let p = slot.passphrase_str();
+            let mut b = [0u8; 64];
+            let l = p.len().min(64);
+            b[..l].copy_from_slice(&p.as_bytes()[..l]);
+            (b, l)
+        }
+        None => ([0u8; 64], 0),
+    };
+    let pp = core::str::from_utf8(&pp_bytes[..pp_len]).unwrap_or("");
+    // Bound to a local first so the match scrutinee holds no borrow of
+    // `pp_bytes`, which the None arm zeroizes before returning.
+    let seed_opt = derive_seed(&ad.mnemonic_indices, ad.word_count, pp);
+    let mut seed = match seed_opt {
+        Some(s) => s,
+        None => {
+            for b in pp_bytes.iter_mut() {
+                unsafe { core::ptr::write_volatile(b, 0); }
+            }
+            return false;
+        }
+    };
+    if let Ok(acct) = wallet::bip32::derive_account_key(&seed.bytes) {
+        ad.acct_key_raw.copy_from_slice(&acct.to_raw());
+    }
+    for b in seed.bytes.iter_mut() {
+        unsafe { core::ptr::write_volatile(b, 0); }
+    }
+    for b in pp_bytes.iter_mut() {
+        unsafe { core::ptr::write_volatile(b, 0); }
+    }
+    // The fingerprint refresh deliberately does NOT happen here. This is the
+    // deepest frame in the firmware: touch handler, load_active_mnemonic,
+    // prime_after_seed_load, here, derive_seed, PBKDF2. Adding a SHA-256 at
+    // this depth tripped the stack guard on M5Stack. It runs at the tail of
+    // `prime_after_seed_load` instead, once these frames have been popped and
+    // `acct_key_raw` still holds the key this function just derived.
+    ad.acct_key_raw[..32].iter().any(|&b| b != 0)
+}
+
+/// Wipe the previous slot's session cache and synchronously prime the
+/// new one. Called at every seed-load confirmation point (passphrase OK,
+/// slot select, BIP85 auto-load, delete-fallback activation) so the
+/// one-time PBKDF2 stretch lands behind the button press the user just
+/// made, never as a menu freeze. The caller draws the "Deriving keys..."
+/// screen BEFORE calling this when word_count is 12 or 24.
+/// Raw-key (wc==1) and xprv (wc==2) slots skip the stretch: raw keys
+/// have no BIP32 account; xprv slots arrive pre-cached by the caller
+/// (which fills acct_key_raw AFTER this wipe, or skips this entirely).
+#[inline(never)]
+pub fn prime_after_seed_load(ad: &mut crate::app::data::AppData) -> bool {
+    ad.acct_key_raw = [0u8; 65];
+    ad.ext_recv_n = 0;
+    ad.ext_chg_n = 0;
+    // Correctness does not depend on this (ChainCache self-validates),
+    // but dropping it here frees the allocation and zeroizes the old
+    // wallet's chain keys at the moment the slot changes.
+    ad.chain_cache = None;
+    if !matches!(ad.word_count, 12 | 24) {
+        return false;
+    }
+    if !ensure_session_account_key(ad) {
+        return false;
+    }
+    // Shallow enough to be safe, and `acct_key_raw` provably belongs to the
+    // slot that was just activated: this function zeroed it on entry.
+    refresh_active_fingerprint(ad);
+    // Fill the display pubkey caches from the fresh account key, so no
+    // later path (Sign TX, View Address, post-sign display) falls into
+    // its own !pubkeys_cached branch. Those branches call
+    // derive_all_pubkeys, which predates the session cache and re-runs
+    // the FULL PBKDF2 stretch from the mnemonic; landing there after a
+    // load-time prime would pay the stretch twice. ~25 derivations,
+    // roughly 3s on top of the stretch, all behind the same screen.
+    //
+    // Both loops go through `ChainParent`, which hoists the two
+    // index-independent scalar multiplies out of the per-index work: 25
+    // indices cost 4 + 25 multiplies instead of 75.
+    let acct = wallet::bip32::ExtendedPrivKey::from_raw(&ad.acct_key_raw);
+    if let Ok(chain) = wallet::bip32::ChainParent::new(&acct, 0) {
+        for idx in 0..20u32 {
+            if let Ok(key) = chain.derive(idx) {
+                if let Ok(pk) = key.public_key_x_only() {
+                    ad.pubkey_cache[idx as usize] = pk;
+                }
+            }
+        }
+    }
+    derive_change_pubkeys(&ad.acct_key_raw, &mut ad.change_pubkey_cache);
+    ad.pubkeys_cached = true;
+    true
 }
 
 /// Derive a single pubkey from the cached account key. Instant (no PBKDF2).
@@ -176,10 +792,12 @@ pub fn sign_and_serialize(
 #[inline(never)]
 pub fn sign_and_serialize_multi(
     tx: &mut wallet::transaction::Transaction,
-    seed: &[u8; 64],
+    acct_raw: &[u8; 65],
+    ext: Option<ExtBanksMut<'_>>,
     buf: &mut [u8],
 ) -> usize {
-    wallet::pskt::sign_transaction_multi_addr(tx, seed, wallet::transaction::SigHashType::All)
+    let acct = wallet::bip32::ExtendedPrivKey::from_raw(acct_raw);
+    wallet::pskt::sign_transaction_multi_addr(tx, &acct, wallet::transaction::SigHashType::All, ext)
         .and_then(|_| wallet::pskt::serialize_signed_pskt(tx, buf))
         .unwrap_or(0)
 }
@@ -213,16 +831,23 @@ pub fn sign_and_serialize_multisig(
         if s == active_mgr_slot {
             active_seed_idx = Some(seed_idx);
         }
-        let pp = slot.passphrase_str();
-        let wc = slot.word_count;
+        // `as_mnemonic` rather than `slot.indices`: on a raw-key or xprv slot
+        // that array holds a packed private key, and feeding it to
+        // `seed_from_mnemonic_*` reads key bytes as BIP39 word indices. The
+        // guard above already skips those kinds; this makes the guard and the
+        // read one operation so a future edit cannot separate them (H-08).
+        let Some((indices, wc)) = slot.as_mnemonic() else { continue };
+        let pp = slot.as_passphrase()
+            .and_then(|b| core::str::from_utf8(b).ok())
+            .unwrap_or("");
         let seed = if wc == 12 {
             let m12 = wallet::bip39::Mnemonic12 {
-                indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&slot.indices[..12]); arr }
+                indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&indices[..12]); arr }
             };
             wallet::bip39::seed_from_mnemonic_12(&m12, pp)
         } else {
             let m24 = wallet::bip39::Mnemonic24 {
-                indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&slot.indices[..24]); arr }
+                indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&indices[..24]); arr }
             };
             wallet::bip39::seed_from_mnemonic_24(&m24, pp)
         };
@@ -292,14 +917,16 @@ pub fn sign_and_serialize_multisig(
 #[inline(never)]
 pub fn sign_and_serialize_pskt_multi(
     tx: &mut wallet::transaction::Transaction,
-    seed: &[u8; 64],
+    acct_raw: &[u8; 65],
+    ext: Option<ExtBanksMut<'_>>,
     pskt_parsed: &crate::app::data::PsktParsed,
     scratch_json: &[u8],
     format: crate::app::data::TxInputFormat,
     out: &mut [u8],
 ) -> usize {
+    let acct = wallet::bip32::ExtendedPrivKey::from_raw(acct_raw);
     if wallet::pskt::sign_transaction_multi_addr(
-        tx, seed, wallet::transaction::SigHashType::All,
+        tx, &acct, wallet::transaction::SigHashType::All, ext,
     ).is_err() {
         return 0;
     }
@@ -307,7 +934,7 @@ pub fn sign_and_serialize_pskt_multi(
     // PSRAM-heap scratch — keeps this 4 KB off the stack so it doesn't
     // bloat main's frame via cross-function allocation hoisting.
     // Dropped at end of function; cost is only during signing.
-    let mut tmp: alloc::vec::Vec<u8> = alloc::vec![0u8; 4096];
+    let mut tmp: alloc::vec::Vec<u8> = alloc::vec![0u8; 8192];
     match wallet::std_pskt::serialize_pskt(tx, pskt_parsed, scratch_json, format, &mut tmp) {
         Ok(n) => {
             if n > out.len() {
@@ -354,16 +981,23 @@ pub fn sign_and_serialize_pskt_multisig(
         if s == active_mgr_slot {
             active_seed_idx = Some(seed_idx);
         }
-        let pp = slot.passphrase_str();
-        let wc = slot.word_count;
+        // `as_mnemonic` rather than `slot.indices`: on a raw-key or xprv slot
+        // that array holds a packed private key, and feeding it to
+        // `seed_from_mnemonic_*` reads key bytes as BIP39 word indices. The
+        // guard above already skips those kinds; this makes the guard and the
+        // read one operation so a future edit cannot separate them (H-08).
+        let Some((indices, wc)) = slot.as_mnemonic() else { continue };
+        let pp = slot.as_passphrase()
+            .and_then(|b| core::str::from_utf8(b).ok())
+            .unwrap_or("");
         let seed = if wc == 12 {
             let m12 = wallet::bip39::Mnemonic12 {
-                indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&slot.indices[..12]); arr }
+                indices: { let mut arr = [0u16; 12]; arr.copy_from_slice(&indices[..12]); arr }
             };
             wallet::bip39::seed_from_mnemonic_12(&m12, pp)
         } else {
             let m24 = wallet::bip39::Mnemonic24 {
-                indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&slot.indices[..24]); arr }
+                indices: { let mut arr = [0u16; 24]; arr.copy_from_slice(&indices[..24]); arr }
             };
             wallet::bip39::seed_from_mnemonic_24(&m24, pp)
         };
@@ -391,7 +1025,7 @@ pub fn sign_and_serialize_pskt_multisig(
     wallet::std_pskt::move_ksp_sigs_to_pskt(tx);
 
     // PSRAM-heap scratch — see sign_and_serialize_pskt_multi for rationale.
-    let mut tmp: alloc::vec::Vec<u8> = alloc::vec![0u8; 4096];
+    let mut tmp: alloc::vec::Vec<u8> = alloc::vec![0u8; 8192];
     let n = match wallet::std_pskt::serialize_pskt(
         tx, pskt_parsed, scratch_json, format, &mut tmp,
     ) {
@@ -450,14 +1084,31 @@ pub fn run_firmware_verify(
 
     match verify_result {
         VerificationResult::Valid => {
-            log!("Firmware verified OK");
+            // Dev builds reach this arm even when the hash did NOT match:
+            // features/verify.rs logs "[DEV] WARNING: Hash mismatch, continuing"
+            // and then returns Valid regardless, so this arm cannot be used to
+            // claim the firmware was verified. Report the build kind instead.
+            // The displayed hash is still shown, which is what a developer
+            // checks against their own build. See H-02.
+            #[cfg(feature = "production")]
+            {
+                log!("Firmware verified OK");
+            }
+            #[cfg(not(feature = "production"))]
+            {
+                log!("Firmware check complete (dev build, not enforced)");
+            }
 
-            // Flash "Verified OK" briefly before entering app
+            #[cfg(feature = "production")]
+            let boot_status = BootStatus::Valid;
+            #[cfg(not(feature = "production"))]
+            let boot_status = BootStatus::DevBuild;
+
             boot_display
                 .show_verification_screen(
                     version_str.as_str(),
                     hash_short.as_str(),
-                    BootStatus::Valid,
+                    boot_status,
                 )
                 .ok();
 
@@ -548,14 +1199,21 @@ pub fn handle_signing_step(
                 ad.app.go_main_menu();
                 ad.needs_redraw = true;
             } else {
-                // Pre-check: will the signed TX fit in the 1024-byte output buffer?
-                // Header=48, per input=156, per output=45
+                // Pre-check: will the signed TX fit in the signed_qr_buf?
+                // Capacity is read from the buffer itself rather than
+                // repeated here; the previous copy said 4096 while the
+                // buffer was 8192. Header=48, per
+                // input=156, per output=45. At 156 B/input this ceiling is
+                // ~25 inputs, comfortably above MAX_INPUTS=16. (Was 1024, a
+                // stale value from when the buffer was smaller — it rejected
+                // valid 6+ input consolidations that fit fine.)
                 let estimated_size = 48
                     + (ad.demo_tx.num_inputs * 156)
                     + (ad.demo_tx.num_outputs * 45);
-                if estimated_size > 1024 {
-                    log!("   ✗ TX too large: {} inputs × 156 + {} outputs × 45 = ~{} bytes (max 1024)",
-                        ad.demo_tx.num_inputs, ad.demo_tx.num_outputs, estimated_size);
+                let cap = ad.signed_qr_buf.len();
+                if estimated_size > cap {
+                    log!("   ✗ TX too large: {} inputs × 156 + {} outputs × 45 = ~{} bytes (max {})",
+                        ad.demo_tx.num_inputs, ad.demo_tx.num_outputs, estimated_size, cap);
                     boot_display.draw_tx_error_screen(
                         "Too many inputs!",
                         "Consolidate UTXOs first");
@@ -565,16 +1223,14 @@ pub fn handle_signing_step(
                     return;
                 }
 
-                // Ensure pubkeys are cached (for display after signing)
+                // Ensure pubkeys are cached (for display after signing).
+                // Goes through fill_display_caches, which dispatches on
+                // word_count: calling derive_all_pubkeys directly here
+                // panicked on xprv and raw-key slots, whose packed key
+                // bytes were read as BIP39 word indices.
                 if !ad.pubkeys_cached {
                     boot_display.draw_saving_screen("Deriving addresses...");
-                    let pp = ad.seed_mgr.active_slot().map(|s| s.passphrase_str()).unwrap_or("");
-                    derive_all_pubkeys(&ad.mnemonic_indices, ad.word_count, pp, &mut ad.pubkey_cache, &mut ad.acct_key_raw);
-                    // Also derive change chain so ShowAddress R/C toggle
-                    // works after signing without requiring re-entry
-                    // through the View Address menu.
-                    derive_change_pubkeys(&ad.acct_key_raw, &mut ad.change_pubkey_cache);
-                    ad.pubkeys_cached = true;
+                    fill_display_caches(ad);
                 }
                 log!("   Signing input {}/{}...", input_idx + 1, ad.app.total_inputs);
 
@@ -616,7 +1272,7 @@ pub fn handle_signing_step(
                                 });
                                 let format = ad.tx_input_format;
                                 // Scratch: we need both &ad.signed_qr_buf (read)
-                                // AND &mut ad.signed_qr_buf (write). Work around
+                                // AND &mut ad.signed_qr_buf[..] (write). Work around
                                 // by copying the scratch into a stack-local
                                 // slice first; this costs another 4 KB of
                                 // stack on the signing path. Only needed
@@ -630,7 +1286,7 @@ pub fn handle_signing_step(
                                         &ad.pskt_parsed,
                                         &scratch_empty,
                                         format,
-                                        &mut ad.signed_qr_buf,
+                                        &mut ad.signed_qr_buf[..],
                                     );
                                     let (present, required) =
                                         wallet::std_pskt::pskt_signature_status(&ad.demo_tx);
@@ -642,16 +1298,31 @@ pub fn handle_signing_step(
                                         log!("   Fully signed: {}/{}", present, required);
                                     }
                                 } else {
-                                    let pp = slot.passphrase_str();
-                                    let mut seed = derive_seed(&ad.mnemonic_indices, ad.word_count, pp);
-                                    ad.signed_qr_len = sign_and_serialize_pskt_multi(
-                                        &mut ad.demo_tx, &seed.bytes,
-                                        &ad.pskt_parsed,
-                                        &scratch_empty,
-                                        format,
-                                        &mut ad.signed_qr_buf,
-                                    );
-                                    zeroize_seed(&mut seed.bytes);
+                                    // Session account-key cache: the PBKDF2
+                                    // stretch runs once per session, not per
+                                    // signing (this was the fixed ~20s).
+                                    let t0 = esp_hal::xtensa_lx::timer::get_cycle_count();
+                                    let acct_ready = ensure_session_account_key(ad);
+                                    let t1 = esp_hal::xtensa_lx::timer::get_cycle_count();
+                                    if acct_ready {
+                                        let acct_raw = ad.acct_key_raw;
+                                        // Disjoint field borrows: NO array copies
+                                        // (12.8KB on the sign stack would repeat
+                                        // the precomputed-tables overflow).
+                                        ad.signed_qr_len = sign_and_serialize_pskt_multi(
+                                            &mut ad.demo_tx, &acct_raw,
+                                            Some((&mut ad.ext_recv[..], &mut ad.ext_recv_n, &mut ad.ext_chg[..], &mut ad.ext_chg_n)),
+                                            &ad.pskt_parsed,
+                                            &scratch_empty,
+                                            format,
+                                            &mut ad.signed_qr_buf[..],
+                                        );
+                                    } else {
+                                        ad.signed_qr_len = 0;
+                                    }
+                                    let t2 = esp_hal::xtensa_lx::timer::get_cycle_count();
+                                    crate::log!("   [t] acct={}ms sign+ser={}ms",
+                                        t1.wrapping_sub(t0) / 240_000, t2.wrapping_sub(t1) / 240_000);
                                     let (present, required) =
                                         wallet::std_pskt::pskt_signature_status(&ad.demo_tx);
                                     ad.tx_sigs_present = present;
@@ -660,11 +1331,12 @@ pub fn handle_signing_step(
                             }
                         }
                     } else if let Some(slot) = ad.seed_mgr.active_slot() {
-                        if slot.is_raw_key() {
-                            // Raw key: sign with stored privkey directly
-                            let mut key = [0u8; 32];
-                            slot.raw_key_bytes(&mut key);
-                            ad.signed_qr_len = sign_and_serialize(&mut ad.demo_tx, &key, &mut ad.signed_qr_buf);
+                        if let Some(mut key) = slot.as_raw_key() {
+                            // Raw key: sign with stored privkey directly.
+                            // `as_raw_key` replaces `is_raw_key()` plus a
+                            // separate unpack, so the check and the decode are
+                            // one operation (H-08).
+                            ad.signed_qr_len = sign_and_serialize(&mut ad.demo_tx, &key, &mut ad.signed_qr_buf[..]);
                             for b in key.iter_mut() {
                                 unsafe { core::ptr::write_volatile(b, 0); }
                             }
@@ -678,7 +1350,7 @@ pub fn handle_signing_step(
                                 // Multisig: sign with ALL loaded seed slots
                                 ad.signed_qr_len = sign_and_serialize_multisig(
                                     &mut ad.demo_tx, &ad.seed_mgr,
-                                    &mut ad.signed_qr_buf);
+                                    &mut ad.signed_qr_buf[..]);
                                 let (present, required) = wallet::pskt::signature_status(&ad.demo_tx);
                                 ad.tx_sigs_present = present;
                                 ad.tx_sigs_required = required;
@@ -691,10 +1363,18 @@ pub fn handle_signing_step(
                                 // Standard P2PK: sign with active slot seed
                                 ad.tx_sigs_present = 0;
                                 ad.tx_sigs_required = 0;
-                                let pp = slot.passphrase_str();
-                                let mut seed = derive_seed(&ad.mnemonic_indices, ad.word_count, pp);
-                                ad.signed_qr_len = sign_and_serialize_multi(&mut ad.demo_tx, &seed.bytes, &mut ad.signed_qr_buf);
-                                zeroize_seed(&mut seed.bytes);
+                                let t0 = esp_hal::xtensa_lx::timer::get_cycle_count();
+                                let acct_ready = ensure_session_account_key(ad);
+                                let t1 = esp_hal::xtensa_lx::timer::get_cycle_count();
+                                if acct_ready {
+                                    let acct_raw = ad.acct_key_raw;
+                                    ad.signed_qr_len = sign_and_serialize_multi(&mut ad.demo_tx, &acct_raw, Some((&mut ad.ext_recv[..], &mut ad.ext_recv_n, &mut ad.ext_chg[..], &mut ad.ext_chg_n)), &mut ad.signed_qr_buf[..]);
+                                } else {
+                                    ad.signed_qr_len = 0;
+                                }
+                                let t2 = esp_hal::xtensa_lx::timer::get_cycle_count();
+                                crate::log!("   [t] acct={}ms sign+ser={}ms",
+                                    t1.wrapping_sub(t0) / 240_000, t2.wrapping_sub(t1) / 240_000);
                             }
                         }
                     }
@@ -777,7 +1457,7 @@ pub fn cycle_signed_qr(
                 let remaining = ad.signed_qr_len.saturating_sub(offset);
                 let frag_len = remaining.min(balanced);
                 if frag_len > 0 {
-                    let mut frame_buf = [0u8; 134];
+                    let mut frame_buf = [0u8; 230];
                     frame_buf[0] = ad.signed_qr_frame;
                     frame_buf[1] = ad.signed_qr_nframes;
                     frame_buf[2] = frag_len as u8;
