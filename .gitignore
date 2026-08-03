@@ -35,3 +35,4 @@ screenshots/
 *.jpg.bak
 *.log
 Icon?
+*.rs.bak
