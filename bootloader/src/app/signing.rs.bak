@@ -486,11 +486,6 @@ pub enum PassphraseSource {
 /// The mnemonic and passphrase are passed to `store` as borrows of their live
 /// fields rather than copied into locals, so this adds no second copy of either
 /// to the stack.
-// `match stored { Some(i) => i, None => return None }` rather than `stored?`.
-// The early return sits immediately after `ad.pp_input.reset()` and before the
-// slot is logged; written out, the control flow is visible at a glance in a
-// function that handles seed material on several paths. `?` would hide it.
-#[allow(clippy::question_mark)]
 pub fn load_active_mnemonic(
     ad: &mut AppData,
     boot_display: &mut display::BootDisplay<'_>,

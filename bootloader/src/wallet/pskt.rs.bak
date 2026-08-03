@@ -742,12 +742,6 @@ fn stealth_combined_key(
     Some((priv_bytes, pk_c))
 }
 
-// The `&mut **er` derefs at the `ext_scan_find` call below are written out
-// rather than left to auto-deref. `ext` is `Option<(&mut Box<..>, ..)>`, and
-// spelling the reborrow makes it visible that four independent mutable
-// borrows are being handed to one call. Deliberate; clippy would rather they
-// were implicit.
-#[allow(clippy::explicit_auto_deref)]
 pub fn sign_transaction_multi_addr(
     tx: &mut Transaction,
     account_key: &super::bip32::ExtendedPrivKey,

@@ -329,7 +329,7 @@ fn extend(v: i32, t: u32) -> i32 {
 #[inline]
 fn magbits(v: i32, t: u32) -> u32 {
     let m = (1u32 << t) - 1;
-    if v > 0 { (v as u32) & m } else { ((v + (1 << t) - 1) as u32) & m }
+    if v > 0 { (v as u32) & m } else { ((v + (1 << t) as i32 - 1) as u32) & m }
 }
 
 // ─── Frame parsing ──────────────────────────────────────────────────

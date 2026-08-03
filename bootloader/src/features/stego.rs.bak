@@ -512,7 +512,7 @@ pub fn build_exif_app1_copyforward(
     if tiff_len < 8 { return 0; }
 
     let ifd0 = rd_u32(&tiff[4..8], le) as usize;
-    if ifd0.checked_add(2).is_none_or(|v| v > tiff_len) { return 0; }
+    if ifd0.checked_add(2).map_or(true, |v| v > tiff_len) { return 0; }
     let n = rd_u16(&tiff[ifd0..ifd0 + 2], le) as usize;
     // A real IFD0 is well under 200 entries; anything more is malformed.
     if n > 200 { return 0; }

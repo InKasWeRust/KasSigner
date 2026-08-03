@@ -333,11 +333,6 @@ pub fn encrypt_v3(
 
 /// True if `data` looks like a v3 container. Used to route between the v3
 /// reader and the legacy readers before any key derivation happens.
-// `>= V3_OVERHEAD + 1` rather than clippy's `> V3_OVERHEAD`. Arithmetically
-// identical, but the written form states the rule: the container's fixed
-// overhead PLUS at least one byte of payload. A container with a zero-length
-// payload is malformed, and that is what this line is checking for.
-#[allow(clippy::int_plus_one)]
 pub fn is_v3(data: &[u8]) -> bool {
     data.len() >= V3_OVERHEAD + 1 && data[0..4] == V3_MAGIC && data[4] == V3_VERSION
 }

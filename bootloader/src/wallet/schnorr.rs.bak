@@ -202,7 +202,7 @@ pub fn schnorr_sign(
     // 6. Serialize: R.x || s
     let mut sig_bytes = [0u8; 64];
     sig_bytes[..32].copy_from_slice(&rx);
-    sig_bytes[32..].copy_from_slice(&scalar_to_bytes(&s));
+    sig_bytes[32..].copy_from_slice(&scalar_to_bytes(&*s));
     let sig = SchnorrSignature { bytes: sig_bytes };
 
     // 7. Verify before release. This is the actual fault-injection

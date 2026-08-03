@@ -89,11 +89,6 @@ pub(crate) const TXT_IMPORT_BUF: usize = 1024;
 /// build instead of silently making large descriptors unreadable.
 const _: () = assert!(TXT_IMPORT_BUF >= MAX_DESCRIPTOR_LEN);
 
-// The return tuple is (m, n, pubkeys, x-only keys) sized by
-// MAX_MULTISIG_KEYS. A type alias would name it but not simplify it, and the
-// shape is the multisig descriptor itself: two counts and two parallel key
-// tables. Kept explicit so the sizes are visible at the call site.
-#[allow(clippy::type_complexity)]
 fn parse_descriptor(
     data: &[u8],
 ) -> Option<(
@@ -317,9 +312,6 @@ pub(crate) fn format_auto_name(prefix: &[u8; 2], num: u32, ext: &[u8; 3]) -> [u8
 /// Handle touch events for SD card backup/restore screens.
 #[inline(never)]
 #[allow(unused_assignments)]
-// `sz >= V3_OVERHEAD + 1` in the v3 file-browser check: overhead plus at
-// least one payload byte. See the same expression in `sd_backup::is_v3`.
-#[allow(clippy::int_plus_one)]
 pub fn handle_sd_touch(
     ad: &mut AppData,
     boot_display: &mut display::BootDisplay<'_>,
