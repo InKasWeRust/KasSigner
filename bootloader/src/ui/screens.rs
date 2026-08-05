@@ -1009,6 +1009,53 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
         self.draw_back_button();
     }
 
+    /// Draw a friendly two-line notice.
+    ///
+    /// NOT an error screen. This is for the case where the operation
+    /// SUCCEEDED and the user is being told something useful about it
+    /// afterwards, such as a backup that restored correctly but was written
+    /// in an older container format.
+    ///
+    /// The three legacy-format sites used `draw_rejected_screen`, which
+    /// paints "ERROR" in COLOR_DANGER. Shown immediately after a success
+    /// screen, that reads as though the restore had failed, which is the
+    /// opposite of what happened: the file worked, and the advice is only
+    /// that the copy the user keeps should be a fresh one. Same layout,
+    /// accent colour, neutral wording.
+    ///
+    /// Auto-dismissing, so there is no back button and no tap hint; the
+    /// caller holds it on screen with its own delay.
+    pub fn draw_notice_screen(&mut self, line1: &str, line2: &str) {
+        sound::stop_ticking();
+        self.display.clear(COLOR_BG).ok();
+
+        let tw = measure_header("HEADS UP");
+        draw_oswald_header(&mut self.display, "HEADS UP", (320 - tw) / 2, 30, KASPA_ACCENT);
+        Line::new(Point::new(20, 40), Point::new(300, 40))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_ACCENT, 1))
+            .draw(&mut self.display).ok();
+
+        // Char-boundary safe clamp. `&s[..n]` panics when n lands inside a
+        // multi-byte character; `draw_rejected_screen` above has that shape
+        // and is safe only because every caller happens to pass ASCII. A
+        // nested `fn` rather than a closure, so lifetime elision applies
+        // independently to each call.
+        fn clamp(s: &str, max: usize) -> &str {
+            match s.char_indices().nth(max) {
+                Some((byte_idx, _)) => &s[..byte_idx],
+                None => s,
+            }
+        }
+
+        let l1 = clamp(line1, 32);
+        let w1 = measure_title(l1);
+        draw_lato_title(&mut self.display, l1, (320 - w1) / 2, 110, COLOR_TEXT);
+
+        let l2 = clamp(line2, 40);
+        let w2 = measure_body(l2);
+        draw_lato_body(&mut self.display, l2, (320 - w2) / 2, 145, COLOR_TEXT_DIM);
+    }
+
     /// Draw 2x2 grid home menu (SeedSigner-style)
     /// Items: ["Send Demo TX", "Show Address", "Settings", "About"]
     /// Grid: [Send TX] [Address]

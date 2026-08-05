@@ -1013,7 +1013,9 @@ pub fn handle_sd_touch(
                                                         // The file still works; it should not be
                                                         // the copy the user keeps.
                                                         log!("[SD-RESTORE] Legacy format, prompting re-export");
-                                                        boot_display.draw_rejected_screen("Old format: re-export");
+                                                        boot_display.draw_notice_screen(
+                                                            "Old backup format",
+                                                            "Re-export for better security");
                                                         delay.delay_millis(2500);
                                                     }
                                                     // Single-store model: the seed is stored exactly
@@ -1306,7 +1308,9 @@ pub fn handle_sd_touch(
                                                                 // itself did succeed.
                                                                 if legacy {
                                                                     log!("[SD-XPRV] Legacy format, prompting re-export");
-                                                                    boot_display.draw_rejected_screen("Old format: re-export");
+                                                                    boot_display.draw_notice_screen(
+                                                                        "Old backup format",
+                                                                        "Re-export for better security");
                                                                     delay.delay_millis(2500);
                                                                 }
                                                                 ad.app.state = crate::app::input::AppState::SeedList;

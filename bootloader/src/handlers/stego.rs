@@ -1163,7 +1163,9 @@ pub fn handle_stego_touch(
                                                         // move the flow on.
                                                         if legacy {
                                                             log!("   Stego: legacy format, prompting re-export");
-                                                            boot_display.draw_rejected_screen("Old format: re-export");
+                                                            boot_display.draw_notice_screen(
+                                                                "Old backup format",
+                                                                "Re-export for better security");
                                                             delay.delay_millis(2500);
                                                         }
 
