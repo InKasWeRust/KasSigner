@@ -343,11 +343,18 @@ fn compute_challenge(rx: &[u8; 32], px: &[u8; 32], message: &[u8; 32]) -> Scalar
 /// recovers the private key from one successful fault. Determinism protects
 /// against a weak RNG and is exactly what enables this.
 ///
-/// Mixing fresh entropy removes the shared-k premise. It degrades safely: if
-/// entropy::fill returns all zeros the result reduces to a deterministic
-/// nonce, i.e. today's behaviour, rather than to a repeated or predictable
-/// one. So this is never worse than either pure strategy alone, which matters
-/// while the RNG feed is still unverified (M-13).
+/// Mixing fresh entropy removes the shared-k premise. It does NOT degrade to
+/// a deterministic nonce: `entropy::fill` fails closed, zeroing its output and
+/// returning an error rather than handing back zeros, and this function
+/// propagates that as `EntropyUnavailable` and refuses to sign. An earlier
+/// version of this comment described the zero-aux fallback as the degraded
+/// case; that path no longer exists, and removing it is the whole point of
+/// H-05.
+///
+/// Note what the auxiliary randomness is and is not for. The private key is
+/// the HMAC key, so `k` is unpredictable without it even if `aux` were all
+/// zeros. `aux` buys non-determinism, which is what defeats DFA; it is not the
+/// source of the nonce's secrecy.
 ///
 /// WIRE-COMPATIBLE. The signature still verifies against the same pubkey over
 /// the same bytes, so OP_CHECKSIGFROMSTACK in the deployed mainnet oracle

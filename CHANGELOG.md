@@ -57,13 +57,17 @@ Security section below.
   the wrong location for this chip and returned zeros on every device since the
   project started. Found by measurement, not by inspection.
 
-  **Seeds generated on earlier versions are not weak, and no action is needed.**
-  Seed generation mixes eight full camera frames, with per-pixel health checks, into
-  the entropy pool; the camera carried it while the RNG contributed nothing. The
-  defect removed a source that was meant to be one of several, rather than the only
-  one. It is rated Critical because a redundant source silently returning zeros for
-  the life of a project is exactly the failure that must never go undetected, not
-  because keys were compromised.
+  **This does not mean seeds from earlier versions rested on nothing.** Seed
+  generation mixes eight camera captures into the entropy pool, and the camera
+  carried it while the RNG contributed nothing. But the per-pixel health checks
+  that verify those captures actually varied shipped in this release, not before:
+  on 1.0.0 through 1.0.4 the camera check was satisfied by the capture buffer
+  pointer being non-null and never tested the data. So for those releases the
+  camera contribution is unverified rather than absent, and users holding
+  significant funds on an automatically generated seed from that era should
+  consider migrating. It is rated Critical because a redundant source silently
+  returning zeros for the life of a project is exactly the failure that must
+  never go undetected.
 - **Releases 1.0.0 through 1.0.4 carry signatures that cannot be verified.** The
   signing tool computed the challenge incorrectly, so no BIP-340 verifier accepts
   them. **This affects only the check that a downloaded firmware file is authentic.**
@@ -124,7 +128,7 @@ the TN10 test network.
 - **ZK Price Oracle (KasSee)**: live KAS/USD sourced from Pyth + Wormhole and proven on-chain with a zero-knowledge proof; ambient read plus pay-to-refresh.
 - **Stealth payments (KasSee)**: dual-key stealth addresses (ECDH with view tags) so anyone can pay you without linking payments to your public address; send, scan, and an optional stealth indexer for recovery.
 - **Covenant-aware PSKB signing (KasSigner)**: the KSPT format gains v3 (u16 redeem length for larger covenant scripts) and a covenant-binding flag (`0x04`): outputs carry a `covenant_id` and auth-input index, parsed and preserved through the sign round-trip. The signer recognizes the P2SH covenant redeem scripts and signs the matching input.
-- **On-device covenant review (KasSigner)**: covenant details are shown on the review screen before signing.
+- **On-device covenant review (KasSigner)**: a transaction spending a covenant P2SH is labelled as such on the confirm screen, and every output is shown with its amount and its bech32 destination. Before any of that, the redeem script supplied by the host is checked to hash to the P2SH commitment in the UTXO being spent, and an input whose script does not match is reported as unrecognised and left unsigned. The device does not decode covenant parameters such as recipient, cap, timelock or heir.
 - **ECIES (KasSigner, `wallet/ecies.rs`)**: encrypt-to-pubkey / decrypt-with-key via ECDH + BLAKE2B-256 + AES-256-GCM (33-byte ephemeral pubkey, 12-byte nonce, AEAD tag), for stealth / recovery payloads.
 
 ### Changed
