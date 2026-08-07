@@ -495,12 +495,15 @@ pub fn handle_menu_touch(
                                 // ARE the seed entropy: anyone capturing serial
                                 // while a user rolls reproduces the wallet.
                                 //
-                                // `log!` is a no-op under `silent`, but no
-                                // shipped artifact sets it. Every Dockerfile
-                                // stage builds with `--features skip-tests`
-                                // alone, and `production` is enabled in no
-                                // documented build (P-08), so this reached the
-                                // wire in every published binary.
+                                // Through 1.0.4 this line printed `val`, and
+                                // `production` was enabled in no documented
+                                // build (P-08), so it reached the wire in every
+                                // published binary. Both halves are closed as of
+                                // 1.0.5: the value is gone from here, and all six
+                                // Dockerfile image stages now build with
+                                // `--features production`, which implies `silent`
+                                // and compiles `log!` out altogether. The line
+                                // below therefore exists only in dev builds.
                                 //
                                 // Reported externally by `kas-builder` in PR #1
                                 // against InKasWeRust/KasSigner, their first
@@ -977,30 +980,43 @@ pub fn handle_menu_touch(
                                         // the pointer was non-null. It never verified the data
                                         // varied. Now it does.
                                         //
-                                        // The cam_meas == 0 escape covers the DvpCamera path,
-                                        // which hashes frames without going through cam_dma and
-                                        // so produces no delta measurement. That path keeps its
-                                        // previous behaviour rather than being blocked by a check
-                                        // that never runs on it.
                                         // One expression, both platforms. The measurement is in
                                         // hw/frame_noise.rs precisely so this does not need a cfg,
                                         // and so `cam_ok` means the same thing on M5Stack as on
                                         // Waveshare.
                                         //
-                                        // The cam_meas == 0 escape now covers only a capture loop
-                                        // that produced fewer than two frames, i.e. no delta to
-                                        // measure, rather than a whole platform.
+                                        // `cam_meas > 0` IS REQUIRED, not an escape. This used to
+                                        // read `cam_meas == 0 || (...)`, which passed a run that
+                                        // produced no delta at all. That is reachable: frame_noise
+                                        // ::measure returns None on the first capture because
+                                        // there is no baseline to compare against, so a loop in
+                                        // which capture 0 succeeds and captures 1..8 all take the
+                                        // Err branch sets got_entropy, leaves cam_meas at 0, and
+                                        // satisfied the gate with zero evidence that the sensor
+                                        // produced varying data. On M5Stack, which has no IMU, that
+                                        // single unmeasured frame was the whole non-SoC
+                                        // justification for the seed.
+                                        //
+                                        // A gate that exists to fail closed must refuse when it
+                                        // cannot measure, not pass. Healthy hardware is unaffected:
+                                        // the loop runs 8 captures and every one after the first
+                                        // yields a delta, so cam_meas is 7 in the normal case on
+                                        // both boards. Waveshare still falls through to imu_ok;
+                                        // M5Stack now shows "Need more light" for a capture run
+                                        // that produced fewer than two frames, which is the correct
+                                        // answer to an unverifiable source.
+                                        //
                                         // Enough bytes moved, AND the movement is per-pixel
                                         // rather than the whole image shifting together. The
                                         // second condition was briefly a `distinct` threshold,
                                         // which refused a spatially flat but genuinely noisy dark
                                         // frame; AC is the honest discriminator.
                                         let cam_ok = got_entropy
-                                            && (cam_meas == 0
-                                                || (cam_changed / cam_meas
-                                                        >= crate::hw::frame_noise::MIN_CHANGED_FOR_ENTROPY
-                                                    && cam_ac / cam_meas
-                                                        >= crate::hw::frame_noise::MIN_AC_FOR_ENTROPY));
+                                            && cam_meas > 0
+                                            && cam_changed / cam_meas
+                                                >= crate::hw::frame_noise::MIN_CHANGED_FOR_ENTROPY
+                                            && cam_ac / cam_meas
+                                                >= crate::hw::frame_noise::MIN_AC_FOR_ENTROPY;
                                         // _imu_bytes counts only collections that passed the
                                         // per-axis health check, so non-zero means at least one
                                         // substantiated IMU contribution. Always 0 on m5stack,
