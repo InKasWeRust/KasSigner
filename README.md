@@ -8,7 +8,15 @@
 
 > ⚠️ **IMPORTANT: KasSigner is an EXPERIMENTAL offline signing device. It is NOT a hardware wallet. It has NO secure element and NO persistent storage. All keys are wiped on power-off. This software has NOT been professionally audited. Do NOT use KasSigner to manage funds you cannot afford to lose.**
 
+> ⚠️ **SEEDS FROM 1.0.4 AND EARLIER: two defects in how those seeds were generated. Neither affects transaction signing, key derivation, or any address you hold. Both closed in 1.0.5.**
+>
+> **1. Dice rolls were printed to the USB serial log**, and those rolls are the entire seed entropy. A computer capturing serial while you rolled has your seed. **If you made a dice seed on a device plugged into a computer, generate a fresh one and move the balance.** Wall adapter, battery or data-blocker was never exposed.
+>
+> **2. Seeds generated in poor light may rest on very little.** Camera sensor noise was the main source, and in a dim room or with the lens covered the sensor returns near-identical frames and contributes almost nothing. The device generated a seed anyway, without warning. The hardware RNG meant to back it up was addressed at the wrong register for this chip and returned zeros on every device. **If you generated a seed automatically on 1.0.4 or earlier and cannot be confident the camera saw a well-lit, detailed scene, generate a fresh one and move the balance.** 1.0.5 measures frame-to-frame change and refuses with "Need more light".
+
 KasSigner is an open-source signing device built on ESP32-S3. It generates private keys offline, signs transactions via QR code exchange, and never connects to any network. All key material lives in RAM only and is destroyed when the device powers off. If you have not run the eFuse runbook, treat the USB port as a debug port, not a power port. Power only from sources you own, never import a seed while connected to a computer, and consider a data-blocker.
+
+In 1.0.5 the published images build with the `production` feature, which compiles out the serial log entirely and gates the USB Serial/JTAG peripheral into reset after boot verification. Download mode stays reachable by the BOOT-button sequence, which needs physical possession of the device.
 
 100% Rust. Bare-metal `no_std`. No operating system. No vendor libraries in the signing path.
 
