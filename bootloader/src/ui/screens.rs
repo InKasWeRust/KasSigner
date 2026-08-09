@@ -2051,6 +2051,64 @@ pub fn draw_home_grid(&mut self) {
     }
 
     /// Draw dice roll screen
+    /// Touch entropy canvas. Deliberately bare: the whole screen is the
+    /// collection surface, so there is nothing to tap by accident and the
+    /// event cadence measured here is the one the feature would see.
+    ///
+    /// Drawn once on entry. Points are painted incrementally by
+    /// `draw_touch_entropy_point` so the loop does not repaint the canvas
+    /// per event, which would dominate the timing being measured.
+    pub fn draw_touch_entropy_screen(&mut self, count: usize, target: usize) {
+        self.clear_keep_nav();
+
+        let mut title_buf: heapless::String<30> = heapless::String::new();
+        core::fmt::Write::write_fmt(&mut title_buf,
+            format_args!("TOUCH {count}/{target}")).ok();
+        let tw = measure_header(title_buf.as_str());
+        draw_oswald_header(&mut self.display, &title_buf, (320 - tw) / 2, 25, COLOR_TEXT);
+
+        Rectangle::new(Point::new(30, 35), Size::new(260, 8))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        let msg = "Draw here. Keep moving.";
+        let sw = measure_body(msg);
+        draw_lato_body(&mut self.display, msg, (320 - sw) / 2, 62, COLOR_TEXT_DIM);
+
+        // The canvas. Bounds match the region the handler accepts, so a point
+        // that is painted is a point that was recorded.
+        Rectangle::new(Point::new(20, 75), Size::new(280, 140))
+            .into_styled(PrimitiveStyle::with_stroke(COLOR_TEXT_DIM, 1))
+            .draw(&mut self.display).ok();
+    }
+
+    /// Paint one recorded point, and advance the progress bar.
+    ///
+    /// Incremental on purpose: repainting the screen per event would add tens
+    /// of milliseconds to every sample and the measured inter-event delta
+    /// would be the redraw, not the touch controller.
+    pub fn draw_touch_entropy_point(&mut self, x: u16, y: u16, count: usize, target: usize) {
+        if x >= 21 && x < 299 && y >= 76 && y < 214 {
+            Rectangle::new(Point::new(x as i32 - 1, y as i32 - 1), Size::new(3, 3))
+                .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+                .draw(&mut self.display).ok();
+        }
+        // Paint ONLY the new segment. Repainting the whole bar made its cost
+        // grow with `count` - one pixel column, 8 px, about 65 SYSTIMER ticks
+        // per event - and the first probe run measured that ramp instead of
+        // the touch controller: deltas climbed 20198, 20204, 20273, 20350 ...
+        // monotonically, which reads as `gcd 1, 255 distinct` and looks
+        // exactly like real jitter. It was the progress bar.
+        let w_now = if target > 0 { (260 * count / target).min(260) } else { 0 };
+        let w_prev = if target > 0 { (260 * count.saturating_sub(1) / target).min(260) } else { 0 };
+        if w_now > w_prev {
+            Rectangle::new(Point::new(30 + w_prev as i32, 35),
+                           Size::new((w_now - w_prev) as u32, 8))
+                .into_styled(PrimitiveStyle::with_fill(KASPA_ACCENT))
+                .draw(&mut self.display).ok();
+        }
+    }
+
     pub fn draw_dice_screen(&mut self, count: usize, target: usize) {
         self.clear_keep_nav();
 

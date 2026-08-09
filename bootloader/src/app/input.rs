@@ -325,6 +325,10 @@ pub enum AppState {
     ToolsMenu,
     /// Seed Tools sub-menu
     SeedToolsMenu,
+    /// Touch entropy collection: a bare canvas the user draws on. The screen
+    /// is the collection surface, so a stray tap cannot trigger a menu action
+    /// and the measured cadence is the one the real feature would see.
+    TouchEntropy,
     /// Import/Export choice (2-button screen)
     ImportExportChoice,
     /// Import sub-menu
@@ -715,6 +719,7 @@ pub fn new() -> Self {
             | AppState::ViewSeed | AppState::SeedBackup { .. }
             | AppState::DiceRoll | AppState::ImportWord { .. }
             | AppState::CalcLastWord { .. } | AppState::ChooseWordCount { .. }
+            | AppState::TouchEntropy
             | AppState::PassphraseEntry | AppState::ExportSeedQR | AppState::ExportKpub
             | AppState::ExportKpubModeChoice | AppState::ExportKpubFrameCount | AppState::ExportKpubPopup | AppState::KpubScannedPopup
             | AppState::SeedList | AppState::DisplaySettings
@@ -1033,6 +1038,13 @@ pub fn handler_group(&self) -> HandlerGroup {
             // Transient states handled by signing pipeline, not touch
             Signing { .. } | SdBackupWriting | SdRestoreReading
                 => HandlerGroup::None,
+
+            // Touch entropy canvas: every point on the screen is collection
+            // surface, so there is nothing for a handler to dispatch. main.rs
+            // records and paints directly, and the state exits itself once the
+            // buffer fills. Routing it to a handler would give the canvas
+            // tap targets, which is exactly what it must not have.
+            TouchEntropy => HandlerGroup::None,
 
             // Icon browser — handled by menu handler
             #[cfg(feature = "icon-browser")]

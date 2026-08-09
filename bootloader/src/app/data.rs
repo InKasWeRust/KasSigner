@@ -604,7 +604,7 @@ pub fn new() -> Self {
                 &["Seed Tools", "Import / Export", "Single Signature", "Multisig"]
             ),
             seed_tools_menu: crate::app::input::Menu::from_items(
-                &["New Seed", "Dice Seed", "Import Words", "Address", "BIP85 Child", "Calc Last Word"]
+                &["New Seed", "Dice Seed", "Touch Seed", "Import Words", "Address", "BIP85 Child", "Calc Last Word"]
             ),
             import_menu: crate::app::input::Menu::from_items(
                 &["Import from SD", "Stego Import", "Import Raw Key", "Covenant Restore"]

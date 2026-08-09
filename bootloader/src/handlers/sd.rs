@@ -1031,6 +1031,34 @@ pub fn handle_sd_touch(
                                                     delay.delay_millis(2000);
                                                 }
                                             }
+
+                                            // Wipe the seed and the ciphertext before this arm
+                                            // ends, for the same reason `pp_copy` is wiped below.
+                                            //
+                                            // `restored_indices` holds the decrypted mnemonic as
+                                            // BIP39 indices: the whole secret in its most directly
+                                            // usable form. It is a stack local on the deepest frame
+                                            // this device has, so the bytes survive until something
+                                            // reuses that region, which is rarely.
+                                            //
+                                            // `file_buf` is only ciphertext, but it is the input to
+                                            // a dictionary attack on the passphrase, and the
+                                            // legacy-format branch above exists precisely because
+                                            // that format shares one salt across every device and
+                                            // every file.
+                                            //
+                                            // The copy that matters is `ad.mnemonic_indices`, which
+                                            // the OK path in handlers/seed.rs consumes and the back
+                                            // path there now clears.
+                                            {
+                                                let mut file_buf = file_buf;
+                                                for w in restored_indices.iter_mut() {
+                                                    unsafe { core::ptr::write_volatile(w, 0); }
+                                                }
+                                                for b in file_buf.iter_mut() {
+                                                    unsafe { core::ptr::write_volatile(b, 0); }
+                                                }
+                                            }
                                         }
                                         Err(e) => {
                                             log!("[SD-RESTORE] Read failed: {}", e);

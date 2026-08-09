@@ -1035,6 +1035,78 @@ fn main() -> ! {
             (ts, act)
         };
 
+        // Ambient touch harvest, BOTH BOARDS. Every contact the UI reports,
+        // anywhere in the interface, folds into the stage `fill()` mixes.
+        //
+        // This is M5Stack's only non-SoC entropy source: `cam_dma` is
+        // Waveshare-only and that board has no IMU, so before this its
+        // signature nonces rested on SYSTIMER, the eFuse MAC and the WDEV -
+        // a counter, a constant and one register.
+        //
+        // Movement-gated inside `stage_touch`: measured, only 9% of polls
+        // during continuous drawing were actual movement, and staging the
+        // other 91% would inflate the count while adding nothing.
+        if let hw::touch::TouchState::One(p) = touch_state {
+            crypto::entropy::stage_touch(p.x, p.y);
+        }
+
+        // Touch entropy collection. Confined to its own screen: the canvas is
+        // the collection surface, so nothing here fires during menu use and
+        // the cadence measured is the one the feature would see.
+        //
+        // Stage zero settled the clock: a SYSTIMER latch+read costs ~165 ns
+        // against a touch interval of 10-100 ms, five orders of magnitude of
+        // headroom. What is measured here is the TOUCH CONTROLLER's cadence,
+        // which is what decides whether timing carries credit at all.
+        //
+        // Points are painted incrementally rather than by a full redraw:
+        // repainting per event would add tens of milliseconds to every sample
+        // and the measured delta would be the redraw, not the finger.
+        if matches!(ad.app.state, app::input::AppState::TouchEntropy) {
+            if let hw::touch::TouchState::One(p) = touch_state {
+                let before = crypto::entropy::touch_probe_count();
+                crypto::entropy::touch_probe_record(p.x, p.y);
+                let after = crypto::entropy::touch_probe_count();
+                if after != before {
+                    boot_display.draw_touch_entropy_point(
+                        p.x, p.y, after, crypto::entropy::TOUCH_PROBE_MAX);
+                    if after >= crypto::entropy::TOUCH_PROBE_MAX {
+                        // Report and raw dump are MEASUREMENT ONLY. They need
+                        // the stored stream, which a production build does not
+                        // keep: events are folded into a running SHA-256 as
+                        // they arrive, so the 16 KB of `.bss` the arrays used
+                        // to cost exists only under `rng-probe`. The dump is
+                        // the seed preimage besides.
+                        #[cfg(feature = "rng-probe")]
+                        {
+                            crypto::entropy::touch_probe_report("canvas");
+                            crypto::entropy::touch_probe_dump();
+                        }
+
+                        boot_display.draw_saving_screen("Generating seed...");
+                        let wc = if ad.word_count == 24 { 24u8 } else { 12u8 };
+                        let mut wizard = ui::setup_wizard::SetupWizard::new();
+                        wizard.word_count = wc;
+                        let mut ent = crypto::entropy::touch_extract_entropy_32();
+                        wizard.generate_from_entropy(&ent);
+                        for b in ent.iter_mut() {
+                            unsafe { core::ptr::write_volatile(b, 0); }
+                        }
+                        // The capture is the seed preimage: wipe it, do not
+                        // merely reset the index.
+                        crypto::entropy::touch_probe_zeroize();
+                        ad.mnemonic_indices = wizard.mnemonic;
+                        ad.word_count = wc;
+                        wizard.zeroize();
+                        log!("   Touch seed generated ({} words)", wc);
+                        ad.pp_input.reset();
+                        ad.app.state = app::input::AppState::PassphraseEntry;
+                        ad.needs_redraw = true;
+                    }
+                }
+            }
+        }
+
         ad.idle_ticks = ad.idle_ticks.saturating_add(1);
 
         let is_touch = !matches!(action, hw::touch::TouchAction::None);
@@ -1833,6 +1905,15 @@ fn run_signing_pipeline_test(ad: &mut AppData) {
     }
     #[cfg(feature = "waveshare")]
     log!("   Signing pipeline test: skipped (waveshare stack limit)");
+
+    // Stage zero for touch-entropy timing credit: measure the cost of a
+    // back-to-back SYSTIMER latch+read. The counter resolves at 62.5 ns/tick
+    // and `delay_us_systimer` already depends on that, so the open question is
+    // the READ cost: if it exceeds the interval being measured, touch deltas
+    // come back as multiples of it and look like I2C polling quantization.
+    // Runs on both boards, no touch involved, ~256 reads.
+    #[cfg(feature = "rng-probe")]
+    crypto::entropy::probe_systimer_read_cost();
 
     // Before the cleanup below, so the sentinel is still where the test left it.
     // Expect hits here: without them the post-wipe scan proves nothing.

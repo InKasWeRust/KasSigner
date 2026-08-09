@@ -106,6 +106,12 @@ pub mod sd_backup;
 // board and a null-pointer test on the other (audit E-07).
 pub mod frame_noise;
 
+// E-12 raw-frame capture. Board-agnostic on purpose: `cam_dma` is Waveshare
+// only and M5Stack captures through DvpCamera, so this module takes the
+// pixel slice from the caller rather than reaching for a camera itself.
+#[cfg(feature = "e12-capture")]
+pub mod entropy_capture;
+
 // ─── M5Stack-only modules ────────────────────────────────────
 // ES7210 audio ADC, identification only. Candidate entropy source for a board
 // whose only non-SoC source is a camera that goes bit-identical in darkness.
