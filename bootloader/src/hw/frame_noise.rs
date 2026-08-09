@@ -270,6 +270,36 @@ pub fn measure(pixels: &[u8]) -> Option<FrameNoise> {
 /// below the lowest passing observation. The region between the zero run and
 /// the next-worst was not sampled, so this catches a dead sensor and does not
 /// certify 256 bits.
+/// PER BOARD, because the two capture paths sample different populations.
+///
+/// `measure` takes 256 stride samples from whatever buffer it is handed:
+///
+/// ```text
+///   M5Stack    DvpCamera, 76,800 B per frame  ->  stride 300, spread across
+///              the whole 320x240 image
+///   Waveshare  cam_dma, 8,064 B per read      ->  stride 31, a narrow band
+///              of one 480x480 frame
+/// ```
+///
+/// `changed` is comparative and survives that difference: measured 235 to 247
+/// of 256 on healthy Waveshare captures, seven times its own floor. `distinct`
+/// counts values within one sample set, and a short smooth slice shows fewer
+/// of them even from a perfectly live sensor. Three healthy Waveshare runs
+/// measured `distinct min` of 8, 9 and 22.
+///
+/// The M5Stack value of 10 was derived from eight E-12 captures on that board
+/// (zero-entropy run: `distinct 1`; lowest passing run: 36). **No equivalent
+/// Waveshare dataset exists.** 5 is a bare liveness floor, not a calibration:
+/// it clears the lowest observed healthy value by 1.6x and still refuses a
+/// slice where nearly every sample is identical. The real number wants an
+/// E-12 run on Waveshare, including a lens-covered control.
+///
+/// A Waveshare capture that fails this still has the IMU behind it
+/// (`cam_ok || imu_ok`), which is why the looser floor is tolerable there and
+/// would not be on M5Stack, where the camera is the only source.
+#[cfg(feature = "waveshare")]
+pub const MIN_DISTINCT_FOR_ENTROPY: u32 = 5;
+#[cfg(feature = "m5stack")]
 pub const MIN_DISTINCT_FOR_ENTROPY: u32 = 10;
 
 /// Verdict on ONE frame delta.

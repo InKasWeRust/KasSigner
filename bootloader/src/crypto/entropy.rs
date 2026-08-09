@@ -763,6 +763,102 @@ pub fn imu_stage_count() -> u32 {
 ///
 /// `out` is left ZEROED on failure, not partially filled, so a caller that
 /// ignores the result cannot proceed with half-random material.
+/// Evaluate a 32-word WDEV window against the five continuous health tests.
+///
+/// EXTRACTED SO THE SEED PATH CAN USE IT. `fill` has always run these; the
+/// seed generator sampled the same register, the same 32 words, at the same
+/// 2 us spacing, and then hashed them without evaluating anything. That is not
+/// a different source used carelessly, it is the SAME source sampled the SAME
+/// way with the gate removed.
+///
+/// The tests are worth having, measured rather than assumed. Four degraded
+/// sources recorded in the comments below pass a naive bit-balance check and
+/// fail this one:
+///
+/// ```text
+///   a SYSTIMER-like counter (+0x40 stride)   304 ones, PASSED balance alone
+///   a slow +1 counter                        464 ones, PASSED
+///   upper 16 bits stuck                      607 ones, PASSED
+///   a 35%-biased source                      346 ones, PASSED
+/// ```
+///
+/// So `distinct`, `stuck_bits` and `!monotonic` are precisely the tests that
+/// catch what a ones-band misses.
+///
+/// All five are pure functions of the window, so this recomputes `repeats` and
+/// `ones` rather than taking them from the sampling loop. That costs 32
+/// comparisons and 32 `count_ones` and lets any caller holding 32 words
+/// evaluate them.
+pub fn evaluate_window(seen: &[u32; 32]) -> WdevHealth {
+    let mut repeats = 0u32;
+    let mut ones = 0u32;
+    for i in 0..32usize {
+        ones += seen[i].count_ones();
+        if i > 0 && seen[i] == seen[i - 1] {
+            repeats += 1;
+        }
+    }
+
+    let mut distinct = 0u32;
+    for i in 0..32usize {
+        let mut dup = false;
+        for j in 0..i {
+            if seen[i] == seen[j] {
+                dup = true;
+                break;
+            }
+        }
+        if !dup {
+            distinct += 1;
+        }
+    }
+
+    // Bit positions that never changed across the window.
+    let mut stuck_bits = 0u32;
+    for bit in 0..32u32 {
+        let first = (seen[0] >> bit) & 1;
+        let mut constant = true;
+        for w in seen.iter() {
+            if (w >> bit) & 1 != first {
+                constant = false;
+                break;
+            }
+        }
+        if constant {
+            stuck_bits += 1;
+        }
+    }
+
+    // Direction of each step. A window that nearly always moves the same way
+    // is a counter, not a random source.
+    let mut ascending = 0u32;
+    let mut descending = 0u32;
+    for i in 1..32usize {
+        if seen[i] > seen[i - 1] {
+            ascending += 1;
+        } else if seen[i] < seen[i - 1] {
+            descending += 1;
+        }
+    }
+    let monotonic = ascending >= 30 || descending >= 30;
+
+    // 32 words = 1024 bits. Band 25%..75% -> 256..768 ones.
+    let balance_ok = (256..=768).contains(&ones);
+
+    WdevHealth {
+        repeats,
+        distinct,
+        ones,
+        stuck_bits,
+        monotonic,
+        healthy: repeats == 0
+            && distinct == 32
+            && balance_ok
+            && stuck_bits == 0
+            && !monotonic,
+    }
+}
+
 pub fn fill(out: &mut [u8]) -> Result<(), EntropyError> {
     enable_rc_fast();
     enable_sar_adc_noise();
@@ -853,62 +949,8 @@ pub fn fill(out: &mut [u8]) -> Result<(), EntropyError> {
         ones += rng_val.count_ones();
         delay_us_systimer(2);
     }
-    let mut distinct = 0u32;
-    for i in 0..32usize {
-        let mut dup = false;
-        for j in 0..i {
-            if seen[i] == seen[j] {
-                dup = true;
-                break;
-            }
-        }
-        if !dup {
-            distinct += 1;
-        }
-    }
-    // Bit positions that never changed across the window.
-    let mut stuck_bits = 0u32;
-    for bit in 0..32u32 {
-        let first = (seen[0] >> bit) & 1;
-        let mut constant = true;
-        for w in seen.iter() {
-            if (w >> bit) & 1 != first {
-                constant = false;
-                break;
-            }
-        }
-        if constant {
-            stuck_bits += 1;
-        }
-    }
-
-    // Direction of each step. A window that nearly always moves the same way
-    // is a counter, not a random source.
-    let mut ascending = 0u32;
-    let mut descending = 0u32;
-    for i in 1..32usize {
-        if seen[i] > seen[i - 1] {
-            ascending += 1;
-        } else if seen[i] < seen[i - 1] {
-            descending += 1;
-        }
-    }
-    let monotonic = ascending >= 30 || descending >= 30;
-
-    // 32 words = 1024 bits. Band 25%..75% -> 256..768 ones.
-    let balance_ok = (256..=768).contains(&ones);
-    let health = WdevHealth {
-        repeats,
-        distinct,
-        ones,
-        stuck_bits,
-        monotonic,
-        healthy: repeats == 0
-            && distinct == 32
-            && balance_ok
-            && stuck_bits == 0
-            && !monotonic,
-    };
+    let health = evaluate_window(&seen);
+    let _ = (repeats, ones); // recomputed inside evaluate_window
     LAST_WDEV_HEALTH.store(health.pack(), Ordering::Relaxed);
     for w in seen.iter_mut() {
         unsafe { core::ptr::write_volatile(w, 0) };

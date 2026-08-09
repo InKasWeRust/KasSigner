@@ -531,6 +531,33 @@ impl AppData {
         for pk in self.pubkey_cache.iter_mut()        { zeroize_buf(pk); }
         for pk in self.change_pubkey_cache.iter_mut() { zeroize_buf(pk); }
 
+        // Export and backup buffers. Everything above covers the SIGNING data
+        // model. These are materialised on the EXPORT paths and were added
+        // after this function was written, so they were never added to it:
+        //
+        //   export_key_hex    a private key rendered as ASCII hex, for display
+        //                     (handlers/seed.rs, handlers/export.rs)
+        //   xprv_data         an extended private key staged for QR export
+        //                     (handlers/export.rs)
+        //   stego_pp_buf      a passphrase, for SD-card steganographic backup
+        //                     (handlers/stego.rs)
+        //
+        // Note the severity of the first two: 64 bytes of hex is a full
+        // private key in the most directly readable form there is, and an
+        // xprv yields the whole subtree rather than one key.
+        //
+        // The encrypted passphrase goes too. Lower value on its own, but it
+        // belongs to the same operation, and leaving it means someone later
+        // has to reason about whether that ciphertext plus something else on
+        // the device is enough.
+        zeroize_buf(&mut self.export_key_hex);
+        zeroize_buf(&mut self.xprv_data);
+        self.xprv_len = 0;
+        zeroize_buf(&mut self.stego_pp_buf);
+        self.stego_pp_len = 0;
+        zeroize_buf(&mut self.stego_pp_encrypted);
+        self.stego_pp_enc_len = 0;
+
         // 3. Input buffers that can hold partial secrets mid-entry.
         self.pp_input.reset();
         self.word_input.reset();
