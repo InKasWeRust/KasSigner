@@ -400,6 +400,18 @@ pub fn handle_seed_touch(
                     crate::app::input::AppState::PassphraseEntry => {
                         if is_back {
                             ad.pp_input.reset();
+                            // The seed is ALREADY in `mnemonic_indices` at this point: every
+                            // path here - New Seed, Dice, Touch, Import Words, SD restore -
+                            // fills it and defers the store to the OK below. Abandoning must
+                            // not leave it sitting in RAM until an idle timeout, a duress
+                            // wipe, or the next seed operation happens to overwrite it.
+                            //
+                            // The passphrase on the line above is reset for exactly this
+                            // reason, and the seed is the larger secret of the two.
+                            for w in ad.mnemonic_indices.iter_mut() {
+                                unsafe { core::ptr::write_volatile(w, 0); }
+                            }
+                            ad.word_count = 0;
                             ad.app.state = crate::app::input::AppState::SeedToolsMenu;
                             needs_redraw = true;
                         } else {

@@ -206,6 +206,23 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
                     .into_styled(PrimitiveStyle::with_fill(black)).draw(d).ok();
             }
         }
+        s if s.starts_with("Touch")       => {
+            // Custom tap indicator: a filled contact point with two ripples.
+            // Hand-drawn rather than an iconoir name, for the same reason the
+            // dice icon is: the set has no unambiguous finger glyph, and a
+            // guessed path is a compile error rather than a wrong picture.
+            let sz = 24i32;
+            let cx = pos.x + sz / 2;
+            let cy = pos.y + sz / 2 + 2;
+            // contact point
+            Circle::new(Point::new(cx - 3, cy - 3), 7)
+                .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL)).draw(d).ok();
+            // ripples
+            Circle::new(Point::new(cx - 7, cy - 7), 15)
+                .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1)).draw(d).ok();
+            Circle::new(Point::new(cx - 11, cy - 11), 23)
+                .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1)).draw(d).ok();
+        }
         s if s.starts_with("Import Words") => draw_icon!(size24px::actions::Download),
         s if s.starts_with("Calc Last")   => draw_icon!(size24px::editor::NumberedListRight),
         s if s.starts_with("BIP85")       => draw_icon!(size24px::git::GitFork),

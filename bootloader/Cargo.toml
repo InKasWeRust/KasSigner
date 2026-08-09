@@ -27,6 +27,11 @@ production = ["silent"]
 silent = []
 verbose-boot = []
 skip-tests = []
+# E-12 measurement: capture the raw camera bytes the seed path hashes to
+# ENTCAP<tag>.BIN on SD, for offline SP 800-90B analysis. hw/frame_noise.rs
+# sets MIN_AC_FOR_ENTROPY from four observations and asks for exactly this.
+# Measurement only. NEVER enable for a shipped build.
+e12-capture = []
 # SRAM sentinel scan. Compiles the boot test's account PRIVATE KEY into the
 # binary as a search pattern, to prove a wipe actually reached a real secret.
 # Measurement only. NEVER enable for a shipped build.

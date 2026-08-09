@@ -129,8 +129,9 @@ pub fn handle_menu_touch(
                                 match item {
                                     0 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 0 }; } // New Seed
                                     1 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 1 }; } // Dice Seed
-                                    2 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 2 }; } // Import Words
-                                    3 => { // Address
+                                    2 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 5 }; } // Touch Seed
+                                    3 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 2 }; } // Import Words
+                                    4 => { // Address
                                         if ad.seed_loaded {
                                             // Derive pubkeys if not cached
                                             if !ad.pubkeys_cached {
@@ -196,7 +197,7 @@ pub fn handle_menu_touch(
                                             delay.delay_millis(1500);
                                         }
                                     }
-                                    4 => { // BIP85 Child
+                                    5 => { // BIP85 Child
                                         if ad.seed_loaded {
                                             ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 4 };
                                         } else {
@@ -204,7 +205,7 @@ pub fn handle_menu_touch(
                                             delay.delay_millis(1500);
                                         }
                                     }
-                                    5 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 3 }; } // Calc Last Word
+                                    6 => { ad.app.state = crate::app::input::AppState::ChooseWordCount { action: 3 }; } // Calc Last Word
                                     _ => {}
                                 }
                             }
@@ -688,6 +689,10 @@ pub fn handle_menu_touch(
                                         // frames, the Waveshare cam_dma fallback hands over the
                                         // partial capture. Gating this on `waveshare` is what left
                                         // audit E-07 open on M5Stack.
+                                        // E-12: every delta must pass on its own. `cam_meas`
+                                        // counts deltas measured; `cam_live` counts those that
+                                        // passed. A mean cannot see a sensor that stops partway.
+                                        let mut cam_live = 0u32;
                                         let mut cam_meas = 0u32;
                                         let mut cam_changed = 0u32;
                                         let mut cam_mad = 0u32;
@@ -740,6 +745,9 @@ pub fn handle_menu_touch(
                                                                 crate::hw::frame_noise::measure(pixels)
                                                             {
                                                                 cam_meas += 1;
+                                                                if crate::hw::frame_noise::is_live(&fm) {
+                                                                    cam_live += 1;
+                                                                }
                                                                 cam_changed += fm.changed;
                                                                 cam_mad += fm.mad_x100;
                                                                 cam_ac += fm.ac_x100;
@@ -796,6 +804,9 @@ pub fn handle_menu_touch(
                                                         crate::hw::frame_noise::measure(pixels)
                                                     {
                                                         cam_meas += 1;
+                                                        if crate::hw::frame_noise::is_live(&fm) {
+                                                            cam_live += 1;
+                                                        }
                                                         cam_changed += fm.changed;
                                                         cam_mad += fm.mad_x100;
                                                         cam_ac += fm.ac_x100;
@@ -814,6 +825,8 @@ pub fn handle_menu_touch(
                                         // `changed` near zero means the buffer is not refreshing
                                         // and the camera contributes nothing while the summary
                                         // line claims 8 frames.
+                                        crate::log!("   Entropy: CAM live {}/{} deltas",
+                                            cam_live, cam_meas);
                                         if cam_meas > 0 {
                                             let ch = cam_changed / cam_meas;
                                             let mad = cam_mad / cam_meas;
@@ -1006,17 +1019,40 @@ pub fn handle_menu_touch(
                                         // that produced fewer than two frames, which is the correct
                                         // answer to an unverifiable source.
                                         //
-                                        // Enough bytes moved, AND the movement is per-pixel
-                                        // rather than the whole image shifting together. The
-                                        // second condition was briefly a `distinct` threshold,
-                                        // which refused a spatially flat but genuinely noisy dark
-                                        // frame; AC is the honest discriminator.
+                                        // EVERY DELTA MUST PASS, not the average of them. This
+                                        // extends the `cam_meas > 0` requirement above rather
+                                        // than replacing it: that fixed a run which measured
+                                        // NOTHING, this fixes a run whose mean hides deltas that
+                                        // measured nothing.
+                                        //
+                                        // E-12 measured a capture whose averages cleared every
+                                        // threshold while four of its seven deltas were frozen
+                                        // (bit-identical frames, `changed` 0, `distinct` 1).
+                                        // NIST SP 800-90B `ea_non_iid`, all ten estimators over
+                                        // the frame-delta stream, assessed that capture at ZERO
+                                        // min-entropy and the device generated a seed from it.
+                                        // Three live deltas at the head carried the dead tail.
+                                        //
+                                        // AC IS OUT OF THE GATE, and the note above about
+                                        // `distinct` refusing a flat-but-noisy dark frame is why
+                                        // it is `distinct` PER DELTA rather than a spatial
+                                        // threshold. `ac_x100` is `MAD - |shift|`, which is not
+                                        // the AC component: half the pixels moving 0 and half
+                                        // moving +32 gives MAD 16, shift 16, AC 0, while every
+                                        // pixel carried an independent bit. Measured, a capture
+                                        // assessing at 830 bits had `min AC` 0.01, and the single
+                                        // richest delta in the set (4.09 bits/byte) scored 0.06.
+                                        // It ranks acceptably and thresholds inverted, so it
+                                        // stays in the log line and out of the decision.
+                                        //
+                                        // `is_live` is `changed >= MIN_CHANGED_FOR_ENTROPY &&
+                                        // distinct >= MIN_DISTINCT_FOR_ENTROPY`, applied to each
+                                        // delta as it is measured. `cam_meas > 0` is kept: it is
+                                        // still the condition that refuses a run producing no
+                                        // delta at all.
                                         let cam_ok = got_entropy
                                             && cam_meas > 0
-                                            && cam_changed / cam_meas
-                                                >= crate::hw::frame_noise::MIN_CHANGED_FOR_ENTROPY
-                                            && cam_ac / cam_meas
-                                                >= crate::hw::frame_noise::MIN_AC_FOR_ENTROPY;
+                                            && cam_live == cam_meas;
                                         // _imu_bytes counts only collections that passed the
                                         // per-axis health check, so non-zero means at least one
                                         // substantiated IMU contribution. Always 0 on m5stack,
@@ -1056,6 +1092,19 @@ pub fn handle_menu_touch(
                                             delay.delay_millis(2000);
                                             ad.app.state = crate::app::input::AppState::ToolsMenu;
                                         }
+                                    }
+                                    5 => {
+                                        // Touch. The canvas is the collection surface: a bare
+                                        // screen means a stray tap cannot trigger a menu action,
+                                        // and the cadence collected is the one the feature sees.
+                                        //
+                                        // Word count rides on `ad.word_count` rather than a
+                                        // second collector type: the target event count does not
+                                        // change with it. 2,048 events give 1,558 bits at the
+                                        // measured worst case, six times a 24-word seed's 256.
+                                        crate::crypto::entropy::touch_probe_reset();
+                                        ad.word_count = wc;
+                                        ad.app.state = crate::app::input::AppState::TouchEntropy;
                                     }
                                     1 => {
                                         // Dice

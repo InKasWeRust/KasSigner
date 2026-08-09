@@ -94,7 +94,14 @@ static mut NOISE_SNAP_VALID: bool = false;
 /// buffer reads 0. 6.25% sits a seventh of the way to the measured floor and
 /// two orders of magnitude above a dead one, which is the margin a threshold
 /// that can refuse to generate a seed needs to have.
-pub const MIN_CHANGED_FOR_ENTROPY: u32 = (NOISE_SAMPLES / 16) as u32;
+///
+/// RAISED 1/16 -> 3/25 (6.25% -> 12%) from the E-12 measurements tabulated at
+/// `MIN_DISTINCT_FOR_ENTROPY`. 30 of 256 sits 2.3x below the lowest per-delta
+/// `changed` on any run that assessed above 256 bits, and rejects none of the
+/// eight. The old 6.25% also rejects none of them; the increase buys margin
+/// against a colder sensor or another unit landing between the two, at the
+/// cost of a retry rather than a seed.
+pub const MIN_CHANGED_FOR_ENTROPY: u32 = (NOISE_SAMPLES * 3 / 25) as u32;
 
 /// Minimum AC component, scaled by 100, for a frame delta to count.
 ///
@@ -241,8 +248,45 @@ pub fn measure(pixels: &[u8]) -> Option<FrameNoise> {
     })
 }
 
-/// Verdict on one frame delta: enough bytes moved, and the movement is
-/// per-pixel rather than the whole image shifting together.
+/// Minimum distinct sample values, of NOISE_SAMPLES, for one delta to count.
+///
+/// MEASURED (E-12, eight captures, NIST SP 800-90B `ea_non_iid`, all ten
+/// estimators over the frame-delta stream):
+///
+///   run                       bits   x256    min changed   min distinct
+///   static, grey subject, dim    0   ZERO              0              1
+///   static, dim                645    2.5             69             36
+///   static                     830    3.2            118             54
+///   moving, slight           2,547    9.9             80             51
+///   moving                  12,976   50.7            113             54
+///   moving                  13,557   53.0             84             41
+///   static, bright          24,813   96.9            142            104
+///   moving, bright          28,342  110.7            133             83
+///
+/// The zero-entropy capture is separated from every other run by BOTH
+/// `changed` (0 vs >=69) and `distinct` (1 vs >=36). Any threshold between
+/// those bounds gives identical results on all eight, so these are margins
+/// over a floor rather than calibrated values: 30 and 10 sit 2.3x and 3.6x
+/// below the lowest passing observation. The region between the zero run and
+/// the next-worst was not sampled, so this catches a dead sensor and does not
+/// certify 256 bits.
+pub const MIN_DISTINCT_FOR_ENTROPY: u32 = 10;
+
+/// Verdict on ONE frame delta.
+///
+/// PER DELTA, NOT AVERAGED. The zero-entropy capture above had four of seven
+/// deltas frozen (`changed` 0, `distinct` 1, bit-identical frames) and its
+/// MEAN still cleared every threshold, because three live deltas at the head
+/// carried the dead tail. A mean cannot see a sensor that stops.
+///
+/// AC IS NOT PART OF THIS. `ac_x100` is `MAD - |shift|`, which is not the AC
+/// component: half the pixels moving 0 and half moving +32 gives MAD 16,
+/// shift 16, AC 0, while every pixel carried an independent bit. Measured, a
+/// run assessing at 830 bits had `min AC` of 0.01, so any AC threshold above
+/// that rejects a good capture; and the single richest delta in the whole
+/// set (4.09 bits/byte by MCV) scored AC 0.06. It is kept in `FrameNoise`
+/// for the log line, where it is informative, and out of the gate, where it
+/// inverts.
 pub fn is_live(n: &FrameNoise) -> bool {
-    n.changed >= MIN_CHANGED_FOR_ENTROPY && n.ac_x100 >= MIN_AC_FOR_ENTROPY
+    n.changed >= MIN_CHANGED_FOR_ENTROPY && n.distinct >= MIN_DISTINCT_FOR_ENTROPY
 }

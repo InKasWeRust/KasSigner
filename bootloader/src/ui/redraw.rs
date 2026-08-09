@@ -129,12 +129,27 @@ pub fn redraw_screen(
                     boot_display.update_menu_content("MULTISIG", &ad.multisig_menu);
                 }
                 crate::app::input::AppState::ChooseWordCount { action } => {
+                    // The camera method's gate is `cam_ok || imu_ok`, so on a
+                    // board with an IMU the seed can legitimately come from
+                    // either source: a capture that fails the per-delta camera
+                    // check still generates, carried by MEMS noise. Labelling
+                    // that "Camera" is a promise the gate does not keep, so
+                    // the title names what the method actually uses.
+                    //
+                    // Per board rather than a vague "Sensors" on both: M5Stack
+                    // has no IMU module, so there it IS camera alone and the
+                    // original label is exactly right.
+                    #[cfg(feature = "waveshare")]
+                    const NEW_SEED_TITLE: &str = "New Seed (Cam+IMU)";
+                    #[cfg(feature = "m5stack")]
+                    const NEW_SEED_TITLE: &str = "New Seed (Camera)";
                     let title = match action {
-                        0 => "New Seed (Camera)",
+                        0 => NEW_SEED_TITLE,
                         1 => "New Seed (Dice)",
                         2 => "Import Words",
                         3 => "Calc Last Word",
                         4 => "BIP85 Child",
+                        5 => "New Seed (Touch)",
                         _ => "Choose",
                     };
                     boot_display.draw_choose_wc_screen(title);
@@ -939,6 +954,12 @@ pub fn redraw_screen(
                 }
                 crate::app::input::AppState::ImportPrivKey => {
                     boot_display.draw_import_privkey_screen(&ad.hex_input, ad.hex_input_len);
+                }
+                crate::app::input::AppState::TouchEntropy => {
+                    boot_display.draw_touch_entropy_screen(
+                        crate::crypto::entropy::touch_probe_count(),
+                        crate::crypto::entropy::TOUCH_PROBE_MAX,
+                    );
                 }
                 crate::app::input::AppState::DiceRoll => {
                     boot_display.draw_dice_screen(

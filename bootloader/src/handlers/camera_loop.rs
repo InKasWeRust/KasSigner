@@ -2079,6 +2079,35 @@ pub fn run_camera_cycle(
 
                             // ── Platform-adaptive frame extraction ──
                             let data = buf_back.as_slice();
+
+                            // Ambient camera harvest. The camera is already
+                            // powered and streaming for the scan, so a frame
+                            // delta costs nothing beyond the measurement -
+                            // which is the same `frame_noise` call the seed
+                            // path makes, and it is gated on `is_live` inside
+                            // `stage_camera_frame`. A frozen sensor still
+                            // returns frames and looks busy: one 8-frame
+                            // capture measured ZERO min-entropy under the full
+                            // SP 800-90B suite while four of its seven deltas
+                            // were bit-identical.
+                            //
+                            // Every 8th frame, not every frame: the scan loop
+                            // runs at camera rate and the entropy is in the
+                            // delta, not the count. `fill()` re-mixes whatever
+                            // is staged on every call regardless.
+                            //
+                            // SHARED BASELINE. `measure` compares against a
+                            // `static mut NOISE_SNAP` that the seed path also
+                            // uses. Safe because the two cannot overlap - they
+                            // are different screens, and the seed path calls
+                            // `reset_baseline()` before its own capture loop
+                            // (handlers/menu.rs:713) so it never inherits a
+                            // frame left here. Both callers are on core 0; the
+                            // core-1 worker runs rqrr, not frame_noise. A
+                            // third caller would need this checked again.
+                            if FN % 8 == 0 {
+                                crate::crypto::entropy::stage_camera_frame(data);
+                            }
                             let data_len = data.len();
                             #[cfg(feature = "waveshare")]
                             let bpl: usize = 640; // YUV422: 320 pixels × 2 bytes
