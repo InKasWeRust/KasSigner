@@ -823,19 +823,39 @@ pub fn sign_and_serialize_multisig(
     use esp_hal::time::Instant;
     let t_start = Instant::now();
 
-    // Build seeds array from loaded slots (cap at 8 to limit stack usage)
-    const MAX_SIGN_SLOTS: usize = 8;
+    // ONE SLOT SIGNS: the selected one, and only it.
+    //
+    // This loop used to derive every loaded slot and hand all of them to the
+    // signer, which then tried each against every input. Two consequences.
+    //
+    // CORRECTNESS. `active_seed_idx` guides which key is preferred, and there
+    // were two independent ways for it to come back None while signing went
+    // ahead anyway with whatever else was loaded:
+    //   (a) the active slot holds an xprv (`word_count == 2`), so the guard
+    //       below `continue`s before the assignment;
+    //   (b) `MAX_SLOTS` is 16 but the loop breaks at `MAX_SIGN_SLOTS` 8, so
+    //       an active slot past the eighth loaded one is never reached.
+    // In both cases the device signed with a key the user had not selected.
+    //
+    // COST. Each slot costs a full PBKDF2 stretch, and the multisig path
+    // rebuilds its address/pubkey table per slot per pass. Deriving one slot
+    // instead of up to eight removes the largest measured cost on this path.
+    //
+    // Multisig is unaffected in substance: a cosigner signs one at a time,
+    // and this device holds one cosigner's key. Signing every loaded slot
+    // filled positions the user did not choose to fill.
+    const MAX_SIGN_SLOTS: usize = 1;
     let mut seeds = [([0u8; 64], false); MAX_SIGN_SLOTS];
     let mut seed_idx = 0usize;
     let mut active_seed_idx: Option<usize> = None;
     let active_mgr_slot = seed_mgr.active as usize;
-    for s in 0..seed_manager::MAX_SLOTS {
-        if seed_idx >= MAX_SIGN_SLOTS { break; }
+    for s in active_mgr_slot..=active_mgr_slot {
         let slot = &seed_mgr.slots[s];
+        // An xprv or raw-key slot cannot be reached through the mnemonic
+        // derivation below. Falling through to another slot would sign with a
+        // key the user did not select, so this refuses instead.
         if slot.is_empty() || slot.is_raw_key() || slot.word_count == 2 { continue; }
-        if s == active_mgr_slot {
-            active_seed_idx = Some(seed_idx);
-        }
+        active_seed_idx = Some(seed_idx);
         // `as_mnemonic` rather than `slot.indices`: on a raw-key or xprv slot
         // that array holds a packed private key, and feeding it to
         // `seed_from_mnemonic_*` reads key bytes as BIP39 word indices. The
@@ -863,6 +883,17 @@ pub fn sign_and_serialize_multisig(
     let seed_ms = (t_after_seeds - t_start).as_millis();
     crate::log!("[sign_t] seed derivation: {} ms ({} slots, active={})", seed_ms, seed_idx,
         active_seed_idx.map(|i| i as i32).unwrap_or(-1));
+
+    // No usable seed in the selected slot: refuse rather than sign with
+    // nothing. Reachable when the active slot holds an xprv or a raw key,
+    // which the mnemonic derivation above cannot use. Previously the loop
+    // fell through to other slots and signed with a key the user had not
+    // chosen; now there is nothing to fall through to, so this must be an
+    // explicit refusal.
+    if active_seed_idx.is_none() {
+        crate::log!("[sign] refused: selected slot holds no usable seed");
+        return 0;
+    }
 
     let signed = wallet::pskt::sign_transaction_multisig(
         tx, &seeds, wallet::transaction::SigHashType::All, active_seed_idx,
@@ -933,6 +964,12 @@ pub fn sign_and_serialize_pskt_multi(
     if wallet::pskt::sign_transaction_multi_addr(
         tx, &acct, wallet::transaction::SigHashType::All, ext,
     ).is_err() {
+        // Named, not silent. This returns the same 0 as a serialization
+        // failure, and the serializer logs its error while this did not, so a
+        // wrong-seed scan and a broken serializer were indistinguishable in
+        // the log. They need different answers from the user: load the right
+        // seed, versus report a bug.
+        crate::log!("[pskt] multi: signing failed: no loaded key matches any input");
         return 0;
     }
     wallet::std_pskt::move_ksp_sigs_to_pskt(tx);
@@ -973,19 +1010,19 @@ pub fn sign_and_serialize_pskt_multisig(
     use esp_hal::time::Instant;
     let t_start = Instant::now();
 
-    // Build seeds array from loaded slots — same pattern as KSPT path.
-    const MAX_SIGN_SLOTS: usize = 8;
+    // ONE SLOT SIGNS, same as the KSPT path above and for the same reasons:
+    // `active_seed_idx` could come back None while signing proceeded with a
+    // key the user had not selected, and deriving every loaded slot cost a
+    // full PBKDF2 stretch each.
+    const MAX_SIGN_SLOTS: usize = 1;
     let mut seeds = [([0u8; 64], false); MAX_SIGN_SLOTS];
     let mut seed_idx = 0usize;
     let mut active_seed_idx: Option<usize> = None;
     let active_mgr_slot = seed_mgr.active as usize;
-    for s in 0..seed_manager::MAX_SLOTS {
-        if seed_idx >= MAX_SIGN_SLOTS { break; }
+    for s in active_mgr_slot..=active_mgr_slot {
         let slot = &seed_mgr.slots[s];
         if slot.is_empty() || slot.is_raw_key() || slot.word_count == 2 { continue; }
-        if s == active_mgr_slot {
-            active_seed_idx = Some(seed_idx);
-        }
+        active_seed_idx = Some(seed_idx);
         // `as_mnemonic` rather than `slot.indices`: on a raw-key or xprv slot
         // that array holds a packed private key, and feeding it to
         // `seed_from_mnemonic_*` reads key bytes as BIP39 word indices. The
@@ -1014,9 +1051,19 @@ pub fn sign_and_serialize_pskt_multisig(
         (t_after_seeds - t_start).as_millis(), seed_idx,
         active_seed_idx.map(|i| i as i32).unwrap_or(-1));
 
+    // Same refusal as the KSPT path: an xprv or raw-key slot cannot be used
+    // by the mnemonic derivation above, and there is no longer another slot
+    // to fall through to.
+    if active_seed_idx.is_none() {
+        crate::log!("[sign] refused: selected slot holds no usable seed");
+        for (s, _) in seeds.iter_mut() { zeroize_seed(s); }
+        return 0;
+    }
+
     if wallet::pskt::sign_transaction_multisig(
         tx, &seeds, wallet::transaction::SigHashType::All, active_seed_idx,
     ).is_err() {
+        crate::log!("[pskt] multisig: signing failed: no loaded key matches any input");
         for (s, _) in seeds.iter_mut() { zeroize_seed(s); }
         return 0;
     }
@@ -1276,20 +1323,60 @@ pub fn handle_signing_step(
                                         || st == wallet::transaction::ScriptType::P2SH
                                 });
                                 let format = ad.tx_input_format;
-                                // Scratch: we need both &ad.signed_qr_buf (read)
-                                // AND &mut ad.signed_qr_buf[..] (write). Work around
-                                // by copying the scratch into a stack-local
-                                // slice first; this costs another 4 KB of
-                                // stack on the signing path. Only needed
-                                // when pskt_parsed.unknowns_count > 0 — for
-                                // canonical vectors that's 0 and scratch
-                                // can be an empty slice.
+                                // Scratch: the serializer needs both
+                                // `&ad.signed_qr_buf` (read: it still holds the
+                                // decoded incoming JSON from parse time) and
+                                // `&mut ad.signed_qr_buf[..]` (write: the
+                                // output). Two borrows of one field.
+                                //
+                                // This used to be resolved by passing an EMPTY
+                                // slice, which silently broke every bundle
+                                // carrying an unknown region. `scratch_range`
+                                // returns `Err(UnexpectedToken)` when
+                                // `end > scratch.len()`, and its callers use
+                                // `?`, so ONE captured region aborts the whole
+                                // serialization. `unwrap_or(0)` then turns that
+                                // into `signed_qr_len = 0`, and the user gets
+                                // "Signing Failed" for a transaction that
+                                // signed correctly and failed only to
+                                // re-serialize.
+                                //
+                                // Confirmed on hardware with three test
+                                // vectors: an unknown top-level field, a
+                                // non-empty `global.proprietaries`, and a
+                                // non-empty `input.proprietaries`. All three
+                                // signed in ~170 ms and returned 0 bytes.
+                                //
+                                // Fixed by copying the decoded JSON into PSRAM
+                                // so the two borrows are of different memory.
+                                // Allocated only when there is something to
+                                // preserve: canonical bundles carry no unknown
+                                // regions and pay nothing.
                                 let scratch_empty: [u8; 0] = [];
+                                let scratch_owned: alloc::vec::Vec<u8> =
+                                    if ad.pskt_parsed.unknowns_count > 0 {
+                                        let n = (ad.pskt_parsed.json_len as usize)
+                                            .min(ad.signed_qr_buf.len());
+                                        let mut v = alloc::vec::Vec::new();
+                                        if v.try_reserve(n).is_ok() {
+                                            v.extend_from_slice(&ad.signed_qr_buf[..n]);
+                                        } else {
+                                            crate::log!("   [pskt] PSRAM alloc failed, unknown regions will not survive");
+                                        }
+                                        v
+                                    } else {
+                                        alloc::vec::Vec::new()
+                                    };
+                                let scratch: &[u8] = if scratch_owned.is_empty() {
+                                    &scratch_empty
+                                } else {
+                                    &scratch_owned
+                                };
                                 if has_multisig {
                                     ad.signed_qr_len = sign_and_serialize_pskt_multisig(
                                         &mut ad.demo_tx, &ad.seed_mgr,
                                         &ad.pskt_parsed,
-                                        &scratch_empty,
+                                        scratch,
                                         format,
                                         &mut ad.signed_qr_buf[..],
                                     );
@@ -1318,7 +1405,7 @@ pub fn handle_signing_step(
                                             &mut ad.demo_tx, &acct_raw,
                                             Some((&mut ad.ext_recv[..], &mut ad.ext_recv_n, &mut ad.ext_chg[..], &mut ad.ext_chg_n)),
                                             &ad.pskt_parsed,
-                                            &scratch_empty,
+                                            scratch,
                                             format,
                                             &mut ad.signed_qr_buf[..],
                                         );

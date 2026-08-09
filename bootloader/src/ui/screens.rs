@@ -611,13 +611,40 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                         if h[..] != in_spk.script[2..34] {
                             continue;
                         }
-                        // One of our pubkeys must appear in it.
+                        // One of our pubkeys must be a COSIGNER, not merely
+                        // present somewhere in the bytes.
+                        //
+                        // The previous check scanned every 32-byte window of
+                        // the redeem script for one of our keys. The hash
+                        // binding above stops a forged script vouching for a
+                        // UTXO it does not unlock, but it does not stop an
+                        // attacker FUNDING a script that contains our pubkey
+                        // without requiring our signature: our key pushed and
+                        // dropped, theirs doing the actual CHECKSIG. That
+                        // script hashes to its own SPK, contains our key, and
+                        // was labelled CHANGE on the review screen. The user
+                        // then sees an output they cannot spend described as
+                        // their own change.
+                        //
+                        // `parse_multisig_script` returns None unless the
+                        // script really is `OP_m <32-byte keys> OP_n
+                        // OP_CHECKMULTISIG`, and yields the cosigner set, so
+                        // membership means our key is one of the signers.
+                        //
+                        // COVENANTS LOSE THE LABEL BY DESIGN. Their redeem
+                        // scripts are not multisig, so this returns None and
+                        // the output shows its address instead. That is the
+                        // correct trade: a covenant output is not change, and
+                        // the address is what the user should be checking.
                         let mut mine = false;
-                        'scan: for w in rs.windows(32) {
-                            for pk in receive_pks.iter().chain(change_pks.iter()) {
-                                if *pk != [0u8; 32] && w == &pk[..] {
-                                    mine = true;
-                                    break 'scan;
+                        if let Some(ms) = crate::wallet::transaction::parse_multisig_script(rs, rs.len()) {
+                            'scan: for idx in 0..ms.n as usize {
+                                let cosigner = &ms.pubkeys[idx];
+                                for pk in receive_pks.iter().chain(change_pks.iter()) {
+                                    if *pk != [0u8; 32] && cosigner == pk {
+                                        mine = true;
+                                        break 'scan;
+                                    }
                                 }
                             }
                         }

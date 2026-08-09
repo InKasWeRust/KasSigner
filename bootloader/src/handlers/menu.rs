@@ -629,21 +629,30 @@ pub fn handle_menu_touch(
                                         crate::crypto::entropy::enable_sar_adc_noise();
 
 
-                                        // Round 1: TRNG seed (32 reads at 500kHz max → ~64µs)
+                                        // Round 1: device identity and timing.
+                                        // Was "TRNG seed"; the TRNG is gone, see below.
                                         {
                                             use sha2::{Sha256, Digest};
                                             let mut hasher = Sha256::new();
-                                            let mut trng_buf = [0u8; 128]; // 32 × 4 bytes
-                                            for i in 0..32 {
-                                                let rng_val = crate::crypto::entropy::read_wdev();
-                                                trng_buf[i*4]     = (rng_val & 0xFF) as u8;
-                                                trng_buf[i*4 + 1] = ((rng_val >> 8) & 0xFF) as u8;
-                                                trng_buf[i*4 + 2] = ((rng_val >> 16) & 0xFF) as u8;
-                                                trng_buf[i*4 + 3] = ((rng_val >> 24) & 0xFF) as u8;
-                                                // ~2µs delay between reads for max entropy
-                                                crate::crypto::entropy::delay_us_systimer(2);
-                                            }
-                                            hasher.update(trng_buf);
+                                            // NO WDEV HERE.
+                                            //
+                                            // The named seed methods are single-source by
+                                            // design: camera means the camera, dice means the
+                                            // dice, touch means the touchscreen. Mixing the
+                                            // hardware RNG in masked the failure the method is
+                                            // supposed to report: a camera that contributed
+                                            // nothing still produced a seed, so "not enough
+                                            // light" could not be said honestly.
+                                            //
+                                            // It also went unreported. The summary line below
+                                            // has always listed CAM, IMU, eFuse, SYSTIMER and
+                                            // timing, and never the TRNG that was mixed twice.
+                                            //
+                                            // The RNG keeps its place in `entropy::fill`, which
+                                            // is where a mixture belongs: nonces and salts on
+                                            // demand, health-gated per call, failing closed.
+                                            //
+                                            // What stays here is what the log line declares.
                                             // Mix SYSTIMER: latch counter then read full 52-bit value
                                             unsafe {
                                                 // SYSTIMER_UNIT0_OP_REG (0x6002_3004): write 1 to bit 30 to latch
@@ -666,10 +675,6 @@ pub fn handle_menu_touch(
                                             hasher.update([0x01]); // domain separator
                                             let hash = hasher.finalize();
                                             for i in 0..32 { pool[i] ^= hash[i]; }
-                                            // Zeroize
-                                            for b in trng_buf.iter_mut() {
-                                                unsafe { core::ptr::write_volatile(b, 0); }
-                                            }
                                         }
 
                                         // Round 2: Camera frames (8 frames, full data)
@@ -731,9 +736,7 @@ pub fn handle_menu_touch(
                                                             hasher.update(pixels);
                                                             // Mix in frame index + timing jitter
                                                             hasher.update([frame_idx, (t0 & 0xFF) as u8, (t1 & 0xFF) as u8]);
-                                                            // Mix in TRNG sample taken mid-frame
-                                                            let rng_mid = crate::crypto::entropy::read_wdev();
-                                                            hasher.update(rng_mid.to_le_bytes());
+                                                            // Mid-frame TRNG sample removed: camera means camera.
                                                             let hash = hasher.finalize();
                                                             for i in 0..32 { pool[i] ^= hash[i]; }
                                                             got_entropy = true;
@@ -794,8 +797,7 @@ pub fn handle_menu_touch(
                                                     };
                                                     hasher.update([frame_idx, (t0 & 0xFF) as u8, 0xCA]);
                                                     hasher.update(ccount.to_le_bytes());
-                                                    let rng_mid = crate::crypto::entropy::read_wdev();
-                                                    hasher.update(rng_mid.to_le_bytes());
+                                                    // Mid-frame TRNG sample removed: camera means camera.
                                                     let hash = hasher.finalize();
                                                     for i in 0..32 { pool[i] ^= hash[i]; }
                                                     got_entropy = true;
@@ -931,17 +933,13 @@ pub fn handle_menu_touch(
                                             }
                                         }
 
-                                        // Round 3: Final TRNG + ADC noise whitening
+                                        // Round 3: ADC noise whitening.
+                                        // Was "Final TRNG + ADC"; the TRNG is gone.
                                         {
                                             use sha2::{Sha256, Digest};
                                             let mut hasher = Sha256::new();
                                             hasher.update(pool);
-                                            // 64 more TRNG reads
-                                            for _ in 0..64 {
-                                                let rng_val = crate::crypto::entropy::read_wdev();
-                                                hasher.update(rng_val.to_le_bytes());
-                                                crate::crypto::entropy::delay_us_systimer(2);
-                                            }
+                                            // 64 TRNG reads removed: camera means camera.
                                             // Battery ADC noise (GPIO5) — even if not calibrated, LSBs are noisy
                                             for _ in 0..16 {
                                                 let adc_val = unsafe {
@@ -1064,7 +1062,7 @@ pub fn handle_menu_touch(
                                             // "8 frames" overstated by ~28x: a frame is 230400
                                             // bytes and cam_dma delivers 8064 of them. Report the
                                             // bytes actually hashed, as the IMU line does.
-                                            log!("   Entropy: CAM({}B){} + IMU({}B){} + eFuse + SYSTIMER + timing → SHA-256",
+                                            log!("   Entropy: CAM({}B){} + IMU({}B){} + ADC + eFuse + SYSTIMER + timing → SHA-256",
                                                 cam_bytes,
                                                 if cam_ok { "" } else { " DEGRADED" },
                                                 _imu_bytes,
