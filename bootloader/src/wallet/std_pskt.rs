@@ -131,6 +131,60 @@ pub enum PskError {
     OutputBufferTooSmall,
 }
 
+impl PskError {
+    /// Two short lines for `draw_tx_error_screen`: what went wrong, and what
+    /// the user can do about it.
+    ///
+    /// Every variant used to render as "Too many UTXOs" / "Consolidate
+    /// first". The error was matched at the call site, logged, and thrown
+    /// away. In a `production` build `log!` compiles out, so the screen is
+    /// the only channel and it was saying something false: a bundle rejected
+    /// for carrying an ECDSA signature advised consolidating UTXOs, with no
+    /// way for the user to learn the real cause.
+    ///
+    /// Two lines of roughly 22 and 30 characters, which is what the screen
+    /// renders without truncation at title and body sizes.
+    pub fn screen_text(&self) -> (&'static str, &'static str) {
+        match self {
+            // ─── Envelope: not what it claims to be ───
+            PskError::TooShort            => ("Bundle too short", "Truncated in transit"),
+            PskError::BadMagic            => ("Not a PSKT bundle", "Wrong format scanned"),
+            PskError::TruncatedEnvelope   => ("Bundle truncated", "Rescan all frames"),
+            PskError::OddHexLength        => ("Malformed bundle", "Odd hex length"),
+            PskError::BadHexChar          => ("Malformed bundle", "Bad hex character"),
+
+            // ─── Capacity: real limits, and the user can act on them ───
+            PskError::ScratchBufferTooSmall => ("Bundle too large", "Split the transaction"),
+            PskError::OutputBufferTooSmall  => ("Result too large", "Split the transaction"),
+            PskError::TooManyInputs       => ("Too many UTXOs", "Consolidate first"),
+            PskError::TooManyOutputs      => ("Too many outputs", "Split the transaction"),
+            PskError::TooManyPartialSigs  => ("Too many signatures", "Bundle already full"),
+            PskError::TooManyUnknownRegions => ("Too many unknown fields", "Wallet not supported"),
+
+            // ─── Structure: the sender built it wrong ───
+            PskError::UnexpectedToken     => ("Malformed bundle", "Unexpected JSON token"),
+            PskError::MissingField        => ("Incomplete bundle", "A field is missing"),
+            PskError::DuplicateField      => ("Malformed bundle", "Duplicate field"),
+            PskError::CountMismatch       => ("Inconsistent bundle", "Declared count is wrong"),
+            PskError::BundleMultiElement  => ("Multi-bundle scanned", "Send one at a time"),
+            PskError::VersionNotSupported => ("Unsupported version", "Update this firmware"),
+
+            // ─── Field shape ───
+            PskError::InvalidPubkeyLen    => ("Bad public key", "Wrong key length"),
+            PskError::InvalidScriptLen    => ("Bad script length", "Script does not fit"),
+            PskError::ShortScriptPubkey   => ("Bad output script", "Script too short"),
+
+            // ─── Consensus-relevant. These two most needed saying. ───
+            // A sighash type this firmware will not sign is PSBT's
+            // best-documented vulnerability class, and Kaspa standard
+            // addresses are Schnorr, so an ECDSA signature cannot be merged
+            // into a script this device can finalise.
+            PskError::InvalidSighashType   => ("Unsupported sighash", "This wallet signs ALL only"),
+            PskError::InvalidSignatureType => ("ECDSA not supported", "Kaspa uses Schnorr here"),
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Envelope detection
 // ═══════════════════════════════════════════════════════════════════════

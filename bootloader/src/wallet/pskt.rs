@@ -123,6 +123,28 @@ pub enum PsktError {
     NoOutputs,
 }
 
+impl PsktError {
+    /// Two short lines for `draw_tx_error_screen`, same contract as
+    /// `PskError::screen_text`. Both parse paths rendered every failure as
+    /// "Too many UTXOs" / "Consolidate first"; the KSPT path has its own
+    /// error type, so it needs its own mapping.
+    pub fn screen_text(&self) -> (&'static str, &'static str) {
+        match self {
+            PsktError::BufferTooShort      => ("Bundle too short", "Truncated in transit"),
+            PsktError::InvalidMagic        => ("Not a KSPT bundle", "Wrong format scanned"),
+            PsktError::UnsupportedVersion  => ("Unsupported version", "Update this firmware"),
+            PsktError::TooManyInputs       => ("Too many UTXOs", "Consolidate first"),
+            PsktError::TooManyOutputs      => ("Too many outputs", "Split the transaction"),
+            PsktError::ScriptTooLong       => ("Script too long", "Not supported here"),
+            PsktError::PayloadTooLong      => ("Payload too long", "Split the transaction"),
+            PsktError::InvalidSigHashType  => ("Unsupported sighash", "This wallet signs ALL only"),
+            PsktError::OutputBufferTooSmall => ("Result too large", "Split the transaction"),
+            PsktError::NoInputs            => ("No inputs", "Nothing to sign"),
+            PsktError::NoOutputs           => ("No outputs", "Nothing to send"),
+        }
+    }
+}
+
 // ─── Reader helper (cursor over slice, no-alloc) ─────────────────
 
 struct ByteReader<'a> {
@@ -1640,6 +1662,45 @@ pub fn serialize_signed_pskt_v2(tx: &Transaction, output: &mut [u8]) -> Result<u
         w.write_u16_le(out.script_public_key.version)?;
         w.write_spk_len(out.script_public_key.script_len)?;
         w.write_bytes(out.script_public_key.script_bytes())?;
+    }
+
+    // ─── Trailers ────────────────────────────────────────────────────────
+    //
+    // The parser reads both of these and this serializer wrote neither, so
+    // anything signed here came back stripped of them.
+    //
+    // That matters because THIS is the covenant path. The caller selects v2
+    // whenever any input is Multisig or P2SH, and every covenant is P2SH, so
+    // every covenant signature was serialized by the one function that
+    // discards the binding. `serialize_signed_pskt`, which does write it, is
+    // the fallback for ordinary inputs that never have one.
+    //
+    // `covenant_id` is hashed into every output for `tx.version >= 1`, so a
+    // second signer parsing this output computes a DIFFERENT SIGHASH and
+    // produces an invalid signature. A stealth input loses
+    // `has_stealth_tweak` and is not signed at all.
+    //
+    // Written in the order the parser reads them: stealth first, then the
+    // covenant records. Both are optional and length-prefixed by their
+    // marker, so a reader that does not know them stops at the end of the
+    // outputs exactly as before. Backwards compatible in both directions.
+
+    // Stealth tweak: 0x53 'S' + 32 bytes.
+    if tx.has_stealth_tweak {
+        w.write_u8(0x53)?;
+        w.write_bytes(&tx.stealth_tweak)?;
+    }
+
+    // Covenant bindings: 0x43 'C' + out_idx(u8) + auth_input(u16 LE) + id(32),
+    // one record per covenanted output.
+    for i in 0..tx.num_outputs {
+        let out = &tx.outputs[i];
+        if out.has_covenant {
+            w.write_u8(0x43)?;
+            w.write_u8(i as u8)?;
+            w.write_u16_le(out.covenant_auth_input)?;
+            w.write_bytes(&out.covenant_id)?;
+        }
     }
 
     Ok(w.written())

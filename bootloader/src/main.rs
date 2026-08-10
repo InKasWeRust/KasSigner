@@ -1416,6 +1416,39 @@ fn main() -> ! {
                 ad.needs_redraw = r;
             }
 
+            // Waveshare: leaving a camera screen by the back button drops the
+            // finger straight into the duress-wipe corner.
+            //
+            // Both are the same 48x48 region at the top left. The duress check
+            // above watches RAW `touch_state`, not `Tap`, because a hold has
+            // to be measured while the finger is down. So on the iteration
+            // after this handler sets `MainMenu`, the finger is still there,
+            // the state now matches, and that block fires and `continue`s
+            // PAST the redraw at the bottom of the loop. The viewfinder's last
+            // frame stays on screen while the menu is live underneath, which
+            // reads as a frozen image that a second tap clears.
+            //
+            // M5Stack never showed it: its camera back tap sets
+            // `wake_debounce = 150`, and the duress check requires
+            // `wake_debounce == 0`. That was written for the camera/menu
+            // ping-pong and covered this by accident, which is why the defect
+            // looked board-specific without being board-related.
+            //
+            // Same primitive and the same value M5Stack already proves: long
+            // enough to outlast a lingering contact after release, far shorter
+            // than a deliberate second tap. Note this suppresses only the tap
+            // dispatch and the duress check; it does NOT skip the redraw,
+            // which is the whole point.
+            #[cfg(feature = "waveshare")]
+            if is_scan_cam && is_back && !matches!(
+                ad.app.state,
+                app::input::AppState::ScanQR
+                | app::input::AppState::SignMsgScanQr
+                | app::input::AppState::DecryptSecretScan
+            ) {
+                wake_debounce = 150;
+            }
+
             // Waveshare CST816D: cooldown after tap to suppress ghost double-taps
             // from residual capacitance / ambient light EMI. The controller often
             // reports a spurious Contact→LiftUp sequence within ~100ms of a real tap.

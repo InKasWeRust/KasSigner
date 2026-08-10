@@ -1959,7 +1959,16 @@ pub fn draw_home_grid(&mut self) {
     /// Same layout as the standard confirm screen but with a
     /// "CONFIRM COVENANT?" header so the user knows they are
     /// spending from a covenant address.
-    pub fn draw_confirm_send_covenant(&mut self, amount_str: &str, fee_str: &str) {
+    /// `covenant_id` is `None` when the transaction carries no binding, which
+    /// is possible: a P2SH input can be a covenant spend whose OUTPUTS are
+    /// plain. The label falls back to the script type in that case rather
+    /// than inventing an identity.
+    pub fn draw_confirm_send_covenant(
+        &mut self,
+        amount_str: &str,
+        fee_str: &str,
+        covenant_id: Option<&[u8; 32]>,
+    ) {
         self.clear_keep_nav();
 
         let tw = measure_header("CONFIRM COVENANT?");
@@ -1977,8 +1986,45 @@ pub fn draw_home_grid(&mut self) {
         core::fmt::Write::write_fmt(&mut fee_buf, format_args!("Fee:  {fee_str}")).ok();
         draw_lato_body(&mut self.display, &fee_buf, 40, 90, COLOR_TEXT);
 
-        // Covenant P2SH label
-        draw_lato_body(&mut self.display, "Covenant P2SH", 40, 108, KASPA_ACCENT);
+        // Covenant identity, in place of the old literal "Covenant P2SH".
+        //
+        // `covenant_id` is the one value that distinguishes one covenant from
+        // another. It is parsed, hashed into the sighash for `tx.version >= 1`
+        // and round-tripped in the signed output, and it appeared in NO
+        // display path anywhere in the firmware: the screen that authorises
+        // spending from a covenant could not tell you which covenant.
+        //
+        // Shown as first 6 and last 6 bytes, centred. The full 64 hex do not
+        // fit on one body line, and this line has 12 px before the CONFIRM
+        // button at y=120, so the layout allows exactly one. 8+8 was measured
+        // on hardware and ran off the right edge at 37 characters; 6+6 is 29
+        // and centring removes the guess about where it starts.
+        //
+        // Head and tail beat a prefix: an attacker grinding a match has to hit
+        // both ends. 12 bytes shown is still 96 bits of identity, which is far
+        // past what a human compares character by character anyway.
+        //
+        // The old label is not lost. The header already reads
+        // "CONFIRM COVENANT?", so "Covenant P2SH" was repeating it.
+        let mut id_buf: heapless::String<40> = heapless::String::new();
+        match covenant_id {
+            Some(id) => {
+                const HX: &[u8; 16] = b"0123456789abcdef";
+                let _ = id_buf.push_str("ID ");
+                for b in &id[..6] {
+                    let _ = id_buf.push(HX[(b >> 4) as usize] as char);
+                    let _ = id_buf.push(HX[(b & 0x0F) as usize] as char);
+                }
+                let _ = id_buf.push_str("..");
+                for b in &id[26..] {
+                    let _ = id_buf.push(HX[(b >> 4) as usize] as char);
+                    let _ = id_buf.push(HX[(b & 0x0F) as usize] as char);
+                }
+            }
+            None => { let _ = id_buf.push_str("Covenant P2SH"); }
+        }
+        let idw = measure_body(&id_buf);
+        draw_lato_body(&mut self.display, &id_buf, (320 - idw) / 2, 108, KASPA_ACCENT);
 
         // CONFIRM button (green) — y=120..170
         let confirm_green = COLOR_GREEN_BTN;
