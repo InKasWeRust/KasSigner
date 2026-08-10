@@ -40,6 +40,45 @@ KasSigner also has a **software-level** Schnorr signature check (the `features/v
 └─────────────────────────────────────────────────┘
 ```
 
+## Board Profiles
+
+Every eFuse in this runbook is chip-level and identical on both boards. Both are
+ESP32-S3 with 16 MB flash and **no USB-to-UART bridge**: the USB-C connector goes
+straight to the chip's native USB, D- on GPIO19 and D+ on GPIO20 on both. Both
+have working RST and BOOT buttons, and the download-mode sequence is the same on
+each: unplug USB, hold BOOT, plug USB in, release.
+
+| | Waveshare ESP32-S3-Touch-LCD-2 | M5Stack CoreS3 |
+|---|---|---|
+| PSRAM | octal (`ESP_HAL_CONFIG_PSRAM_MODE=octal`) | quad (no env var) |
+| Build | `--features production` | `--no-default-features --features m5stack,production` |
+| Artifacts | `kassigner-waveshare*.bin` | `kassigner-m5stack*.bin` |
+
+Nothing else about provisioning differs. Every command in Steps 0 through 9 is
+byte-identical between the two; only the image filenames change.
+
+### Identify the board before every burn
+
+Both boards enumerate as `/dev/cu.usbmodem*` and look alike to the tooling. An
+eFuse burned into the wrong unit cannot be undone. Read the MAC first, every
+time:
+
+```bash
+python3 -m esptool --port <PORT> chip_id
+```
+
+Record the MAC of each unit as you provision it, and keep that record outside
+the repository.
+
+### Note on stale screens
+
+The ST7789 holds the last frame written to it. Every `espefuse` invocation drives
+the chip into download mode, where the app never runs, so the panel keeps
+displaying whatever it was showing. A UI frozen mid-boot after a burn is almost
+always a stale frame, not a broken device. Confirm with the boot line rather than
+the screen: `boot:0x2b (SPI_FAST_FLASH_BOOT)` is running normally,
+`boot:0x0 (DOWNLOAD(USB/UART0))` is parked in download mode.
+
 ## Pre-flight Checklist
 
 Before ANY eFuse operation:
@@ -138,34 +177,75 @@ python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
 
 ## Step 5: Build and Sign Firmware
 
-The second-stage bootloader and app must be signed with the RSA-3072 key. Since KasSigner uses `esp-bootloader-esp-idf` (not full ESP-IDF), the signing process needs to be done manually:
+Two images sit in the ROM chain and both must carry an RSA-3072 signature: the
+second-stage bootloader at `0x0` and the app at `0x10000`. Signing is per image,
+so the merged `-full.bin` cannot be signed as a unit, and the bootloader has to
+come out of it at its exact length first. `tools/extract_bootloader.py` walks the
+ESP image header and segment table to find where the bootloader ends, because the
+trailing `0xFF` padding up to `0x8000` would otherwise be signed with it and push
+the signature sector over the partition table.
+
+The examples below use the M5Stack artifact names. Substitute `waveshare` or
+`waveshare-af` for the other boards.
 
 ```bash
-# Sign the bootloader binary
-python3 -m espsecure sign_data --version 2 --keyfile secure_boot_v2_key.pem \
-    --output bootloader-signed.bin bootloader.bin
+# Docker produces both, per board:
+#   kassigner-m5stack.bin        app only, for 0x10000
+#   kassigner-m5stack-full.bin   bootloader + partition table + app
 
-# Sign the app binary
-python3 -m espsecure sign_data --version 2 --keyfile secure_boot_v2_key.pem \
-    --output kassigner-signed.bin kassigner-bootloader.bin
+# Pull the second-stage bootloader out at its exact length. This prints its
+# SHA-256 and confirms the signed size stays clear of 0x8000; it refuses to
+# write the file if it does not.
+python3 tools/extract_bootloader.py kassigner-m5stack-full.bin
 
-# If using backup key, append second signature:
+# Sign the bootloader
+python3 -m espsecure sign_data --version 2 --keyfile secure_boot_v2_key.pem \
+    --output kassigner-m5stack-bootloader-signed.bin \
+    kassigner-m5stack-bootloader.bin
+
+# Sign the app
+python3 -m espsecure sign_data --version 2 --keyfile secure_boot_v2_key.pem \
+    --output kassigner-m5stack-signed.bin \
+    kassigner-m5stack.bin
+
+# If using a backup key, append a second signature to each
 python3 -m espsecure sign_data --version 2 --keyfile secure_boot_v2_key_backup.pem \
     --append_signatures \
-    --output kassigner-signed.bin kassigner-signed.bin
+    --output kassigner-m5stack-signed.bin kassigner-m5stack-signed.bin
 ```
 
 ## Step 6: Flash Signed Firmware BEFORE Enabling Secure Boot
 
 **CRITICAL ORDER: Flash first, THEN enable secure boot.** If you enable secure boot before flashing signed firmware, the board will refuse to boot and is bricked.
 
-```bash
-# Flash the signed bootloader and app
-python3 -m esptool --port /dev/cu.usbmodem* --baud 460800 write_flash 0x10000 kassigner-signed.bin
+On a board that has never held a KasSigner image, write the merged image once so
+the partition table at `0x8000` is in place:
 
-# Verify it boots correctly
-# Monitor serial output to confirm boot succeeds
+```bash
+python3 -m esptool --port /dev/cu.usbmodem* --baud 460800 \
+    write_flash 0x0 kassigner-m5stack-full.bin
 ```
+
+Then overwrite the two signed images over the top:
+
+```bash
+python3 -m esptool --port /dev/cu.usbmodem* --baud 460800 write_flash \
+    0x0     kassigner-m5stack-bootloader-signed.bin \
+    0x10000 kassigner-m5stack-signed.bin
+```
+
+**This is the gate.** Secure boot is not enabled yet, so a signed image that the
+chain would reject still boots here, and anything that goes wrong is still
+recoverable. Confirm on the monitor that the device reaches the UI and that
+`Code segment hash: OK` appears, then power-cycle and confirm it a second time.
+The signature block adds 4 KiB in front of nothing the running firmware reads, so
+a board that boots signed-but-unenforced will boot the same way enforced.
+
+```bash
+espflash monitor --port /dev/cu.usbmodem* --no-stub
+```
+
+Do not continue to Step 7 from a board you have not just watched boot.
 
 ## Step 7: Enable Secure Boot
 
@@ -301,6 +381,104 @@ python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 summary | grep -E "S
 #   SECURE_BOOT_KEY_REVOKE2 = True
 ```
 
+## Verify the Key Before Burning It
+
+The public key digest is deterministic from the pem, so a board already
+provisioned with that key is an oracle for whether you hold the right one.
+Regenerate the digest and compare it against the burned block on a working
+device:
+
+```bash
+python3 -m espsecure digest_sbv2_public_key \
+    --keyfile secure_boot_v2_key.pem --output digest0.bin
+xxd digest0.bin
+
+# on an already-provisioned board
+python3 -m espefuse --port <PORT> --chip esp32s3 summary | grep -A4 BLOCK_KEY0
+```
+
+A byte-for-byte match proves the pem is the one that board enforces, and that
+one signed release will run on both. A mismatch means the wrong pem, and is the
+cheapest possible place to find that out.
+
+## Signed Images Are Not Reproducible
+
+Secure Boot V2 signs with RSA-PSS, which uses a random salt. Signing the same
+input twice produces different bytes and a different SHA-256 both times. This is
+correct behaviour, not a build problem.
+
+Track hashes of the **inputs**, never of the signed outputs. The reproducible
+artifacts are `kassigner-<board>.bin` and `kassigner-<board>-full.bin`;
+`*-signed.bin` files are not reproducible and publishing their hashes would be
+meaningless.
+
+## Target Configuration
+
+The same configuration applies to both boards. Every eFuse below is chip-level;
+nothing here differs between Waveshare and M5Stack CoreS3.
+
+| eFuse | Target | Why |
+|---|---|---|
+| `SECURE_BOOT_EN` | True | ROM verifies bootloader and app on every boot |
+| `KEY_PURPOSE_0` | `SECURE_BOOT_DIGEST0`, `R/-` | the one live digest slot, write-protected |
+| `KEY_PURPOSE_1..5` | `USER` | unassigned |
+| `SECURE_BOOT_KEY_REVOKE0` | False | the slot holding your key |
+| `SECURE_BOOT_KEY_REVOKE1` | True | unused slot, closed |
+| `SECURE_BOOT_KEY_REVOKE2` | True | unused slot, closed |
+| `DIS_PAD_JTAG` | True | closes the physical JTAG pins |
+| `DIS_USB_JTAG` | True | closes the USB-to-JTAG switch path |
+| `DIS_USB_SERIAL_JTAG` | False | **by design.** Preserves console and flashing |
+| `DIS_DOWNLOAD_MODE` | False | preserves the signed-update path |
+| `DIS_USB_SERIAL_JTAG_DOWNLOAD_MODE` | False | preserves the signed-update path |
+| `DIS_USB_OTG_DOWNLOAD_MODE` | False | preserves the signed-update path |
+| `SPI_BOOT_CRYPT_CNT` | Disable | flash encryption not used, see Decision Matrix |
+| `ENABLE_SECURITY_DOWNLOAD` | False | not verified on this hardware, see Step 8 |
+
+One digest slot with the other two revoked is the recommended configuration. A
+second slot holding the same key buys nothing: it does not survive a key
+compromise, since both digests are the same key, and it leaves a live slot that
+the revokes would otherwise have closed.
+
+**Key rotation is not available under this configuration.** `KEY_PURPOSE_0` is
+write-protected by the burn and the remaining slots are revoked, so a
+provisioned board enforces one key for its lifetime. If the signing key is ever
+compromised or lost, provisioned units are retired, not re-keyed. That is the
+deliberate trade for a device holding key material: no path exists for an
+attacker to install their own trust root either.
+
+### Revoking unused slots is not optional
+
+Secure Boot V2 accepts a signature matching any of three digest slots. With an
+unused slot left unrevoked, someone who can write eFuses installs their own
+public key digest in a free key block, points it at that slot, signs firmware
+with their private key, and the ROM accepts it as legitimate. Your digest stays
+intact in slot 0 and is completely bypassed.
+
+Burning `SECURE_BOOT_KEY_REVOKE1` and `SECURE_BOOT_KEY_REVOKE2` is what makes
+slot 0 the only door. A board with `SECURE_BOOT_EN` burned and a slot left open
+is not provisioned.
+
+## Confirmed on Hardware
+
+Full Secure Boot V2 provisioning run end to end on both Waveshare
+ESP32-S3-Touch-LCD-2 and M5Stack CoreS3. The observations below are chip-level
+and applied identically to both.
+
+Signed images boot on an unprovisioned board, which is what makes the whole path
+testable while still reversible. Under enforcement the ROM prints
+`Valid secure boot key blocks: 0` and `secure boot verification succeeded` before
+the second-stage bootloader banner; neither line appears with `SECURE_BOOT_EN`
+unburned, so their absence before the burn is expected rather than a fault.
+
+Burning `DIS_PAD_JTAG` and `DIS_USB_JTAG` left the USB Serial console and the
+download path intact. After all burns, `esptool chip_id` connects, loads the
+stub, and reports the MAC. Signed firmware updates still work.
+
+The second-stage bootloader extracted from a merged image measured roughly 21 KB
+across four segments, signing to 28672 bytes and leaving headroom below the
+partition table at `0x8000`. `extract_bootloader.py` reports the exact figures
+and refuses to write the file if the signed size would reach `0x8000`.
+
 ## eFuse Budget
 
 The ESP32-S3 has 6 key blocks (BLOCK_KEY0 through BLOCK_KEY5). Plan allocation:
@@ -322,4 +500,6 @@ The ESP32-S3 has 6 key blocks (BLOCK_KEY0 through BLOCK_KEY5). Plan allocation:
 
 3. **No OTA.** KasSigner is air-gapped, so firmware updates require physical UART access. If `DIS_DOWNLOAD_MODE` is burned, the board cannot be updated at all. Leave UART download enabled. `ENABLE_SECURITY_DOWNLOAD` narrows it further and still allows signed firmware flashing, but see the note in Step 8 before burning it.
 
-4. **Test on a sacrificial board first.** Buy a spare Waveshare board specifically for eFuse testing. Never experiment on the primary development board.
+4. **Test on a sacrificial board first.** Keep a spare of whichever board you are provisioning, and burn that one first. Never experiment on the primary development board.
+
+5. **Artifact names differ per board.** `kassigner-m5stack.bin` and `kassigner-m5stack-full.bin` for CoreS3, `kassigner-waveshare*` and `kassigner-waveshare-af*` for the others. The RSA key and every eFuse command are board-independent; only the images change.

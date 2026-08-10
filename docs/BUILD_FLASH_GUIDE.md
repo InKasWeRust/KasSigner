@@ -360,6 +360,59 @@ python3 -m esptool --port /dev/cu.usbmodem21201 write_flash 0x10000 kassigner-m5
 espflash monitor
 ```
 
+### eFuse M5Stack CoreS3 (Secure Boot V2)
+
+Same chip-level procedure as the Waveshare in section 3, different artifacts and
+different board handling. Read the Board Profiles section of
+[EFUSE_RUNBOOK.md](EFUSE_RUNBOOK.md) first: CoreS3 has no BOOT button, GPIO0 is
+driven by a comparator off the power button, and with the battery connected
+unplugging USB does not power the chip down.
+
+Secure Boot V2 signs each image separately, so the merged `-full.bin` cannot be
+signed as a unit. Extract the second-stage bootloader at its exact length:
+
+```bash
+python3 tools/extract_bootloader.py kassigner-m5stack-full.bin
+# prints chip ID, segments, length, SHA-256, and the signed size
+# -> kassigner-m5stack-bootloader.bin
+
+python3 -m espsecure sign_data --version 2 \
+  --keyfile <your_secure_boot_key>.pem \
+  --output kassigner-m5stack-bootloader-signed.bin \
+  kassigner-m5stack-bootloader.bin
+
+python3 -m espsecure sign_data --version 2 \
+  --keyfile <your_secure_boot_key>.pem \
+  --output kassigner-m5stack-signed.bin \
+  kassigner-m5stack.bin
+
+python3 -m esptool --port /dev/cu.usbmodem21201 --baud 460800 write_flash \
+  0x0     kassigner-m5stack-bootloader-signed.bin \
+  0x10000 kassigner-m5stack-signed.bin
+
+espflash monitor --port /dev/cu.usbmodem21201 --no-stub
+```
+
+Confirm the boot before burning any eFuse. The signed images boot on an
+unprovisioned board, which is what makes the whole flashing path testable while
+it is still reversible.
+
+Verified on both boards. On a provisioned board the ROM adds two lines ahead of
+the bootloader banner:
+
+```
+Valid secure boot key blocks: 0
+secure boot verification succeeded
+```
+
+Note that `espsecure sign_data` uses RSA-PSS, so signing the same input twice
+produces different bytes. Hash the inputs, not the `*-signed.bin` outputs.
+
+An eFuse device is still reflashed with plain `esptool write_flash`; Secure Boot
+does not close download mode. If the first connect fails with "No serial data
+received", that is the production build gating USB a second into boot. Retry, or
+enter download mode: unplug USB, hold BOOT, plug USB, release.
+
 ## 5. Build KasSee Web (Companion Wallet)
 
 KasSee ships with pre-built WASM in `kassee/web/pkg/` and works out of the box. Open `kassee/web/index.html` in any modern browser. To rebuild from source, see **Building KasSee from source** in the README.
