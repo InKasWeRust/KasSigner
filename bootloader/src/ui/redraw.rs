@@ -533,7 +533,16 @@ pub fn redraw_screen(
                         let (present, required) = wallet::pskt::signature_status(&ad.demo_tx);
                         boot_display.draw_confirm_send_multisig(&amt_kas, &fee_kas, present, required);
                     } else if has_covenant {
-                        boot_display.draw_confirm_send_covenant(&amt_kas, &fee_kas);
+                        // The binding lives on the OUTPUT, not the input that
+                        // authorises it. Take the first covenanted output:
+                        // one transaction spending from several distinct
+                        // covenants at once is not a shape this device
+                        // constructs, and showing one identity is better than
+                        // showing none.
+                        let cov_id = (0..ad.demo_tx.num_outputs)
+                            .find(|&i| ad.demo_tx.outputs[i].has_covenant)
+                            .map(|i| &ad.demo_tx.outputs[i].covenant_id);
+                        boot_display.draw_confirm_send_covenant(&amt_kas, &fee_kas, cov_id);
                     } else {
                         boot_display.draw_confirm_send_screen(&amt_kas, &fee_kas);
                     }

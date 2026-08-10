@@ -582,7 +582,10 @@ fn process_confirmed_qr(
                 }
                 Err(e) => {
                     log!("   → KSPT v{} parse error: {:?}", pskt_version, e);
-                    boot_display.draw_tx_error_screen("Too many UTXOs", "Consolidate first");
+                    // Name the failure. `log!` compiles out under
+                    // `production`, so this screen is the only channel.
+                    let (l1, l2) = e.screen_text();
+                    boot_display.draw_tx_error_screen(l1, l2);
                     sound::beep_error(delay);
                     ad.app.state = crate::app::input::AppState::Rejected;
                     ad.needs_redraw = false; // already drawn
@@ -604,7 +607,8 @@ fn process_confirmed_qr(
                 }
                 Err(e) => {
                     log!("   → KSPT v1 parse error: {:?}", e);
-                    boot_display.draw_tx_error_screen("Too many UTXOs", "Consolidate first");
+                    let (l1, l2) = e.screen_text();
+                    boot_display.draw_tx_error_screen(l1, l2);
                     sound::beep_error(delay);
                     ad.app.state = crate::app::input::AppState::Rejected;
                     ad.needs_redraw = false;
@@ -659,7 +663,8 @@ fn process_confirmed_qr(
             }
             Err(e) => {
                 log!("   → PSKT parse error: {:?}", e);
-                boot_display.draw_tx_error_screen("Too many UTXOs", "Consolidate first");
+                let (l1, l2) = e.screen_text();
+                boot_display.draw_tx_error_screen(l1, l2);
                 sound::beep_error(delay);
                 ad.app.state = crate::app::input::AppState::Rejected;
                 ad.needs_redraw = false;
@@ -1053,7 +1058,25 @@ fn process_confirmed_qr(
         ad.needs_redraw = true;
         log!("   → COVB: {} hex → {} bytes", len, n);
     } else {
+        // Say so on screen, not only in the log.
+        //
+        // This is the end of a chain of format sniffs: kpub, COVB raw, COVB
+        // hex, KSPT, PSKT and the rest each recognise their own prefix, and
+        // anything matching none of them landed here and produced NOTHING.
+        // No screen, no sound, no state change. Under `production`, `log!`
+        // compiles out, so a user scanning a QR from the wrong app, or a
+        // corrupted bundle whose magic did not survive, saw the scanner sit
+        // there as though it had not read the code at all. It had: the frame
+        // decoded, and the device decided in silence that it was unusable.
+        //
+        // Note this also means `PskError::BadMagic` is unreachable from the
+        // QR path. The magic is checked here, before any parser runs, so the
+        // parser's own variant only fires on a bundle arriving another way.
         log!("   → Unknown QR format ({} bytes)", len);
+        boot_display.draw_tx_error_screen("Unrecognised QR", "Not a KasSigner code");
+        sound::beep_error(delay);
+        ad.app.state = crate::app::input::AppState::Rejected;
+        ad.needs_redraw = false; // already drawn
     }
 }
 
