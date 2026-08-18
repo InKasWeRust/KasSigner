@@ -32,16 +32,38 @@ ENV HOME=/root
 # image above. Without these, `apt-get install gcc` fetches whatever the Ubuntu
 # archive serves that day, which is the last unpinned input to the build.
 #
-# NOTE ON EXPIRY: Ubuntu's archive keeps only current versions. When a security
-# update supersedes one of these, the exact version disappears and this build
-# FAILS LOUDLY with "version not found" rather than silently using a different
-# compiler. That is the intended failure mode. To move forward deliberately,
-# re-read the versions from a fresh image and bump the toolchain tag with them:
+# WHY THE SNAPSHOT: Ubuntu's live archive keeps only current versions. When a
+# security update supersedes one of these, the exact version disappears from
+# archive.ubuntu.com and an exact pin fails with "version not found". That
+# happened on 2026-08-18 (libudev-dev 8.16 superseded by 8.17), which meant no
+# verifier could rebuild this image. Ubuntu keeps every published version at
+# snapshot.ubuntu.com, addressed by timestamp, so apt is pointed at the
+# snapshot of the archive as it was on the pin date. The versions below then
+# stay downloadable indefinitely, and the exact pins keep the loud failure if
+# anything ever drifts.
+#
+# The snapshot host redirects to HTTPS and the base image has no CA store yet
+# (ca-certificates is one of the packages being installed), so TLS peer
+# verification is switched off for that one host during this step only, and
+# the config file is removed afterwards. Integrity does not depend on it: apt
+# checks the archive's GPG signature on InRelease whatever the transport, and
+# every package is verified against those signed hashes.
+#
+# To move forward deliberately: pick a new snapshot date, re-read the versions
+# from a fresh image (command below), update both, and bump the toolchain tag
+# so old and new images cannot share a name.
 #
 #   docker run --rm --platform linux/amd64 <image> \
 #     dpkg-query -W -f='${Package}=${Version}\n' curl gcc g++ pkg-config \
 #     libssl-dev libusb-1.0-0-dev libudev-dev ca-certificates
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ARG APT_SNAPSHOT=20260803T235959Z
+RUN sed -i "s#http://archive.ubuntu.com/ubuntu/#http://snapshot.ubuntu.com/ubuntu/${APT_SNAPSHOT}/#g; s#http://security.ubuntu.com/ubuntu/#http://snapshot.ubuntu.com/ubuntu/${APT_SNAPSHOT}/#g" \
+        /etc/apt/sources.list.d/ubuntu.sources \
+    && grep -q snapshot.ubuntu.com /etc/apt/sources.list.d/ubuntu.sources \
+    && printf 'Acquire::https::snapshot.ubuntu.com::Verify-Peer "false";\nAcquire::Check-Valid-Until "false";\n' \
+         > /etc/apt/apt.conf.d/99-snapshot-bootstrap \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
     ca-certificates=20260601~24.04.1 \
     curl=8.5.0-2ubuntu10.11 \
     gcc=4:13.2.0-7ubuntu1 \
@@ -50,6 +72,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libudev-dev=255.4-1ubuntu8.16 \
     libusb-1.0-0-dev=2:1.0.27-1 \
     pkg-config=1.8.1-2build1 \
+    && rm -f /etc/apt/apt.conf.d/99-snapshot-bootstrap \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \

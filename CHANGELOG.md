@@ -9,12 +9,123 @@ All notable changes to KasSigner will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.6]: 2026-08-18
+
+A **multisig and hardening** release. Multisig moves to the Kaspa 45' scheme,
+proven end to end on mainnet between two devices. Several security reviews of
+v1.0.5 were answered: every finding was checked against the source and either
+fixed, disputed with evidence, or declined with the reasoning recorded. What
+shipped is below.
+
+### Added
+- **45' multisig**: cosigners derive at `m/45'/111111'/0'/<cosigner>/<chain>/<index>`,
+  keys sorted so every implementation computes the same address, chain 1 for
+  change. Create on device from scanned cosigner kpubs, co-sign between devices
+  by QR, spend from several addresses in one transaction. The scheme is written
+  up in [KIP: Multisig Wallet Conventions for Kaspa](https://github.com/kaspanet/kips/pull/39).
+  Existing 44' wallets still load and spend; new wallets are 45' only.
+- **Multisig change verification**: when a transaction claims an output as
+  change, the device tries to reproduce it from a loaded descriptor that already
+  reproduces one of the inputs. Verified is teal, unverifiable is orange with a
+  `?`, and a claim the descriptor contradicts is marked FORGED and refused.
+- **Descriptor backup**: the multisig descriptor is shown as a QR and can be
+  saved to SD, plain or encrypted. A seed alone cannot find or spend multisig
+  funds; back up seed and descriptor.
+- **Multisig kpub export**: a separate, labelled `kpub Multisig QR` exports the
+  45' key. The 44' export stays as the watch-only key. The two are
+  byte-indistinguishable in form, so the label is the only distinction.
+- **KSPT v4**: derivation hints ride the transaction so a device signs a
+  multisig input without scanning its address table. Chosen by content: a
+  single-sig transaction is byte-identical to before, and older firmware refuses
+  the new version cleanly rather than reporting a corrupt scan.
+- **Consensus sighash tests at every boot**: 27 vectors taken from the
+  rusty-kaspa 2.0.1 consensus tests, all six sighash types and both transaction
+  versions, run before the menu on every power-on and halt the device on
+  divergence. See Fixed below for why this matters.
+- **Secure Boot state on the verification screen**: five read-only eFuse bits
+  shown so a user can see whether the unit is provisioned. (a)
+- **KasSee multisig**: import a 45' descriptor, watch the wallet, pick UTXOs
+  across addresses, consolidate, relay between cosigners, broadcast.
+- **KasSee network layer reworked**: the public node is held for the session,
+  failing resolvers are remembered and skipped, the WebSocket is pooled, a
+  timeout drops the socket instead of counting as success, and history scans run
+  spaced instead of all at once. Wallet load went from minutes to seconds on a
+  wallet with deep history and the CORS noise is gone.
+
+### Fixed
+- **The sighash self-tests had never executed in any build.** They halted on
+  the stack guard before reaching the test and nothing reported it. Moved to the
+  heap, promoted into the boot known-answer set, and measured 27/27 on hardware.
+- **Covenant binding validation**: a malformed `covenantId` could leave the
+  field zeroed with the binding still active, or carry an attacker-chosen prefix.
+  Both members are now required, range and duplicate checked, and a decode error
+  rejects the transaction rather than warning. (a)
+- **`covenantId` was dropped from the round trip** and covenant outputs lost
+  their binding when re-emitted. Both restored.
+- **Covenant spends were under-paying fees** and would have been rejected at
+  broadcast; fee floor corrected, proven on mainnet.
+- **PSKB round trip**: the device accepted more inputs than it could return.
+  Emit buffer raised, a pre-flight check before any key operation, capacity from
+  5 inputs to 9. SD transaction files were capped at 1,024 bytes in three places;
+  the encrypted KSPT round trip could not complete; the emitted frame count could
+  wrap above 255. All fixed, and a QR density that will not fit is greyed out
+  with the reason shown.
+- **Parser hardening**: declared counts are now checked, `{` and `[` are
+  tracked separately with a depth ceiling, all duplicate keys are guarded, and
+  both binary parsers require the buffer to be fully consumed. (a)
+- **SD reads**: a short FAT chain and a circular FAT chain are now both
+  detected and named on screen instead of returning a truncated file as success. (a)
+- **KasSee amounts** above 2^53 sompi lost precision in `Number()`; all spend
+  paths now use BigInt. (a)
+- **QR decoder bounds**: three grid bounds added after host fuzzing of
+  `rqrr_nostd`, one reachable at real capture geometry. Decode rates unchanged.
+- **Multi-frame QR limit** raised from 40 to 64 frames, matched between KasSee
+  and firmware. (a)
+- **Multisig signing was doing hundreds of derivations per input**: the hinted
+  key was derived once per input and once per cosigner position. Hoisted; signing
+  is now effectively independent of N.
+- **A created 45' wallet did not sort its cosigners** and produced an address no
+  other implementation computes; the kpub export still emitted 44' after
+  creation moved to 45'; the output serializer stripped every output's
+  derivation map; a multisig transaction matching no key still emitted a
+  signature. All fixed and verified on two devices.
+- **The descriptor QR was drawn under signed-transaction overlays.**
+- **The camera XCLK check reported a dead clock on a working device.**
+
+### Security
+- Several security reviews of v1.0.5 answered in full. Every claim was verified
+  against the code before anything changed; several were refuted from source.
+  What was fixed is in this entry; the reasoning behind what was declined is in
+  [SECURITY.md](SECURITY.md).
+- **Backup KDF stays at PBKDF2-HMAC-SHA256, 100,000 rounds, by decision.** A
+  six-fold increase buys under three bits against rented GPUs; the salt and the
+  password are where the security is. The container reserves a KDF id for a
+  memory-hard replacement.
+- **Integer overflow checks** now enabled on the KasSee release profile. (a)
+- **Measurement features cannot reach a shipped build**: every diagnostic flag
+  is a compile error together with `production`.
+- **Hardware RNG min-entropy measured for the first time** (SP 800-90B, offline)
+  and health checks enforced on every draw: a degraded window refuses to sign,
+  encrypt or generate a salt.
+
+(a) Reported by [KodinglsFun](https://x.com/KodinglsFun) in a review of v1.0.5.
+
+### Known limitations
+- A 45' PSKB from an external coordinator that carries no derivation hints
+  cannot yet be signed; KasSee always writes them, so this affects other
+  coordinators only.
+- Multi-frame QR transfers still carry no session identifier. A frame from
+  another transfer mixed into a scan makes the parse fail, so the effect is a
+  failed scan rather than a wrong result.
+- The multisig descriptor is a second secret with the same backup requirement as
+  the seed. Losing it loses access to the funds.
+
 ## [1.0.5]: 2026-08-03
 
-A **security and hardening** release. A full external audit produced 40 findings;
-this release closes most of them. It also adds a second way to hide a
-seed backup inside a photograph, and fixes three defects that made the existing
-one identifiable.
+A **security and hardening** release. A full security review of the codebase
+was answered; this release closes most of what it found. It also adds a second
+way to hide a seed backup inside a photograph, and fixes three defects that made
+the existing one identifiable.
 
 Two of the findings date from the start of the project and are described in the
 Security section below.
@@ -98,9 +209,9 @@ Security section below.
 - Backup password stretching is still PBKDF2. A memory-hard replacement is
   designed but deferred, so a weak backup password can be attacked offline.
   Use a strong one, and a strong passphrase.
-- Multi-frame QR transfers still carry no session identifier. Every consumer
-  rejects a mixed assembly, so the effect is a failed scan rather than a wrong
-  result.
+- Multi-frame QR transfers still carry no session identifier. A frame from
+  another transfer mixed into a scan makes the parse fail, so the effect is a
+  failed scan rather than a wrong result.
 
 ## [1.0.4]: 2026-07-02
 
@@ -123,8 +234,6 @@ the TN10 test network.
   - **PayJoin**: anonymous payment covenant.
   - **Commit-Reveal**: MEV-resistant inscriptions.
   - **Private Swap**: atomic swap via adaptor signatures: no preimage, no on-chain link.
-  - **KIP-20 Vaults**: tagged and split covenant-id-aware vaults.
-  - **Crowdfunding**: ZK-gated goal-and-deadline pledge covenant.
 - **ZK Price Oracle (KasSee)**: live KAS/USD sourced from Pyth + Wormhole and proven on-chain with a zero-knowledge proof; ambient read plus pay-to-refresh.
 - **Stealth payments (KasSee)**: dual-key stealth addresses (ECDH with view tags) so anyone can pay you without linking payments to your public address; send, scan, and an optional stealth indexer for recovery.
 - **Covenant-aware PSKB signing (KasSigner)**: the KSPT format gains v3 (u16 redeem length for larger covenant scripts) and a covenant-binding flag (`0x04`): outputs carry a `covenant_id` and auth-input index, parsed and preserved through the sign round-trip. The signer recognizes the P2SH covenant redeem scripts and signs the matching input.
@@ -147,7 +256,7 @@ the TN10 test network.
 - **UX polish**: SIGNER/FRAMES badges on multi-frame QR, unified multi-QR layout, single-sig skips the density picker, unlimited change-chain address browsing (on-demand derivation).
 
 ### Fixed
-- **CRITICAL: Waveshare seed generation was deterministic**: every entropy source returned zeros (TRNG at the wrong register, camera reading stale PSRAM, SYSTIMER unlatched); the pool was SHA-256 of zeros on every generation. Fixed by reading the DMA write buffer, latching SYSTIMER, and mixing eFuse chip-unique data. (TRNG stays dead without WiFi. A hardware limitation.)
+- **CRITICAL: Waveshare seed generation was deterministic**: every entropy source returned zeros (TRNG at the wrong register, camera reading stale PSRAM, SYSTIMER unlatched); the pool was SHA-256 of zeros on every generation. Fixed by reading the DMA write buffer, latching SYSTIMER, and mixing eFuse chip-unique data.
 - **CRITICAL: all change addresses rendered as `kaspa:qqqqq…`**: the change chain was never derived; all three derive paths now populate `change_pubkey_cache`.
 - **Multisig P2SH mismatch across devices**: own-key select now uses the account-level x-only pubkey (matching `import_kpub()`), so both devices build byte-identical scripts and the same P2SH address.
 - **Multisig SD workflow**: descriptor buffer-overflow panic fixed (parse from the read buffer, no undersized copy); descriptor/address loads no longer route through the signed-TX pipeline; keyboard full-screen flashing removed (partial redraws); the trash button on file lists now deletes; M5 QR progress dots no longer hidden by the viewfinder.
@@ -196,7 +305,7 @@ the TN10 test network.
 
 ### QR Decoder
 - **rqrr no_std fork**: replaced custom per-platform decoders (`decoder_ws.rs`, `decoder_m5.rs`) with `rqrr_nostd`, a no_std zero-dependency fork of rqrr 0.10.1
-- Supports V1–V40, all ECC levels, full Reed-Solomon error correction
+- Supports V1 to V13, all ECC levels, full Reed-Solomon error correction
 - Single-pass accept. Rqrr's RS verification replaces the old 5-pass voting (Waveshare) and 3-consecutive match (M5Stack) heuristics
 - Unified `rqrr_decode()` in `camera_loop.rs` for both platforms
 - Deleted `bootloader/src/qr/decoder_ws.rs` and `bootloader/src/qr/decoder_m5.rs`

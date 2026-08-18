@@ -8,6 +8,19 @@ use crate::{address, bip32, kspt, rpc};
 use crate::{hex_to_pubkey32, network_to_prefix};
 use wasm_bindgen::prelude::*;
 
+/// Maximum transaction inputs the KasSigner firmware accepts
+/// (`bootloader/src/wallet/transaction.rs`, `MAX_INPUTS = 32`). Every spend
+/// path that gathers covenant UTXOs caps at this before building the wire
+/// payload, so the device is never handed a transaction it must refuse; the
+/// remainder stays at the covenant address and is drained by repeating the
+/// spend.
+///
+/// Caveat: redeem scripts over 512 bytes (`MAX_SCRIPT_SIZE`) are stored in the
+/// firmware's shared 4,096-byte redeem pool rather than inline per input, so
+/// for those the device ceiling is floor(4096 / redeem_len), below 32. Such a
+/// transaction fails closed at device load; this cap does not protect it.
+const KASSIGNER_MAX_INPUTS: usize = 32;
+
 // ─── Covenant (KIP-10) ───
 
 /// Build a Piggy Bank P2SH covenant address.
@@ -129,17 +142,34 @@ pub async fn create_covenant_timelocked_savings_claim(
     if utxos.is_empty() {
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
-    // Cap covenant inputs at the KasSigner ceiling (MAX_INPUTS=16). A flooded
-    // covenant is drained by repeating the spend; without this a larger UTXO
-    // set builds a TX the device can't sign. Largest-first moves the most
-    // value per spend. (Redeem script is small — 16 copies fit the firmware
-    // redeem pool; fee scales with input count below.)
-    if utxos.len() > 16 {
+    // Cap covenant inputs at the KasSigner ceiling (KASSIGNER_MAX_INPUTS). A
+    // flooded covenant is drained by repeating the spend; without this a larger
+    // UTXO set builds a TX the device can't sign. Largest-first moves the most
+    // value per spend; fee scales with input count below.
+    if utxos.len() > KASSIGNER_MAX_INPUTS {
         utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
-        utxos.truncate(32);
+        utxos.truncate(KASSIGNER_MAX_INPUTS);
     }
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
+
+    // Scale the fee to the actual input count. Every input here is a covenant
+    // P2SH input carrying sig + redeem, and the node's compute mass grows with
+    // input count, so a flat fee under-pays a multi-UTXO spend and is rejected
+    // as "fees under the required amount for compute mass". Same per-input
+    // model and 1.15 margin as `getCovFee`; `max()` preserves any higher fee
+    // the caller passed, so a correct JS-side fee is never lowered.
+    //
+    // Added 2026-08-14. `create_covenant_payjoin_claim` already had this and
+    // `handleCovOwnerSpend` recomputes on the JS side before the sweep call,
+    // which is why owner sweeps of 32 UTXOs relay fine today. The floor is put
+    // in the builder rather than at each call site because this is where the
+    // input count is actually known: a caller that forgets to pass one cannot
+    // under-pay any more.
+    let n_inputs = utxos.len() as u64;
+    let compute_mass = 46 + n_inputs * (300 + 1000) + 43 + 340;
+    let fee = std::cmp::max(fee, (compute_mass * 100 * 115) / 100);
+
     if total <= fee {
         return Err(JsValue::from_str("Balance too low to cover fee"));
     }
@@ -444,17 +474,34 @@ pub async fn create_covenant_timeout_refund(
     if utxos.is_empty() {
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
-    // Cap covenant inputs at the KasSigner ceiling (MAX_INPUTS=16). A flooded
-    // covenant is drained by repeating the spend; without this a larger UTXO
-    // set builds a TX the device can't sign. Largest-first moves the most
-    // value per spend. (Redeem script is small — 16 copies fit the firmware
-    // redeem pool; fee scales with input count below.)
-    if utxos.len() > 16 {
+    // Cap covenant inputs at the KasSigner ceiling (KASSIGNER_MAX_INPUTS). A
+    // flooded covenant is drained by repeating the spend; without this a larger
+    // UTXO set builds a TX the device can't sign. Largest-first moves the most
+    // value per spend; fee scales with input count below.
+    if utxos.len() > KASSIGNER_MAX_INPUTS {
         utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
-        utxos.truncate(32);
+        utxos.truncate(KASSIGNER_MAX_INPUTS);
     }
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
+
+    // Scale the fee to the actual input count. Every input here is a covenant
+    // P2SH input carrying sig + redeem, and the node's compute mass grows with
+    // input count, so a flat fee under-pays a multi-UTXO spend and is rejected
+    // as "fees under the required amount for compute mass". Same per-input
+    // model and 1.15 margin as `getCovFee`; `max()` preserves any higher fee
+    // the caller passed, so a correct JS-side fee is never lowered.
+    //
+    // Added 2026-08-14. `create_covenant_payjoin_claim` already had this and
+    // `handleCovOwnerSpend` recomputes on the JS side before the sweep call,
+    // which is why owner sweeps of 32 UTXOs relay fine today. The floor is put
+    // in the builder rather than at each call site because this is where the
+    // input count is actually known: a caller that forgets to pass one cannot
+    // under-pay any more.
+    let n_inputs = utxos.len() as u64;
+    let compute_mass = 46 + n_inputs * (300 + 1000) + 43 + 340;
+    let fee = std::cmp::max(fee, (compute_mass * 100 * 115) / 100);
+
     if total <= fee {
         return Err(JsValue::from_str("Balance too low to cover fee"));
     }
@@ -563,17 +610,34 @@ pub async fn create_covenant_beneficiary_spend(
     if utxos.is_empty() {
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
-    // Cap covenant inputs at the KasSigner ceiling (MAX_INPUTS=16). A flooded
-    // covenant is drained by repeating the spend; without this a larger UTXO
-    // set builds a TX the device can't sign. Largest-first moves the most
-    // value per spend. (Redeem script is small — 16 copies fit the firmware
-    // redeem pool; fee scales with input count below.)
-    if utxos.len() > 16 {
+    // Cap covenant inputs at the KasSigner ceiling (KASSIGNER_MAX_INPUTS). A
+    // flooded covenant is drained by repeating the spend; without this a larger
+    // UTXO set builds a TX the device can't sign. Largest-first moves the most
+    // value per spend; fee scales with input count below.
+    if utxos.len() > KASSIGNER_MAX_INPUTS {
         utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
-        utxos.truncate(32);
+        utxos.truncate(KASSIGNER_MAX_INPUTS);
     }
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
+
+    // Scale the fee to the actual input count. Every input here is a covenant
+    // P2SH input carrying sig + redeem, and the node's compute mass grows with
+    // input count, so a flat fee under-pays a multi-UTXO spend and is rejected
+    // as "fees under the required amount for compute mass". Same per-input
+    // model and 1.15 margin as `getCovFee`; `max()` preserves any higher fee
+    // the caller passed, so a correct JS-side fee is never lowered.
+    //
+    // Added 2026-08-14. `create_covenant_payjoin_claim` already had this and
+    // `handleCovOwnerSpend` recomputes on the JS side before the sweep call,
+    // which is why owner sweeps of 32 UTXOs relay fine today. The floor is put
+    // in the builder rather than at each call site because this is where the
+    // input count is actually known: a caller that forgets to pass one cannot
+    // under-pay any more.
+    let n_inputs = utxos.len() as u64;
+    let compute_mass = 46 + n_inputs * (300 + 1000) + 43 + 340;
+    let fee = std::cmp::max(fee, (compute_mass * 100 * 115) / 100);
+
     if total <= fee {
         return Err(JsValue::from_str("Balance too low to cover fee"));
     }
@@ -790,14 +854,13 @@ pub async fn create_covenant_allowance_withdraw(
     if all_utxos.is_empty() {
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
-    // Cap covenant inputs at the KasSigner ceiling (MAX_INPUTS=16). A flooded
-    // covenant is drained by repeating the spend; without this a larger UTXO
-    // set builds a TX the device can't sign. Largest-first moves the most
-    // value per spend. (Redeem script is small — 16 copies fit the firmware
-    // redeem pool; fee scales with input count below.)
-    if all_utxos.len() > 16 {
+    // Cap covenant inputs at the KasSigner ceiling (KASSIGNER_MAX_INPUTS). A
+    // flooded covenant is drained by repeating the spend; without this a larger
+    // UTXO set builds a TX the device can't sign. Largest-first moves the most
+    // value per spend; fee scales with input count below.
+    if all_utxos.len() > KASSIGNER_MAX_INPUTS {
         all_utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
-        all_utxos.truncate(32);
+        all_utxos.truncate(KASSIGNER_MAX_INPUTS);
     }
 
     let total_balance: u64 = all_utxos.iter().map(|u| u.amount).sum();
@@ -940,17 +1003,34 @@ pub async fn create_covenant_atomic_claim(
     if utxos.is_empty() {
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
-    // Cap covenant inputs at the KasSigner ceiling (MAX_INPUTS=16). A flooded
-    // covenant is drained by repeating the spend; without this a larger UTXO
-    // set builds a TX the device can't sign. Largest-first moves the most
-    // value per spend. (Redeem script is small — 16 copies fit the firmware
-    // redeem pool; fee scales with input count below.)
-    if utxos.len() > 16 {
+    // Cap covenant inputs at the KasSigner ceiling (KASSIGNER_MAX_INPUTS). A
+    // flooded covenant is drained by repeating the spend; without this a larger
+    // UTXO set builds a TX the device can't sign. Largest-first moves the most
+    // value per spend; fee scales with input count below.
+    if utxos.len() > KASSIGNER_MAX_INPUTS {
         utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
-        utxos.truncate(32);
+        utxos.truncate(KASSIGNER_MAX_INPUTS);
     }
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
+
+    // Scale the fee to the actual input count. Every input here is a covenant
+    // P2SH input carrying sig + redeem, and the node's compute mass grows with
+    // input count, so a flat fee under-pays a multi-UTXO spend and is rejected
+    // as "fees under the required amount for compute mass". Same per-input
+    // model and 1.15 margin as `getCovFee`; `max()` preserves any higher fee
+    // the caller passed, so a correct JS-side fee is never lowered.
+    //
+    // Added 2026-08-14. `create_covenant_payjoin_claim` already had this and
+    // `handleCovOwnerSpend` recomputes on the JS side before the sweep call,
+    // which is why owner sweeps of 32 UTXOs relay fine today. The floor is put
+    // in the builder rather than at each call site because this is where the
+    // input count is actually known: a caller that forgets to pass one cannot
+    // under-pay any more.
+    let n_inputs = utxos.len() as u64;
+    let compute_mass = 46 + n_inputs * (300 + 1000) + 43 + 340;
+    let fee = std::cmp::max(fee, (compute_mass * 100 * 115) / 100);
+
     if total <= fee {
         return Err(JsValue::from_str("Balance too low to cover fee"));
     }
@@ -1070,17 +1150,34 @@ pub async fn create_covenant_owner_spend(
     if utxos.is_empty() {
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
-    // Cap covenant inputs at the KasSigner ceiling (MAX_INPUTS=16). A flooded
-    // covenant is drained by repeating the spend; without this a larger UTXO
-    // set builds a TX the device can't sign. Largest-first moves the most
-    // value per spend. (Redeem script is small — 16 copies fit the firmware
-    // redeem pool; fee scales with input count below.)
-    if utxos.len() > 16 {
+    // Cap covenant inputs at the KasSigner ceiling (KASSIGNER_MAX_INPUTS). A
+    // flooded covenant is drained by repeating the spend; without this a larger
+    // UTXO set builds a TX the device can't sign. Largest-first moves the most
+    // value per spend; fee scales with input count below.
+    if utxos.len() > KASSIGNER_MAX_INPUTS {
         utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
-        utxos.truncate(32);
+        utxos.truncate(KASSIGNER_MAX_INPUTS);
     }
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
+
+    // Scale the fee to the actual input count. Every input here is a covenant
+    // P2SH input carrying sig + redeem, and the node's compute mass grows with
+    // input count, so a flat fee under-pays a multi-UTXO spend and is rejected
+    // as "fees under the required amount for compute mass". Same per-input
+    // model and 1.15 margin as `getCovFee`; `max()` preserves any higher fee
+    // the caller passed, so a correct JS-side fee is never lowered.
+    //
+    // Added 2026-08-14. `create_covenant_payjoin_claim` already had this and
+    // `handleCovOwnerSpend` recomputes on the JS side before the sweep call,
+    // which is why owner sweeps of 32 UTXOs relay fine today. The floor is put
+    // in the builder rather than at each call site because this is where the
+    // input count is actually known: a caller that forgets to pass one cannot
+    // under-pay any more.
+    let n_inputs = utxos.len() as u64;
+    let compute_mass = 46 + n_inputs * (300 + 1000) + 43 + 340;
+    let fee = std::cmp::max(fee, (compute_mass * 100 * 115) / 100);
+
     if total <= fee {
         return Err(JsValue::from_str("Balance too low to cover fee"));
     }
@@ -1450,10 +1547,11 @@ pub async fn create_global_spending_limit_topup(
             "Select at least one wallet UTXO to fold into the thread",
         ));
     }
-    // 1 thread input + N wallet inputs must stay within MAX_INPUTS=16, so cap
-    // the folded wallet UTXOs at 15. A larger fold is done over repeated topups.
-    if manual_indices.len() > 31 {
-        manual_indices.truncate(31);
+    // 1 thread input + N wallet inputs must stay within KASSIGNER_MAX_INPUTS,
+    // so cap the folded wallet UTXOs at one less. A larger fold is done over
+    // repeated topups.
+    if manual_indices.len() > KASSIGNER_MAX_INPUTS - 1 {
+        manual_indices.truncate(KASSIGNER_MAX_INPUTS - 1);
     }
     let mut selected = Vec::new();
     let mut wallet_total = 0u64;
@@ -1809,10 +1907,11 @@ pub async fn create_global_allowance_topup(
             "Select at least one wallet UTXO to fold into the thread",
         ));
     }
-    // 1 thread input + N wallet inputs must stay within MAX_INPUTS=16, so cap
-    // the folded wallet UTXOs at 15. A larger fold is done over repeated topups.
-    if manual_indices.len() > 31 {
-        manual_indices.truncate(31);
+    // 1 thread input + N wallet inputs must stay within KASSIGNER_MAX_INPUTS,
+    // so cap the folded wallet UTXOs at one less. A larger fold is done over
+    // repeated topups.
+    if manual_indices.len() > KASSIGNER_MAX_INPUTS - 1 {
+        manual_indices.truncate(KASSIGNER_MAX_INPUTS - 1);
     }
     let mut selected = Vec::new();
     let mut wallet_total = 0u64;
@@ -2099,14 +2198,36 @@ pub async fn create_covenant_borrower_spend(
         )));
     }
     // 1 covenant input + N borrower funding inputs must stay within
-    // MAX_INPUTS=16, so at most 15 funding inputs. Consolidate first if the
-    // payment needs more (truncating would drop below `needed`).
-    if funding_utxos.len() > 31 {
+    // KASSIGNER_MAX_INPUTS, so at most one less in funding inputs. Refuse, not
+    // truncate: consolidate first if the payment needs more
+    // (truncating would drop below `needed`).
+    if funding_utxos.len() > KASSIGNER_MAX_INPUTS - 1 {
         return Err(JsValue::from_str(&format!(
-            "Payment needs {} borrower UTXOs (max 31 + 1 covenant input = 32). Consolidate your wallet UTXOs first.",
-            funding_utxos.len()
+            "Payment needs {} borrower UTXOs (max {} + 1 covenant input = {}). Consolidate your wallet UTXOs first.",
+            funding_utxos.len(),
+            KASSIGNER_MAX_INPUTS - 1,
+            KASSIGNER_MAX_INPUTS
         )));
     }
+
+    // Scale the fee to the actual input count, now that both halves are known:
+    // exactly one covenant P2SH input (the largest UTXO, chosen above) plus
+    // every borrower funding input. Same model and margin as `getCovFee`, and
+    // `max()` never lowers a fee the caller sized correctly.
+    //
+    // Added 2026-08-14. This path was priced as a single input by
+    // `handleCovBorrowerSpend`, which calls `getCovFee()` with no arguments,
+    // while the builder can legitimately assemble up to KASSIGNER_MAX_INPUTS.
+    //
+    // NOTE: `fee` is rebound here, AFTER `needed` was computed from the old
+    // value. Funding selection therefore targets the smaller figure, so a
+    // borrower whose selected UTXOs only just covered `needed` can now fall
+    // short of the raised fee. That is caught below by the funding_total check
+    // rather than silently under-funding, and re-running selection against the
+    // scaled fee is the fuller fix.
+    let n_inputs = 1u64 + funding_utxos.len() as u64;
+    let compute_mass = 46 + n_inputs * (300 + 1000) + 43 + 340;
+    let fee = std::cmp::max(fee, (compute_mass * 100 * 115) / 100);
 
     let covenant_spk_hex = format!(
         "0000{}",
@@ -2297,12 +2418,15 @@ pub async fn create_covenant_borrower_withdraw(
         )));
     }
     // 1 covenant input + N borrower funding inputs must stay within
-    // MAX_INPUTS=16, so at most 15 funding inputs. Consolidate first if the
-    // fee needs more (truncating would drop below the fee).
-    if funding_utxos.len() > 31 {
+    // KASSIGNER_MAX_INPUTS, so at most one less in funding inputs. Refuse, not
+    // truncate: consolidate first if the fee needs more
+    // (truncating would drop below the fee).
+    if funding_utxos.len() > KASSIGNER_MAX_INPUTS - 1 {
         return Err(JsValue::from_str(&format!(
-            "Fee needs {} borrower UTXOs (max 31 + 1 covenant input = 32). Consolidate your wallet UTXOs first.",
-            funding_utxos.len()
+            "Fee needs {} borrower UTXOs (max {} + 1 covenant input = {}). Consolidate your wallet UTXOs first.",
+            funding_utxos.len(),
+            KASSIGNER_MAX_INPUTS - 1,
+            KASSIGNER_MAX_INPUTS
         )));
     }
 
@@ -2869,20 +2993,15 @@ pub async fn create_covenant_payjoin_claim(
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
 
-    // Cap covenant inputs per claim. Raised 4 -> 15 -> 31 as the constraints were
-    // measured rather than assumed:
-    //   - QR budget: obsolete. The old comment cited "the same 5-input ceiling
-    //     as UTXO consolidation"; both are gone (V11/248 frames, MAX_INPUTS=16).
-    //   - Firmware MAX_INPUTS=16 is the binding limit, and this claim always
-    //     adds 1 mixing input, so 15 covenant + 1 mix = 16 exactly.
-    //   - Redeem pool: the PayJoin redeem script is 94 bytes; 15 copies = 1410 B,
-    //     inside REDEEM_POOL_SIZE (2048). (No dedup needed at this script size.)
-    //   - Signed response: 16 inputs + ~3 outputs ~= 2679 B, inside the 4096-byte
-    //     signed_qr_buf.
+    // Cap covenant inputs per claim at one below the firmware ceiling, since
+    // this claim always adds 1 mixing input: 31 covenant + 1 mix = 32 exactly
+    // (KASSIGNER_MAX_INPUTS). Constraints measured, none binding below that:
+    //   - Redeem pool: the PayJoin redeem script is 94 bytes, <= 512 so it is
+    //     stored inline per input and never touches the shared pool.
     //   - Fee auto-scales below (n_inputs), so a higher cap can't underpay.
     // Largest-first so the most value moves per claim; a packed address is
     // drained by repeating the claim until no covenant UTXOs remain.
-    const MAX_COV_INPUTS: usize = 31; // + 1 mixing input = firmware's 32
+    const MAX_COV_INPUTS: usize = KASSIGNER_MAX_INPUTS - 1; // + 1 mixing input
     if cov_utxos.len() > MAX_COV_INPUTS {
         cov_utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
         cov_utxos.truncate(MAX_COV_INPUTS);
@@ -3097,17 +3216,34 @@ pub async fn create_covenant_oracle_claim(
     if utxos.is_empty() {
         return Err(JsValue::from_str("No UTXOs at covenant address"));
     }
-    // Cap covenant inputs at the KasSigner ceiling (MAX_INPUTS=16). A flooded
-    // covenant is drained by repeating the spend; without this a larger UTXO
-    // set builds a TX the device can't sign. Largest-first moves the most
-    // value per spend. (Redeem script is small — 16 copies fit the firmware
-    // redeem pool; fee scales with input count below.)
-    if utxos.len() > 16 {
+    // Cap covenant inputs at the KasSigner ceiling (KASSIGNER_MAX_INPUTS). A
+    // flooded covenant is drained by repeating the spend; without this a larger
+    // UTXO set builds a TX the device can't sign. Largest-first moves the most
+    // value per spend; fee scales with input count below.
+    if utxos.len() > KASSIGNER_MAX_INPUTS {
         utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
-        utxos.truncate(32);
+        utxos.truncate(KASSIGNER_MAX_INPUTS);
     }
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
+
+    // Scale the fee to the actual input count. Every input here is a covenant
+    // P2SH input carrying sig + redeem, and the node's compute mass grows with
+    // input count, so a flat fee under-pays a multi-UTXO spend and is rejected
+    // as "fees under the required amount for compute mass". Same per-input
+    // model and 1.15 margin as `getCovFee`; `max()` preserves any higher fee
+    // the caller passed, so a correct JS-side fee is never lowered.
+    //
+    // Added 2026-08-14. `create_covenant_payjoin_claim` already had this and
+    // `handleCovOwnerSpend` recomputes on the JS side before the sweep call,
+    // which is why owner sweeps of 32 UTXOs relay fine today. The floor is put
+    // in the builder rather than at each call site because this is where the
+    // input count is actually known: a caller that forgets to pass one cannot
+    // under-pay any more.
+    let n_inputs = utxos.len() as u64;
+    let compute_mass = 46 + n_inputs * (300 + 1000) + 43 + 340;
+    let fee = std::cmp::max(fee, (compute_mass * 100 * 115) / 100);
+
     if total <= fee {
         return Err(JsValue::from_str("Balance too low to cover fee"));
     }
@@ -3249,6 +3385,24 @@ pub async fn create_oracle_heartbeat(
     }
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
+
+    // Scale the fee to the actual input count. Every input here is a covenant
+    // P2SH input carrying sig + redeem, and the node's compute mass grows with
+    // input count, so a flat fee under-pays a multi-UTXO spend and is rejected
+    // as "fees under the required amount for compute mass". Same per-input
+    // model and 1.15 margin as `getCovFee`; `max()` preserves any higher fee
+    // the caller passed, so a correct JS-side fee is never lowered.
+    //
+    // Added 2026-08-14. `create_covenant_payjoin_claim` already had this and
+    // `handleCovOwnerSpend` recomputes on the JS side before the sweep call,
+    // which is why owner sweeps of 32 UTXOs relay fine today. The floor is put
+    // in the builder rather than at each call site because this is where the
+    // input count is actually known: a caller that forgets to pass one cannot
+    // under-pay any more.
+    let n_inputs = utxos.len() as u64;
+    let compute_mass = 46 + n_inputs * (300 + 1000) + 43 + 340;
+    let fee = std::cmp::max(fee, (compute_mass * 100 * 115) / 100);
+
     if total <= fee {
         return Err(JsValue::from_str("Balance too low to cover fee"));
     }

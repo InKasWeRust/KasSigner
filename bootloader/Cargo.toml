@@ -7,7 +7,7 @@
 
 [package]
 name = "kassigner-bootloader"
-version = "1.0.5"
+version = "1.0.6"
 edition = "2021"
 authors = ["KasSigner Team"]
 
@@ -27,6 +27,12 @@ production = ["silent"]
 silent = []
 verbose-boot = []
 skip-tests = []
+# E-13 measurement: capture raw WDEV_RND words to WDEVCPx.BIN on SD for offline
+# SP 800-90B analysis. Nothing in the firmware estimates WDEV min-entropy;
+# probe_wdev and WdevHealth are liveness checks that a counter would pass.
+# Measurement only. NEVER enable for a shipped build: it writes raw noise-source
+# output to a removable card.
+wdev-capture = []
 # E-12 measurement: capture the raw camera bytes the seed path hashes to
 # ENTCAP<tag>.BIN on SD, for offline SP 800-90B analysis. hw/frame_noise.rs
 # sets MIN_AC_FOR_ENTROPY from four observations and asks for exactly this.

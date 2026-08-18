@@ -293,6 +293,11 @@ pub(crate) fn draw_menu_icon<D: DrawTarget<Color = Rgb565>>(d: &mut D, label: &s
         s if s.starts_with("Standard Seed")=> draw_icon!(size24px::other::QrCode),
         s if s.starts_with("Plain Text") => draw_icon!(size24px::other::QrCode),
         s if s.starts_with("QR Export")   => draw_icon!(size24px::other::QrCode),
+        // BEFORE the generic "kpub" arm below, which would otherwise
+        // catch it and draw the watch-only eye. This is the 45'
+        // cosigner key, so it gets the same Group icon as Create
+        // Multisig: the two are parts of one flow.
+        s if s.starts_with("kpub Multi")  => draw_icon!(size24px::users::Group),
         s if s.starts_with("kpub as")     => draw_icon!(size24px::other::QrCode),
         s if s.starts_with("kpub to")     => draw_icon!(size24px::finance::AppleWallet),
         s if s.starts_with("kpub")        => draw_icon!(size24px::actions::EyeEmpty),
@@ -609,6 +614,18 @@ impl<'a> BootDisplay<'a> {
         write!(&mut hash_text, "Hash: {}", hash_display).ok();
         let hw = measure_body(hash_text.as_str());
         draw_lato_body(&mut self.display, hash_text.as_str(), (320 - hw) / 2, 155, COLOR_TEXT_DIM);
+
+        // Provisioning state, read from the eFuse at display time.
+        //
+        // Dim when it matches the runbook, danger red when it does not: an
+        // unprovisioned device must not look like a provisioned one, which
+        // is the entire point of showing this. NOT tamper evidence, see
+        // `hw/efuse.rs`.
+        let efuse = crate::hw::efuse::read_secure_boot_state();
+        let efuse_text = efuse.screen_line();
+        let efuse_color = if efuse.matches_runbook() { COLOR_TEXT_DIM } else { COLOR_DANGER };
+        let ew = measure_body(efuse_text);
+        draw_lato_body(&mut self.display, efuse_text, (320 - ew) / 2, 182, efuse_color);
 
         // Status — Lato Bold 18px, centered, colored
         let status_text = match status {

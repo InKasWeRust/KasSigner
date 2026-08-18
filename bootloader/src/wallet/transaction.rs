@@ -163,6 +163,25 @@ pub fn script_bytes(&self) -> &[u8] {
 pub struct UtxoEntry {
     pub amount: u64,                  // sompi (1 KAS = 100_000_000 sompi)
     pub script_public_key: ScriptPublicKey,
+    /// Whether this coin belongs to a covenant, and which.
+    ///
+    /// Upstream carries it as `covenant_id: Option<Hash>` on `UtxoEntry`, and
+    /// the engine groups inputs by it (`crypto/txscript/src/covenants.rs`) to
+    /// decide whether an output binding continues the same covenant or begins
+    /// a new one: equal to the authorizing input's id means continuation,
+    /// otherwise genesis, which is then validated by recomputing the id.
+    ///
+    /// The device needs it to say anything true about the covenant id it
+    /// displays. Everything else on the confirm screen, the amount and the
+    /// destination, the user verifies directly, and a genesis id is a pure
+    /// function of those, so recomputing one proves nothing new. Whether a
+    /// spend stays inside the covenant it is spending from is the one fact on
+    /// that screen the device cannot otherwise check.
+    ///
+    /// A flag plus a plain array rather than `Option`, matching `TxOutput` and
+    /// safe under the `core::mem::zeroed()` in `Transaction::new`.
+    pub has_covenant: bool,
+    pub covenant_id: [u8; 32],
 }
 
 // ─── Multisig Constants ──────────────────────────────────────────────
@@ -360,6 +379,55 @@ pub struct TransactionInput {
     /// see the same PSKT they sent, plus our additions. Empty for KSPT flow.
     pub incoming_partial_sigs: [IncomingPartialSig; MAX_SIGS_PER_INPUT],
     pub incoming_partial_sigs_count: u8,
+    /// 45' derivation hint from the PSKB's `bip32_derivations`, if present.
+    ///
+    /// The path of the ADDRESS BEING SPENT, not of any particular signer: every
+    /// cosigner of a 45' input derives at the same
+    /// `m/45'/111111'/account'/cosigner/chain/index`, so one path serves all of
+    /// them and this device's own cosigner index is irrelevant here.
+    ///
+    /// **UNTRUSTED.** It arrives in the same PSKB an attacker could craft, so it
+    /// says where to LOOK and never what to trust. The signing path must derive
+    /// at this path and then verify the resulting pubkey actually appears in
+    /// this input's redeem script, which is what the P2SH address hashes to and
+    /// what the user approved on screen. Signing on the strength of the hint
+    /// alone would let a crafted PSKB walk the device down any path it likes.
+    pub ms45_hint: Ms45Hint,
+    /// Index+1 into `PsktParsed::unknowns` of this input's captured
+    /// `"bip32Derivations":{...}` region. ZERO MEANS NONE.
+    ///
+    /// Index+1 rather than the index, because `Transaction` is built with
+    /// `mem::zeroed()` and `alloc_zeroed`, so a plain index would make region 0
+    /// the default for every input that never had a map.
+    ///
+    /// The map must be re-emitted VERBATIM, not regenerated. It is how the NEXT
+    /// cosigner finds their key: it carries one KeySource per cosigner,
+    /// including the ones who have not signed yet. Rebuilding it from
+    /// `partialSigs` keeps only signers, and nulls their KeySource, so a 45'
+    /// bundle would survive exactly one hop and the second signer would refuse
+    /// on a payload this device gutted. See N-20.
+    ///
+    /// Recorded per input rather than looked up by field name, because a
+    /// multi-input transaction has one such region per input and searching by
+    /// name would return the first every time.
+    pub bip32_region: u8,
+}
+
+/// A 45' derivation hint for one input.
+///
+/// `present` false means no usable hint arrived and the signer must search.
+#[derive(Debug, Clone, Copy)]
+pub struct Ms45Hint {
+    pub present: bool,
+    pub cosigner: u32,
+    pub chain: u32,
+    pub index: u32,
+}
+
+impl Ms45Hint {
+    pub const fn none() -> Self {
+        Self { present: false, cosigner: 0, chain: 0, index: 0 }
+    }
 }
 
 // ─── Transaction Output ───────────────────────────────────────────────
@@ -374,9 +442,108 @@ pub struct TransactionOutput {
     pub has_covenant: bool,
     pub covenant_auth_input: u16,
     pub covenant_id: [u8; 32],
+    /// The 45' derivation path this output CLAIMS to belong to, from its own
+    /// `bip32Derivations` map.
+    ///
+    /// A claim, not a fact. It is what makes change verifiable at all: an output
+    /// paying back to this wallet is a P2SH address that only the FULL cosigner
+    /// set can reproduce, so one seed cannot check it. With a matching
+    /// descriptor loaded the device rebuilds the address at this path and either
+    /// confirms it as change or catches the claim as false.
+    ///
+    /// Without a descriptor the claim is unverifiable and the output must be
+    /// shown as outgoing, with the user told why - the device cannot save you
+    /// from a payload it cannot check, but it can refuse to pretend.
+    pub ms45_hint: Ms45Hint,
+    /// Index+1 into `PsktParsed::unknowns` of this output's captured
+    /// `"bip32Derivations":{...}` region. ZERO MEANS NONE.
+    ///
+    /// The output-side twin of `TransactionInput::bip32_region`, and needed for
+    /// the same reason: the map must be re-emitted VERBATIM. The serializer
+    /// wrote a hardcoded `"bip32Derivations":{}` for every output, so the FIRST
+    /// signer stripped the change claim and the second signer received a
+    /// transaction where no output claimed anything - not "unverified", but
+    /// nothing to verify. Observed on hardware with vector V6.
+    pub bip32_region: u8,
 }
 
 // ─── Transaction ──────────────────────────────────────────────────────
+
+/// Does any output make a change claim that a TRUSTED descriptor contradicts?
+///
+/// Returns the output index of the first forgery found.
+///
+/// "Trusted" is doing the work. A descriptor is trusted for this transaction
+/// when it reproduces one of the transaction's own INPUTS at that input's hinted
+/// path - that proves it is this wallet's key set, not merely some descriptor
+/// the user happens to have loaded. Only then does its failure on an OUTPUT mean
+/// anything.
+///
+/// Three outcomes, and only this one is an attack:
+///   - no trusted descriptor        -> unknown, the user's risk to take
+///   - trusted, output reproduces   -> genuine change
+///   - trusted, output does NOT     -> the claim is FALSE
+///
+/// A forged claim cannot be constructed without the whole cosigner set, and
+/// anyone holding that already knows the real addresses. So a mismatch here is
+/// someone trying to have change approved for an address that is not ours.
+pub fn find_forged_change(
+    tx: &Transaction,
+    configs: &[MultisigConfig],
+) -> Option<usize> {
+    // Is any loaded descriptor trusted for this transaction?
+    let mut trusted: Option<&MultisigConfig> = None;
+    'outer: for c in configs.iter() {
+        if !c.active {
+            continue;
+        }
+        for i in 0..tx.num_inputs {
+            let ispk = &tx.inputs[i].utxo_entry.script_public_key;
+            if ispk.script_len != 35 {
+                continue;
+            }
+            let mut ish = [0u8; 32];
+            ish.copy_from_slice(&ispk.script[2..34]);
+            if c.matches_at(&tx.inputs[i].ms45_hint, &ish) {
+                trusted = Some(c);
+                break 'outer;
+            }
+        }
+    }
+    let c = trusted?;
+
+    for o in 0..tx.num_outputs {
+        let out = &tx.outputs[o];
+        if !out.ms45_hint.present {
+            continue;
+        }
+        let spk = &out.script_public_key;
+        if spk.script_len != 35 || spk.script[0] != 0xAA || spk.script[34] != 0x87 {
+            continue;
+        }
+        // An output that pays back to an input's own script is change by byte
+        // equality and needs no derivation - not a forgery, whatever it claims.
+        let mut same_as_input = false;
+        for i in 0..tx.num_inputs {
+            let ispk = &tx.inputs[i].utxo_entry.script_public_key;
+            if ispk.script_len == spk.script_len
+                && ispk.script[..ispk.script_len] == spk.script[..spk.script_len]
+            {
+                same_as_input = true;
+                break;
+            }
+        }
+        if same_as_input {
+            continue;
+        }
+        let mut sh = [0u8; 32];
+        sh.copy_from_slice(&spk.script[2..34]);
+        if !c.matches_at(&out.ms45_hint, &sh) {
+            return Some(o);
+        }
+    }
+    None
+}
 
 /// Shared pool size for redeem scripts that exceed MAX_SCRIPT_SIZE.
 /// Covers worst case: one 1024-byte covenant + margin, or several
@@ -673,6 +840,47 @@ pub struct MultisigConfig {
     /// multisig address. `build_script()` reads this to know which
     /// per-cosigner child to derive.
     pub addr_index: u32,
+
+    // ── 45' scheme. All four fields are meaningless when `v45` is false. ──
+    /// Which scheme built this config. Never inferred: the descriptor says so
+    /// (`multi_hd45(` versus `multi_hd(`), and `MultisigConfig::new()` leaves
+    /// it false so a legacy descriptor loads as 44' by default.
+    ///
+    /// 45' is the rusty-kaspa standard: cosigner keys are account xpubs at
+    /// `m/45'/111111'/account'`, an address is built from children at
+    /// `/cosigner_index/chain/addr_index` with the SAME index applied to every
+    /// key, and the keys are ordered by their serialized xpub. 44' is ours:
+    /// keys at `m/44'/111111'/0'`, children at `/0/addr_index`, and the DERIVED
+    /// children lex-sorted. The two produce different addresses from the same
+    /// cosigners and neither converts to the other.
+    pub v45: bool,
+    /// Which address family this device hands out, i.e. our own slot in the
+    /// sorted key list. Derived at load, never stored in the descriptor.
+    ///
+    /// It selects the addresses we DISPLAY. It plays no part in signing: the
+    /// path there comes from the PSKB's `bip32_derivations` hint and belongs to
+    /// the address being spent, which every cosigner derives at alike.
+    pub cosigner_index: u8,
+    /// Which chain to derive: 0 receive, 1 change. 45' only.
+    ///
+    /// Separate from `cosigner_index` because they are different levels of the
+    /// path: `/cosigner/chain/index`. 44' has no cosigner level and its chain is
+    /// always 0, so this is ignored there.
+    ///
+    /// Zero by default, which `mem::zeroed()` gives for free and which is the
+    /// receive chain - the only one anything funded until now.
+    pub chain: u8,
+    /// Per-entry depth, parent fingerprint and child number, paired by index
+    /// with `cosigner_pubkeys`.
+    ///
+    /// Kept because an entry must re-serialize byte-identically on export: a
+    /// kpub string encodes all three, and the sort that fixes every address is
+    /// a byte comparison over those strings. Reconstructing an entry from
+    /// pubkey and chain code alone would produce a different string, a
+    /// different sort position, and a different wallet.
+    pub cosigner_depth: [u8; MAX_MULTISIG_KEYS],
+    pub cosigner_parent_fp: [[u8; 4]; MAX_MULTISIG_KEYS],
+    pub cosigner_child_num: [[u8; 4]; MAX_MULTISIG_KEYS],
     /// The built scriptPublicKey (OP_m <child_pks> OP_n OP_CHECKMULTISIG)
     /// where each child_pk = (cosigner_parent / 0 / addr_index).x_only().
     pub script: [u8; MAX_SCRIPT_SIZE],
@@ -689,10 +897,39 @@ impl MultisigConfig {
             cosigner_pubkeys: [[0u8; 33]; MAX_MULTISIG_KEYS],
             cosigner_chain_codes: [[0u8; 32]; MAX_MULTISIG_KEYS],
             addr_index: 0,
+            v45: false,
+            cosigner_index: 0,
+            chain: 0,
+            cosigner_depth: [0u8; MAX_MULTISIG_KEYS],
+            cosigner_parent_fp: [[0u8; 4]; MAX_MULTISIG_KEYS],
+            cosigner_child_num: [[0u8; 4]; MAX_MULTISIG_KEYS],
             script: [0u8; MAX_SCRIPT_SIZE],
             script_len: 0,
             active: false,
         }
+    }
+
+    /// Store one cosigner entry from decoded kpub parts.
+    ///
+    /// One setter for both entry points, the scanned QR and our own key, so a
+    /// 45' entry can never be half-populated: pubkey and chain code without the
+    /// depth, fingerprint and child number would round-trip to a DIFFERENT kpub
+    /// string, sort to a different slot, and describe a different wallet.
+    ///
+    /// The three metadata fields are written unconditionally, including for
+    /// 44'. They are unused there, and writing them costs nothing, but it means
+    /// a config never carries a partly-filled entry whose validity depends on
+    /// which scheme happens to be set.
+    pub fn set_cosigner(&mut self, i: usize, parts: &super::xpub::KpubParts) -> bool {
+        if i >= MAX_MULTISIG_KEYS {
+            return false;
+        }
+        self.cosigner_pubkeys[i] = parts.pubkey;
+        self.cosigner_chain_codes[i] = parts.chain_code;
+        self.cosigner_depth[i] = parts.depth;
+        self.cosigner_parent_fp[i] = parts.parent_fp;
+        self.cosigner_child_num[i] = parts.child_num;
+        true
     }
 
     /// Is the cosigner slot `i` empty (no pubkey collected yet)?
@@ -703,12 +940,30 @@ impl MultisigConfig {
 
     /// Build the multisig scriptPublicKey for the current `addr_index`.
     ///
-    /// Derives each cosigner's child at `/0/addr_index` from their
-    /// account-level xpub (non-hardened, public-only derivation via
-    /// `derive_child_pub`), extracts x-only, lex-sorts for deterministic
-    /// cross-device ordering, and emits:
+    /// Emits, in both schemes:
     ///
     ///   OP_m OP_DATA_32 <pk0> OP_DATA_32 <pk1> ... OP_n OP_CHECKMULTISIG
+    ///
+    /// What differs is which key goes where, and the difference is not just
+    /// the path. It is WHEN the ordering is decided:
+    ///
+    /// **44'** derives each cosigner's child at `/0/addr_index`, then lex-sorts
+    /// the DERIVED children. The order is therefore recomputed for every
+    /// address index and may come out different each time, since children at
+    /// index 5 and index 6 are unrelated 32-byte values. That is why 44' has no
+    /// stable notion of "which cosigner is number 2" and no address families.
+    ///
+    /// **45'** derives at `/cosigner_index/0/addr_index` with the SAME
+    /// `cosigner_index` applied to every cosigner's key, and does NOT sort
+    /// here. The order was fixed once, at descriptor load, by sorting the
+    /// parent kpub STRINGS — which is what rusty-kaspa sorts
+    /// (`wallet/core/src/wallet/mod.rs:733`). Sorting the children again would
+    /// reorder the script and produce an address no other implementation
+    /// computes.
+    ///
+    /// Chain is 0 (receive) in both. Multisig change returns to the address
+    /// being spent rather than to a fresh change address, so chain 1 is never
+    /// built here.
     ///
     /// Returns script length, or 0 on error (invalid M/N, derivation failure).
     pub fn build_script(&mut self) -> usize {
@@ -716,18 +971,32 @@ impl MultisigConfig {
             return 0;
         }
 
-        // ── Step 1: derive each cosigner's x-only child at /0/addr_index ──
-        // Two derivations per cosigner: parent → /0 (receive chain) → /addr_index.
-        // Matches the Kaspa singlesig receive path so signing's existing
-        // address-level matcher (m/44'/111111'/0'/0/N) works unchanged.
+        // ── Step 1: derive each cosigner's x-only child ──
+        // 44': parent → /0 (receive chain) → /addr_index. Matches the Kaspa
+        //      singlesig receive path, so signing's existing address matcher
+        //      (m/44'/111111'/0'/0/N) works unchanged.
+        // 45': parent → /cosigner_index → /0 → /addr_index. One level more, and
+        //      the cosigner level is NOT hardened, which is what makes a
+        //      public-only derivation possible from an account xpub at all.
         let mut child_xonly = [[0u8; 32]; MAX_MULTISIG_KEYS];
         for i in 0..self.n as usize {
             let parent = super::bip32::ExtendedPubKey {
                 pubkey: self.cosigner_pubkeys[i],
                 chain_code: self.cosigner_chain_codes[i],
-                depth: 3, // account is at depth 3 (m/44'/111111'/0')
+                depth: 3, // account level in both schemes
             };
-            let receive_chain = match super::bip32::derive_child_pub(&parent, 0) {
+            let base = if self.v45 {
+                match super::bip32::derive_child_pub(&parent, self.cosigner_index as u32) {
+                    Ok(x) => x,
+                    Err(_) => return 0,
+                }
+            } else {
+                parent
+            };
+            // Chain from the config for 45', still hardcoded 0 for 44': that
+            // scheme has no cosigner level and its receive path is fixed.
+            let chain_step = if self.v45 { self.chain as u32 } else { 0 };
+            let receive_chain = match super::bip32::derive_child_pub(&base, chain_step) {
                 Ok(x) => x,
                 Err(_) => return 0,
             };
@@ -738,25 +1007,33 @@ impl MultisigConfig {
             child_xonly[i] = addr_xpub.x_only();
         }
 
-        // ── Step 2: lex-sort the x-only children so both devices produce
-        //           the byte-identical script regardless of cosigner
+        // ── Step 2: 44' ONLY — lex-sort the x-only children so both devices
+        //           produce the byte-identical script regardless of cosigner
         //           insertion order.
+        //
+        // 45' skips this deliberately. Its order was fixed at descriptor load
+        // by sorting the parent kpub strings, and the entries were stored in
+        // that order. Re-sorting the derived children here would discard it and
+        // yield an address no other implementation agrees with.
         let n = self.n as usize;
-        for i in 1..n {
-            let mut j = i;
-            while j > 0 {
-                let mut cmp = core::cmp::Ordering::Equal;
-                for b in 0..32 {
-                    cmp = child_xonly[j - 1][b].cmp(&child_xonly[j][b]);
-                    if cmp != core::cmp::Ordering::Equal { break; }
-                }
-                if cmp == core::cmp::Ordering::Greater {
-                    child_xonly.swap(j - 1, j);
-                    j -= 1;
-                } else {
-                    break;
+        if !self.v45 {
+            for i in 1..n {
+                let mut j = i;
+                while j > 0 {
+                    let mut cmp = core::cmp::Ordering::Equal;
+                    for b in 0..32 {
+                        cmp = child_xonly[j - 1][b].cmp(&child_xonly[j][b]);
+                        if cmp != core::cmp::Ordering::Equal { break; }
+                    }
+                    if cmp == core::cmp::Ordering::Greater {
+                        child_xonly.swap(j - 1, j);
+                        j -= 1;
+                    } else {
+                        break;
+                    }
                 }
             }
+
         }
 
         // ── Step 3: assemble the script ──
@@ -781,13 +1058,169 @@ impl MultisigConfig {
         pos
     }
 
-    /// Get a human-readable label: "2-of-3" etc.
+    /// Does this config reproduce `script` at the given path?
+    ///
+    /// Used two ways on the review screen. Against an INPUT's redeem script it
+    /// answers "is this the descriptor for this transaction", which is what
+    /// selects the right stored config without asking the user. Against an
+    /// OUTPUT's script it answers "is this output really our change".
+    ///
+    /// Derives from the cosigner PARENTS at `/cosigner/chain/index`, which is
+    /// the same walk `build_script` does, then compares the P2SH script hash.
+    /// Does not disturb the config: `build_script` writes into `self.script`,
+    /// so this rebuilds into a local instead.
+    pub fn matches_at(&self, hint: &Ms45Hint, script_hash: &[u8; 32]) -> bool {
+        if !self.v45 || !hint.present {
+            return false;
+        }
+        let n = self.n as usize;
+        if n == 0 || n > MAX_MULTISIG_KEYS {
+            return false;
+        }
+        let mut redeem = [0u8; 3 + MAX_MULTISIG_KEYS * 33];
+        let mut pos = 0usize;
+        redeem[pos] = 0x50 + self.m; pos += 1;
+        for i in 0..n {
+            let parent = super::bip32::ExtendedPubKey {
+                pubkey: self.cosigner_pubkeys[i],
+                chain_code: self.cosigner_chain_codes[i],
+                // Depth of the ACCOUNT key these parents are: m/45'/coin'/acct'
+                // is depth 3. Not used by `derive_child_pub`, which needs only
+                // the pubkey and chain code, but the struct carries it.
+                depth: self.cosigner_depth[i],
+            };
+            let a = match super::bip32::derive_child_pub(&parent, hint.cosigner) {
+                Ok(k) => k, Err(_) => return false,
+            };
+            let b = match super::bip32::derive_child_pub(&a, hint.chain) {
+                Ok(k) => k, Err(_) => return false,
+            };
+            let c = match super::bip32::derive_child_pub(&b, hint.index) {
+                Ok(k) => k, Err(_) => return false,
+            };
+            redeem[pos] = 0x20; pos += 1;
+            redeem[pos..pos + 32].copy_from_slice(&c.pubkey[1..33]);
+            pos += 32;
+        }
+        redeem[pos] = 0x50 + self.n; pos += 1;
+        redeem[pos] = 0xae; pos += 1;
+        let h = super::sighash::blake2b_hash(&redeem[..pos]);
+        h == *script_hash
+    }
+
+    /// Sort the cosigner entries into canonical order, 45' only.
+    ///
+    /// **Must be called once the last entry is in, before `build_script`.**
+    ///
+    /// A LOADED descriptor arrives sorted, because `parse_descriptor_45` sorts
+    /// it. A CREATED one does not: entries arrive one at a time via
+    /// `set_cosigner`, in the order the user scanned them, and nothing else
+    /// orders them. `build_script` deliberately does not sort children for 45',
+    /// so without this the redeem script follows scan order and the wallet gets
+    /// an address no other implementation computes - including this same device
+    /// after re-importing its own descriptor.
+    ///
+    /// Observed on hardware 2026-08-15: a 2-of-2 created from the two abandon
+    /// seeds produced an address matching scan order, not sorted order. The
+    /// keys were right; only the order was wrong.
+    ///
+    /// Sorts on the SERIALIZED kpub, exactly what `parse_descriptor_45` and
+    /// rusty-kaspa sort: version, depth, parent fingerprint, child number,
+    /// chain code, pubkey. Comparing the pubkey alone would order differently.
+    ///
+    /// 44' is left untouched: it sorts derived children per address inside
+    /// `build_script` and has no notion of a fixed parent order.
+    pub fn sort_cosigners(&mut self) {
+        if !self.v45 {
+            return;
+        }
+        let n = self.n as usize;
+        // Insertion sort over the serialized form, same shape as the 44' child
+        // sort below and as `parse_descriptor_45`.
+        for i in 1..n {
+            let mut j = i;
+            while j > 0 {
+                let a = self.serialized_entry(j - 1);
+                let b = self.serialized_entry(j);
+                if a > b {
+                    self.cosigner_pubkeys.swap(j - 1, j);
+                    self.cosigner_chain_codes.swap(j - 1, j);
+                    self.cosigner_depth.swap(j - 1, j);
+                    self.cosigner_parent_fp.swap(j - 1, j);
+                    self.cosigner_child_num.swap(j - 1, j);
+                    j -= 1;
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// The serialized form of cosigner `i`, for ordering.
+    ///
+    /// Field order matches the kpub payload so a byte comparison here gives the
+    /// same result as comparing the base58 strings, which is what rusty-kaspa
+    /// sorts. Base58 preserves the order of the underlying bytes for equal
+    /// lengths, and every kpub is the same length.
+    fn serialized_entry(&self, i: usize) -> [u8; 74] {
+        // The 4-byte version prefix is omitted: it is identical for every kpub,
+        // so it cannot affect an ordering and including it would mean widening
+        // a private constant in `xpub.rs` for nothing.
+        let mut out = [0u8; 74];
+        out[0] = self.cosigner_depth[i];
+        out[1..5].copy_from_slice(&self.cosigner_parent_fp[i]);
+        out[5..9].copy_from_slice(&self.cosigner_child_num[i]);
+        out[9..41].copy_from_slice(&self.cosigner_chain_codes[i]);
+        out[41..74].copy_from_slice(&self.cosigner_pubkeys[i]);
+        out
+    }
+
+    /// Do these two configs describe the SAME wallet?
+    ///
+    /// Same threshold, same cosigner set, and — the part that was missing —
+    /// the same SCHEME. A 44' and a 45' config built from identical cosigners
+    /// and an identical M-of-N are different wallets with different addresses,
+    /// because 44' sorts the derived children while 45' sorts the parent keys
+    /// and inserts a cosigner level. Treating them as one overwrites a stored
+    /// wallet with another wallet's config, and the addresses silently change.
+    ///
+    /// `cosigner_index` is deliberately NOT compared. It is per-device, not per
+    /// wallet: two cosigners of the same wallet hold the same config with
+    /// different indices, and each still recognises it as theirs.
+    pub fn same_wallet_as(&self, other: &Self) -> bool {
+        self.v45 == other.v45
+            && self.m == other.m
+            && self.n == other.n
+            && self.cosigner_pubkeys == other.cosigner_pubkeys
+    }
+
+    /// Human-readable label: `2-of-3` for 44', `2-of-3 45'#1` for 45'.
+    ///
+    /// The scheme and family are shown because neither is recoverable from the
+    /// address, and both are needed to reproduce it. A user holding one wallet
+    /// of each scheme otherwise sees two identical `2-of-3` entries with
+    /// different addresses and nothing on screen explaining why.
+    ///
+    /// `#N` is `cosigner_index`, the family THIS device hands out. Two
+    /// cosigners of the same wallet see the same `2-of-3 45'` and different
+    /// `#N`, which is correct and is the thing that stops them issuing
+    /// colliding addresses.
+    ///
+    /// Callers pass an 8-byte buffer today; anything shorter simply truncates,
+    /// as before, since every write is length-checked.
     pub fn label(&self, buf: &mut [u8]) -> usize {
-        // Format: "M-of-N"
         let mut pos = 0;
         if pos < buf.len() { buf[pos] = b'0' + self.m; pos += 1; }
         for &c in b"-of-" { if pos < buf.len() { buf[pos] = c; pos += 1; } }
         if pos < buf.len() { buf[pos] = b'0' + self.n; pos += 1; }
+        if self.v45 {
+            // " 45' S1/C0" — signer and chain, matching the nav band.
+            for &c in b" 45' S" { if pos < buf.len() { buf[pos] = c; pos += 1; } }
+            // Single digits: cosigner_index < n <= MAX_MULTISIG_KEYS = 5, chain is 0 or 1.
+            if pos < buf.len() { buf[pos] = b'0' + self.cosigner_index; pos += 1; }
+            for &c in b"/C" { if pos < buf.len() { buf[pos] = c; pos += 1; } }
+            if pos < buf.len() { buf[pos] = b'0' + self.chain; pos += 1; }
+        }
         pos
     }
 }
@@ -811,4 +1244,108 @@ impl MultisigStore {
         }
         None
     }
+}
+
+// ─── 45' cross-implementation vector ─────────────────────────────────
+
+/// Reproduce a multisig address that an INDEPENDENT implementation produced.
+///
+/// Source: `rusty-kaspa-2.0.1/wallet/core/src/compat/gen1.rs:134`, whose
+/// expected value carries the comment "taken from golang impl". Five kpubs,
+/// 2-of-5, `cosigner_index: 1`, receive address 0. The address is
+/// `kaspa:pqvgkyjeuxmd8k70egrrzpdz5rqj0acmr6y94mwsltxfp6nc50742295c3998`, and
+/// the 32 bytes below are the P2SH script hash inside it.
+///
+/// This is the ONLY test here that can fail for a reason other than our own
+/// arithmetic agreeing with itself. Four separate rules have to be right at
+/// once or the hash differs completely:
+///
+///   1. sort the PARENT kpub strings, not the derived children. The five
+///      below are listed unsorted on purpose: sorting permutes them
+///      [3, 0, 2, 1, 4], so a build that skipped the sort, or sorted the
+///      children the way 44' does, produces a different script.
+///   2. apply the SAME `cosigner_index` to every cosigner's key.
+///   3. derive `/cosigner/chain/index` under the account, three
+///      non-hardened steps.
+///   4. emit `OP_M`, each 32-byte x-only key in sorted-parent order, `OP_N`,
+///      `OP_CHECKMULTISIG`.
+///
+/// Costs 5 x 111 bytes of static kpub text. That is DRAM, and DRAM raises the
+/// stack floor (see `stack_probe`), so it is a deliberate purchase: an
+/// interoperability guarantee that fails loudly on the bench rather than
+/// quietly at a user's address.
+#[cfg(any(test, not(feature = "skip-tests")))]
+pub fn test_multisig_45_vector() -> bool {
+    const VEC_KPUBS: [&[u8]; 5] = [
+        b"kpub2J937qL9n85s7HrhYyYYdMkzq1kaMiAf9PAcJzRW3jV7NgntNfGGrNgut7ZxcVrJqH42BCT2WyjfnxJh3SBDjLhXHe3UC2RJUu5tcjsViuK",
+        b"kpub2Jtuqt6WJWZv3fQUnKhuEaCxbAyzLsFn3UEEaM4g7CXa2LZjQZH4o6tpj83tFaewMEyX56qrAF4Q64uqunVyBayuuRNwjru5DWchDEcq5vz",
+        b"kpub2JZg9pofE54nqvkhFRRx18pAMhYDPL2CpYqBx2AkzvsEknCh8V4rtez9ZYeab3HCW1Xsm9f4d6J5dfJVg9NADWN7rtqNft21batcii1SjXy",
+        b"kpub2HuRXjAmhs3KwQ9WpHVaiHRjBP37TQUiUGFQBTwp7cdbArCo5s2MT6415nd3ZYaELvNbZ4qTJjCGTavExv514tWftaGQzCK8gQz6BQJNySp",
+        b"kpub2KCvcuKVgfy1h7PvCw4xFcdLAPoerVZBG4qTo8vRGH2Qe6p5AgLyRek5CEnuCDkduXHqgwtvaVfYYBS7gQBR1J4XowdvqvPXsHZGA5WyRJF",
+    ];
+    const EXPECT_SCRIPT_HASH: [u8; 32] = [
+        0x18, 0x8b, 0x12, 0x59, 0xe1, 0xb6, 0xd3, 0xdb, 0xcf, 0xca, 0x06, 0x31, 0x05, 0xa2, 0xa0, 0xc1,
+        0x27, 0xf7, 0x1b, 0x1e, 0x88, 0x5a, 0xed, 0xd0, 0xfa, 0xcc, 0x90, 0xea, 0x78, 0xa3, 0xfd, 0x55,
+    ];
+
+    let mut cfg = MultisigConfig::new();
+    cfg.v45 = true;
+    cfg.m = 2;
+    cfg.n = 5;
+    cfg.cosigner_index = 1;
+    cfg.addr_index = 0;
+
+    // Sort the strings, exactly as `parse_descriptor_45` does on load. Doing
+    // it here rather than assuming the array is sorted keeps the test honest:
+    // the constants above are in the wallet file's original order.
+    let mut ordered: [&[u8]; 5] = VEC_KPUBS;
+    for i in 1..5 {
+        let mut j = i;
+        while j > 0 {
+            let mut greater = false;
+            for b in 0..111 {
+                if ordered[j - 1][b] != ordered[j][b] {
+                    greater = ordered[j - 1][b] > ordered[j][b];
+                    break;
+                }
+            }
+            if greater {
+                ordered.swap(j - 1, j);
+                j -= 1;
+            } else {
+                break;
+            }
+        }
+    }
+
+    for (i, k) in ordered.iter().enumerate() {
+        match super::xpub::parse_kpub_parts(k) {
+            Some(p) => {
+                if p.depth != 3 {
+                    return false;
+                }
+                cfg.set_cosigner(i, &p);
+            }
+            None => return false,
+        }
+    }
+
+    if cfg.build_script() == 0 {
+        return false;
+    }
+    let hash = super::sighash::blake2b_hash(&cfg.script[..cfg.script_len]);
+    hash == EXPECT_SCRIPT_HASH
+}
+
+/// Multisig known-answer tests. Returns (passed, total).
+///
+/// One test today, and it is the one that matters: an address produced by an
+/// independent implementation. Grouped as a runner so `run_crypto_kats` can
+/// treat it like every other KAT and halt on failure.
+#[cfg(any(test, not(feature = "skip-tests")))]
+pub fn run_multisig_tests() -> (u32, u32) {
+    let mut passed = 0u32;
+    let total = 1u32;
+    if test_multisig_45_vector() { passed += 1; }
+    (passed, total)
 }

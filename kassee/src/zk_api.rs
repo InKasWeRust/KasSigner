@@ -750,6 +750,26 @@ pub async fn create_commit_reveal_spend(
     }
 
     let total: u64 = utxos.iter().map(|u| u.amount).sum();
+
+    // Scale the fee to the real input count and the real redeem size.
+    //
+    // Every input here is a covenant P2SH input carrying redeem + the two
+    // commit parts + a signature, and the node's compute mass grows with input
+    // count. The caller (`handleCovCrReveal`) passes a HARDCODED 300,000, which
+    // is below even `getCovFee`'s 400,000 floor, so this path under-paid from
+    // TWO UTXOs upward rather than three.
+    //
+    // Measured on mainnet 2026-08-14 from two node rejections on a covenant
+    // sweep: mass = 506 + 1489 * n, fitted with zero residual. The 1489 is for a
+    // 365-byte redeem; here the redeem is measured rather than assumed, plus the
+    // two commit parts, so a larger script pays for itself. `max()` keeps any
+    // higher caller fee. Same 1.15 margin as `getCovFee` and the PayJoin and
+    // Merkle Whitelist recomputes. See INTERNAL_FINDINGS.md N-16.
+    let per_input_mass =
+        110 + redeem_bytes.len() as u64 + (part_a_hex.len() + part_b_hex.len()) as u64 / 2 + 1000;
+    let compute_mass = 46 + utxos.len() as u64 * per_input_mass + 43 + 2 * 340;
+    let fee = fee.max((compute_mass * 100 * 115) / 100);
+
     if total <= fee {
         return Err(JsValue::from_str("Balance too low to cover fee"));
     }

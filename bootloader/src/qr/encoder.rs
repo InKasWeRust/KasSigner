@@ -38,10 +38,14 @@
 //   V8: 192 bytes (49x49)
 //   V9: 230 bytes (53x53)  — phone-mode signed-response frames
 //
-// For KSSN response: 72 bytes = V4 (33x33)
-// On 128x64 OLED: 33 modules * 1px = 33px, centered. Readable but tight.
-// With 2px/module: 66px > 64px height. So V4 needs 1px/module.
-// V3 at 2px/module = 58px, fits in 64px height nicely.
+// The 72-byte / V4 figure that used to head this note was the size of a KSSN
+// signed response. This device does not emit KSSN (see the format block in
+// wallet/pskt.rs: it is reachable from one test), and the payload that actually
+// leaves after signing is KSPT, measured at 249 bytes for 1-in/2-out, which is
+// V9 or a multi-frame sequence. The sizing reasoning below it assumed a 128x64
+// OLED; both supported boards are 320x240. Neither premise held, so both are
+// removed rather than corrected: the live scale choices are in ui/redraw.rs and
+// the boot round-trip lines, which are measured, not reasoned from.
 //
 // Strategy: Use V4 at 1px/module for single sigs (72 bytes).
 //
@@ -209,7 +213,7 @@ pub struct QrCode {
     is_function: [u8; BITMAP_BYTES],
     /// Size (modules per side)
     pub size: u8,
-    /// Version (1-6)
+    /// Version (1-9)
     version: u8,
 }
 
@@ -974,10 +978,19 @@ pub fn run_tests() -> (u32, u32) {
 
     // Test 1: Version selection
     {
+        // Probes span the whole table, which runs to V9 (230 bytes at ECC L).
+        //
+        // This asserted `select_version(200).is_err()` until 2026-08-14. That
+        // was true when BYTE_CAPACITY stopped at V6/134 and became false when
+        // the table was extended to V9, but the test could not say so: it is
+        // gated `verbose-boot`, and verbose-boot could not boot. See N-15.
+        // The encoder itself is correct for V7-V9, including the version
+        // information blocks at line 319.
         if select_version(17) == Ok(1)
             && select_version(32) == Ok(2)
             && select_version(72) == Ok(4)
-            && select_version(200).is_err()
+            && select_version(230) == Ok(9)
+            && select_version(231).is_err()
         {
             passed += 1;
         }
@@ -1011,10 +1024,10 @@ pub fn run_tests() -> (u32, u32) {
         }
     }
 
-    // Test 4: Encode 72 bytes (typical KSSN response), verify V4
+    // Test 4: Encode 72 bytes, verify V4 dimensions and all three finders.
     {
         let mut data = [0u8; 72];
-        // Simulate KSSN header
+        // Arbitrary 72-byte payload; only the length matters to version choice.
         data[0] = b'K';
         data[1] = b'S';
         data[2] = b'S';

@@ -89,6 +89,34 @@ pub(crate) const TXT_IMPORT_BUF: usize = 1024;
 /// build instead of silently making large descriptors unreadable.
 const _: () = assert!(TXT_IMPORT_BUF >= MAX_DESCRIPTOR_LEN);
 
+/// Largest plaintext transaction the SD path will carry.
+///
+/// Separate from `TXT_IMPORT_BUF` on purpose. That constant is sized
+/// against `MAX_DESCRIPTOR_LEN` for kpub, address and descriptor imports,
+/// and 1,024 is right for those. The KSPT path was built beside it and
+/// copied the number as a bare literal in four places, which capped
+/// transactions at 1,024 bytes on a device whose signing path carries
+/// 8,192 and whose frame assembler holds 16,384. A saved transaction above
+/// that wrote to the card correctly and was then invisible to both file
+/// pickers, which reported "No .KSP files found".
+///
+/// Tied to `SIGNED_QR_BUF_LEN` because that is what actually bounds a
+/// transaction elsewhere: anything the device can sign and display, it
+/// should be able to save and reload.
+pub(crate) const KSPT_IMPORT_BUF: usize = crate::app::data::SIGNED_QR_BUF_LEN;
+
+/// Bytes the encrypted container adds: `KAS\x03` magic (4), plaintext
+/// length (2), nonce (12), GCM tag (16).
+pub(crate) const KSPT_ENC_OVERHEAD: usize = 34;
+
+/// Largest KSPT file on the card, plaintext or encrypted. Both the
+/// directory scan filter and the read buffer use this, so a file that
+/// lists is a file that can be read.
+pub(crate) const KSPT_FILE_MAX: usize = KSPT_IMPORT_BUF + KSPT_ENC_OVERHEAD;
+
+/// The encrypted form must fit the buffer that builds it.
+const _: () = assert!(KSPT_FILE_MAX >= KSPT_IMPORT_BUF + KSPT_ENC_OVERHEAD);
+
 // The return tuple is (m, n, pubkeys, x-only keys) sized by
 // MAX_MULTISIG_KEYS. A type alias would name it but not simplify it, and the
 // shape is the multisig descriptor itself: two counts and two parallel key
@@ -178,6 +206,393 @@ fn parse_descriptor(
         return None;
     }
     Some((m, n, cosigner_pubkeys, cosigner_chain_codes))
+}
+
+/// Longest a `multi_hd45(...)` descriptor can be.
+///
+///   "multi_hd45("  11
+///   "M,"            2
+///   N x 111         base58 kpub strings
+///   N-1 commas
+///   ")"             1
+///
+/// At MAX_MULTISIG_KEYS = 5 that is 573 bytes, inside `TXT_IMPORT_BUF`.
+/// An optional `#` header line sits above this and is skipped before parsing,
+/// so it does not count against the limit.
+pub(crate) const MAX_DESCRIPTOR_45_LEN: usize = 11
+    + 2
+    + crate::wallet::transaction::MAX_MULTISIG_KEYS * KPUB_STR_LEN
+    + (crate::wallet::transaction::MAX_MULTISIG_KEYS - 1)
+    + 1;
+
+/// A serialized kpub is always exactly this many base58 characters: the
+/// payload is a fixed 78 bytes plus a 4-byte checksum, and the leading version
+/// bytes are fixed too, so there is no length variation to allow for. The
+/// sort in `parse_descriptor_45` relies on this, since equal lengths mean a
+/// plain byte comparison and a string comparison agree.
+pub(crate) const KPUB_STR_LEN: usize = 111;
+
+const _: () = assert!(TXT_IMPORT_BUF >= MAX_DESCRIPTOR_45_LEN);
+
+/// Parse a 45' HD multisig descriptor:
+///
+///   `multi_hd45(M,<kpub>,<kpub>,...,<kpub>)`
+///
+/// where each entry is a base58check kpub string of exactly `KPUB_STR_LEN`
+/// characters, an ACCOUNT-level key at `m/45'/111111'/account'`.
+///
+/// An optional `#` header line may precede the descriptor:
+///
+///   `# KasSigner multisig, 45' coordinated, 2-of-3`
+///
+/// It is DECORATIVE. This function skips it and never reads it. The
+/// `multi_hd45(` prefix is the sole authority for the scheme; if a header
+/// contradicts it, the header is ignored rather than treated as an error.
+/// A label must never enter the entry list, because the sort below is a byte
+/// comparison and a label inside an entry would change the ordering and
+/// therefore every address.
+///
+/// **Entries are sorted here, and the descriptor's own order is discarded.**
+/// rusty-kaspa sorts the base58 STRINGS (`wallet/core/src/wallet/mod.rs:733`,
+/// `sort_unstable` over `xpub_key.to_string(...)`), so descriptors arrive
+/// unordered from other wallets: its own cross-implementation vector lists five
+/// keys in an order that sorts to the permutation [3, 0, 2, 1, 4]. Sorting on
+/// load is what makes an external descriptor work; trusting the written order
+/// would silently produce a different redeem script and a different address.
+///
+/// The sort is a plain byte comparison, NOT case-insensitive and not
+/// human-alphabetical: base58 spans digits (0x31-0x39), uppercase (0x41-0x5A)
+/// and lowercase (0x61-0x7A), so `Z` sorts before `t`.
+///
+/// Checks applied, in order:
+///   - prefix, suffix, threshold M in 1..=9
+///   - every entry exactly `KPUB_STR_LEN` chars
+///   - base58check, Kaspa version bytes, 78-byte payload, 02/03 pubkey prefix
+///   - depth == 3, i.e. an account key. This is what catches a key exported
+///     from the wrong level, which is the likeliest way a wrong key gets pasted
+///   - strictly increasing after sorting, so duplicates are rejected. A
+///     duplicate would make one participant's slot ambiguous
+///
+/// Note the caller must ALSO check that its own account key is present in the
+/// returned list. That check is not here because this function has no access to
+/// the seed, but it is the one that catches a 44'-vs-45' key mix-up: the
+/// participant whose key is wrong is exactly the participant whose device fails
+/// to find itself.
+///
+/// Returns `(m, n, parts)` with `parts` in sorted order, so index `i` is
+/// cosigner index `i`.
+#[allow(clippy::type_complexity)]
+fn parse_descriptor_45(
+    data: &[u8],
+) -> Option<(
+    u8,
+    u8,
+    [crate::wallet::xpub::KpubParts; crate::wallet::transaction::MAX_MULTISIG_KEYS],
+)> {
+    // Header handled by the shared skipper, so `looks_like_descriptor` and this
+    // parser can never disagree about where the descriptor starts.
+    let data = skip_header(data);
+
+    // Trim trailing whitespace.
+    let mut end = data.len();
+    while end > 0 && matches!(data[end - 1], b'\n' | b'\r' | b' ' | b'\t') {
+        end -= 1;
+    }
+    let data = &data[..end];
+
+    let prefix = b"multi_hd45(";
+    if data.len() < prefix.len() + 2 || &data[..prefix.len()] != prefix {
+        return None;
+    }
+    if data[data.len() - 1] != b')' {
+        return None;
+    }
+    let inner = &data[prefix.len()..data.len() - 1];
+
+    if inner.is_empty() || inner[0] < b'1' || inner[0] > b'9' {
+        return None;
+    }
+    let m = inner[0] - b'0';
+    if inner.len() < 2 || inner[1] != b',' {
+        return None;
+    }
+
+    // Collect the entry slices without decoding, so the sort sees exactly the
+    // strings rusty-kaspa sorts.
+    let mut entries: [&[u8]; crate::wallet::transaction::MAX_MULTISIG_KEYS] =
+        [&[]; crate::wallet::transaction::MAX_MULTISIG_KEYS];
+    let mut n: usize = 0;
+    let mut pos = 2usize;
+    while pos < inner.len() {
+        if n >= crate::wallet::transaction::MAX_MULTISIG_KEYS {
+            return None;
+        }
+        if pos + KPUB_STR_LEN > inner.len() {
+            return None;
+        }
+        entries[n] = &inner[pos..pos + KPUB_STR_LEN];
+        n += 1;
+        pos += KPUB_STR_LEN;
+        if pos < inner.len() {
+            if inner[pos] != b',' {
+                return None;
+            }
+            pos += 1;
+        }
+    }
+    if n == 0 || m as usize > n {
+        return None;
+    }
+
+    // Insertion sort on the raw strings. Same shape as the 44' child sort in
+    // transaction.rs, different object: parents here, derived children there.
+    for i in 1..n {
+        let mut j = i;
+        while j > 0 {
+            let mut greater = false;
+            for b in 0..KPUB_STR_LEN {
+                if entries[j - 1][b] != entries[j][b] {
+                    greater = entries[j - 1][b] > entries[j][b];
+                    break;
+                }
+            }
+            if greater {
+                entries.swap(j - 1, j);
+                j -= 1;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // Strictly increasing after sorting: any equal pair is a duplicate key.
+    for i in 1..n {
+        if entries[i - 1] == entries[i] {
+            return None;
+        }
+    }
+
+    let zero = crate::wallet::xpub::KpubParts {
+        depth: 0,
+        parent_fp: [0u8; 4],
+        child_num: [0u8; 4],
+        chain_code: [0u8; 32],
+        pubkey: [0u8; 33],
+    };
+    let mut parts = [zero; crate::wallet::transaction::MAX_MULTISIG_KEYS];
+    for i in 0..n {
+        let p = crate::wallet::xpub::parse_kpub_parts(entries[i])?;
+        // Account level: m/45'/111111'/account' is three hardened steps.
+        if p.depth != 3 {
+            return None;
+        }
+        parts[i] = p;
+    }
+
+    Some((m, n as u8, parts))
+}
+
+/// Write a descriptor for `cfg` into `out`, returning the byte count.
+///
+/// Emits the scheme the config carries: `multi_hd45(` with base58 kpub entries
+/// when `v45`, `multi_hd(` with 130-char hex entries otherwise. One writer for
+/// both, so the grammar lives next to the parser that has to read it back.
+///
+/// With `header` set, the 45' form is preceded by a `#` line naming the scheme
+/// and threshold. It is DECORATIVE: `parse_descriptor_45` skips it and never
+/// reads it, and the `multi_hd45(` prefix remains the sole authority. It exists
+/// so a human opening the file knows what they are looking at, and so two
+/// participants comparing copies by eye have something to compare. Deliberately
+/// no date and no serial: anything that varies per device would make identical
+/// descriptors look different, and that comparison is a defence we rely on.
+///
+/// Pass `header: false` for a QR. Those 46 bytes are pure payload there, they
+/// cost frames, and nothing reading a QR shows them to anyone. KasSee's parser
+/// does not skip comment lines either, so a header would break it outright.
+/// 44' never gets a header in either case: its readers predate the convention.
+///
+/// **Entries are written in the config's stored order, which for 45' is
+/// already sorted** because `parse_descriptor_45` sorted them at load. Writing
+/// sorted is cosmetic rather than load-bearing: every reader sorts again, since
+/// a descriptor may arrive from a tool that does not sort. Never re-order here
+/// on the assumption a reader will fix it.
+///
+/// Returns 0 if the config is empty or `out` is too small.
+pub(crate) fn write_descriptor(
+    cfg: &crate::wallet::transaction::MultisigConfig,
+    out: &mut [u8],
+    header: bool,
+) -> usize {
+    if cfg.m == 0 || cfg.n == 0 || cfg.m > cfg.n {
+        return 0;
+    }
+    let n = cfg.n as usize;
+    if n > crate::wallet::transaction::MAX_MULTISIG_KEYS {
+        return 0;
+    }
+    let mut pos = 0usize;
+    let put = |out: &mut [u8], pos: &mut usize, b: u8| -> bool {
+        if *pos >= out.len() {
+            return false;
+        }
+        out[*pos] = b;
+        *pos += 1;
+        true
+    };
+
+    if cfg.v45 {
+        if header {
+            for &b in b"# KasSigner multisig, 45' coordinated, " {
+                if !put(out, &mut pos, b) { return 0; }
+            }
+            if !put(out, &mut pos, b'0' + cfg.m) { return 0; }
+            for &b in b"-of-" {
+                if !put(out, &mut pos, b) { return 0; }
+            }
+            if !put(out, &mut pos, b'0' + cfg.n) { return 0; }
+            if !put(out, &mut pos, b'\n') { return 0; }
+        }
+
+        for &b in b"multi_hd45(" {
+            if !put(out, &mut pos, b) { return 0; }
+        }
+        if !put(out, &mut pos, b'0' + cfg.m) { return 0; }
+        for i in 0..n {
+            if !put(out, &mut pos, b',') { return 0; }
+            let parts = crate::wallet::xpub::KpubParts {
+                depth: cfg.cosigner_depth[i],
+                parent_fp: cfg.cosigner_parent_fp[i],
+                child_num: cfg.cosigner_child_num[i],
+                chain_code: cfg.cosigner_chain_codes[i],
+                pubkey: cfg.cosigner_pubkeys[i],
+            };
+            let mut buf = [0u8; crate::wallet::xpub::KPUB_MAX_LEN];
+            let len = crate::wallet::xpub::serialize_kpub_parts(&parts, &mut buf);
+            if len != KPUB_STR_LEN {
+                // A kpub is a fixed 78-byte payload, so its base58 form is
+                // always this long. Anything else means the stored parts are
+                // not an account key and the descriptor would be unreadable.
+                return 0;
+            }
+            for &b in &buf[..len] {
+                if !put(out, &mut pos, b) { return 0; }
+            }
+        }
+        if !put(out, &mut pos, b')') { return 0; }
+        return pos;
+    }
+
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for &b in b"multi_hd(" {
+        if !put(out, &mut pos, b) { return 0; }
+    }
+    if !put(out, &mut pos, b'0' + cfg.m) { return 0; }
+    for i in 0..n {
+        if !put(out, &mut pos, b',') { return 0; }
+        for j in 0..33 {
+            let v = cfg.cosigner_pubkeys[i][j];
+            if !put(out, &mut pos, HEX[(v >> 4) as usize]) { return 0; }
+            if !put(out, &mut pos, HEX[(v & 0x0f) as usize]) { return 0; }
+        }
+        for j in 0..32 {
+            let v = cfg.cosigner_chain_codes[i][j];
+            if !put(out, &mut pos, HEX[(v >> 4) as usize]) { return 0; }
+            if !put(out, &mut pos, HEX[(v & 0x0f) as usize]) { return 0; }
+        }
+    }
+    if !put(out, &mut pos, b')') { return 0; }
+    pos
+}
+
+/// Does this look like a multisig descriptor, either scheme?
+///
+/// Skips a leading `#` header before testing, so a labelled descriptor is
+/// still recognised. Both prefixes, because a device holds wallets of both
+/// kinds and the file itself says which it is.
+pub(crate) fn looks_like_descriptor(data: &[u8]) -> bool {
+    let d = skip_header(data);
+    d.starts_with(b"multi_hd45(") || d.starts_with(b"multi_hd(")
+}
+
+/// Skip any leading `#` comment lines and the blank space around them.
+///
+/// The header is DECORATIVE. Nothing downstream reads it, and the
+/// `multi_hd45(` / `multi_hd(` prefix remains the sole authority for the
+/// scheme: if a header contradicts the prefix, the header is ignored rather
+/// than treated as an error. A label must never reach the entry list, because
+/// the 45' sort is a byte comparison and a label inside an entry would change
+/// the ordering and therefore every address.
+pub(crate) fn skip_header(data: &[u8]) -> &[u8] {
+    let mut start = 0usize;
+    loop {
+        while start < data.len() && matches!(data[start], b'\n' | b'\r' | b' ' | b'\t') {
+            start += 1;
+        }
+        if start < data.len() && data[start] == b'#' {
+            while start < data.len() && data[start] != b'\n' {
+                start += 1;
+            }
+        } else {
+            break;
+        }
+    }
+    &data[start..]
+}
+
+/// Load a descriptor of either scheme into `cfg`, or leave it untouched.
+///
+/// One function instead of a branch at each of the four load sites, and one
+/// place where a new scheme would be added. The scheme is read from the file,
+/// never inferred: `multi_hd45(` sets `v45`, `multi_hd(` clears it.
+///
+/// **`cfg.cosigner_index` is NOT set here.** It is our own slot in the sorted
+/// list, which requires deriving our account key from the loaded seed, and this
+/// function has no access to it. The caller must resolve it before the config
+/// is usable for displaying addresses.
+///
+/// That same caller-side step is what catches a 44'-vs-45' key mix-up: a kpub
+/// carries nothing identifying its subtree, so a 44' key pasted into a 45'
+/// wallet parses cleanly here. It fails one step later, when the participant
+/// whose key is wrong finds their own account key missing from the list.
+///
+/// Returns false and leaves `cfg` untouched on any parse failure, so a bad
+/// descriptor cannot half-load over a good one.
+pub(crate) fn load_descriptor_into(
+    cfg: &mut crate::wallet::transaction::MultisigConfig,
+    data: &[u8],
+) -> bool {
+    let d = skip_header(data);
+
+    if d.starts_with(b"multi_hd45(") {
+        let (m, n, parts) = match parse_descriptor_45(d) {
+            Some(v) => v,
+            None => return false,
+        };
+        *cfg = crate::wallet::transaction::MultisigConfig::new();
+        cfg.v45 = true;
+        cfg.m = m;
+        cfg.n = n;
+        for i in 0..(n as usize) {
+            cfg.cosigner_pubkeys[i] = parts[i].pubkey;
+            cfg.cosigner_chain_codes[i] = parts[i].chain_code;
+            cfg.cosigner_depth[i] = parts[i].depth;
+            cfg.cosigner_parent_fp[i] = parts[i].parent_fp;
+            cfg.cosigner_child_num[i] = parts[i].child_num;
+        }
+        return true;
+    }
+
+    if let Some((m, n, pubkeys, chain_codes)) = parse_descriptor(d) {
+        *cfg = crate::wallet::transaction::MultisigConfig::new();
+        cfg.v45 = false;
+        cfg.m = m;
+        cfg.n = n;
+        cfg.cosigner_pubkeys = pubkeys;
+        cfg.cosigner_chain_codes = chain_codes;
+        return true;
+    }
+
+    false
 }
 
 /// Check if a file with the given 8.3 name exists on the SD card.
@@ -1062,7 +1477,11 @@ pub fn handle_sd_touch(
                                         }
                                         Err(e) => {
                                             log!("[SD-RESTORE] Read failed: {}", e);
-                                            boot_display.draw_rejected_screen("File not found");
+                                            // Show the driver's own message. It named the
+                                            // real cause all along and was discarded here;
+                                            // `log!` compiles out in a production build, so
+                                            // the screen is the only channel.
+                                            boot_display.draw_rejected_screen(e);
                                             delay.delay_millis(2000);
                                         }
                                     }
@@ -1362,7 +1781,11 @@ pub fn handle_sd_touch(
                                         }
                                         Err(e) => {
                                             log!("[SD-XPRV] Read failed: {}", e);
-                                            boot_display.draw_rejected_screen("File not found");
+                                            // Show the driver's own message. It named the
+                                            // real cause all along and was discarded here;
+                                            // `log!` compiles out in a production build, so
+                                            // the screen is the only channel.
+                                            boot_display.draw_rejected_screen(e);
                                             delay.delay_millis(2000);
                                         }
                                     }
@@ -1525,7 +1948,10 @@ pub fn handle_sd_touch(
                                                 sdcard::list_root_dir(ct, &fat32, |entry| {
                                                     if !entry.is_dir()
                                                         && entry.file_size > 0
-                                                        && entry.file_size <= 1024
+                                                        // Same bound as the read buffer below,
+                                                        // so a file that lists is a file that
+                                                        // can be read.
+                                                        && (entry.file_size as usize) <= KSPT_FILE_MAX
                                                         && (ad.sd_file_count as usize) < crate::app::data::SD_FILE_LIST_MAX
                                                         && entry.name[8] == b'K'
                                                         && entry.name[9] == b'S'
@@ -1540,6 +1966,14 @@ pub fn handle_sd_touch(
                                             });
                                             match scan_result {
                                                 Ok(()) if ad.sd_file_count > 0 => {
+                                                    // What this flow is carrying. Without it the
+                                                    // value stays at its default of ADDRESS, so the
+                                                    // KSPT branch after a decrypt never runs and an
+                                                    // encrypted save asks the address question. The
+                                                    // other six transitions to this state are error
+                                                    // returns from inside the flow, where the value
+                                                    // is already correct.
+                                                    ad.sd_txt_origin = crate::app::data::SD_ORIGIN_KSPT;
                                                     ad.app.state = crate::app::input::AppState::SdKsptFileList;
                                                 }
                                                 Ok(()) => {
@@ -1798,10 +2232,15 @@ pub fn handle_sd_touch(
                                         let fat32 = sdcard::mount_fat32(ct)?;
                                         let (entry, _, _) = sdcard::find_file_in_root(ct, &fat32, &ad.sd_selected_file)?;
                                         // Heap, not stack: this array is RETURNED
-                                        // from the closure, so as `[u8; 1024]` it
-                                        // occupied a slot in both this frame and
+                                        // from the closure, so as a fixed array it
+                                        // would occupy a slot in both this frame and
                                         // handle_sd_touch's for the whole function.
-                                        let mut buf = alloc::vec![0u8; 1024];
+                                        //
+                                        // Sized to hold the encrypted form too, which
+                                        // is KSPT_ENC_OVERHEAD larger than the
+                                        // plaintext, and matched to the scan filter
+                                        // above so a listed file is always readable.
+                                        let mut buf = alloc::vec![0u8; KSPT_FILE_MAX];
                                         let n = sdcard::read_file(ct, &fat32, &entry, &mut buf[..])?;
                                         Ok((buf, n))
                                     });
@@ -1827,25 +2266,43 @@ pub fn handle_sd_touch(
                                                 ad.tx_sigs_required = 0;
                                                 log!("[SD-KSPT] Loaded {} bytes from SD", n);
 
-                                                let is_descriptor = n >= 9
-                                                    && &buf[..9] == b"multi_hd(";
+                                                let is_descriptor = looks_like_descriptor(&buf[..n]);
                                                 let is_address = n >= 10
                                                     && (&buf[..6] == b"kaspa:" || &buf[..10] == b"kaspatest:");
 
                                                 if is_descriptor {
-                                                    if let Some((m, nn, cosigner_pubkeys, cosigner_chain_codes)) = parse_descriptor(&buf[..n]) {
+                                                    // One loader for both schemes: it reads `multi_hd45(` or
+                                                    // `multi_hd(` from the file and sets `v45` accordingly, and it
+                                                    // leaves the config untouched on failure so a bad descriptor
+                                                    // cannot half-load over a good one.
+                                                    //
+                                                    // The three outcomes get three messages on purpose. A 45'
+                                                    // descriptor loaded with no seed is NOT bad, and saying so
+                                                    // would send the user to check a file that is fine.
+                                                    let parsed = load_descriptor_into(&mut ad.ms_creating, &buf[..n]);
+                                                    let resolved = if parsed {
+                                                        crate::app::signing::resolve_ms_cosigner_index(ad)
+                                                    } else {
+                                                        crate::app::signing::MsResolve::Ok
+                                                    };
+                                                    if !parsed {
                                                         ad.ms_creating = wallet::transaction::MultisigConfig::new();
-                                                        ad.ms_creating.m = m;
-                                                        ad.ms_creating.n = nn;
-                                                        ad.ms_creating.cosigner_pubkeys = cosigner_pubkeys;
-                                                        ad.ms_creating.cosigner_chain_codes = cosigner_chain_codes;
+                                                    }
+                                                    if parsed && resolved == crate::app::signing::MsResolve::Ok {
                                                         ad.ms_creating.build_script();
                                                         boot_display.draw_success_screen("Descriptor loaded!");
                                                         sound::success(delay);
                                                         delay.delay_millis(1000);
                                                         ad.app.state = crate::app::input::AppState::MultisigDescriptor;
                                                     } else {
-                                                        boot_display.draw_rejected_screen("Bad descriptor");
+                                                        // Name the actual cause. "Bad descriptor" for a good file
+                                                        // that simply has no seed to compare against is a wrong
+                                                        // diagnosis, and it points the user at the file.
+                                                        boot_display.draw_rejected_screen(match resolved {
+                                                            crate::app::signing::MsResolve::NoSeed => "Load a seed first",
+                                                            crate::app::signing::MsResolve::NotOurs => "Not your wallet",
+                                                            crate::app::signing::MsResolve::Ok => "Bad descriptor",
+                                                        });
                                                         delay.delay_millis(2000);
                                                         ad.app.state = crate::app::input::AppState::SdKsptFileList;
                                                     }
@@ -1867,7 +2324,11 @@ pub fn handle_sd_touch(
                                         }
                                         Err(e) => {
                                             log!("[SD-KSPT] Read failed: {}", e);
-                                            boot_display.draw_rejected_screen("Read error");
+                                            // Show the driver's own message. It named the
+                                            // real cause all along and was discarded here;
+                                            // `log!` compiles out in a production build, so
+                                            // the screen is the only channel.
+                                            boot_display.draw_rejected_screen(e);
                                             delay.delay_millis(2000);
                                         }
                                     }
@@ -1885,8 +2346,7 @@ pub fn handle_sd_touch(
                             // Save to SD button zone: center-left area
                             if (30..=155).contains(&x) && (140..=185).contains(&y) {
                                 // Save to SD → detect content type for correct extension
-                                let is_descriptor = ad.signed_qr_len >= 9
-                                    && &ad.signed_qr_buf[..9] == b"multi_hd(";
+                                let is_descriptor = looks_like_descriptor(&ad.signed_qr_buf[..ad.signed_qr_len]);
                                 if is_descriptor {
                                     let next = scan_auto_increment(i2c, delay, b"MD", b"TXT");
                                     let name = format_auto_name(b"MD", next, b"TXT");
@@ -2067,7 +2527,7 @@ pub fn handle_sd_touch(
                                                         // Encrypted kpub — go to password prompt
                                                         ad.signed_qr_buf[..n].copy_from_slice(&buf[..n]);
                                                         ad.signed_qr_len = n;
-                                                        ad.sd_txt_origin = 1;
+                                                        ad.sd_txt_origin = crate::app::data::SD_ORIGIN_KPUB;
                                                         // Clear so SdKsptEncryptPass detects LOAD.
                                                         // That screen decides encrypt-vs-decrypt from
                                                         // the kspt_filename extension; a stale .TXT
@@ -2098,7 +2558,7 @@ pub fn handle_sd_touch(
                                                         // Encrypted address — go to password prompt
                                                         ad.signed_qr_buf[..n].copy_from_slice(&buf[..n]);
                                                         ad.signed_qr_len = n;
-                                                        ad.sd_txt_origin = 0; // address import
+                                                        ad.sd_txt_origin = crate::app::data::SD_ORIGIN_ADDRESS;
                                                         // Clear so SdKsptEncryptPass detects LOAD.
                                                         ad.kspt_filename = [b' '; 11];
                                                         ad.pp_input.reset();
@@ -2136,7 +2596,7 @@ pub fn handle_sd_touch(
                                                         // sd_txt_origin=2 signals "return to descriptor" after decrypt.
                                                         ad.signed_qr_buf[..n].copy_from_slice(&buf[..n]);
                                                         ad.signed_qr_len = n;
-                                                        ad.sd_txt_origin = 2;
+                                                        ad.sd_txt_origin = crate::app::data::SD_ORIGIN_DESCRIPTOR;
                                                         // Clear so SdKsptEncryptPass detects LOAD.
                                                         ad.kspt_filename = [b' '; 11];
                                                         ad.pp_input.reset();
@@ -2144,19 +2604,35 @@ pub fn handle_sd_touch(
                                                     } else if n > 0 && n <= buf.len() {
                                                         let text = core::str::from_utf8(&buf[..n]).unwrap_or("?");
                                                         log!("[SD-DESC] Loaded: {}", text);
-                                                        if let Some((m, nn, cosigner_pubkeys, cosigner_chain_codes)) = parse_descriptor(&buf[..n]) {
+                                                        // One loader for both schemes: it reads `multi_hd45(` or
+                                                        // `multi_hd(` from the file and sets `v45` accordingly, and it
+                                                        // leaves the config untouched on failure so a bad descriptor
+                                                        // cannot half-load over a good one.
+                                                        //
+                                                        // The three outcomes get three messages on purpose. A 45'
+                                                        // descriptor loaded with no seed is NOT bad, and saying so
+                                                        // would send the user to check a file that is fine.
+                                                        let parsed = load_descriptor_into(&mut ad.ms_creating, &buf[..n]);
+                                                        let resolved = if parsed {
+                                                            crate::app::signing::resolve_ms_cosigner_index(ad)
+                                                        } else {
+                                                            crate::app::signing::MsResolve::Ok
+                                                        };
+                                                        if !parsed {
                                                             ad.ms_creating = wallet::transaction::MultisigConfig::new();
-                                                            ad.ms_creating.m = m;
-                                                            ad.ms_creating.n = nn;
-                                                            ad.ms_creating.cosigner_pubkeys = cosigner_pubkeys;
-                                                            ad.ms_creating.cosigner_chain_codes = cosigner_chain_codes;
+                                                        }
+                                                        if parsed && resolved == crate::app::signing::MsResolve::Ok {
                                                             ad.ms_creating.build_script();
                                                             boot_display.draw_success_screen("Descriptor loaded!");
                                                             sound::success(delay);
                                                             delay.delay_millis(1000);
                                                             ad.app.state = crate::app::input::AppState::MultisigDescriptor;
                                                         } else {
-                                                            boot_display.draw_rejected_screen("Bad descriptor format");
+                                                            boot_display.draw_rejected_screen(match resolved {
+                                                                crate::app::signing::MsResolve::NoSeed => "Load a seed first",
+                                                                crate::app::signing::MsResolve::NotOurs => "Not your wallet",
+                                                                crate::app::signing::MsResolve::Ok => "Bad descriptor format",
+                                                            });
                                                             delay.delay_millis(2000);
                                                         }
                                                     } else {
@@ -2169,7 +2645,11 @@ pub fn handle_sd_touch(
                                         }
                                         Err(e) => {
                                             log!("[SD-TXT] Read failed: {}", e);
-                                            boot_display.draw_rejected_screen("SD read error");
+                                            // Show the driver's own message. It named the
+                                            // real cause all along and was discarded here;
+                                            // `log!` compiles out in a production build, so
+                                            // the screen is the only channel.
+                                            boot_display.draw_rejected_screen(e);
                                             delay.delay_millis(2000);
                                         }
                                     }
@@ -2246,7 +2726,7 @@ pub fn handle_sd_touch(
                                 let addr_len = ad.kpub_len;
                                 ad.signed_qr_buf[..addr_len].copy_from_slice(&ad.kpub_data[..addr_len]);
                                 ad.signed_qr_len = addr_len;
-                                ad.sd_txt_origin = 0; // multisig address
+                                ad.sd_txt_origin = crate::app::data::SD_ORIGIN_ADDRESS;
                                 // kspt_filename already has TXT extension — SdKsptEncryptPass
                                 // will detect TXT and return to MultisigDescriptor after save
                                 ad.pp_input.reset();
@@ -2319,7 +2799,7 @@ pub fn handle_sd_touch(
                             if (30..=155).contains(&x) && (140..=185).contains(&y) {
                                 // Yes — encrypt: descriptor is already staged in signed_qr_buf
                                 // by the SD CARD button in tx.rs. Just set origin and go.
-                                ad.sd_txt_origin = 2; // multisig descriptor
+                                ad.sd_txt_origin = crate::app::data::SD_ORIGIN_DESCRIPTOR;
                                 ad.pp_input.reset();
                                 ad.app.state = crate::app::input::AppState::SdKsptEncryptPass;
                             } else if (165..=290).contains(&x) && (140..=185).contains(&y) {
@@ -2359,9 +2839,9 @@ pub fn handle_sd_touch(
                                 ad.app.state = crate::app::input::AppState::SdKsptEncryptAsk;
                             } else if ad.kspt_filename[8] == b'T' && ad.kspt_filename[9] == b'X' && ad.kspt_filename[10] == b'T' {
                                 // TXT encrypt → back to the relevant encrypt-ask
-                                if ad.sd_txt_origin == 1 {
+                                if ad.sd_txt_origin == crate::app::data::SD_ORIGIN_KPUB {
                                     ad.app.state = crate::app::input::AppState::SdKpubEncryptAsk;
-                                } else if ad.sd_txt_origin == 2 {
+                                } else if ad.sd_txt_origin == crate::app::data::SD_ORIGIN_DESCRIPTOR {
                                     ad.app.state = crate::app::input::AppState::SdMsDescEncryptAsk;
                                 } else {
                                     ad.app.state = crate::app::input::AppState::SdMsAddrEncryptAsk;
@@ -2401,8 +2881,14 @@ pub fn handle_sd_touch(
                                         let data_len = ad.signed_qr_len;
                                         // Encrypt in a temp buffer: KAS\x03 + len(2B LE) + nonce(12) + ciphertext + tag(16)
                                         let enc_size = 4 + 2 + 12 + data_len + 16;
-                                        if enc_size <= 1024 {
-                                            let mut enc_buf = alloc::vec![0u8; 1024];
+                                        // data_len is bounded by SIGNED_QR_BUF_LEN, so
+                                        // enc_size lands exactly on KSPT_FILE_MAX at the
+                                        // largest transaction. Previously 1,024 here while
+                                        // the unencrypted branch had no cap at all, so a
+                                        // transaction could be saved plain and not
+                                        // encrypted, with a message that named neither.
+                                        if enc_size <= KSPT_FILE_MAX {
+                                            let mut enc_buf = alloc::vec![0u8; KSPT_FILE_MAX];
                                             enc_buf[0] = b'K'; enc_buf[1] = b'A'; enc_buf[2] = b'S'; enc_buf[3] = 0x03;
                                             enc_buf[4] = (data_len & 0xFF) as u8;
                                             enc_buf[5] = ((data_len >> 8) & 0xFF) as u8;
@@ -2463,7 +2949,7 @@ pub fn handle_sd_touch(
                                         }
                                         ad.pp_input.reset();
                                         if is_txt {
-                                            if ad.sd_txt_origin == 1 {
+                                            if ad.sd_txt_origin == crate::app::data::SD_ORIGIN_KPUB {
                                                 ad.app.state = crate::app::input::AppState::ExportChoice;
                                             } else {
                                                 ad.app.state = crate::app::input::AppState::MultisigDescriptor;
@@ -2486,7 +2972,7 @@ pub fn handle_sd_touch(
                                             let data_len = ad.signed_qr_buf[4] as usize
                                                 | ((ad.signed_qr_buf[5] as usize) << 8);
                                             let expected = 4 + 2 + 12 + data_len + 16;
-                                            if expected <= file_len && data_len <= 1024 - 34 {
+                                            if expected <= file_len && data_len <= KSPT_IMPORT_BUF {
                                                 let nonce_sl = &ad.signed_qr_buf[6..18];
                                                 let ct_start = 18usize;
                                                 let tag_start = ct_start + data_len;
@@ -2506,8 +2992,14 @@ pub fn handle_sd_touch(
                                                 let aad = [b'K', b'A', b'S', 0x03,
                                                            ad.signed_qr_buf[4], ad.signed_qr_buf[5]];
 
-                                                // Decrypt in-place over the ciphertext area
-                                                let mut plain = [0u8; 1024];
+                                                // Decrypt in-place over the ciphertext area.
+                                                //
+                                                // Heap, not stack: at KSPT_IMPORT_BUF this
+                                                // is 8 KB, and a stack slot lives for the
+                                                // whole extent of its function. That is the
+                                                // same mechanism that put `signed_qr_buf`
+                                                // on the heap.
+                                                let mut plain = alloc::vec![0u8; KSPT_IMPORT_BUF];
                                                 plain[..data_len].copy_from_slice(
                                                     &ad.signed_qr_buf[ct_start..ct_start + data_len]);
 
@@ -2525,25 +3017,43 @@ pub fn handle_sd_touch(
                                                         log!("[SD-KSPT] Decrypted {} bytes", data_len);
 
                                                         // Detect content type after decryption
-                                                        let is_descriptor = data_len >= 9
-                                                            && &plain[..9] == b"multi_hd(";
+                                                        let is_descriptor = looks_like_descriptor(&plain[..data_len]);
 
-                                                        if ad.sd_txt_origin == 2 {
+                                                        if ad.sd_txt_origin == crate::app::data::SD_ORIGIN_DESCRIPTOR {
                                                             // Descriptor import path — only accept descriptors
                                                             if is_descriptor {
-                                                                if let Some((m, nn, cosigner_pubkeys, cosigner_chain_codes)) = parse_descriptor(&plain[..data_len]) {
+                                                                // One loader for both schemes: it reads `multi_hd45(` or
+                                                                // `multi_hd(` from the file and sets `v45` accordingly, and it
+                                                                // leaves the config untouched on failure so a bad descriptor
+                                                                // cannot half-load over a good one.
+                                                                //
+                                                                // The three outcomes get three messages on purpose. A 45'
+                                                                // descriptor loaded with no seed is NOT bad, and saying so
+                                                                // would send the user to check a file that is fine.
+                                                                let parsed = load_descriptor_into(&mut ad.ms_creating, &plain[..data_len]);
+                                                                let resolved = if parsed {
+                                                                    crate::app::signing::resolve_ms_cosigner_index(ad)
+                                                                } else {
+                                                                    crate::app::signing::MsResolve::Ok
+                                                                };
+                                                                if !parsed {
                                                                     ad.ms_creating = wallet::transaction::MultisigConfig::new();
-                                                                    ad.ms_creating.m = m;
-                                                                    ad.ms_creating.n = nn;
-                                                                    ad.ms_creating.cosigner_pubkeys = cosigner_pubkeys;
-                                                                    ad.ms_creating.cosigner_chain_codes = cosigner_chain_codes;
+                                                                }
+                                                                if parsed && resolved == crate::app::signing::MsResolve::Ok {
                                                                     ad.ms_creating.build_script();
                                                                     boot_display.draw_success_screen("Descriptor loaded!");
                                                                     sound::success(delay);
                                                                     delay.delay_millis(1000);
                                                                     ad.app.state = crate::app::input::AppState::MultisigDescriptor;
                                                                 } else {
-                                                                    boot_display.draw_rejected_screen("Bad descriptor");
+                                                                    // Name the actual cause. "Bad descriptor" for a good file
+                                                                    // that simply has no seed to compare against is a wrong
+                                                                    // diagnosis, and it points the user at the file.
+                                                                    boot_display.draw_rejected_screen(match resolved {
+                                                                        crate::app::signing::MsResolve::NoSeed => "Load a seed first",
+                                                                        crate::app::signing::MsResolve::NotOurs => "Not your wallet",
+                                                                        crate::app::signing::MsResolve::Ok => "Bad descriptor",
+                                                                    });
                                                                     delay.delay_millis(2000);
                                                                     ad.app.state = crate::app::input::AppState::SdImportMenu;
                                                                 }
@@ -2552,7 +3062,7 @@ pub fn handle_sd_touch(
                                                                 delay.delay_millis(2000);
                                                                 ad.app.state = crate::app::input::AppState::SdImportMenu;
                                                             }
-                                                        } else if ad.sd_txt_origin == 1 {
+                                                        } else if ad.sd_txt_origin == crate::app::data::SD_ORIGIN_KPUB {
                                                             // Kpub import path — only accept kpub content
                                                             let is_kpub_ascii = data_len >= 4 && &plain[..4] == b"kpub";
                                                             let is_kpub_v1raw = data_len == 79 && plain[0] == 0x01;
@@ -2570,7 +3080,7 @@ pub fn handle_sd_touch(
                                                                 delay.delay_millis(2000);
                                                                 ad.app.state = crate::app::input::AppState::SdImportMenu;
                                                             }
-                                                        } else if ad.sd_txt_origin == 0 {
+                                                        } else if ad.sd_txt_origin == crate::app::data::SD_ORIGIN_ADDRESS {
                                                             // Address import path — only accept kaspa addresses
                                                             let is_addr = data_len >= 6
                                                                 && (&plain[..6] == b"kaspa:" || (data_len >= 10 && &plain[..10] == b"kaspatest:"));
@@ -2595,19 +3105,38 @@ pub fn handle_sd_touch(
                                                                 && (&plain[..6] == b"kaspa:" || (data_len >= 10 && &plain[..10] == b"kaspatest:"));
 
                                                             if is_descriptor {
-                                                                if let Some((m, nn, cosigner_pubkeys, cosigner_chain_codes)) = parse_descriptor(&plain[..data_len]) {
+                                                                // One loader for both schemes: it reads `multi_hd45(` or
+                                                                // `multi_hd(` from the file and sets `v45` accordingly, and it
+                                                                // leaves the config untouched on failure so a bad descriptor
+                                                                // cannot half-load over a good one.
+                                                                //
+                                                                // The three outcomes get three messages on purpose. A 45'
+                                                                // descriptor loaded with no seed is NOT bad, and saying so
+                                                                // would send the user to check a file that is fine.
+                                                                let parsed = load_descriptor_into(&mut ad.ms_creating, &plain[..data_len]);
+                                                                let resolved = if parsed {
+                                                                    crate::app::signing::resolve_ms_cosigner_index(ad)
+                                                                } else {
+                                                                    crate::app::signing::MsResolve::Ok
+                                                                };
+                                                                if !parsed {
                                                                     ad.ms_creating = wallet::transaction::MultisigConfig::new();
-                                                                    ad.ms_creating.m = m;
-                                                                    ad.ms_creating.n = nn;
-                                                                    ad.ms_creating.cosigner_pubkeys = cosigner_pubkeys;
-                                                                    ad.ms_creating.cosigner_chain_codes = cosigner_chain_codes;
+                                                                }
+                                                                if parsed && resolved == crate::app::signing::MsResolve::Ok {
                                                                     ad.ms_creating.build_script();
                                                                     boot_display.draw_success_screen("Descriptor loaded!");
                                                                     sound::success(delay);
                                                                     delay.delay_millis(1000);
                                                                     ad.app.state = crate::app::input::AppState::MultisigDescriptor;
                                                                 } else {
-                                                                    boot_display.draw_rejected_screen("Bad descriptor");
+                                                                    // Name the actual cause. "Bad descriptor" for a good file
+                                                                    // that simply has no seed to compare against is a wrong
+                                                                    // diagnosis, and it points the user at the file.
+                                                                    boot_display.draw_rejected_screen(match resolved {
+                                                                        crate::app::signing::MsResolve::NoSeed => "Load a seed first",
+                                                                        crate::app::signing::MsResolve::NotOurs => "Not your wallet",
+                                                                        crate::app::signing::MsResolve::Ok => "Bad descriptor",
+                                                                    });
                                                                     delay.delay_millis(2000);
                                                                     ad.app.state = crate::app::input::AppState::SdKsptFileList;
                                                                 }
@@ -2716,7 +3245,7 @@ pub fn handle_sd_touch(
                                 let kpub_len = ad.kpub_len;
                                 ad.signed_qr_buf[..kpub_len].copy_from_slice(&ad.kpub_data[..kpub_len]);
                                 ad.signed_qr_len = kpub_len;
-                                ad.sd_txt_origin = 1; // kpub
+                                ad.sd_txt_origin = crate::app::data::SD_ORIGIN_KPUB;
                                 ad.pp_input.reset();
                                 ad.app.state = crate::app::input::AppState::SdKsptEncryptPass;
                                 needs_redraw = true;

@@ -21,7 +21,7 @@
 extern crate alloc;
 
 use crate::log;
-use crate::{qr::encoder, wallet, features::self_test, app::input, ui::pin_ui, ui::setup_wizard, ui::seed_manager};
+use crate::{qr::encoder, wallet, features::self_test, app::input, ui::setup_wizard, ui::seed_manager};
 use crate::features::self_test::run_all_tests;
 
 /// Decode QR from grayscale image using rqrr. Returns Option<(data, len)>.
@@ -168,9 +168,8 @@ pub fn run_boot_tests() {
     }
 
     // Crypto known-answer tests, called from here so main.rs needs no change.
-    // NOTE: run_boot_tests is #[cfg(not(feature = "silent"))] and `production`
-    // implies `silent`, so these do NOT run in a production build. Real gap,
-    // tracked as P-09; closing it needs a call site in main.rs.
+    // run_boot_tests is gated on `skip-tests` only, never on `silent`, so
+    // these run in every build including production (P-09 closed).
     #[cfg(not(feature = "skip-tests"))]
     run_crypto_kats();
 }
@@ -191,14 +190,25 @@ pub fn run_boot_tests() {
 /// Note `production` implies `silent`, so anything behind `silent` is absent
 /// from exactly the builds that most need these to run.
 ///
-/// STACK BUDGET. main's ProCpu stack is about 8 KB. Every test reached from
-/// here must stay well inside that. `wallet::sighash::run_sighash_tests` and
-/// `wallet::pskt::run_pskt_tests` are deliberately ABSENT: measured,
-/// `size_of::<Transaction>()` is 78,952 bytes, sighash builds one per test
-/// (sighash.rs:679, 723, 788) and pskt builds two per test, so a single pskt
-/// test needs about 154 KB. Both stay in the verbose-boot block until
-/// Transaction gains a heap-allocating constructor. Do not move them here
-/// without that: it is a guaranteed stack overflow at boot.
+/// STACK BUDGET. Every test reached from here shares main's ProCpu frame, and
+/// the usable stack is whatever RWDATA leaves: measured 104,272 bytes on
+/// M5Stack, 2026-08-14, and it FALLS as static data grows. `stack_probe`
+/// reports the live figure at boot; trust that over any number written here.
+///
+/// `size_of::<Transaction>()` is 78,952 bytes, so a transaction built as a
+/// stack local very nearly fills that budget on its own and two of them exceed
+/// it outright. This comment used to say that the sighash and pskt tests must
+/// stay in the verbose-boot block "until Transaction gains a heap-allocating
+/// constructor". That constructor is `Transaction::new_boxed`
+/// (transaction.rs:480), and as of 2026-08-14 all eight test sites use it, so
+/// the condition has been met and the restriction lifted.
+///
+/// What the old wording missed is that the restriction was never holding: the
+/// verbose-boot block runs on this same frame, so those tests were already
+/// over budget there and had been failing to run at all. See N-15.
+///
+/// The rule that remains: no test reached from here may build a Transaction,
+/// or anything else of that order, as a stack local.
 // Gated to match its call site in main.rs. Without this the body still
 // references run_bip39_tests / run_storage_tests, which skip-tests configures
 /// Entropy health check. Two independent collections must differ, and neither
@@ -330,6 +340,29 @@ pub fn run_crypto_kats() {
     // this block at boot, not a wrong answer.
     kat!("BIP32",   wallet::bip32::run_bip32_tests());
     kat!("SCHNORR", wallet::schnorr::run_schnorr_tests());
+    // Consensus sighash vectors from rusty-kaspa 2.0.1: 27 known answers over
+    // all six sighash types, both transaction versions, native and subnetwork.
+    //
+    // This is the KAT that most directly protects funds. Every other primitive
+    // here can be checked against a published standard; the sighash is the one
+    // place where being self-consistent and being right are different things,
+    // because a digest that disagrees with the node by one field still signs
+    // cleanly, still verifies against itself, and is still rejected by every
+    // node on the network. Or worse, is accepted for something the review
+    // screen did not show.
+    //
+    // Safe in the boot frame: each vector builds its transaction with
+    // `Transaction::new_boxed`, so the 78,952-byte struct is on the heap and
+    // the frame holds a pointer. See N-15 for what happened when it was not.
+    kat!("SIGHASH", wallet::sighash::run_sighash_vectors());
+    // 45' multisig against a cross-implementation address.
+    //
+    // Belongs beside the sighash vectors for the same reason: it is the only
+    // multisig check whose expected value came from someone else's code. It
+    // proves the parent-string sort, the shared cosigner index, the
+    // /cosigner/chain/index path and the script layout all at once, because
+    // getting any one of them wrong changes the hash completely.
+    kat!("MS45", wallet::transaction::run_multisig_tests());
     // The last kat! writes t_prev and nothing reads it. Consume it explicitly
     // so adding a KAT below needs no change here and no warning is emitted.
     let _ = t_prev;
@@ -505,14 +538,13 @@ pub fn run_phase1_tests(delay: &mut esp_hal::delay::Delay) {
         }
 
 
-        // PIN UI tests
-        let (passed_pin, total_pin) = pin_ui::run_pin_tests();
-        log!("   PIN tests: {}/{} passed", passed_pin, total_pin);
-        if passed_pin != total_pin {
-            log!("   CRITICAL: PIN UI has failures!");
-        } else {
-            log!("   PIN UI verified OK");
-        }
+        // PIN UI tests removed 2026-08-14. `ui::pin_ui` is referenced by
+        // nothing outside its own tests: KasSigner is stateless and has no PIN,
+        // which Phase 5 prints two screens later. Reporting "PIN UI verified OK"
+        // asserted that a subsystem worked when the subsystem is not reachable,
+        // and a boot log that says that about one line is worth less on all the
+        // others. Same family as L-09 (validate_pin / PinStrength in
+        // storage.rs). Removing the module itself is tracked there.
 
         // Setup Wizard tests
         let (passed_setup, total_setup) = setup_wizard::run_setup_tests();

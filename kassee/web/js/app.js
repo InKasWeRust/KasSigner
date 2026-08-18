@@ -28,6 +28,10 @@ import init, {
     decoder_progress,
     create_multisig_kspt,
     fetch_utxos_for_address_js,
+    fetch_utxos_for_addresses_js,
+    scan_multisig_branch_js,
+    multisig_address_at_js,
+    create_multisig_pskb_multi_js,
     pskt_detect,
     pskt_summary,
     pskt_finalize_to_kspt,
@@ -423,7 +427,7 @@ let customNodeUrl = null;
 let lastFeeEstimate = null;
 let covFeeLevel = 'normal';
 
-function getCovFee(numInputs = 1) {
+function getCovFee(numInputs = 1, sigOpsPerInput = 1) {
     // Owner sweeps spend P2SH covenant inputs that each carry a redeem script
     // (sig + redeem + pushes), so they are heavier than plain P2PK inputs and the
     // node's compute mass scales with input count. The old 1400 gram/input estimate
@@ -431,8 +435,23 @@ function getCovFee(numInputs = 1) {
     // which the node rejects as "fees under the required amount for compute mass".
     // Model per-input bytes + sig-op mass at 100 sompi/gram with a 1.15 margin, the
     // same basis as covDepositFee.
+    //
+    // `sigOpsPerInput` defaults to 1, which is correct for every covenant caller:
+    // a covenant input declares one sigop. It is NOT correct for multisig, which
+    // declares sig_op_count = N (the total cosigner count, not the threshold M).
+    // That is a consensus requirement, not a choice: `consume_sig_op_cost` fires
+    // on every signature ATTEMPT, and the attempt count depends on where the
+    // signing cosigners sit in the sorted key order, so only N is safe for every
+    // combination. Confirmed by Maksim Biriukov, 20 Apr 2026: m <= sigopcount <= n.
+    //
+    // Until 2026-08-14 the multisig send path called this with no arguments at
+    // all, so it priced an N-of-M spend as one input carrying one sigop. A 2-of-3
+    // paid 400,000 and needed 413,200; a 3-of-5 needed 626,400; a 2-of-3 over
+    // three inputs needed 1,071,200. Everything from N=3 up was refused at relay
+    // AFTER the user had signed it on the device and carried it back.
     const n = numInputs > 0 ? numInputs : 1;
-    const perInputMass = 300 + 1000;                 // ~300B covenant input + sig_op_count*1000
+    const sigops = sigOpsPerInput > 0 ? sigOpsPerInput : 1;
+    const perInputMass = 300 + 1000 * sigops;        // ~300B input + sig_op_count*1000
     const mass = 46 + n * perInputMass + 43 + 340;   // base + inputs + one swept output (+spk)
     const minFee = Math.max(400000, Math.ceil(mass * 100 * 1.15));
     if (!lastFeeEstimate) return BigInt(minFee);
@@ -445,6 +464,25 @@ function getCovFee(numInputs = 1) {
         feerate = lastFeeEstimate.normal_sompi_per_gram || 1;
     }
     return BigInt(Math.max(minFee, Math.ceil(feerate * mass * 1.15)));
+}
+
+// Cosigner count N from a multisig descriptor, for the sigop term in getCovFee.
+//
+// Format per `kspt.rs::parse_descriptor`: `multi_hd(M,key,key,...)`, threshold
+// first and one entry per cosigner after it, so N is the entry count minus one.
+// Written tolerantly on the prefix so a future `multi_hd45(` still counts
+// correctly here even though the builder cannot yet consume it.
+//
+// Returns 0 when the descriptor is unparseable. Callers treat 0 as "unknown"
+// and must NOT silently fall back to 1: pricing an unknown multisig at one
+// sigop is exactly the bug this exists to prevent.
+function msCosignerCount(descriptor) {
+    if (!descriptor) return 0;
+    const d = descriptor.trim();
+    const open = d.indexOf('(');
+    if (open < 0 || !d.startsWith('multi') || !d.endsWith(')')) return 0;
+    const parts = d.slice(open + 1, -1).split(',');
+    return parts.length >= 2 ? parts.length - 1 : 0;
 }
 // walletData is a JSON string; parse it to read the owner's first receive
 // address. (Bare walletData.receive_addresses is undefined on a string, which
@@ -943,6 +981,7 @@ window.stealth_announce_lane_probe = stealth_announce_lane_probe; // (nodeUrl, s
 window.stealth_meta_from_kpub = stealth_meta_from_kpub;          // (kpubStr) -> {scan_pubkey, spend_pubkey, meta_address}
 window.stealth_scan_announcement = stealth_scan_announcement;    // (scanPrivHex, spendPubHex, ephemeralRHex, network) -> {one_time_pubkey, address, stealth_index, tweak}
 window.fetch_utxos_for_address_js = fetch_utxos_for_address_js;  // (addr, nodeUrl) -> UTXOs JSON
+window.fetch_utxos_for_addresses_js = fetch_utxos_for_addresses_js; // (addrsJson, nodeUrl) -> UTXOs JSON, ONE call
 window.oracleVirtualDaa = async () => get_virtual_daa_score(await resolveNodeUrl());
 window.oracleUtxos = async (addr) => JSON.parse(await fetch_utxos_for_address_js(addr, await resolveNodeUrl()));
 
@@ -1081,26 +1120,73 @@ function toast(msg, type = 'info', duration = 3000) {
 
 // ─── Resolver: get a public node wss:// URL ───
 
+// Resolved node, held for the session.
+//
+// Every call used to re-resolve from a freshly SHUFFLED resolver list, so each
+// request landed on a different node: the console filled with "Resolved mainnet
+// node: wss://ella...", then vivi, luna, iris, ivy. Nothing could be reused -
+// not the WebSocket, which is pooled per URL, and not the resolver, which is a
+// cross-origin fetch and the actual source of the CORS flood.
+//
+// The resolvers are also unreliable in ways that repeat: 500 from one, a 308
+// redirect from another, 204 with no body from a third, and several that send no
+// Access-Control-Allow-Origin at all, which a browser reports as CORS with the
+// real status hidden. Retrying those every call is pure noise.
+let _resolvedNodeUrl = null;
+let _resolvedNodeNetwork = null;
+const _deadResolvers = new Set();
+
+/// Forget the cached node. Called when a connection to it actually fails, so
+/// the next call picks a new one rather than retrying a dead endpoint.
+function invalidateResolvedNode() {
+    if (_resolvedNodeUrl) {
+        console.log('[KasSee] dropping node ' + _resolvedNodeUrl);
+    }
+    _resolvedNodeUrl = null;
+    _resolvedNodeNetwork = null;
+}
+window.invalidateResolvedNode = invalidateResolvedNode;
+
 async function resolveNodeUrl() {
     if (customNodeUrl) return customNodeUrl;
-    return resolvePublicNode();
+    // Reuse across calls, but not across a network switch.
+    if (_resolvedNodeUrl && _resolvedNodeNetwork === network) return _resolvedNodeUrl;
+    const url = await resolvePublicNode();
+    _resolvedNodeUrl = url;
+    _resolvedNodeNetwork = network;
+    return url;
 }
 
 async function resolvePublicNode() {
-    const shuffled = [...RESOLVERS].sort(() => Math.random() - 0.5);
+    // Skip resolvers already known to fail this session. If every one has
+    // failed, clear the set and try again rather than giving up forever - a
+    // resolver that was down may have come back.
+    let candidates = RESOLVERS.filter(r => !_deadResolvers.has(r));
+    if (candidates.length === 0) {
+        _deadResolvers.clear();
+        candidates = [...RESOLVERS];
+    }
+    // Shuffled for load spreading, but only among resolvers that still work.
+    candidates = candidates.sort(() => Math.random() - 0.5);
 
-    for (const resolver of shuffled) {
+    for (const resolver of candidates) {
         try {
             const resp = await fetch(`${resolver}/v2/kaspa/${network}/any/wrpc/borsh`, { signal: AbortSignal.timeout(5000) });
-            if (resp.ok) {
-                const data = await resp.json();
-                if (data.url) {
-                    console.log(`[KasSee] Resolved ${network} node: ${data.url} (via ${resolver})`);
-                    return data.url;
-                }
+            if (!resp.ok) {
+                // 500, 308, 204 and friends: this resolver is not serving us.
+                _deadResolvers.add(resolver);
+                continue;
             }
+            const data = await resp.json();
+            if (data.url) {
+                console.log(`[KasSee] Resolved ${network} node: ${data.url} (via ${resolver})`);
+                return data.url;
+            }
+            _deadResolvers.add(resolver);
         } catch (e) {
-            // Try next resolver
+            // Network error, timeout, or a CORS block - the browser hides the
+            // status, so the only signal is that it threw. Same treatment.
+            _deadResolvers.add(resolver);
         }
     }
     throw new Error('All resolvers failed. Check internet connection.');
@@ -1599,7 +1685,7 @@ async function covExportSingle(idx) {
         if (c.organizer_pk) invite.opk = c.organizer_pk;
         // Allowance: include max withdrawal and cooldown
         if (c.type === 'global-allowance') {
-            if (c.max_withdraw_sompi) invite.mw = Number(c.max_withdraw_sompi);
+            if (c.max_withdraw_sompi) invite.mw = String(c.max_withdraw_sompi);
             if (c.cooldown_daa) invite.cd = Number(c.cooldown_daa);
             if (c.start_daa) invite.sd = Number(c.start_daa);
             if (c.start_date_iso) invite.sdi = c.start_date_iso;
@@ -2085,6 +2171,289 @@ async function processCovbHex(hex) {
     _covbImporting = false;
 }
 
+// ─── Multisig: load, then branch by scheme ───
+//
+// Loading is the ONLY way in. Both schemes need a descriptor and one address,
+// and nothing reaches the spend form without them - which is what lets the
+// spend form hide those two fields instead of showing what was just scanned.
+//
+// The address identifies the branch. A descriptor describes N branches, one per
+// participant, and KasSee holds no seed, so it rebuilds candidates until one
+// matches: every branch, both chains, indices 0-99. That search is LOCAL - it
+// sends nothing. The network scan that follows queries only the branch it found,
+// because naming other participants' addresses to a node is their exposure, not
+// ours to spend.
+// Where Back goes from the shared UTXOs screen. `let` at module scope, beside
+// the other view state: declared inside the file it would sit AFTER the button
+// wiring that reads it, and a `let` used before its declaration throws.
+let utxosReturnScreen = 'dashboard';
+/// True while a multisig branch is the ACTIVE wallet.
+///
+/// The shared tabs used to test `currentScreenName` against a list of multisig
+/// screen names, which breaks the moment you switch tab to tab: from
+/// `addresses` the name is not in the list, so the tab fell through to the
+/// single-sig path and did nothing. Context is sticky, not positional.
+let msActive = false;
+/// Outpoints chosen in the picker: `[{address, tx_id, index, amount}]`.
+///
+/// Replaces the single source address for 45' sends. Each entry names an
+/// outpoint, and the builder derives that address's own redeem script and
+/// derivation path from it - which is what makes spending several addresses in
+/// one transaction possible.
+let msPicked = [];
+const MS_PICK_MAX = 32;
+/// Selection state for the multisig UTXOs view.
+let msConsolidateSel = new Set();
+let msConsolidateList = [];
+
+/// Close the UTXO dropdown and clear the selection.
+///
+/// The panel is toggled open and nothing closed it, so returning to the send
+/// screen showed it still open with the previous inputs ticked - inputs the
+/// transaction just built may already spend. A stale selection is worse than
+/// none: it would be priced and signed.
+///
+/// Called from the places a reset is WANTED, not from `showScreen`: consolidate
+/// navigates to the send screen with a selection deliberately in hand, and a
+/// blanket hook there would wipe it.
+function resetMsUtxoSelection() {
+    const ul = document.getElementById('ms-utxo-list');
+    if (ul) { ul.classList.add('hidden'); ul.innerHTML = ''; }
+    const tb = document.getElementById('btn-toggle-ms-utxos');
+    if (tb) tb.textContent = 'Select UTXOs manually \u25b8';
+    msPicked = [];
+    msSelectedUtxoIndices = null;
+}
+/// Where a tab-bar screen should return to.
+///
+/// The tab bar sits above every screen, so Tokens and History are reachable
+/// from the multisig wallet too. Hardcoding the dashboard there discards the
+/// loaded branch, which is the same fault fixed in addresses, utxos, receive
+/// and broadcast.
+function tabReturnScreen() {
+    return (msActive && msBranch) ? 'ms-wallet' : 'dashboard';
+}
+let msBranch = null; // { descriptor, address, cosigner, chain, index, next_receive_index }
+// The receive screen is shared with single-sig, so Back has to know who sent it
+// there. Null means the single-sig dashboard.
+let msReceiveReturn = null;
+
+function msStripHeader(text) {
+    let t = String(text || '').trim();
+    while (t.startsWith('#')) { const nl = t.indexOf('\n'); t = nl < 0 ? '' : t.slice(nl + 1).trim(); }
+    return t;
+}
+
+async function handleMsLoad() {
+    const rawDesc = el('input-msl-descriptor').value.trim();
+    const addr = el('input-msl-address').value.trim();
+    const status = el('msl-status');
+    const fail = (m) => { status.textContent = m; status.style.color = 'var(--error,#f44336)'; };
+
+    if (!rawDesc) return fail('Descriptor required');
+    if (!addr) return fail('Address required');
+
+    const d = msStripHeader(rawDesc);
+    // Parse check with no network: deriving one address either works or it does not.
+    try { multisig_address_at_js(d, 0, 0, 0); }
+    catch (e) { return fail('Descriptor did not parse: ' + e); }
+
+    status.style.color = '';
+    status.textContent = 'Matching address against the descriptor…';
+
+    const n = msCosignerCount(d) || 2;
+    let found = null;
+    for (let cos = 0; cos < n && !found; cos++) {
+        for (let chain = 0; chain < 2 && !found; chain++) {
+            for (let idx = 0; idx < 100; idx++) {
+                let a;
+                try { a = multisig_address_at_js(d, idx, cos, chain); } catch (_) { break; }
+                if (a === addr) { found = { cosigner: cos, chain: chain, index: idx }; break; }
+            }
+        }
+    }
+    if (!found) {
+        return fail('That address is not produced by this descriptor (' + n
+            + ' branch(es), both chains, indices 0-99). Wrong address, or wrong descriptor.');
+    }
+
+    msBranch = { descriptor: d, address: addr, cosigner: found.cosigner,
+                 chain: found.chain, index: found.index, next_receive_index: null };
+    msActive = true;
+    status.textContent = '';
+
+    // The spend form is shared by both schemes. Fill it and hide what was just
+    // entered; a summary line replaces it so the values are still checkable.
+    el('input-ms-descriptor').value = d;
+    el('input-ms-source').value = addr;
+    el('ms-desc-block').classList.add('hidden');
+    el('ms-source-block').classList.add('hidden');
+    const sum = el('ms-loaded-summary');
+    sum.classList.remove('hidden');
+
+    const is45 = msStripHeader(d).startsWith('multi_hd45(');
+    if (is45) {
+        // NOT "From <address>".
+        //
+        // The address given at load identifies the branch; it is not where the
+        // inputs come from - those are chosen per outpoint and may span several
+        // addresses. Writing "From <that address>" was simply false, and it
+        // survived into the consolidate route, which reaches this screen without
+        // going through Send.
+        //
+        // Set once, here, so every route in shows the same true thing.
+        sum.innerHTML = '<span style="color:var(--text-dim,#888)">Branch S'
+            + found.cosigner + '</span>';
+    } else {
+        // 44' really does spend from one address, and it is this one.
+        sum.innerHTML = '<span style="color:var(--text-dim,#888)">From</span> '
+            + '<span style="font-family:monospace;word-break:break-all">' + addr + '</span>';
+    }
+
+    if (!is45) {
+        // 44': one address family, spend only. Nothing to show as a wallet.
+        showScreen('multisig');
+        return;
+    }
+    showScreen('ms-wallet');
+    await refreshMsWallet();
+}
+
+/// Which indices of the loaded branch have EVER been used, funded or not.
+///
+/// The UTXO scan can only see money that is still there, so an address that was
+/// funded and then spent looks identical to one never used. That is wrong twice
+/// over: the address list shows it as fresh, and `next_change_index` hands it
+/// back out, so rotation silently stops rotating after one round.
+///
+/// Same REST path and same discipline as the single-sig scan: sequential with
+/// spacing, stop after a run of unused addresses, give up on a 429 rather than
+/// hammering. Bounded by the gap rule, so a young wallet costs a handful of
+/// requests rather than eighty.
+async function msScanUsed(depth) {
+    const apiBase = KASPA_REST_API[network];
+    if (!apiBase || !msBranch) return { receive: new Set(), change: new Set() };
+    const GAP_STOP = 20;
+    const SPACING_MS = 250;
+    let rateLimited = false;
+
+    const scan = async (chain) => {
+        const used = new Set();
+        let unusedRun = 0;
+        for (let i = 0; i < depth; i++) {
+            if (rateLimited) break;
+            let addr;
+            try { addr = multisig_address_at_js(msBranch.descriptor, i, msBranch.cosigner, chain); }
+            catch (_) { break; }
+            try {
+                const r = await fetch(`${apiBase}/addresses/${addr}/transactions-count`,
+                                      { signal: AbortSignal.timeout(5000) });
+                if (r.status === 429) { rateLimited = true; break; }
+                if (r.ok) {
+                    const d = await r.json();
+                    if (d.total > 0) { used.add(i); unusedRun = 0; }
+                    else { unusedRun++; }
+                }
+            } catch (_) { /* transient: treat as unknown, not as unused */ }
+            if (unusedRun >= GAP_STOP) break;
+            await new Promise(res => setTimeout(res, SPACING_MS));
+        }
+        return used;
+    };
+
+    const receive = await scan(0);
+    const change = await scan(1);
+    if (rateLimited) console.log('[KasSee] multisig history scan stopped: rate-limited');
+    return { receive: receive, change: change, partial: rateLimited };
+}
+
+/// Consolidate: send the selection to the branch's next unused receive address.
+///
+/// No destination to enter - the point is to merge outputs, not move value out.
+function startMsConsolidate() {
+    const idx = msBranch.next_receive_index != null ? msBranch.next_receive_index : 0;
+    let dest;
+    try { dest = multisig_address_at_js(msBranch.descriptor, idx, msBranch.cosigner, 0); }
+    catch (e) { toast('Could not derive destination', 'error'); return; }
+    const total = msPicked.reduce((a, p) => a + Number(p.amount), 0);
+    // Amount is the total MINUS the fee.
+    //
+    // The create path treats this field as the destination amount and adds the
+    // fee on top, so putting the full total here asks for total + fee and fails
+    // with "Selected X but need X + fee". Same arithmetic as MAX, because
+    // consolidation IS a max-send to one of your own addresses.
+    const nCosigners = msCosignerCount(msBranch.descriptor);
+    if (nCosigners === 0) {
+        toast('Could not read the cosigner count from the descriptor', 'error', 4000);
+        return;
+    }
+    const fee = Number(getCovFee(msPicked.length, nCosigners));
+    if (total <= fee) {
+        toast('Selection does not cover the fee (' + (fee / 1e8).toFixed(8) + ' KAS)',
+              'error', 4000);
+        return;
+    }
+    el('input-ms-dest').value = dest;
+    el('input-ms-amount').value = ((total - fee) / 1e8).toFixed(8);
+    el('btn-toggle-ms-utxos').textContent = msPicked.length + ' input(s) → C0 #' + idx
+        + ' · ' + ((total - fee) / 1e8).toFixed(8) + ' KAS ▸';
+    toast('Review and send to consolidate', 'info', 2000);
+    showScreen('multisig');
+}
+
+async function refreshMsWallet() {
+    if (!msBranch) return;
+    const n = msCosignerCount(msBranch.descriptor) || '?';
+    el('msw-subtitle').textContent = 'Branch S' + msBranch.cosigner + ' of ' + n;
+    el('msw-balance').textContent = '…';
+    el('msw-meta').textContent = '';
+    // The indicator was only ever set by `refreshBalance`, which needs
+    // `walletData` - the SINGLE-SIG wallet. A multisig branch scan talks to the
+    // node just as much, so the header sat on "Offline" throughout.
+    setStatus('connecting', 'Connecting');
+    try {
+        const wsUrl = await resolveNodeUrl();
+        const r = JSON.parse(await scan_multisig_branch_js(
+            msBranch.descriptor, msBranch.cosigner, 40, wsUrl));
+        setStatus('online', 'Connected');
+        el('msw-balance').textContent = (Number(r.balance_sompi) / 1e8).toFixed(8) + ' KAS';
+        el('msw-sompi').textContent = Number(r.balance_sompi).toLocaleString() + ' sompi';
+        el('msw-meta').textContent = r.utxo_count + ' UTXO(s) across ' + r.funded.length
+            + ' address(es) · next receive #' + r.next_receive_index
+            + ' · next change #' + r.next_change_index;
+        msBranch.funded = r.funded;
+        msBranch.utxos = r.utxos || [];
+
+        // History, not just UTXOs. The scan above cannot see a spent-empty
+        // address; this can, and both the next indices and the address list
+        // depend on knowing the difference.
+        const usedSets = await msScanUsed(40);
+        msBranch.usedReceive = usedSets.receive;
+        msBranch.usedChange = usedSets.change;
+        const fundedR = new Set(r.funded.filter(f => f.chain === 0).map(f => f.index));
+        const fundedC = new Set(r.funded.filter(f => f.chain === 1).map(f => f.index));
+        const firstFree = (used, funded) => {
+            for (let i = 0; i < 40; i++) if (!used.has(i) && !funded.has(i)) return i;
+            return 40;
+        };
+        msBranch.next_receive_index = firstFree(usedSets.receive, fundedR);
+        msBranch.next_change_index = firstFree(usedSets.change, fundedC);
+        el('msw-meta').textContent = r.utxo_count + ' UTXO(s) across ' + r.funded.length
+            + ' address(es) · next receive #' + msBranch.next_receive_index
+            + ' · next change #' + msBranch.next_change_index
+            + (usedSets.partial ? ' (history scan incomplete)' : '');
+        // No UTXO list on the wallet screen; that is what the UTXOs tab is for.
+        //
+        // This used to assign `r.funded` here, clobbering the real outpoints set
+        // above. `funded` aggregates per address and has no `tx_id`, so the
+        // picker threw on `u.tx_id.slice(...)`. Left over from an earlier edit.
+    } catch (e) {
+        setStatus('offline', 'Offline');
+        el('msw-balance').textContent = '—';
+        el('msw-meta').textContent = 'Scan failed: ' + e;
+    }
+}
+
 window.handleCovbScan = handleCovbScan;
 
 // ─── Covenant Recovery Scanner ───
@@ -2277,7 +2646,7 @@ async function rebuildCovenant(decrypted, ownerPk, tx) {
                 const address = encode_p2sh_address(scriptHash, network);
                 result = {
                     type: typeName, address: address, redeem_script_hex: redeemHex,
-                    threshold_sompi: Number(threshold), deadline_daa: Number(deadline), loaded: true, role: 'owner',
+                    threshold_sompi: threshold.toString(), deadline_daa: Number(deadline), loaded: true, role: 'owner',
                 };
                 break;
             }
@@ -2293,7 +2662,7 @@ async function rebuildCovenant(decrypted, ownerPk, tx) {
                 const address = encode_p2sh_address(scriptHash, network);
                 result = {
                     type: typeName, address: address, redeem_script_hex: redeemHex,
-                    max_withdraw_sompi: Number(maxWithdraw), cooldown_daa: Number(cooldownDaa),
+                    max_withdraw_sompi: maxWithdraw.toString(), cooldown_daa: Number(cooldownDaa),
                     covenant_id_hex: (covIdHex && !/^0+$/.test(covIdHex)) ? covIdHex : '',
                     loaded: true, role: 'owner',
                 };
@@ -2313,7 +2682,7 @@ async function rebuildCovenant(decrypted, ownerPk, tx) {
                 const address = encode_p2sh_address(scriptHash, network);
                 result = {
                     type: typeName, address: address, redeem_script_hex: redeemHex,
-                    max_withdraw_sompi: Number(maxWithdraw), cooldown_daa: Number(cooldownDaa),
+                    max_withdraw_sompi: maxWithdraw.toString(), cooldown_daa: Number(cooldownDaa),
                     start_daa: Number(startDaa), beneficiary_pubkey_hex: benePk,
                     covenant_id_hex: (covIdHex && !/^0+$/.test(covIdHex)) ? covIdHex : '',
                     loaded: true, role: 'owner',
@@ -2521,7 +2890,7 @@ async function rebuildCovenant(decrypted, ownerPk, tx) {
                 result = {
                     type: typeName, locktime_daa: Number(locktime),
                     organizer_pk: orgPk, vk_hash: vkHash,
-                    goal_sompi: Number(goalSompi),
+                    goal_sompi: goalSompi.toString(),
                     goal_kas: (Number(goalSompi) / 1e8).toString(),
                     loaded: true, crowdfund_role: 'contributor',
                 };
@@ -2657,13 +3026,124 @@ function bindEvents() {
     el('btn-scan-kpub').onclick = () => startScanner('Scan kpub QR', handleKpubScan);
     el('btn-logo').onclick = () => handleLogoTap();
     el('btn-import-kpub').onclick = () => handleKpubImport(el('input-kpub').value.trim());
-    el('btn-multisig-welcome').onclick = () => showScreen('multisig');
+    el('btn-multisig-welcome').onclick = () => showScreen('ms-load');
     el('btn-broadcast-welcome').onclick = () => { hideBroadcastResult(); showScreen('broadcast'); };
     el('btn-send').onclick = () => openSendScreen();
     el('btn-receive').onclick = () => showReceive();
     el('btn-broadcast').onclick = () => { hideBroadcastResult(); showScreen('broadcast'); };
-    el('btn-multisig-spend').onclick = () => showScreen('multisig');
-    el('btn-ms-back').onclick = () => showScreen(walletData ? 'dashboard' : 'welcome');
+    el('btn-multisig-spend').onclick = () => showScreen('ms-load');
+
+    // ── Multisig load ──
+    el('btn-msl-load').onclick = () => handleMsLoad();
+    el('btn-msl-back').onclick = () => {
+        msActive = false;   // leaving the multisig flow: tabs revert to single-sig
+        showScreen(walletData ? 'dashboard' : 'welcome');
+    };
+    // Descriptors arrive as MULTI-FRAME BINARY, same protocol as KSPT: the
+    // scanner hands over a Uint8Array per frame and `decode_qr_frame`
+    // reassembles them, returning hex that decodes to the text. Treating the
+    // frame as text or as a hex string both fail silently.
+    el('btn-scan-msl-descriptor').onclick = () => startScanner('Scan descriptor QR', (data) => {
+        const hexStr = Array.from(new Uint8Array(data))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+        try {
+            const result = decode_qr_frame(hexStr);
+            if (result && result.length > 0) {
+                const bytes = [];
+                for (let i = 0; i < result.length; i += 2) bytes.push(parseInt(result.substr(i, 2), 16));
+                const text = msStripHeader(new TextDecoder().decode(new Uint8Array(bytes)).trim());
+                if (text.startsWith('multi(') || text.startsWith('multi_hd(')
+                    || text.startsWith('multi_hd45(')) {
+                    stopScanner();
+                    el('input-msl-descriptor').value = text;
+                    showScreen('ms-load');
+                    toast('Descriptor scanned', 'ok', 1500);
+                } else {
+                    stopScanner();
+                    toast('Not a valid descriptor', 'error');
+                }
+            }
+        } catch (_) { /* more frames needed */ }
+    });
+    // A single-frame address: plain bytes, no reassembly.
+    el('btn-scan-msl-address').onclick = () => startScanner('Scan address', (data) => {
+        const addr = new TextDecoder().decode(new Uint8Array(data)).trim();
+        if (addr.startsWith('kaspa:')) {
+            stopScanner();
+            el('input-msl-address').value = addr;
+            showScreen('ms-load');
+            toast('Address scanned', 'ok', 1500);
+        }
+    });
+
+    // ── Multisig wallet (45' only) ──
+    el('btn-msw-refresh').onclick = () => refreshMsWallet();
+    el('btn-msw-back').onclick = () => showScreen('ms-load');
+    el('btn-msw-broadcast').onclick = () => {
+        // `_broadcastReturnScreen` already exists for exactly this - the
+        // covenant and stealth flows both set it. Not setting it meant Back
+        // fell through to the dashboard and dropped the loaded branch.
+        _broadcastReturnScreen = 'ms-wallet';
+        showScreen('broadcast');
+    };
+    // Send carries nothing but the loaded wallet: destination and amount are
+    // entered on the spend screen like any normal send.
+    el('btn-msw-send').onclick = () => {
+        if (!msBranch) return;
+        // Descriptor yes, SOURCE no.
+        //
+        // The address given at load identified the branch; it is not
+        // necessarily the address you want to spend from, and prefilling it
+        // silently chooses one. The builder takes a single source address, so
+        // that choice is the user's - the funded list on the wallet screen
+        // shows what there is to choose from.
+        el('input-ms-descriptor').value = msBranch.descriptor;
+        el('input-ms-source').value = '';
+        el('input-ms-dest').value = '';
+        el('input-ms-amount').value = '';
+        // Descriptor stays HIDDEN - it came from the load screen and showing it
+        // again is the noise we removed. Only the source needs choosing, so the
+        // summary line carries the branch and the source field is revealed on
+        // its own.
+        // No source address at all.
+        //
+        // The picker names the addresses, so asking for one separately is both
+        // redundant and a restriction: a source field can only hold one, which
+        // is exactly the limit being removed.
+        resetMsUtxoSelection();
+        el('ms-desc-block').classList.add('hidden');
+        el('ms-source-block').classList.add('hidden');
+        // Summary is set at LOAD time and is already correct for every route in,
+        // including consolidate, which does not pass through here.
+        showScreen('multisig');
+    };
+    el('btn-msw-receive').onclick = () => {
+        if (!msBranch) return;
+        // The SHARED receive screen, as single-sig uses. An inline panel that
+        // appears under the buttons and stays there is not how any other
+        // receive works here.
+        const idx = msBranch.next_receive_index != null ? msBranch.next_receive_index : 0;
+        let a;
+        try { a = multisig_address_at_js(msBranch.descriptor, idx, msBranch.cosigner, 0); }
+        catch (e) { toast('Could not derive address', 'error'); return; }
+        const qr = el('receive-qr');
+        qr.innerHTML = '';
+        try { qr.innerHTML = generate_qr_svg_text(a); } catch (_) {}
+        el('receive-address').textContent = a;
+        // Remember the caller, same rule as the address and UTXO lists.
+        msReceiveReturn = (currentScreenName && currentScreenName !== 'receive')
+            ? currentScreenName : 'ms-wallet';
+        showScreen('receive');
+    };
+    el('btn-ms-back').onclick = () => {
+        // Back out of the wallet, not out of KasSee.
+        //
+        // This always went to the dashboard, so leaving the spend screen threw
+        // away the loaded branch and the descriptor and address had to be
+        // entered again. With a 45' wallet loaded it belongs one level up.
+        if (msBranch) { showScreen('ms-wallet'); return; }
+        showScreen(walletData ? 'dashboard' : 'welcome');
+    };
     el('btn-ms-create').onclick = () => handleMultisigCreate();
     el('btn-ms-max').onclick = () => handleMsMax();
     el('btn-toggle-ms-utxos').onclick = () => toggleMsUtxos();
@@ -3063,7 +3543,7 @@ function bindEvents() {
             }
             // Allowance: include max withdrawal and cooldown for beneficiary UX
             if (ct === 'global-allowance') {
-                if (r.max_withdraw_sompi) invite.mw = Number(r.max_withdraw_sompi);
+                if (r.max_withdraw_sompi) invite.mw = String(r.max_withdraw_sompi);
                 invite.cd = Number(r.cooldown_daa || r.min_sequence || 0);
                 if (r.start_daa) invite.sd = Number(r.start_daa);
                 if (r.start_date_iso) invite.sdi = r.start_date_iso;
@@ -3608,7 +4088,7 @@ function bindEvents() {
                 ownerHelp.textContent = 'Owner reclaim. Sweeps the whole thread back to your address via the free owner path (uncapped). To add funds, use Deposit and pick the wallet UTXOs to fold into the thread. Requires owner signature from your KasSigner.';
                 ownerHelp.style.display = '';
             } else if (t === 'global-spending-limit') {
-                const _capK = (lastCovenantResult && lastCovenantResult.max_withdraw_sompi) ? (Number(lastCovenantResult.max_withdraw_sompi) / 1e8) : 0;
+                const _capK = (lastCovenantResult && lastCovenantResult.max_withdraw_sompi) ? sompiToKasStr(lastCovenantResult.max_withdraw_sompi) : '0';
                 ownerHelp.textContent = 'Withdraw up to the per-spend cap of ' + _capK + ' KAS from the single thread. Leave the amount empty to sweep all, which is allowed only when the balance is at or below the cap. To add funds, use Deposit and pick the wallet UTXOs to fold in (top-up merges whole UTXOs into the thread).';
                 ownerHelp.style.display = '';
             } else if (t === 'dms') {
@@ -3652,7 +4132,7 @@ function bindEvents() {
             // Surface the per-spend cap in the placeholder for capped thread spends.
             if (amountRow) {
                 amountRow.placeholder = (t === 'global-spending-limit' && lastCovenantResult && lastCovenantResult.max_withdraw_sompi)
-                    ? 'Max ' + (Number(lastCovenantResult.max_withdraw_sompi) / 1e8) + ' KAS, empty = sweep all'
+                    ? 'Max ' + sompiToKasStr(lastCovenantResult.max_withdraw_sompi) + ' KAS, empty = sweep all'
                     : 'Empty = sweep all';
             }
         }
@@ -3766,13 +4246,13 @@ function bindEvents() {
             if (_bene) el('cov-bene-dest').value = _bene;
             const beneHelpA = el('cov-bene-help');
             if (beneHelpA) {
-                const capKas = lastCovenantResult.max_withdraw_sompi ? (Number(lastCovenantResult.max_withdraw_sompi) / 1e8) : 0;
+                const capKas = lastCovenantResult.max_withdraw_sompi ? sompiToKasStr(lastCovenantResult.max_withdraw_sompi) : '0';
                 const cdSecs = lastCovenantResult.cooldown_daa ? Math.floor(Number(lastCovenantResult.cooldown_daa) / 10) : 0;
                 const cdStr = cdSecs > 0 ? formatDuration(cdSecs) : 'none';
                 const threadNote = (t === 'global-allowance')
                     ? ' The whole balance sits in one thread; leave the amount empty to close it (allowed only when the balance is at or under the cap).'
                     : '';
-                beneHelpA.textContent = 'Withdraw up to ' + (capKas > 0 ? capKas + ' KAS' : 'the cap') + ' per spend, with a ' + cdStr + ' cooldown between withdrawals.' + threadNote + ' Requires beneficiary signature from your KasSigner.';
+                beneHelpA.textContent = 'Withdraw up to ' + (capKas !== '0' ? capKas + ' KAS' : 'the cap') + ' per spend, with a ' + cdStr + ' cooldown between withdrawals.' + threadNote + ' Requires beneficiary signature from your KasSigner.';
                 beneHelpA.style.display = '';
             }
             const beneCreateBtnA = el('btn-cov-bene-create');
@@ -4071,8 +4551,11 @@ el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handle
                     }
                 }
             }
-            const utxosStr = JSON.stringify(selected.map(u => ({
-                tx_id: u.tx_id, index: u.index, amount: Number(BigInt(u.amount))
+            // psktToJson, not JSON.stringify: these amounts are read on the
+            // Rust side with as_u64() and land in the sighash, so a rounded
+            // value above 2^53 sompi produces a signature the node rejects.
+            const utxosStr = psktToJson(selected.map(u => ({
+                tx_id: u.tx_id, index: u.index, amount: BigInt(u.amount)
             })));
             let pskbHex;
             if (_pickerBeneClaim) {
@@ -6099,6 +6582,15 @@ el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handle
             _broadcastReturnScreen = null;
             showScreen(ret);
             if (ret === 'covenant') covReturnAfterBroadcast();
+        } else if (msActive && msBranch) {
+            // The relay QR after building a multisig transaction. Nothing has
+            // been sent, so leaving it means "go back to the wallet", not "leave
+            // KasSee" - and dropping to the dashboard discards the loaded branch
+            // and the transaction with it.
+            //
+            // Fourth screen with this same fallthrough: broadcast-done, the PSKB
+            // review, the shared tabs, and now this one.
+            showScreen('ms-wallet');
         } else {
             showScreen('dashboard');
         }
@@ -6108,7 +6600,16 @@ el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handle
     el('btn-copy-kspt').onclick = () => { if (_currentKsptHex) { navigator.clipboard.writeText(_currentKsptHex); toast('KSPT hex copied — share with next signer', 'ok', 2000); } };
     el('btn-scanner-cancel').onclick = () => stopScanner();
     el('btn-copy-address').onclick = () => copyAddress();
-    el('btn-receive-back').onclick = () => showScreen('dashboard');
+    el('btn-receive-back').onclick = () => {
+        // Shared screen: return to whoever opened it.
+        if (msReceiveReturn) {
+            const ret = msReceiveReturn;
+            msReceiveReturn = null;
+            showScreen(ret);
+        } else {
+            showScreen('dashboard');
+        }
+    };
     el('btn-scan-signed').onclick = () => startScanner('Scan signed QR', handleSignedScan);
     el('btn-broadcast-hex').onclick = () => handleBroadcastHex();
     el('btn-broadcast-back').onclick = () => {
@@ -6128,6 +6629,13 @@ el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handle
             _broadcastReturnScreen = null;
             showScreen(ret);
             if (ret === 'covenant') covReturnAfterBroadcast();
+        } else if (msActive && msBranch) {
+            // Back from the review belongs on the SEND screen: the transaction
+            // has not been sent, so this is "let me change something", not
+            // "take me out of the wallet". Falling through to the dashboard
+            // discarded the loaded branch.
+            resetMsUtxoSelection();
+            showScreen('multisig');
         } else {
             showScreen('dashboard');
         }
@@ -6145,8 +6653,17 @@ el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handle
             _broadcastReturnScreen = null;
             showScreen(ret);
             if (ret === 'covenant') covReturnAfterBroadcast();
+            if (ret === 'ms-wallet') setTimeout(() => refreshMsWallet(), 500);
             // Refresh balance after TX broadcast
-            if (walletData) setTimeout(() => refreshBalance(), 500);
+            if (walletData && ret !== 'ms-wallet') setTimeout(() => refreshBalance(), 500);
+        } else if (msBranch) {
+            // A multisig SEND reaches broadcast without anyone setting a return
+            // screen - only the Broadcast TX button did that - so finishing a
+            // send fell through to the donation card and then out of the
+            // wallet. Handled at the fallback so every route in is covered,
+            // not just the one that was noticed.
+            showScreen('ms-wallet');
+            setTimeout(() => refreshMsWallet(), 500);
         } else {
             showDonateScreen();
         }
@@ -6181,8 +6698,10 @@ el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handle
     });
     el('btn-addresses-back').onclick = () => showScreen(addressesReturnScreen);
     el('btn-addresses-back-top').onclick = () => showScreen(addressesReturnScreen);
-    el('btn-tokens-back').onclick = () => showScreen('dashboard');
-    el('btn-tokens-back-top').onclick = () => showScreen('dashboard');
+    // Reachable from the multisig wallet via the tab bar, so a hardcoded
+    // dashboard exit drops the loaded branch. Same trap as addresses and utxos.
+    el('btn-tokens-back').onclick = () => showScreen(tabReturnScreen());
+    el('btn-tokens-back-top').onclick = () => showScreen(tabReturnScreen());
     el('btn-verify-copy').onclick = () => {
         navigator.clipboard.writeText(el('verify-address').textContent.trim());
         toast('Address copied', 'ok', 1200);
@@ -6193,12 +6712,33 @@ el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handle
         showScreen('addresses');
         document.querySelector('main').scrollTop = 0;
     };
-    el('btn-utxos-back').onclick = () => showScreen('dashboard');
-    el('btn-utxos-back-top').onclick = () => showScreen('dashboard');
-    el('btn-consolidate').onclick = () => handleConsolidate();
+    // Both hardcoded to the dashboard, so opening UTXOs from a multisig branch
+    // and pressing Back dropped the loaded wallet. The addresses screen already
+    // solves this with a return target; UTXOs never had one.
+    el('btn-utxos-back').onclick = () => showScreen(utxosReturnScreen);
+    el('btn-utxos-back-top').onclick = () => showScreen(utxosReturnScreen);
+    el('btn-consolidate').onclick = () => {
+        // Shared button: on a multisig branch it opens the picker instead of the
+        // single-sig consolidation, which builds from `walletData` and would be
+        // wrong here.
+        if (msActive && msBranch) {
+            const sel = (msConsolidateList || []).filter(u =>
+                msConsolidateSel.has(u.tx_id + ':' + u.outpoint_index));
+            if (sel.length < 2) {
+                toast('Select at least two UTXOs to consolidate', 'error');
+                return;
+            }
+            msPicked = sel.map(u => ({
+                address: u.address, tx_id: u.tx_id, index: u.outpoint_index, amount: u.amount,
+            }));
+            startMsConsolidate();
+            return;
+        }
+        handleConsolidate();
+    };
     el('btn-consolidate-selected').onclick = () => handleConsolidateSelected();
-    el('btn-history-back').onclick = () => showScreen('dashboard');
-    el('btn-history-back-top').onclick = () => showScreen('dashboard');
+    el('btn-history-back').onclick = () => showScreen(tabReturnScreen());
+    el('btn-history-back-top').onclick = () => showScreen(tabReturnScreen());
     el('btn-clear-history').onclick = () => clearHistory();
     el('btn-donate-skip').onclick = () => {
         // Never route through exitSettings()/settingsReturnScreen here:
@@ -6266,8 +6806,17 @@ function addrToSpkHex(addr) {
 
 // ─── Address index helpers (auto-expanding gap limit) ───
 
-const GAP_EXPAND_RECEIVE = 10; // derive 10 more receive addresses when exhausted
-const GAP_EXPAND_CHANGE = 5;   // derive 5 more change addresses when exhausted
+// Derived in one step when the list is exhausted. Was 10 and 5, which needed
+// several refreshes to converge on a wallet with many used addresses - each
+// refresh added one batch and the console filled with "Gap expanded" lines.
+// Deriving is local and cheap; the cost is per-address REST checks, and those
+// are now gap-limited and skip known addresses, so a bigger step is not a
+// bigger scan.
+const GAP_EXPAND_RECEIVE = 20;
+const GAP_EXPAND_CHANGE = 20;
+// Hard ceiling. Expansion loops until a free index exists, so a bug that marked
+// every address used would otherwise derive forever.
+const MAX_DERIVED_ADDRESSES = 500;
 
 /// Expand wallet addresses if all current slots are used.
 /// Derives new addresses via WASM and updates walletData in place.
@@ -6291,17 +6840,48 @@ function expandAddressesIfNeeded() {
 
     if (!needReceive && !needChange) return false;
 
-    const extraRcv = needReceive ? GAP_EXPAND_RECEIVE : 0;
-    const extraChg = needChange ? GAP_EXPAND_CHANGE : 0;
+    // Expanding more than once is NORMAL on a wallet with deep history, not a
+    // bug. A round can only test against the used/funded data it already has,
+    // and that only grows once a balance refresh and a history scan have
+    // reached the newly derived addresses. So the freshly added indices are
+    // UNKNOWN, not unused, and on a well-used wallet many turn out to be both
+    // funded and spent. Verified by index on 2026-08-16: every index in a
+    // 40-address change list was genuinely accounted for.
 
-    try {
-        walletData = extend_addresses(walletData, extraRcv, extraChg, network);
-        console.log(`[KasSee] Gap expanded: +${extraRcv} receive, +${extraChg} change`);
-        return true;
-    } catch (e) {
-        console.error('[KasSee] Address expansion failed:', e);
-        return false;
+    // Expand until a free index EXISTS, in one call.
+    //
+    // A single batch always creates free indices, so one round is normally
+    // enough; the loop is there so that if it somehow is not, this converges
+    // now instead of one batch per refresh.
+    let rounds = 0;
+    let expanded = false;
+    while (needReceive || needChange) {
+        const w = JSON.parse(walletData);
+        if (w.receive_addresses.length + w.change_addresses.length >= MAX_DERIVED_ADDRESSES) {
+            console.log('[KasSee] address expansion stopped at ceiling ' + MAX_DERIVED_ADDRESSES);
+            break;
+        }
+        const extraRcv = needReceive ? GAP_EXPAND_RECEIVE : 0;
+        const extraChg = needChange ? GAP_EXPAND_CHANGE : 0;
+        try {
+            walletData = extend_addresses(walletData, extraRcv, extraChg, network);
+            expanded = true;
+        } catch (e) {
+            console.error('[KasSee] Address expansion failed:', e);
+            break;
+        }
+        rounds++;
+        const w2 = JSON.parse(walletData);
+        needReceive = !w2.receive_addresses.some((_, i) => !rcvSkip.has(i));
+        needChange = !w2.change_addresses.some((_, i) => !chgSkip.has(i));
+        if (rounds >= 10) break;
     }
+    if (expanded) {
+        const w3 = JSON.parse(walletData);
+        console.log(`[KasSee] Gap expanded to ${w3.receive_addresses.length} receive, `
+            + `${w3.change_addresses.length} change (${rounds} round(s))`);
+    }
+    return expanded;
 }
 
 /// Pick the first change address not currently funded and not used.
@@ -6503,7 +7083,20 @@ async function withNodeRetry(fn, maxRetries = 3) {
             return await fn(wsUrl);
         } catch (e) {
             const msg = String(e);
-            if (msg.includes('WebSocket error') && attempt < maxRetries) {
+            // A TIMEOUT is a failure too, and the more common one: a node that
+            // has gone away leaves the socket looking open, so the request waits
+            // the full 15 s and returns "WebSocket timeout" rather than an
+            // error. Matching only on 'WebSocket error' meant a stale node was
+            // never retried and never dropped - every refresh hit it again.
+            if ((msg.includes('WebSocket error') || msg.includes('timeout'))
+                && attempt < maxRetries) {
+                // Drop the cached node before retrying. Without this the retry
+                // would hit the SAME dead node every time, since the URL is now
+                // held for the session instead of re-resolved per call.
+                //
+                // A custom node is the user's explicit choice, so it is not
+                // dropped here; the fallback below handles it after the retries.
+                if (!customNodeUrl) invalidateResolvedNode();
                 console.log(`[KasSee] Retry ${attempt}/${maxRetries}: ${msg}`);
                 continue;
             }
@@ -6685,22 +7278,56 @@ async function fetchAddressHistory() {
     const apiBase = KASPA_REST_API[network];
     if (!apiBase) return;
 
+    // SEQUENTIAL with spacing, and a gap-limit stop.
+    //
+    // This fired `Promise.all` over every address at once - 80 simultaneous
+    // requests once the change list had grown - which api.kaspa.org answers
+    // with 429, and a 429 carries no CORS headers so the browser reports it as
+    // a CORS failure with the real status hidden. The archival sweep already
+    // learned this and was fixed; this function was not.
+    //
+    // Two changes beyond the spacing. Addresses ALREADY known used or funded
+    // are skipped, since the answer cannot change and this runs on every
+    // refresh. And the scan stops after GAP_STOP consecutive unused addresses,
+    // which is the standard gap rule: past that, a wallet has no history to
+    // find, so the remaining requests are guaranteed waste.
+    const GAP_STOP = 20;
+    const SPACING_MS = 250;
+    let rateLimited = false;
+
     const check = async (addr, i, targetSet) => {
         try {
             const r = await fetch(`${apiBase}/addresses/${addr}/transactions-count`, { signal: AbortSignal.timeout(5000) });
-            if (r.ok) {
-                const d = await r.json();
-                if (d.total > 0) targetSet.add(i);
-            }
-        } catch (_) {}
+            if (r.status === 429) { rateLimited = true; return false; }
+            if (!r.ok) return false;
+            const d = await r.json();
+            if (d.total > 0) { targetSet.add(i); return true; }
+            return false;
+        } catch (_) { return false; }
+    };
+
+    const scan = async (addresses, targetSet, fundedList) => {
+        let unusedRun = 0;
+        for (let i = 0; i < addresses.length; i++) {
+            if (rateLimited) return;
+            // Known used or currently funded: no request needed.
+            //
+            // `targetSet` is a Set, `fundedList` is an ARRAY - they are built
+            // from different places and the two are not interchangeable.
+            if (targetSet.has(i) || fundedList.includes(i)) { unusedRun = 0; continue; }
+            const used = await check(addresses[i], i, targetSet);
+            unusedRun = used ? 0 : unusedRun + 1;
+            if (unusedRun >= GAP_STOP) return;
+            await new Promise(res => setTimeout(res, SPACING_MS));
+        }
     };
 
     try {
-        const promises = [
-            ...wallet.receive_addresses.map((addr, i) => check(addr, i, usedReceiveIndices)),
-            ...wallet.change_addresses.map((addr, i) => check(addr, i, usedChangeIndices)),
-        ];
-        await Promise.all(promises);
+        await scan(wallet.receive_addresses, usedReceiveIndices, fundedReceiveIndices);
+        await scan(wallet.change_addresses, usedChangeIndices, fundedChangeIndices);
+        if (rateLimited) {
+            console.log('[KasSee] address history stopped: rate-limited by ' + apiBase);
+        }
     } catch (e) {
         console.log('[KasSee] address history (default):', e);
     }
@@ -7022,7 +7649,12 @@ function checkKsptSignatureStatus(hex) {
     const flags = parseInt(hex.substring(10, 12), 16);
     if ((flags & 0x01) === 0x01) return 'signed';
     if (flags === 0x00 && version === 0x02) return 'partial';
-    if (flags === 0x00 && version === 0x03) {
+    // 0x05 is v3's BODY plus a hint trailer, so it walks identically. Without it
+    // a PARTIAL 0x05 fell past every case and returned 'unknown', so the scan did
+    // nothing at all - no merge, no error, straight back to the scan button. A
+    // fully-signed 0x05 happened to work because the flags check comes first,
+    // which is why this only showed up on a partial.
+    if (flags === 0x00 && (version === 0x03 || version === 0x05)) {
         // v3: signer may undercount nosig covenant inputs.
         // Scan inputs for any sig_count > 0 (and != 0xFF nosig marker).
         try {
@@ -7141,6 +7773,31 @@ function kasToSompi(str) {
     const [whole, frac = ''] = str.split('.');
     const fracPadded = (frac + '00000000').slice(0, 8);
     return BigInt(whole) * 100000000n + BigInt(fracPadded);
+}
+
+// Serialize a PSKT whose amounts are BigInt, emitting them as unquoted JSON
+// numbers.
+//
+// `JSON.stringify` throws on BigInt, which is why amounts used to be cast
+// through `Number()` on the way into the object. Above 2^53 sompi
+// (90,071,992.55 KAS) that cast rounds, the device signs a sighash over the
+// rounded value while the node computes one from the true value, and the
+// signature does not verify. Every retry rounds identically, so the covenant
+// cannot be spent through KasSee at all.
+//
+// The replacer wraps each BigInt in NUL characters, which `JSON.stringify`
+// escapes as \u0000 inside the quoted string, and the regex then removes the
+// quotes and the markers. NUL is safe as a marker because it cannot appear
+// unescaped in JSON string content.
+//
+// Quoting the amounts instead was considered and rejected: the firmware
+// tokenizer requires a numeric token and rejects a quoted amount outright,
+// and `covenant_api.rs` reads them with `as_u64()`, which yields None for a
+// string and would turn every UTXO into zero.
+function psktToJson(value) {
+    const s = JSON.stringify(value, (_k, v) =>
+        typeof v === 'bigint' ? '\u0000' + v.toString() + '\u0000' : v);
+    return s.replace(/"\\u0000(\d+)\\u0000"/g, '$1');
 }
 
 async function handleCreateTx() {
@@ -7491,6 +8148,12 @@ function renderQrTxInfo() {
         html += `<div style="margin-bottom:8px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px">`;
         html += `<div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:var(--text-muted)">#${i} ${out.script_kind.toUpperCase()}</span><span style="color:var(--text)">${fmtKas(out.amount_sompi)} KAS</span></div>`;
         html += addrHtml(addr, label);
+        // The covenant id, on the screen the QR is on: this is where the
+        // user compares against the signer, so it has to be here and in
+        // the signer's own 6+6 shape.
+        if (out.covenant_id) {
+            html += `<div style="margin-top:3px;font-family:var(--mono);font-size:10px;color:#ffa733;word-break:break-all">COVENANT ${covIdShort(out.covenant_id)}</div>`;
+        }
         html += '</div>';
     });
 
@@ -7512,6 +8175,12 @@ function renderQrTxInfo() {
             const rsId = 'qrtx-rs-' + i;
             html += `<div style="margin-top:4px"><span style="font-size:9px;color:var(--text-muted);cursor:pointer" onclick="var t=document.getElementById('${rsId}');t.style.display=t.style.display==='none'?'':'none'">Redeem Script \u25BC</span>`;
             html += `<div id="${rsId}" style="display:none;word-break:break-all;font-family:var(--mono);font-size:9px;color:var(--text-dim);line-height:1.2;margin-top:3px;padding:4px;background:var(--card-bg);border-radius:3px">${inp.redeem_script_hex}</div></div>`;
+        }
+        // The covenant id, on the screen the QR is on: this is where the
+        // user compares against the signer, so it has to be here and in
+        // the signer's own 6+6 shape.
+        if (inp.covenant_id) {
+            html += `<div style="margin-top:3px;font-family:var(--mono);font-size:10px;color:#ffa733;word-break:break-all">COVENANT ${covIdShort(inp.covenant_id)}</div>`;
         }
         html += '</div>';
     });
@@ -7832,7 +8501,9 @@ function handleSignedScan(data) {
             // holds the canonical PSKB. Merge the new partial sigs
             // from the KSPT v3 back into the PSKB and re-open review.
             if ((sigStatus === 'partial' || sigStatus === 'signed') && _psktReviewHex) {
-                console.log('[KasSee] KSPT v3 return with canonical PSKB held — merging');
+                console.log('[KasSee] KSPT v'
+                    + parseInt(result.substring(8, 10), 16)
+                    + ' return with canonical PSKB held — merging');
                 try {
                     const mergedPskb = pskt_merge_signed_kspt_v2(result, _psktReviewHex);
                     openPsktReview(mergedPskb);
@@ -8008,6 +8679,9 @@ function openPsktReview(wireHex) {
                 <div class="pskt-value">${fmtKas(inp.amount_sompi)} KAS</div>
                 <div class="pskt-label">Prev TX</div>
                 <div class="pskt-value pskt-mono">${shortenHex(inp.prev_tx_id)}:${inp.prev_index}</div>
+                ${inp.covenant_id ? `
+                <div class="pskt-label">Covenant</div>
+                <div class="pskt-value pskt-mono" style="color:#ffa733">${covIdShort(inp.covenant_id)}</div>` : ''}
             </div>
         `;
         inputsEl.appendChild(row);
@@ -8029,6 +8703,9 @@ function openPsktReview(wireHex) {
                 <div class="pskt-value">${fmtKas(out.amount_sompi)} KAS</div>
                 <div class="pskt-label">To</div>
                 <div class="pskt-value pskt-mono">${out.address ? emphasizeAddr(out.address) : '(unrecognized script)'}</div>
+                ${out.covenant_id ? `
+                <div class="pskt-label">Covenant</div>
+                <div class="pskt-value pskt-mono" style="color:#ffa733">${covIdShort(out.covenant_id)}</div>` : ''}
             </div>
         `;
         outputsEl.appendChild(row);
@@ -8081,8 +8758,12 @@ function handlePsktRelayCompact() {
         toast('Compact relay failed: ' + e, 'error', 5000);
         return;
     }
+    // Report the version actually emitted. Hardcoding v3 made a v5 relay read as
+    // v3 in the console, which is the one place someone checks whether the hints
+    // went out.
+    const relayVer = ksptHex.length >= 10 ? parseInt(ksptHex.substring(8, 10), 16) : 0;
     console.log('[KasSee] Compact relay: PSKB hex ' + _psktReviewHex.length +
-                ' → KSPT v3 hex ' + ksptHex.length +
+                ' → KSPT v' + relayVer + ' hex ' + ksptHex.length +
                 ' (' + Math.round((1 - ksptHex.length / _psktReviewHex.length) * 100) + '% smaller)');
     displayKsptQr(ksptHex, 'Relay to KasSigner (compact)');
 }
@@ -8331,6 +9012,13 @@ function fmtKas(sompi) {
     return n.toFixed(8).replace(/\.?0+$/, '');
 }
 
+// Covenant id in the SAME shape the signer draws it: first 6 and last 6 bytes.
+// The two screens exist to be compared, so they must not format it differently.
+function covIdShort(hex) {
+    if (typeof hex !== 'string' || hex.length !== 64) return hex;
+    return hex.slice(0, 12) + '\u2026' + hex.slice(-12);
+}
+
 function shortenHex(hex) {
     if (!hex || hex.length <= 20) return hex;
     return hex.slice(0, 10) + '\u2026' + hex.slice(-10);
@@ -8352,7 +9040,10 @@ function handleDescriptorScan(data) {
                 bytes.push(parseInt(result.substr(i, 2), 16));
             }
             const text = new TextDecoder().decode(new Uint8Array(bytes)).trim();
-            if (text.startsWith('multi(') || text.startsWith('multi_hd(')) {
+            // `multi_hd45(` starts with `multi_hd` but NOT with `multi_hd(`,
+            // so the two-prefix test rejected every 45' descriptor.
+            if (text.startsWith('multi(') || text.startsWith('multi_hd(')
+                || text.startsWith('multi_hd45(')) {
                 el('input-ms-descriptor').value = text;
                 showScreen('multisig');
                 toast('Descriptor scanned', 'ok', 1500);
@@ -8374,7 +9065,83 @@ function handleDescriptorScan(data) {
     }
 }
 
+/// Fill the "Select UTXOs manually" dropdown from the whole branch.
+///
+/// Same panel, same rows, same 32 cap as the single-address version - only the
+/// source of the list differs, and each row carries its address so the builder
+/// can derive that address's own redeem script.
+function fillMsBranchUtxoList() {
+    const list = el('ms-utxo-list');
+    if (!list.classList.contains('hidden')) {
+        list.classList.add('hidden');
+        el('btn-toggle-ms-utxos').textContent = 'Select UTXOs manually \u25b8';
+        msPicked = [];
+        return;
+    }
+    const utxos = (msBranch.utxos || []).slice()
+        .sort((a, b) => Number(b.amount) - Number(a.amount));
+    if (utxos.length === 0) { toast('No UTXOs on this branch', 'error'); return; }
+
+    let html = '';
+    utxos.forEach((u, i) => {
+        const kas = (Number(u.amount) / 1e8).toFixed(8);
+        html += `<div class="utxo-item" data-idx="${i}" style="cursor:pointer;display:flex;align-items:center;gap:10px">
+            <span style="font-size:18px;color:var(--border)" class="utxo-check">\u2610</span>
+            <div style="flex:1">
+                <div class="utxo-amount" style="font-size:13px">${kas} KAS</div>
+                <div class="utxo-detail">C${u.chain} #${u.index} \u00b7 ${u.tx_id.slice(0, 16)}\u2026:${u.outpoint_index}</div>
+            </div>
+        </div>`;
+    });
+    list.innerHTML = html;
+    msPicked = [];
+
+    const sync = () => {
+        const total = msPicked.reduce((a, p) => a + Number(p.amount), 0);
+        const addrs = new Set(msPicked.map(p => p.address));
+        el('btn-toggle-ms-utxos').textContent = msPicked.length
+            ? `${msPicked.length} input(s) \u00b7 ${(total / 1e8).toFixed(8)} KAS \u00b7 `
+              + `${addrs.size} address(es)`
+              + (addrs.size > 1 ? ' \u2014 will be linked on chain' : '') + ' \u25b8'
+            : 'Select UTXOs manually \u25b8';
+    };
+
+    list.querySelectorAll('.utxo-item').forEach(item => {
+        item.onclick = () => {
+            const u = utxos[parseInt(item.dataset.idx)];
+            const check = item.querySelector('.utxo-check');
+            const pos = msPicked.findIndex(p =>
+                p.tx_id === u.tx_id && p.index === u.outpoint_index);
+            if (pos >= 0) {
+                msPicked.splice(pos, 1);
+                check.textContent = '\u2610';
+                check.style.color = 'var(--border)';
+                item.style.borderColor = '';
+            } else if (msPicked.length >= MS_PICK_MAX) {
+                toast('Max ' + MS_PICK_MAX + ' UTXOs per transaction', 'info', 1500);
+                return;
+            } else {
+                msPicked.push({ address: u.address, tx_id: u.tx_id,
+                                index: u.outpoint_index, amount: u.amount });
+                check.textContent = '\u2611';
+                check.style.color = 'var(--teal)';
+                item.style.borderColor = 'var(--teal)';
+            }
+            sync();
+        };
+    });
+    sync();
+    list.classList.remove('hidden');
+}
+
 async function toggleMsUtxos() {
+    // 45' with a branch loaded: the SAME dropdown, filled from the whole branch.
+    //
+    // The single-address path below needs a source address and fetches only that
+    // address's UTXOs, which is the limit being removed. This fills the same
+    // `ms-utxo-list` panel with every outpoint on the branch instead, so the
+    // control behaves exactly as it does in a single-sig wallet.
+    if (msActive && msBranch) { fillMsBranchUtxoList(); return; }
     const list = el('ms-utxo-list');
     if (!list.classList.contains('hidden')) {
         list.classList.add('hidden');
@@ -8449,7 +9216,13 @@ async function handleMultisigCreate() {
     const amountStr = el('input-ms-amount').value.trim();
 
     if (!descriptor) { toast('Paste the multisig descriptor', 'error'); return; }
-    if (!sourceAddr) { toast('Enter the P2SH source address', 'error'); return; }
+    // A selection carries its own addresses, so no source field is involved.
+    if (!sourceAddr && !(msActive && msBranch && msPicked.length > 0)) {
+        toast(msActive && msBranch
+            ? 'Select UTXOs to spend'
+            : 'Enter the P2SH source address', 'error');
+        return;
+    }
     if (!destAddr) { toast('Enter the destination address', 'error'); return; }
     if (!amountStr || parseFloat(amountStr) <= 0) { toast('Enter amount', 'error'); return; }
 
@@ -8468,22 +9241,64 @@ async function handleMultisigCreate() {
 
     showLoading('Building multisig PSKB...');
     try {
-        const fee = Number(getCovFee());
+        // Fee must cover sig_op_count = N per input, and the count of inputs the
+        // builder will actually spend.
+        //
+        // When the user has picked UTXOs we know both exactly. When they have
+        // not, `create_multisig_pskb` chooses for us and JS never learns the
+        // number, so we deliberately ERR HIGH and use the cached UTXO count:
+        // underpaying bounces a transaction the user has already signed on the
+        // device and carried back, while overpaying costs sompi on a fee that
+        // starts at 0.004 KAS. Wrong in the cheap direction on purpose.
+        const nCosigners = msCosignerCount(descriptor);
+        if (nCosigners === 0) {
+            hideLoading();
+            toast('Cannot read cosigner count from descriptor', 'error', 5000);
+            return;
+        }
+        // A 45' selection is the real input count. Pricing it as one input is the
+        // mistake this whole estimator was written to stop: it does not bounce
+        // the transaction, it underpays and gets refused at relay AFTER the
+        // devices have signed it.
+        const nInputs = (msActive && msBranch && msPicked.length > 0)
+            ? msPicked.length
+            : ((msSelectedUtxoIndices && msSelectedUtxoIndices.length > 0)
+                ? msSelectedUtxoIndices.length
+                : ((msCachedUtxos && msCachedUtxos.length > 0) ? msCachedUtxos.length : 1));
+        const fee = Number(getCovFee(nInputs, nCosigners));
         const wsUrl = await resolveNodeUrl();
         const addrIndexEl = el('input-ms-addr-index');
         const addrIndex = addrIndexEl ? parseInt(addrIndexEl.value) || 0 : 0;
 
+        // Change index comes from the HISTORY scan when a branch is loaded.
+        //
+        // The builder's own scan sees UTXOs only, so a spent-empty address looks
+        // free and change would return to an index already used. 0xFFFFFFFF means
+        // "no hint" and keeps the old behaviour for 44', which has no change
+        // chain anyway.
+        const chgHint = (msBranch && msBranch.next_change_index != null)
+            ? msBranch.next_change_index : 0xFFFFFFFF;
+
         let pskbHex;
-        if (msSelectedUtxoIndices && msSelectedUtxoIndices.length > 0) {
+        if (msActive && msBranch && msPicked.length > 0) {
+            // MULTI-ADDRESS path: the selection carries its own addresses, so
+            // each input gets its own redeem script and derivation path.
+            pskbHex = await create_multisig_pskb_multi_js(
+                descriptor, JSON.stringify(msPicked.map(p =>
+                    ({ address: p.address, tx_id: p.tx_id, index: p.index }))),
+                resolvedDest, kasToSompi(amountStr), BigInt(fee),
+                msBranch.cosigner, chgHint, wsUrl
+            );
+        } else if (msSelectedUtxoIndices && msSelectedUtxoIndices.length > 0) {
             const csv = msSelectedUtxoIndices.join(',');
             pskbHex = await create_multisig_pskb_selected(
                 descriptor, sourceAddr, resolvedDest, kasToSompi(amountStr),
-                BigInt(fee), changeAddr, wsUrl, addrIndex, csv
+                BigInt(fee), changeAddr, wsUrl, chgHint, addrIndex, csv
             );
         } else {
             pskbHex = await create_multisig_pskb(
                 descriptor, sourceAddr, resolvedDest, kasToSompi(amountStr),
-                BigInt(fee), changeAddr, wsUrl, addrIndex
+                BigInt(fee), changeAddr, wsUrl, chgHint, addrIndex
             );
         }
         hideLoading();
@@ -8496,14 +9311,57 @@ async function handleMultisigCreate() {
     }
 }
 
+/// MAX for a 45' selection: the selected total minus the fee for those inputs.
+///
+/// The single-address MAX fetches a source address's UTXOs and prices them.
+/// Here the inputs are already chosen, so the fee is sized from the actual count
+/// and the cosigner count - getting that wrong does not bounce the transaction,
+/// it quotes a MAX that fails at relay after the user has signed it.
+function msMaxFromSelection() {
+    const nCosigners = msCosignerCount(msBranch.descriptor);
+    if (nCosigners === 0) {
+        toast('Could not read the cosigner count from the descriptor', 'error', 4000);
+        return;
+    }
+    const total = msPicked.reduce((a, p) => a + Number(p.amount), 0);
+    const fee = Number(getCovFee(msPicked.length, nCosigners));
+    if (total <= fee) {
+        toast('Selection does not cover the fee (' + (fee / 1e8).toFixed(8) + ' KAS)',
+              'error', 4000);
+        return;
+    }
+    el('input-ms-amount').value = ((total - fee) / 1e8).toFixed(8);
+    toast('Max: ' + ((total - fee) / 1e8).toFixed(8) + ' KAS after '
+          + (fee / 1e8).toFixed(8) + ' fee', 'info', 2500);
+}
+
 async function handleMsMax() {
     const sourceAddr = el('input-ms-source').value.trim();
-    if (!sourceAddr) { toast('Enter source address first', 'error'); return; }
+    // 45' with a selection: MAX is the selected total minus the fee for exactly
+    // those inputs. There is no source address to fetch from, and asking for one
+    // is the limit being removed.
+    if (msActive && msBranch && msPicked.length > 0) { msMaxFromSelection(); return; }
+    if (!sourceAddr) {
+        toast(msActive && msBranch
+            ? 'Select UTXOs first'
+            : 'Enter source address first', 'error');
+        return;
+    }
 
-    const fee = Number(getCovFee());
+    // Same correction as handleMultisigCreate: N sigops per input, real input
+    // count. Getting this wrong here does not bounce a transaction, it quotes
+    // the user a MAX they cannot actually send, which they then discover at
+    // relay after signing.
+    const descriptorEl = el('input-ms-descriptor');
+    const nCosigners = msCosignerCount(descriptorEl ? descriptorEl.value : '');
+    if (nCosigners === 0) {
+        toast('Paste the descriptor first, so the fee can be sized', 'error', 4000);
+        return;
+    }
 
     // If UTXOs are manually selected, use those
     if (msSelectedUtxoIndices && msSelectedUtxoIndices.length > 0 && msCachedUtxos) {
+        const fee = Number(getCovFee(msSelectedUtxoIndices.length, nCosigners));
         const selectedTotal = msSelectedUtxoIndices.reduce((s, i) => s + msCachedUtxos[i].amount, 0);
         const maxKas = Math.max(0, (selectedTotal - fee) / 1e8);
         el('input-ms-amount').value = maxKas.toFixed(8);
@@ -8517,6 +9375,9 @@ async function handleMsMax() {
         hideLoading();
         const utxos = JSON.parse(utxosJson);
         const total = utxos.reduce((s, u) => s + u.amount, 0);
+        // This branch spends EVERY UTXO, so the input count is exact here; no
+        // estimate needed, unlike the create path.
+        const fee = Number(getCovFee(utxos.length, nCosigners));
         const maxKas = Math.max(0, (total - fee) / 100000000);
         el('input-ms-amount').value = maxKas.toFixed(8);
         el('ms-balance-info').textContent = 'Balance: ' + (total / 100000000).toFixed(8) + ' KAS (' + utxos.length + ' UTXOs)';
@@ -11505,7 +12366,7 @@ async function handleShipEscrowSpend(branch) {
         const sellerSpk = '0000' + addrToSpkHex(P.sellerAddr);
         const delivSpk = '0000' + addrToSpkHex(P.delivererAddr);
         const buyerSpk = '0000' + addrToSpkHex(P.buyerAddr);
-        const mkOut = (amt, spk) => ({ amount: Number(amt), scriptPublicKey: spk, bip32Derivations: [], proprietaries: [] });
+        const mkOut = (amt, spk) => ({ amount: BigInt(amt), scriptPublicKey: spk, bip32Derivations: [], proprietaries: [] });
 
         let outputs, minSig = 1, locktime = 0;
         if (branch === 'pickup') {
@@ -11533,7 +12394,7 @@ async function handleShipEscrowSpend(branch) {
             // 0 here made every signed branch blow the free allowance:
             // "script units exceeded ... used=100763, limit=9999".
             sequence: 0, sigOpCount: minSig,
-            utxoEntry: { amount: Number(inAmt), scriptPublicKey: covSpkHex, blockDaaScore: 0, isCoinbase: false },
+            utxoEntry: { amount: inAmt, scriptPublicKey: covSpkHex, blockDaaScore: 0, isCoinbase: false },
             redeemScript: redeemHex, partialSigs: {}, minimumSignatures: minSig,
             bip32Derivations: [], proprietaries: {}, finalScriptSig: null, minTime: 0
         }];
@@ -11550,7 +12411,7 @@ async function handleShipEscrowSpend(branch) {
             inputs, outputs
         };
 
-        const jsonStr = JSON.stringify([pskt]);
+        const jsonStr = psktToJson([pskt]);
         const jsonHex = toHex(new TextEncoder().encode(jsonStr));
         const wireBytes = new TextEncoder().encode('PSKB');
         const wireFull = new Uint8Array(wireBytes.length + jsonHex.length);
@@ -11595,11 +12456,18 @@ async function handleEscrowSpend(branch) {
 
     showLoading('Building escrow ' + branch + ' TX...');
     try {
-        const fee = getCovFee();
         const wsUrl = await resolveNodeUrl();
         const utxosJson = await fetch_utxos_for_address_js(covAddr, wsUrl);
         const utxos = JSON.parse(utxosJson);
         if (!utxos.length) throw 'No UTXOs at escrow address';
+
+        // Fee AFTER the fetch, sized to the real input count. This function
+        // builds its inputs here in JS (`utxos.map` below) rather than calling
+        // a wasm builder, so it gets no benefit from the fee floor added to
+        // covenant_api.rs on 2026-08-14 and has to size its own. It previously
+        // called getCovFee() with no arguments, pricing every escrow spend as
+        // one input regardless of how many UTXOs the escrow address held.
+        const fee = getCovFee(utxos.length);
 
         const total = utxos.reduce((s, u) => s + BigInt(u.amount), 0n);
         if (total <= fee) throw 'Balance too low: ' + Number(total) / 1e8 + ' KAS';
@@ -11614,14 +12482,14 @@ async function handleEscrowSpend(branch) {
             // commits compute_budget 10 (109,999 units) on tx v1. 0 capped the
             // input at the 9,999 free units and the node rejected the spend.
             sequence: 0, sigOpCount: 1,
-            utxoEntry: { amount: Number(BigInt(u.amount)), scriptPublicKey: covSpkHex, blockDaaScore: 0, isCoinbase: false },
+            utxoEntry: { amount: BigInt(u.amount), scriptPublicKey: covSpkHex, blockDaaScore: 0, isCoinbase: false },
             redeemScript: redeemHex, partialSigs: {}, minimumSignatures: 1,
             bip32Derivations: [],
             proprietaries: {},
             finalScriptSig: null, minTime: 0
         }));
 
-        const outputs = [{ amount: Number(sendAmount), scriptPublicKey: destSpkHex, bip32Derivations: [], proprietaries: [] }];
+        const outputs = [{ amount: BigInt(sendAmount), scriptPublicKey: destSpkHex, bip32Derivations: [], proprietaries: [] }];
 
         // Dispute heartbeat: attach "ESCD" + role payload so all watchers detect it
         let txPayload = '';
@@ -11643,7 +12511,7 @@ async function handleEscrowSpend(branch) {
             inputs, outputs
         };
 
-        const jsonStr = JSON.stringify([pskt]);
+        const jsonStr = psktToJson([pskt]);
         const jsonHex = toHex(new TextEncoder().encode(jsonStr));
         const wireBytes = new TextEncoder().encode('PSKB');
         const wireFull = new Uint8Array(wireBytes.length + jsonHex.length);
@@ -11764,16 +12632,16 @@ async function handleCovOwnerSpend() {
             const withdrawSompi = isPartial ? kasToSompi(amountStr) : threadAmt;
             const capSompi = (lastCovenantResult && lastCovenantResult.max_withdraw_sompi) ? BigInt(lastCovenantResult.max_withdraw_sompi) : 0n;
             if (withdrawSompi > threadAmt) {
-                toast('Amount exceeds the thread balance (' + (Number(threadAmt) / 1e8) + ' KAS).', 'error');
+                toast('Amount exceeds the thread balance (' + sompiToKasStr(threadAmt) + ' KAS).', 'error');
                 hideLoading(); return;
             }
             if (capSompi > 0n && withdrawSompi > capSompi) {
                 // Over the per-spend cap. A partial withdrawal must be <= cap; a sweep-all
                 // (close) is valid only when the whole balance is <= cap. So once the
                 // balance exceeds the cap, the only legal spend is a capped partial.
-                const _capK = Number(capSompi) / 1e8;
+                const _capK = sompiToKasStr(capSompi);
                 const _msg = (withdrawSompi >= threadAmt)
-                    ? 'Balance (' + (Number(threadAmt) / 1e8) + ' KAS) is over the per-spend cap of ' + _capK + ' KAS, so it cannot be swept in one TX. Withdraw ' + _capK + ' KAS or less.'
+                    ? 'Balance (' + sompiToKasStr(threadAmt) + ' KAS) is over the per-spend cap of ' + _capK + ' KAS, so it cannot be swept in one TX. Withdraw ' + _capK + ' KAS or less.'
                     : 'Per-spend cap is ' + _capK + ' KAS. Withdraw that or less.';
                 toast(_msg, 'error', 5000);
                 hideLoading(); return;
@@ -11795,7 +12663,7 @@ async function handleCovOwnerSpend() {
                 glFee = totalMass * feeRate;
                 if (glFee < baseFee) glFee = baseFee;
             }
-            console.log('[KasSee] Global limit withdraw: thread ' + thread.tx_id.substring(0, 16) + ':' + thread.index + ' = ' + (Number(threadAmt) / 1e8) + ' KAS, withdraw=' + (Number(withdrawSompi) / 1e8) + ' KAS, fee=' + glFee);
+            console.log('[KasSee] Global limit withdraw: thread ' + thread.tx_id.substring(0, 16) + ':' + thread.index + ' = ' + sompiToKasStr(threadAmt) + ' KAS, withdraw=' + sompiToKasStr(withdrawSompi) + ' KAS, fee=' + glFee);
             pskbHex = await create_global_spending_limit_withdraw(covAddr, destAddr, redeemHex, gId, withdrawSompi, glFee, JSON.stringify([thread]));
         } else if (!isPartial) {
             // Sweep all — use existing WASM function. Scale the fee to the UTXO
@@ -11878,14 +12746,14 @@ async function handleCovOwnerSpend() {
             const inputs = utxos.map(u => ({
                 previousOutpoint: { transactionId: u.tx_id, index: u.index },
                 sequence: 0, sigOpCount: 1,
-                utxoEntry: { amount: Number(BigInt(u.amount)), scriptPublicKey: covSpkHex, blockDaaScore: 0, isCoinbase: false },
+                utxoEntry: { amount: BigInt(u.amount), scriptPublicKey: covSpkHex, blockDaaScore: 0, isCoinbase: false },
                 redeemScript: redeemHex, partialSigs: {}, minimumSignatures: 1,
                 bip32Derivations: [], proprietaries: [], finalScriptSig: null, minTime: 0
             }));
 
-            const outputs = [{ amount: Number(sendSompi), scriptPublicKey: destSpkHex, bip32Derivations: [], proprietaries: [] }];
+            const outputs = [{ amount: BigInt(sendSompi), scriptPublicKey: destSpkHex, bip32Derivations: [], proprietaries: [] }];
             if (change > 0n) {
-                outputs.push({ amount: Number(change), scriptPublicKey: covSpkHex, bip32Derivations: [], proprietaries: [] });
+                outputs.push({ amount: BigInt(change), scriptPublicKey: covSpkHex, bip32Derivations: [], proprietaries: [] });
             }
 
             // Partial owner reclaim always spends the immediate branch (the
@@ -11903,7 +12771,7 @@ async function handleCovOwnerSpend() {
                 inputs, outputs
             };
 
-            const jsonStr = JSON.stringify([pskt]);
+            const jsonStr = psktToJson([pskt]);
             const jsonHex = toHex(new TextEncoder().encode(jsonStr));
             const wireBytes = new TextEncoder().encode('PSKB');
             const wireFull = new Uint8Array(wireBytes.length + jsonHex.length);
@@ -12022,12 +12890,12 @@ async function handleCovBeneficiarySpend() {
             const withdrawSompi = isPartial ? kasToSompi(amountStr) : threadAmt;
             const capSompi = (lastCovenantResult && lastCovenantResult.max_withdraw_sompi) ? BigInt(lastCovenantResult.max_withdraw_sompi) : 0n;
             if (withdrawSompi > threadAmt) {
-                throw 'Amount exceeds the thread balance (' + (Number(threadAmt) / 1e8) + ' KAS).';
+                throw 'Amount exceeds the thread balance (' + sompiToKasStr(threadAmt) + ' KAS).';
             }
             if (capSompi > 0n && withdrawSompi > capSompi) {
-                const _capK = Number(capSompi) / 1e8;
+                const _capK = sompiToKasStr(capSompi);
                 throw (withdrawSompi >= threadAmt)
-                    ? 'Balance (' + (Number(threadAmt) / 1e8) + ' KAS) is over the per-spend cap of ' + _capK + ' KAS, so it cannot be swept in one TX. Withdraw ' + _capK + ' KAS or less.'
+                    ? 'Balance (' + sompiToKasStr(threadAmt) + ' KAS) is over the per-spend cap of ' + _capK + ' KAS, so it cannot be swept in one TX. Withdraw ' + _capK + ' KAS or less.'
                     : 'Per-spend cap is ' + _capK + ' KAS. Withdraw that or less.';
             }
             const baseFee = 300000n;
@@ -12046,7 +12914,7 @@ async function handleCovBeneficiarySpend() {
                 glFee = totalMass * feeRate;
                 if (glFee < baseFee) glFee = baseFee;
             }
-            console.log('[KasSee] Global allowance withdraw: thread ' + thread.tx_id.substring(0, 16) + ':' + thread.index + ' = ' + (Number(threadAmt) / 1e8) + ' KAS, withdraw=' + (Number(withdrawSompi) / 1e8) + ' KAS, fee=' + glFee);
+            console.log('[KasSee] Global allowance withdraw: thread ' + thread.tx_id.substring(0, 16) + ':' + thread.index + ' = ' + sompiToKasStr(threadAmt) + ' KAS, withdraw=' + sompiToKasStr(withdrawSompi) + ' KAS, fee=' + glFee);
             const pskbHex = await create_global_allowance_withdraw(covAddr, destAddr, redeemHex, gId, withdrawSompi, glFee, JSON.stringify([thread]));
             hideLoading();
             console.log('[KasSee] Global allowance withdraw PSKB: ' + pskbHex.length + ' hex chars');
@@ -12664,7 +13532,33 @@ const STEALTH_MAX_R = 512;          // sanity bound on the candidate R list. The
                                     // handoff pages in batches, so this only guards
                                     // against pathological growth; hitting it is
                                     // surfaced in the status, never a silent drop.
-const STEALTH_LOOKBACK_BS = 9000;   // 90 windows of 100 blue score (~15 min at 10 BPS).
+// Lookback in blue score. At ~10 BPS, 9000 is ~15 min.
+//
+// The cost is REQUESTS, and the window width is fixed by the endpoint, so
+// extending the lookback multiplies the request count directly. Raising this
+// only works to the extent the adaptive batch loop can push more through.
+const STEALTH_LOOKBACK_BS = 9000;
+// Window width. NOT tunable upward: the public endpoint caps each
+// `acceptingBlueScores` range at 100 (TX_SEARCH_BS_LIMIT, noted above
+// `stealthRestCatchUp`). A wider window is not a faster scan, it is a rejected
+// request or a silently partial answer.
+//
+// And throughput cannot be raised either: concurrency was tried adaptively in
+// both directions and a fixed 3 beat both. So a longer lookback simply takes
+// proportionally longer.
+const STEALTH_WIN_BS = 100;
+// REMOVED: a truncation split on row count.
+//
+// The idea was insurance - halve a window that looks truncated rather than
+// silently lose an announcement. It was actively harmful. A window is 100 blue
+// score, about ten seconds of chain, which on mainnet routinely holds more than
+// any sane threshold. So the check fired on ordinary busy windows and split
+// them RECURSIVELY, doubling or quadrupling requests exactly where the chain is
+// busiest - more throttling, slower scans.
+//
+// The endpoint caps the range at 100 rather than the row count, so a window
+// cannot truncate in the first place. Insurance against a failure that cannot
+// happen, paid for on every busy window.
                                     // Kept well under the public API per-IP limit where
                                     // 429s begin (~window 149), so a direct scan (no proxy)
                                     // completes cleanly. Deeper history needs the KST1 indexer.
@@ -12674,6 +13568,13 @@ const STEALTH_MAX_WINDOWS = 850;    // cap: each window is 100 blue score (TX_SE
 // /blocks/{sink} gives header.blueScore. (virtualDaaScore is NOT the blue score.)
 async function stealthGetTipBlueScore(apiBase) {
     // One GET: virtual selected-parent (sink) blue score -> {"blueScore": N}.
+    //
+    // The SINK, deliberately, not the DAG frontier. It lags the tip, which is
+    // what makes the scanned range settled: a transaction's
+    // `accepting_block_blue_score` can still move near the frontier, so windows
+    // taken from there could gain entries after being scanned. Starting from
+    // the sink largely avoids that - "largely" because the selected-parent
+    // chain can still reorganise a little near the sink.
     try {
         const j = await (await fetch(apiBase + '/info/virtual-chain-blue-score',
             { signal: AbortSignal.timeout(10000) })).json();
@@ -12704,15 +13605,44 @@ async function stealthRestCatchUp(apiBase) {
     // Build 100-wide [gte, lt) windows up to the cap, NEWEST FIRST so a recent
     // announcement lands in the first batch instead of after the whole walk.
     const wins = [];
-    for (let hi = tip + 1; hi > startBs && wins.length < STEALTH_MAX_WINDOWS; hi -= 100) {
-        wins.push([Math.max(hi - 100, startBs), hi]);
+    for (let hi = tip + 1; hi > startBs && wins.length < STEALTH_MAX_WINDOWS; hi -= STEALTH_WIN_BS) {
+        wins.push([Math.max(hi - STEALTH_WIN_BS, startBs), hi]);
     }
     console.log('[KasSee] REST catch-up: tip=' + tip + ' start=' + startBs +
         ' windows=' + wins.length);
     const foundR = [];
     const seen = new Set();
     let done = 0, firstErr = false;
-    const CONC = 3; // low concurrency: reliable on the public endpoint, not a hammer
+    // Windows that returned nothing usable after their retries.
+    //
+    // `done` counts windows ATTEMPTED, and non-429 failures only log the first
+    // one, so a run with several silent failures looked identical to a clean
+    // one. For this scan that matters: a dropped window is a missed
+    // announcement, which is a missed payment.
+    //
+    // Kept as a LIST, not a count: the failures are transient - the same
+    // settings that dropped 11 windows returned all-ok on the previous run - so
+    // they are worth a second pass rather than only a warning.
+    let failedWins = [];
+    // Counted rather than inferred: `runOne` retries internally, so a batch can
+    // be throttled and still succeed. Without this the adaptive loop would read
+    // a slow-but-successful batch as clean and keep ramping into the limiter.
+    // FIXED 3. Not adaptive, after trying both directions.
+    //
+    // Ramping up made it worse - the probe is the cost, and 8 produced 429
+    // floods where 3 produced none. Backing off to 2 on a throttle also made it
+    // worse: one early throttle left the rest of the scan slower than the fixed
+    // rate it replaced, and a longer scan is more exposure, not less.
+    //
+    // Every request here is also PREFLIGHTED: `application/json` is not
+    // CORS-simple, so each window costs an OPTIONS plus the POST, and text/plain
+    // is refused with 422 (tried 2026-08-16). At this rate the endpoint copes;
+    // above it, the preflights fail first and a failed preflight blocks the
+    // request with no status, which no backoff can help.
+    //
+    // More coverage comes from more TIME, or from STEALTH_INDEXER_URL, which is
+    // not a shared public API.
+    const CONC = 3;
     const sleep = ms => new Promise(res => setTimeout(res, ms));
     // Retry a throttled window instead of silently dropping it. 429 (and 503)
     // are transient: back off and retry a few times. A dropped window means a
@@ -12721,6 +13651,18 @@ async function stealthRestCatchUp(apiBase) {
         const MAX_RETRY = 4;
         for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
             try {
+                // `application/json` and NOT text/plain, deliberately.
+                //
+                // text/plain is CORS-simple and would skip the OPTIONS
+                // preflight, halving the requests. Tried on 2026-08-16: the
+                // endpoint answers 422 Unprocessable Content - it will not
+                // parse the body without a real JSON content type. So the
+                // preflight cannot be avoided this way, and every window costs
+                // two requests.
+                //
+                // Which means the earlier preflight failures were a symptom of
+                // RATE, not of the header: they appeared when concurrency was
+                // raised to 8 and vanished at 3. The ceiling stays at 3.
                 const r = await fetch(searchUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -12739,10 +13681,12 @@ async function stealthRestCatchUp(apiBase) {
                         continue;
                     }
                     if (!firstErr) { firstErr = true; console.log('[KasSee] tx-search throttled (HTTP ' + r.status + ') at gte=' + gte + ' after ' + MAX_RETRY + ' retries'); }
+                    failedWins.push([gte, lt]);
                     return;
                 }
                 if (!r.ok) {
                     if (!firstErr) { firstErr = true; console.log('[KasSee] tx-search HTTP ' + r.status + ' at gte=' + gte); }
+                    failedWins.push([gte, lt]);
                     return;
                 }
                 const txs = await r.json();
@@ -12761,6 +13705,7 @@ async function stealthRestCatchUp(apiBase) {
             } catch (e) {
                 if (attempt < MAX_RETRY) { await sleep(500 * Math.pow(2, attempt)); continue; }
                 if (!firstErr) { firstErr = true; console.log('[KasSee] tx-search fetch failed at gte=' + gte + ':', e); }
+                failedWins.push([gte, lt]);
             }
         }
         done++;
@@ -12794,7 +13739,47 @@ async function stealthRestCatchUp(apiBase) {
             }
         }
     }
-    console.log('[KasSee] REST catch-up done: ' + wins.length + ' windows, found ' + foundR.length + ' R');
+    // SECOND PASS over the failures, one at a time.
+    //
+    // Every window is really two requests here - the CORS preflight and the
+    // POST - so concurrency 3 is 6 in flight from the endpoint's side, and
+    // under load the preflights are what fail first. Rather than slow the whole
+    // scan for a minority of windows, retry just those serially with a wider
+    // gap. Transient by nature: the same settings returned all-ok on the run
+    // before the one that dropped 11.
+    // Repeat until nothing is left, or the rounds run out.
+    //
+    // One serial pass took 16 failures down to 1, which says these are
+    // transient rather than a wall: each pass clears most of what is left. So
+    // repeat, with a widening gap, until coverage is complete.
+    //
+    // Bounded, because "until zero" against an endpoint that is genuinely
+    // refusing would never end. After the last round the completion line says
+    // what is still missing rather than pretending.
+    const RETRY_ROUNDS = 4;
+    for (let round = 1; round <= RETRY_ROUNDS && failedWins.length > 0; round++) {
+        const retryList = failedWins.slice();
+        failedWins = [];
+        // Re-arm the one-shot error log. It is set on the first failure of the
+        // first pass, so without this the retry passes would fail silently -
+        // exactly the passes whose errors are worth seeing.
+        firstErr = false;
+        // 400, 800, 1200, 1600 ms between windows: a failure means the endpoint
+        // is refusing right now, so each round asks more gently than the last.
+        const gap = 400 * round;
+        console.log('[KasSee] retry round ' + round + '/' + RETRY_ROUNDS + ': '
+            + retryList.length + ' window(s), ' + gap + 'ms apart');
+        for (const [gte, lt] of retryList) {
+            await runOne(gte, lt);
+            await sleep(gap);
+        }
+    }
+
+    console.log('[KasSee] REST catch-up done: ' + wins.length + ' windows, '
+        + (failedWins.length
+            ? failedWins.length + ' FAILED after ' + RETRY_ROUNDS + ' retry rounds (coverage incomplete), '
+            : 'all ok, ')
+        + 'found ' + foundR.length + ' R');
     return foundR;
 }
 
@@ -12913,6 +13898,15 @@ async function handleStealthFetchAnnouncements() {
                 if (window._stealthScanWs !== ws) return;
                 window._stealthScanWs = null;
                 window._stealthLiveUp = false;
+                // Drop the CACHED node before reconnecting.
+                //
+                // The resolved node is now held for the session, so without
+                // this the live scan retries the SAME node every 3 s forever -
+                // if that node refuses the subscription or is down, the loop
+                // never escapes. Before the cache each retry re-resolved and
+                // eventually found a working one; this restores that while
+                // keeping the cache for everything else.
+                if (typeof invalidateResolvedNode === 'function') invalidateResolvedNode();
                 const d = stealthLiveStatusEl();
                 d.style.color = 'var(--error, #f44336)';
                 d.textContent = 'LIVE scan: DOWN — new payments are NOT being watched. Reconnecting…';
@@ -13175,16 +14169,47 @@ function handleStealthScanResultQR() {
                 try { wsUrl = await resolveNodeUrl(); }
                 catch (_) { el('stealth-found-list').innerHTML = 'Node unavailable, cannot check balances.'; return; }
 
+                // ONE call for every candidate, not one per candidate.
+                //
+                // This looped `fetch_utxos_for_address_js` over up to
+                // STEALTH_MAX_R = 512 results, each a full RPC round trip, for
+                // a question `getUtxosByAddresses` answers in a single request.
+                //
+                // Attribution comes from each UTXO's own `script_public_key`,
+                // so nothing is lost by asking once: a P2PK script is
+                // 0x20 <32-byte pubkey> 0xAC, and the pubkey identifies the
+                // candidate it belongs to.
                 const funded = [];
+                const cand = [];
                 for (const r of window._stealthResults) {
                     let addr = '';
                     try { addr = encode_p2pk_address(r.pubkey, scanNet); } catch (_) {}
-                    if (!addr) continue;
+                    if (addr) cand.push({ r: r, addr: addr });
+                }
+                if (cand.length > 0) {
+                    let utxos = [];
                     try {
-                        const utxos = JSON.parse(await fetch_utxos_for_address_js(addr, wsUrl));
-                        const total = utxos.reduce((s, u) => s + BigInt(u.amount), 0n);
-                        if (total > 0n) funded.push({ pubkey: r.pubkey, tweak: r.tweak, addr: addr, total: total });
-                    } catch (_) { /* fetch failed: treat as unspendable for display */ }
+                        utxos = JSON.parse(await fetch_utxos_for_addresses_js(
+                            JSON.stringify(cand.map(c => c.addr)), wsUrl));
+                    } catch (_) { /* node unavailable: nothing shown as funded */ }
+                    // Sum per pubkey, read out of each UTXO's script.
+                    const byPubkey = new Map();
+                    for (const u of utxos) {
+                        const spk = u.script_public_key;
+                        const hex = Array.isArray(spk)
+                            ? spk.map(b => b.toString(16).padStart(2, '0')).join('')
+                            : String(spk || '');
+                        // 20 <64 hex> ac
+                        if (hex.length < 68 || !hex.startsWith('20') || !hex.endsWith('ac')) continue;
+                        const pk = hex.slice(2, 66);
+                        byPubkey.set(pk, (byPubkey.get(pk) || 0n) + BigInt(u.amount));
+                    }
+                    for (const c of cand) {
+                        const total = byPubkey.get(String(c.r.pubkey).toLowerCase()) || 0n;
+                        if (total > 0n) {
+                            funded.push({ pubkey: c.r.pubkey, tweak: c.r.tweak, addr: c.addr, total: total });
+                        }
+                    }
                 }
 
                 if (funded.length === 0) {
@@ -13365,7 +14390,61 @@ function explorerUrl(addr) {
     const prefix = (network === 'mainnet') ? '' : 'tn10.';
     return `https://${prefix}explorer.kaspa.org/addresses/${addr}`;
 }
+// First 20 receive and 10 change of the loaded branch, funded ones marked.
+// Renders into the same `screen-addresses` as single-sig.
+function showAddressesMultisig() {
+    // Return where you CAME FROM, not to the wallet.
+    //
+    // Hardcoding 'ms-wallet' meant opening the address list while building a
+    // transaction threw the half-filled form away. The single-sig path already
+    // remembers the caller; this now does the same.
+    addressesReturnScreen = (currentScreenName && currentScreenName !== 'addresses')
+        ? currentScreenName : 'ms-wallet';
+    const funded = new Set((msBranch.funded || []).map(f => f.chain + ':' + f.index));
+    const row = (chain, i) => {
+        let a;
+        try { a = multisig_address_at_js(msBranch.descriptor, i, msBranch.cosigner, chain); }
+        catch (_) { return ''; }
+        const isFunded = funded.has(chain + ':' + i);
+        // Spent-empty is NOT fresh. Without this an address that was funded and
+        // emptied looks identical to one never used, which is exactly the
+        // address that must not be handed out again.
+        const usedSet = chain === 1 ? msBranch.usedChange : msBranch.usedReceive;
+        const isUsed = !isFunded && usedSet && usedSet.has(i);
+        // Same row shape as single-sig: explorer link, copy icon, tap to verify.
+        return '<div class="addr-item' + (isFunded || isUsed ? ' addr-used' : '')
+            + '" data-addr="' + i + (chain === 1 ? '-c' : '-r') + '">'
+            + '<span class="addr-idx">' + i + '</span>'
+            + '<span class="addr-val">' + a + '</span>'
+            + (isFunded ? '<span class="addr-badge">funded</span>'
+                        : (isUsed ? '<span class="addr-badge used">used</span>' : ''))
+            + '<a class="addr-explore" href="' + explorerUrl(a)
+            + '" target="_blank" rel="noopener" title="View in explorer">↗</a>'
+            + '<span class="copy-icon">⧉</span>'
+            + '</div>';
+    };
+    let html = "<div class=\"addr-section-title\">Receive — branch S"
+        + msBranch.cosigner + " (C0)</div>";
+    for (let i = 0; i < 20; i++) html += row(0, i);
+    html += "<div class=\"addr-section-title\">Change — branch S"
+        + msBranch.cosigner + " (C1)</div>";
+    for (let i = 0; i < 10; i++) html += row(1, i);
+    el('address-list').innerHTML = html;
+    wireAddressRows(true);
+    showScreen('addresses');
+}
+
 function showAddresses() {
+    // Same screen for both wallets.
+    //
+    // A multisig address is a hash over EVERY cosigner's key, so it cannot come
+    // from `walletData` the way a single-sig address does - but the list, the
+    // styling, the funded badges and the Back behaviour are all the same, so
+    // the view is shared and only the derivation differs.
+    // Any multisig screen, not just the wallet: the tab is reachable from the
+    // spend screen too, and there it was falling through to the single-sig
+    // branch and showing the wrong wallet's addresses.
+    if (msActive && msBranch) { showAddressesMultisig(); return; }
     if (!walletData) return;
     addressesReturnScreen = (currentScreenName && currentScreenName !== 'addresses') ? currentScreenName : 'dashboard';
     const wallet = JSON.parse(walletData);
@@ -13401,13 +14480,22 @@ function showAddresses() {
     });
     el('address-list').innerHTML = html;
 
-    // Prevent explorer link click from triggering the row's onclick
+    wireAddressRows(false);
+    showScreen('addresses');
+}
+
+/// Explorer link, copy icon and tap-to-verify on every row.
+///
+/// Shared by both address lists: the rows are identical markup, so the
+/// behaviour should not be written twice.
+function wireAddressRows(isMultisig) {
+    // Stop the explorer link from also triggering the row.
     document.querySelectorAll('.addr-explore').forEach(link => {
         link.onclick = (e) => e.stopPropagation();
     });
 
     document.querySelectorAll('.addr-item').forEach(item => {
-        const da = item.dataset.addr;
+        const da = item.dataset.addr || '';
         const isChange = da.endsWith('-c');
         const idx = parseInt(da);
 
@@ -13425,16 +14513,20 @@ function showAddresses() {
 
         item.onclick = () => {
             const addr = item.querySelector('.addr-val').textContent.trim();
-            showVerify(addr, idx, isChange);
+            showVerify(addr, idx, isChange, isMultisig);
         };
     });
-    showScreen('addresses');
 }
 
-function showVerify(addr, index, isChange) {
-    const path = isChange
-        ? `m/44'/111111'/0'/1/${index}`
-        : `m/44'/111111'/0'/0/${index}`;
+function showVerify(addr, index, isChange, isMultisig) {
+    // A multisig address sits under the 45' tree with a cosigner level, so the
+    // 44' path shown for single-sig would be wrong - and this screen exists
+    // precisely so the path can be checked against the device.
+    const path = isMultisig && msBranch
+        ? `m/45'/111111'/0'/${msBranch.cosigner}/${isChange ? 1 : 0}/${index}`
+        : (isChange
+            ? `m/44'/111111'/0'/1/${index}`
+            : `m/44'/111111'/0'/0/${index}`);
     el('verify-path').textContent = path;
     el('verify-address').textContent = addr;
 
@@ -13455,8 +14547,76 @@ function showVerify(addr, index, isChange) {
 
 let consolidateSelection = new Set();
 
+/// The loaded branch's funded addresses, in the shared UTXOs view.
+///
+/// Not selectable: consolidation builds a single-sig transaction from
+/// `walletData`, which a multisig branch has no equivalent of. Shown for
+/// reading, and the amounts come from the scan already done.
+function showUtxosMultisig() {
+    // Same rule: back to the caller, so opening this mid-transaction does not
+    // discard the form.
+    utxosReturnScreen = (currentScreenName && currentScreenName !== 'utxos')
+        ? currentScreenName : 'ms-wallet';
+    // Real OUTPOINTS, selectable, like the single-sig view.
+    //
+    // This listed per-address totals and was not selectable, so Consolidate had
+    // nothing to act on. Each row is now one outpoint with its own tx id, which
+    // is what an input needs.
+    const list = (msBranch.utxos || []).slice().sort((a, b) => Number(b.amount) - Number(a.amount));
+    const total = list.reduce((s, u) => s + Number(u.amount), 0);
+    const key = u => u.tx_id + ':' + u.outpoint_index;
+    msConsolidateSel = new Set();
+    el('utxo-summary').textContent = list.length + ' UTXO'
+        + (list.length !== 1 ? 's' : '') + ' · ' + (total / 1e8).toFixed(8) + ' KAS';
+    el('utxo-list').innerHTML = list.length
+        ? list.map(u => '<div class="utxo-item utxo-selectable" data-key="' + key(u) + '">'
+            + '<div class="utxo-check">☐</div>'
+            + '<div class="utxo-info">'
+            + '<div class="utxo-amount">' + (Number(u.amount) / 1e8).toFixed(8) + ' KAS</div>'
+            + '<div class="utxo-detail">C' + u.chain + ' #' + u.index + ' · '
+            + u.tx_id.slice(0, 16) + '…:' + u.outpoint_index + '</div>'
+            + '</div></div>').join('')
+        : '<div style="text-align:center;color:var(--text-muted);padding:20px">No UTXOs found</div>';
+
+    document.querySelectorAll('#utxo-list .utxo-selectable').forEach(item => {
+        item.onclick = () => {
+            const k = item.dataset.key;
+            if (msConsolidateSel.has(k)) {
+                msConsolidateSel.delete(k);
+                item.querySelector('.utxo-check').textContent = '☐';
+            } else if (msConsolidateSel.size < MS_PICK_MAX) {
+                msConsolidateSel.add(k);
+                item.querySelector('.utxo-check').textContent = '☑';
+            } else {
+                toast('Max ' + MS_PICK_MAX + ' inputs per transaction', 'info', 1500);
+            }
+            const sel = list.filter(u => msConsolidateSel.has(key(u)));
+            const t = sel.reduce((a, u) => a + Number(u.amount), 0);
+            const addrs = new Set(sel.map(u => u.address));
+            el('utxo-summary').textContent = sel.length
+                ? sel.length + ' selected · ' + (t / 1e8).toFixed(8) + ' KAS · '
+                  + addrs.size + ' address(es)'
+                  + (addrs.size > 1 ? ' — these will be linked on chain' : '')
+                : list.length + ' UTXO' + (list.length !== 1 ? 's' : '')
+                  + ' · ' + (total / 1e8).toFixed(8) + ' KAS';
+        };
+    });
+    msConsolidateList = list;
+    // Consolidation IS available now: the multi-address builder can merge
+    // outputs from several addresses, which is the only way out of the change
+    // fragmentation rotation creates.
+    const b1 = el('btn-consolidate');
+    if (b1) { b1.style.display = 'block'; b1.textContent = 'Consolidate…'; }
+    const b2 = el('btn-consolidate-selected'); if (b2) b2.style.display = 'none';
+    showScreen('utxos');
+}
+
 async function showUtxos() {
+    // Same tab, both wallets - see the note on `showAddresses`. The multisig
+    // scan already returns the funded set, so no second network call is needed.
+    if (msActive && msBranch) { showUtxosMultisig(); return; }
     if (!walletData) return;
+    utxosReturnScreen = 'dashboard';
     showLoading('Fetching UTXOs...');
     consolidateSelection = new Set();
 
@@ -13717,7 +14877,9 @@ function hex_to_bytes(hex) {
 }
 
 function showHistory() {
-    if (!walletData) return;
+    // Same screen, both wallets: `renderHistory` reads a shared
+    // `historyEntries` array, so only the sweep needed teaching.
+    if (!walletData && !msBranch) return;
     showLoading('Loading transaction history...');
     fetchArchivalHistory().then(() => {
         hideLoading();
@@ -13733,7 +14895,7 @@ function showHistory() {
 }
 
 async function fetchArchivalHistory() {
-    if (!walletData) return;
+    if (!walletData && !msBranch) return;
     // Cooldown: a full sweep hits api.kaspa.org once per address (~40
     // requests). Re-running it on every history open / broadcast tripped
     // the public rate limiter (429 floods). At most one sweep per 2 min;
@@ -13749,9 +14911,61 @@ async function fetchArchivalHistory() {
     } catch (_) {}
     if (nowMs < penaltyUntil) return;      // rate-limited recently: stay away 10 min
     if (nowMs - lastSweep < 120000) return;
-    const wallet = JSON.parse(walletData);
-    const allAddresses = [...wallet.receive_addresses, ...wallet.change_addresses];
+    // Addresses from EITHER wallet. Everything below - the cooldown, the
+    // penalty window, the chunked sweep and the retry rounds - is
+    // scheme-agnostic and shared; only the source of the two lists differs.
+    //
+    // A multisig branch has no `walletData`: its addresses are derived from the
+    // descriptor, so they are built here rather than read from a blob.
+    let allAddresses, rcvAll, chgAll, rcvLive, chgLive;
+    // Chosen by CONTEXT, not by walletData being absent: with both wallets
+    // loaded, `!walletData` is false and the multisig branch would be skipped.
+    if (msActive && msBranch) {
+        rcvAll = []; chgAll = []; rcvLive = []; chgLive = [];
+        for (let chain = 0; chain < 2; chain++) {
+            const used = chain === 1 ? msBranch.usedChange : msBranch.usedReceive;
+            const fundedSet = new Set((msBranch.funded || [])
+                .filter(f => f.chain === chain).map(f => f.index));
+            for (let i = 0; i < 40; i++) {
+                let a;
+                try { a = multisig_address_at_js(msBranch.descriptor, i, msBranch.cosigner, chain); }
+                catch (_) { break; }
+                (chain === 1 ? chgAll : rcvAll).push(a);
+                if (fundedSet.has(i) || (used && used.has(i))) {
+                    (chain === 1 ? chgLive : rcvLive).push(a);
+                }
+            }
+        }
+        allAddresses = [...rcvAll, ...chgAll];
+    } else {
+        const wallet = JSON.parse(walletData);
+        rcvAll = wallet.receive_addresses;
+        chgAll = wallet.change_addresses;
+        allAddresses = [...rcvAll, ...chgAll];
+        rcvLive = rcvAll.filter((_, i) =>
+            fundedReceiveIndices.includes(i) || usedReceiveIndices.has(i));
+        chgLive = chgAll.filter((_, i) =>
+            fundedChangeIndices.includes(i) || usedChangeIndices.has(i));
+    }
+    // Every derived address, for CLASSIFYING a transaction as ours.
     const myAddressSet = new Set(allAddresses);
+
+    // But only FETCH addresses that can have transactions: currently funded, or
+    // known used from the transactions-count scan. An address with neither has
+    // no history by definition, so querying it is guaranteed waste.
+    //
+    // This matters more since the gap step grew to 20: the list went from ~40
+    // addresses to 100+, and at 400 ms spacing that is 40 s of requests before
+    // anything renders. Sweeping only the live ones is typically a quarter of
+    // that, and the result is identical.
+    let sweepAddresses = [...rcvLive, ...chgLive];
+    // Fallback for a freshly loaded wallet: the used/funded sets are populated
+    // by a balance refresh and the transactions-count scan, so on the very
+    // first open they can both be empty. Sweeping nothing would show an empty
+    // history on a wallet that has plenty. Take a bounded prefix instead.
+    if (sweepAddresses.length === 0) {
+        sweepAddresses = [...rcvAll.slice(0, 20), ...chgAll.slice(0, 20)];
+    }
 
     const apiBase = KASPA_REST_API[network];
     if (!apiBase) return;
@@ -13838,9 +15052,21 @@ async function fetchArchivalHistory() {
     };
 
     let consecutive429 = 0;
-    for (const addr of allAddresses) {
-        const outcome = await fetchOne(addr, 0);
-        if (outcome === 'rate-limited') {
+    // Small concurrency window, not one at a time.
+    //
+    // Strictly serial made per-request LATENCY additive: ~26 addresses at 400 ms
+    // spacing plus ~1 s each is 40 s before anything renders. Three in flight
+    // overlaps the waiting while staying nowhere near the ~80 simultaneous
+    // requests that caused the 429 floods in the first place.
+    //
+    // The circuit breaker still governs: a chunk containing any 429 counts, and
+    // two in a row stops the sweep and persists the penalty window.
+    const CHUNK = 3;
+    const CHUNK_GAP_MS = 250;
+    for (let i = 0; i < sweepAddresses.length; i += CHUNK) {
+        const slice = sweepAddresses.slice(i, i + CHUNK);
+        const outcomes = await Promise.all(slice.map(a => fetchOne(a, 0)));
+        if (outcomes.includes('rate-limited')) {
             consecutive429++;
             // Circuit breaker: the limiter is refusing us — back off hard.
             // Persist a 10-minute penalty window so reloads don't keep
@@ -13853,7 +15079,7 @@ async function fetchArchivalHistory() {
         } else {
             consecutive429 = 0;
         }
-        await new Promise(res => setTimeout(res, 400));
+        await new Promise(res => setTimeout(res, CHUNK_GAP_MS));
     }
     try { localStorage.setItem('kassee_last_sweep', String(Date.now())); } catch (_) {}
 
@@ -14206,6 +15432,9 @@ function exitSettings() {
     const target = settingsReturnScreen || (walletData ? 'dashboard' : 'welcome');
     // After broadcast, always go to dashboard (not back to send with stale state)
     if (target === 'send' || target === 'qr-display' || target === 'pskt-review') {
+        // ...unless a multisig branch is loaded, where 'dashboard' means leaving
+        // the wallet entirely. Same fallthrough as the four back buttons.
+        if (msActive && msBranch) { showScreen('ms-wallet'); return; }
         showScreen('dashboard');
         if (walletData) refreshBalance();
     } else {

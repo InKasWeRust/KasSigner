@@ -1,23 +1,23 @@
-# KasSigner — Air-gapped offline signing device for Kaspa
+# KasSigner : Air-gapped offline signing device for Kaspa
 # Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 # License: GPL-3.0
 #
 
 .PHONY: firmware firmware-m5 kassee clean help
 
-## Device firmware — Waveshare ESP32-S3-Touch-LCD-2 (default)
+## Device firmware: Waveshare ESP32-S3-Touch-LCD-2 (default)
 firmware:
 	cd bootloader && ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release
 
-## Device firmware — Waveshare (dev build, skip self-tests)
+## Device firmware: Waveshare (dev build, skip self-tests)
 firmware-dev:
 	cd bootloader && ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release --features skip-tests
 
-## Device firmware — M5Stack CoreS3
+## Device firmware: M5Stack CoreS3 Lite
 firmware-m5:
 	cd bootloader && cargo run --release --no-default-features --features m5stack
 
-## Device firmware — Waveshare with live display mirror
+## Device firmware: Waveshare with live display mirror
 firmware-mirror:
 	cd bootloader && ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release --features waveshare,mirror,skip-tests
 

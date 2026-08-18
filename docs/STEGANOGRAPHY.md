@@ -39,7 +39,7 @@ An artifact can hide its payload in two places, chosen at export. They survive o
 | Photo re-saved or re-compressed | survives | destroyed |
 | Metadata stripped | destroyed | survives |
 
-Metadata stripping is routine. Every messaging app and most social platforms do it. Re-compression happens whenever an image is edited or re-encoded. Nothing about one export removes the other, so **running both on the same photo is how a single artifact covers both risks**. On import the device tries both carriers and reports which one held the backup.
+Metadata stripping is routine. Every messaging app and most social platforms do it. Re-compression happens whenever an image is edited or re-encoded. Nothing about one export removes the other, so **running both on the same photo is how a single artifact covers both risks**, in either order and with the descriptor typed exactly the same way for both, since import asks for it once and tries both carriers with it. Re-running one export replaces that carrier's previous payload. On import the device tries both carriers and reports which one held the backup.
 
 ### The two EXIF fields
 
@@ -79,7 +79,7 @@ An attacker must get past all three to reach your funds. They are different kind
 
 You have 4,000 photos on your Google Drive. One of them contains your seed. Which one?
 
-This is the layer everything visible rests on, and **in v1.0.4 and earlier it did not hold.** A security audit showed that artifacts of that era could be picked out of a folder of ordinary photos reliably and cheaply. Those weaknesses are closed as of v1.0.5, and the same test now finds nothing.
+This is the layer everything visible rests on, and **in v1.0.4 and earlier it did not hold.** Artifacts of that era could be picked out of a folder of ordinary photos reliably and cheaply; measured, not assumed. Those weaknesses are closed as of v1.0.5, and the same test now finds nothing.
 
 An artifact now keeps the host photo's own metadata, camera details and thumbnail included, with KasSigner's two fields merged in. Nothing about it is constant from one artifact to the next. A photo that arrived with no metadata, as screenshots and messaging-app downloads do, gets a plausible one built for it.
 
@@ -103,7 +103,7 @@ Even if the attacker has the correct file, decrypts it with the correct descript
 
 Your actual funds live on a derivation path created by the BIP39 passphrase, the 25th word. This passphrase is folded into the seed during derivation. Different passphrase means different master key, different addresses, different wallet. Same 24 words, completely separate universe of keys.
 
-The 25th word is never written down. Never stored on any device. Never transmitted. Never recorded in the metadata, on the SD card, in the encrypted backup, anywhere. It exists only in the owner's memory. The only way to obtain it is to ask the owner, and the owner can point to the decoy wallet and say "that's all there is."
+The 25th word is never stored on the device, in the photo, on the SD card or in any backup the device writes. Where you keep it is yours to decide. The only way to obtain it from KasSigner is to ask the owner, and the owner can point to the decoy wallet and say "that's all there is."
 
 This is the layer that carries the weight. Layers 1 and 2 buy time and obscurity. Layer 3 is the one that is actually hard.
 

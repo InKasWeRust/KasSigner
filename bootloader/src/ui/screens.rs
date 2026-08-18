@@ -407,8 +407,14 @@ impl<'a> BootDisplay<'a> {
     }
 
         /// Draw a transaction review page (amount, fee, addresses).
+/// `ms_configs` are the loaded multisig descriptors. They are what makes a
+/// derived-path change output checkable: rebuilding a P2SH address needs every
+/// cosigner key, so a single seed cannot do it. With none loaded, an output that
+/// claims to be change is shown as OUTGOING and flagged, because the device
+/// cannot verify the claim and must not pretend otherwise.
 pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, page: u8,
-        receive_pks: &[[u8; 32]; 20], change_pks: &[[u8; 32]; 5]) {
+        receive_pks: &[[u8; 32]; 20], change_pks: &[[u8; 32]; 5],
+        ms_configs: &[crate::wallet::transaction::MultisigConfig]) {
         self.display.clear(COLOR_BG).ok();
 
         use core::fmt::Write;
@@ -556,6 +562,12 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                 // Detect if this output goes to our receive or change address
                 let mut is_own = false;
                 let mut is_change = false;
+                // Set when an output claims a derivation path we could not
+                // confirm. Not the same as "not ours": it means UNKNOWN.
+                let mut claims_change_unverified = false;
+                // Set when a descriptor that DOES reproduce this transaction's
+                // input fails to reproduce this output. The claim is false.
+                let mut claims_change_forged = false;
                 if spk.script_len == 34 && spk.script[0] == 0x20 && spk.script[33] == 0xAC {
                     // P2PK: extract 32-byte pubkey from script[1..33]
                     let mut out_pk = [0u8; 32];
@@ -653,6 +665,72 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                             break;
                         }
                     }
+
+                    // Byte equality failed, so change did not return to the
+                    // source. It may still be OURS, at a derived path.
+                    //
+                    // A 45' wallet can legitimately send change to
+                    // /cosigner/1/index, a P2SH address only the FULL cosigner
+                    // set can reproduce. One seed cannot check it, so the output
+                    // carries the path it claims and we rebuild the address from
+                    // a loaded descriptor.
+                    //
+                    // Three outcomes, and they are not the same thing:
+                    //   verified     a stored config reproduces this address
+                    //   unverifiable no config does, so we cannot tell - shown
+                    //                as outgoing, with the reason
+                    //   contradicted a config matches the transaction's INPUT
+                    //                but not this output: a false claim
+                    //
+                    // Rebuilding requires all N cosigner keys, so a match cannot
+                    // be forged by a hostile payload: it would have to know the
+                    // whole wallet, in which case it already knows the address.
+                    if !is_change && tx.outputs[out_idx].ms45_hint.present {
+                        let mut sh = [0u8; 32];
+                        sh.copy_from_slice(&spk.script[2..34]);
+                        for c in ms_configs.iter() {
+                            if c.active && c.matches_at(&tx.outputs[out_idx].ms45_hint, &sh) {
+                                is_change = true;
+                                break;
+                            }
+                        }
+                        if !is_change {
+                            // Which of the two failures is this?
+                            //
+                            // If NO descriptor is loaded we simply cannot tell -
+                            // missing information, the user's risk to take.
+                            //
+                            // If a descriptor IS loaded and it reproduces this
+                            // transaction's INPUT, then it is the right
+                            // descriptor for this wallet, and its failure to
+                            // reproduce the OUTPUT means the claim is FALSE. Not
+                            // unknown: contradicted by a key set we trust.
+                            //
+                            // Separating them matters. A missing descriptor is a
+                            // gap; a contradicted claim is someone trying to have
+                            // change approved for an address that is not ours.
+                            let mut have_matching_desc = false;
+                            for c in ms_configs.iter() {
+                                if !c.active { continue; }
+                                for i in 0..tx.num_inputs {
+                                    let ispk = &tx.inputs[i].utxo_entry.script_public_key;
+                                    if ispk.script_len != 35 { continue; }
+                                    let mut ish = [0u8; 32];
+                                    ish.copy_from_slice(&ispk.script[2..34]);
+                                    if c.matches_at(&tx.inputs[i].ms45_hint, &ish) {
+                                        have_matching_desc = true;
+                                        break;
+                                    }
+                                }
+                                if have_matching_desc { break; }
+                            }
+                            if have_matching_desc {
+                                claims_change_forged = true;
+                            } else {
+                                claims_change_unverified = true;
+                            }
+                        }
+                    }
                 }
 
                 // Title with CHANGE/OWN label. Display out_idx as
@@ -669,8 +747,23 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
                 } else {
                     write!(&mut title, "OUTPUT {display_idx}").ok();
                 }
+                if claims_change_forged {
+                    write!(&mut title, " FORGED").ok();
+                } else if claims_change_unverified {
+                    // The payload says this is change and we could not confirm
+                    // it. Say exactly that: not "not yours", but "unchecked".
+                    write!(&mut title, " ?").ok();
+                }
 
-                let title_color = if is_change || is_own { KASPA_TEAL } else { COLOR_TEXT };
+                let title_color = if is_change || is_own {
+                    KASPA_TEAL
+                } else if claims_change_forged {
+                    COLOR_DANGER
+                } else if claims_change_unverified {
+                    COLOR_ORANGE
+                } else {
+                    COLOR_TEXT
+                };
                 let tw = measure_header(title.as_str());
                 draw_oswald_header(&mut self.display, title.as_str(), (320 - tw) / 2, 30, title_color);
                 Line::new(Point::new(20, 40), Point::new(300, 40))
@@ -2023,8 +2116,21 @@ pub fn draw_home_grid(&mut self) {
             }
             None => { let _ = id_buf.push_str("Covenant P2SH"); }
         }
+        // Orange, always. The id is the value the USER checks against the
+        // coordinator's screen, so it has to draw the eye whatever the device
+        // thinks of it. Colouring it by the device's own verdict would put the
+        // device's opinion above the number the user came to compare, and the
+        // accent teal it used to be reads as approval.
+        //
+        //
+        // The device could compare the binding against the authorizing input's
+        // covenant id and colour the line by the result. That was built and
+        // removed: it puts the device's verdict where the user's comparison
+        // belongs, and a mismatch is not even an error, since the engine reads
+        // a differing id as the genesis of a new covenant.
+        let id_color = COLOR_ORANGE;
         let idw = measure_body(&id_buf);
-        draw_lato_body(&mut self.display, &id_buf, (320 - idw) / 2, 108, KASPA_ACCENT);
+        draw_lato_body(&mut self.display, &id_buf, (320 - idw) / 2, 108, id_color);
 
         // CONFIRM button (green) — y=120..170
         let confirm_green = COLOR_GREEN_BTN;
@@ -4351,7 +4457,19 @@ pub fn draw_home_grid(&mut self) {
     }
 
     /// Draw multisig result screen — shows M-of-N label + P2SH address. Tap for QR.
-    pub fn draw_multisig_result(&mut self, label: &str, address: &str, addr_index: u32, _script: &[u8]) {
+    /// `sig_chain` is `Some((signer, chain))` for 45' and `None` for 44', which
+    /// has neither level. When present the band reads `[<] S1 / C0 / #5 [>]`,
+    /// mirroring the derivation path so the three numbers cannot be confused
+    /// with one another: S is the signer's family, C the chain (0 receive,
+    /// 1 change), #N the address index.
+    pub fn draw_multisig_result(
+        &mut self,
+        label: &str,
+        address: &str,
+        addr_index: u32,
+        sig_chain: Option<(u8, u8)>,
+        _script: &[u8],
+    ) {
         self.clear_keep_nav();
 
         let tw = measure_header("MULTISIG WALLET");
@@ -4408,6 +4526,50 @@ pub fn draw_home_grid(&mut self) {
         let lw = measure_title("<");
         draw_lato_title(&mut self.display, "<", 10 + (50 - lw) / 2, 230, KASPA_TEAL);
 
+        // 45': [<] S1 / C0 / #5 [>].  44': [<] [#N] [>] unchanged.
+        if let Some((sig, chain)) = sig_chain {
+            // Straight-line rather than a helper closure: the impl has no generic
+            // display parameter, so a closure taking `&mut D` does not typecheck.
+            let btn_s = Rectangle::new(Point::new(66, 210), Size::new(40, 28));
+            RoundedRectangle::new(btn_s, btn_corner)
+                .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
+                .draw(&mut self.display).ok();
+            RoundedRectangle::new(btn_s, btn_corner)
+                .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+                .draw(&mut self.display).ok();
+            let mut sl: heapless::String<8> = heapless::String::new();
+            core::fmt::Write::write_fmt(&mut sl, format_args!("S{sig}")).ok();
+            let sw = measure_title(sl.as_str());
+            draw_lato_title(&mut self.display, &sl, 66 + (40 - sw) / 2, 230, KASPA_TEAL);
+
+            draw_lato_title(&mut self.display, "/", 108, 230, COLOR_TEXT_DIM);
+
+            let btn_ch = Rectangle::new(Point::new(118, 210), Size::new(40, 28));
+            RoundedRectangle::new(btn_ch, btn_corner)
+                .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
+                .draw(&mut self.display).ok();
+            RoundedRectangle::new(btn_ch, btn_corner)
+                .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+                .draw(&mut self.display).ok();
+            let mut cl: heapless::String<8> = heapless::String::new();
+            core::fmt::Write::write_fmt(&mut cl, format_args!("C{chain}")).ok();
+            let cw = measure_title(cl.as_str());
+            draw_lato_title(&mut self.display, &cl, 118 + (40 - cw) / 2, 230, KASPA_TEAL);
+
+            draw_lato_title(&mut self.display, "/", 160, 230, COLOR_TEXT_DIM);
+
+            let btn_i = Rectangle::new(Point::new(170, 210), Size::new(80, 28));
+            RoundedRectangle::new(btn_i, btn_corner)
+                .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
+                .draw(&mut self.display).ok();
+            RoundedRectangle::new(btn_i, btn_corner)
+                .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+                .draw(&mut self.display).ok();
+            let mut il2: heapless::String<12> = heapless::String::new();
+            core::fmt::Write::write_fmt(&mut il2, format_args!("#{addr_index}")).ok();
+            let iw = measure_title(il2.as_str());
+            draw_lato_title(&mut self.display, &il2, 170 + (80 - iw) / 2, 230, KASPA_TEAL);
+        } else {
         let btn_c = Rectangle::new(Point::new(110, 210), Size::new(100, 28));
         RoundedRectangle::new(btn_c, btn_corner)
             .into_styled(PrimitiveStyle::with_fill(COLOR_CARD))
@@ -4419,6 +4581,7 @@ pub fn draw_home_grid(&mut self) {
         core::fmt::Write::write_fmt(&mut idx_label, format_args!("#{addr_index}")).ok();
         let il = measure_title(idx_label.as_str());
         draw_lato_title(&mut self.display, &idx_label, 110 + (100 - il) / 2, 230, KASPA_TEAL);
+        }
 
         let btn_r = Rectangle::new(Point::new(260, 210), Size::new(50, 28));
         RoundedRectangle::new(btn_r, btn_corner)
@@ -5140,12 +5303,25 @@ pub fn draw_home_grid(&mut self) {
     }
 
     /// Draw the ShowQR popup: "Save to SD" / "Back to QR" with header back = main menu
-    pub fn draw_showqr_popup(&mut self) {
-        self.draw_two_button_popup(
-            "SIGNED TX",
-            &["Transaction signed successfully.", "Save to SD card or return", "to view the QR code."],
-            "Save to SD", "Back to QR",
-        );
+    ///
+    /// `is_descriptor` selects the wording. The screen is shared: `ShowQR`
+    /// displays a signed transaction OR a wallet descriptor, and saying
+    /// "Transaction signed successfully" over a descriptor is simply false - the
+    /// buttons were right all along, only the text was written for one payload.
+    pub fn draw_showqr_popup(&mut self, is_descriptor: bool) {
+        if is_descriptor {
+            self.draw_two_button_popup(
+                "DESCRIPTOR",
+                &["Multisig wallet descriptor.", "Save to SD card or return", "to view the QR code."],
+                "Save to SD", "Back to QR",
+            );
+        } else {
+            self.draw_two_button_popup(
+                "SIGNED TX",
+                &["Transaction signed successfully.", "Save to SD card or return", "to view the QR code."],
+                "Save to SD", "Back to QR",
+            );
+        }
     }
 
     /// Draw kpub export popup: Save to SD / Back to QR (after showing kpub QR)
@@ -5333,11 +5509,13 @@ pub fn draw_home_grid(&mut self) {
 
     }
 
-    pub fn draw_kspt_frame_choice(&mut self) {
+    pub fn draw_kspt_frame_choice(&mut self, is_descriptor: bool) {
         self.clear_keep_nav();
 
-        let tw = measure_header("SIGNED TX QR");
-        draw_oswald_header(&mut self.display, "SIGNED TX QR", (320 - tw) / 2, 30, KASPA_TEAL);
+        // Same screen, two payloads: a descriptor is not a signed transaction.
+        let hdr = if is_descriptor { "DESCRIPTOR QR" } else { "SIGNED TX QR" };
+        let tw = measure_header(hdr);
+        draw_oswald_header(&mut self.display, hdr, (320 - tw) / 2, 30, KASPA_TEAL);
         Line::new(Point::new(20, 40), Point::new(300, 40))
             .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
             .draw(&mut self.display).ok();
@@ -5400,8 +5578,25 @@ pub fn draw_home_grid(&mut self) {
     /// Both run through the same `signed_qr_mode` machinery in redraw.rs;
     /// Fast sets mode=0 + signed_qr_large=false, Safe sets mode=3 +
     /// signed_qr_large=true.
-    pub fn draw_kspt_density_choice(&mut self) {
+    /// Density chooser.
+    ///
+    /// `payload_len` is `signed_qr_len`, so each option can be checked
+    /// against the frame limit before it is offered. A mode that cannot fit
+    /// is drawn greyed and its hint line becomes the reason, which is why
+    /// there is no popup: the explanation is already on screen, so a tap on
+    /// a dead button needs no handling.
+    pub fn draw_kspt_density_choice(&mut self, payload_len: usize) {
         self.clear_keep_nav();
+
+        // Bytes per frame for the two reachable modes. `Fast` is mode 0 with
+        // signed_qr_large = false, `Safe` is mode 3.
+        use crate::handlers::camera_loop::{density_fits, frames_needed};
+        const FAST_BYTES: usize = 227;
+        const SAFE_BYTES: usize = 40;
+        let fast_n = frames_needed(payload_len, FAST_BYTES);
+        let safe_n = frames_needed(payload_len, SAFE_BYTES);
+        let fast_ok = density_fits(payload_len, FAST_BYTES);
+        let safe_ok = density_fits(payload_len, SAFE_BYTES);
 
         let tw = measure_header("KASSIGNER DENSITY");
         draw_oswald_header(&mut self.display, "KASSIGNER DENSITY", (320 - tw) / 2, 30, KASPA_TEAL);
@@ -5420,7 +5615,8 @@ pub fn draw_home_grid(&mut self) {
         // "Fast" — left (V6 density)
         let r0 = Rectangle::new(Point::new(x0, by), Size::new(bw as u32, bh as u32));
         RoundedRectangle::new(r0, btn_corner)
-            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .into_styled(PrimitiveStyle::with_fill(
+                if fast_ok { KASPA_TEAL } else { COLOR_TEXT_DIM }))
             .draw(&mut self.display).ok();
         let tw0 = measure_title("Fast");
         draw_lato_title(&mut self.display, "Fast", x0 + (bw - tw0) / 2, by + 35, COLOR_BG);
@@ -5429,17 +5625,43 @@ pub fn draw_home_grid(&mut self) {
         let x1 = x0 + bw + gap;
         let r1 = Rectangle::new(Point::new(x1, by), Size::new(bw as u32, bh as u32));
         RoundedRectangle::new(r1, btn_corner)
-            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
+            .into_styled(PrimitiveStyle::with_fill(
+                if safe_ok { KASPA_TEAL } else { COLOR_TEXT_DIM }))
             .draw(&mut self.display).ok();
         let tw1 = measure_title("Safe");
         draw_lato_title(&mut self.display, "Safe", x1 + (bw - tw1) / 2, by + 35, COLOR_BG);
 
-        // Hints
-        let h0 = measure_hint("V6, fewer QRs");
-        draw_lato_hint(&mut self.display, "V6, fewer QRs", x0 + (bw - h0) / 2, by + bh + 14, COLOR_HINT);
-        let h1 = measure_hint("V3, works anywhere");
-        draw_lato_hint(&mut self.display, "V3, works anywhere", x1 + (bw - h1) / 2, by + bh + 14, COLOR_HINT);
+        // Hints. When a mode fits, the hint describes it; when it does not,
+        // the hint says why, with the frame count so the numbers are visible
+        // rather than implied.
+        let mut h0buf = heapless::String::<24>::new();
+        let mut h1buf = heapless::String::<24>::new();
+        use core::fmt::Write;
+        if fast_ok {
+            let _ = write!(&mut h0buf, "V6, {} frames", fast_n);
+        } else {
+            let _ = write!(&mut h0buf, "Too big: {} frames", fast_n);
+        }
+        if safe_ok {
+            let _ = write!(&mut h1buf, "V3, {} frames", safe_n);
+        } else {
+            let _ = write!(&mut h1buf, "Too big: {} frames", safe_n);
+        }
+        let c0 = if fast_ok { COLOR_HINT } else { COLOR_DANGER };
+        let c1 = if safe_ok { COLOR_HINT } else { COLOR_DANGER };
+        let h0 = measure_hint(h0buf.as_str());
+        draw_lato_hint(&mut self.display, h0buf.as_str(), x0 + (bw - h0) / 2, by + bh + 14, c0);
+        let h1 = measure_hint(h1buf.as_str());
+        draw_lato_hint(&mut self.display, h1buf.as_str(), x1 + (bw - h1) / 2, by + bh + 14, c1);
 
+        // Neither fits: say so plainly rather than leaving two dead buttons
+        // and no explanation.
+        if !fast_ok && !safe_ok {
+            let mut msg = heapless::String::<40>::new();
+            let _ = write!(&mut msg, "{} bytes exceeds every density", payload_len);
+            let mw = measure_hint(msg.as_str());
+            draw_lato_hint(&mut self.display, msg.as_str(), (320 - mw) / 2, by + bh + 34, COLOR_DANGER);
+        }
     }
 
     // ─── Commit-Reveal Screens ───

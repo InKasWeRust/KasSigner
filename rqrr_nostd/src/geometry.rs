@@ -59,10 +59,22 @@ impl Perspective {
         let x = if x >= 0.0 { (x + 0.5) as i64 as f32 } else { (x - 0.5) as i64 as f32 };
         let y = if y >= 0.0 { (y + 0.5) as i64 as f32 } else { (y - 0.5) as i64 as f32 };
 
-        assert!(x <= i32::MAX as f32);
-        assert!(x >= i32::MIN as f32);
-        assert!(y <= i32::MAX as f32);
-        assert!(y >= i32::MIN as f32);
+        // These four were `assert!`, and `assert!` is NOT compiled out in
+        // release builds, so they were live in shipped firmware. A perspective
+        // with a near-zero denominator sends x or y past i32 range, or makes
+        // them NaN, and NaN fails every comparison, so the assert fired either
+        // way. Reachable from a corrupted QR in front of the camera; on device
+        // a panic is the panic handler: key wipe and halt.
+        //
+        // They are also unnecessary. Since Rust 1.45 a float-to-int `as` cast
+        // SATURATES: NaN becomes 0, out-of-range clamps to the bound. The two
+        // casts below already do safely and silently what these asserted
+        // about, so the asserts only converted a survivable clamp into a halt.
+        //
+        // Clamping is the right behaviour here: a degenerate perspective
+        // yields a nonsense coordinate, downstream reads bounds-check it, and
+        // the decode fails closed as an error instead of taking the device
+        // down. Found by host fuzz 2026-08-15 (K-F).
         Point {
             x: x as i32,
             y: y as i32,

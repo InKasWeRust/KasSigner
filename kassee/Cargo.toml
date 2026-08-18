@@ -7,7 +7,7 @@
 
 [package]
 name = "kassee-web"
-version = "1.0.4"
+version = "1.0.6"
 edition = "2021"
 description = "KasSee Web — browser-based watch-only wallet for air-gapped KasSigner"
 license = "GPL-3.0-only"
@@ -84,3 +84,14 @@ ark-crypto-primitives = { version = "0.5", default-features = false, features = 
 [profile.release]
 opt-level = "s"
 lto = true
+# Matches bootloader/Cargo.toml:132. The audit (V1-09) noted the two crates
+# disagreed while `covenant_api.rs` did unguarded u64 arithmetic on
+# user-derived values.
+#
+# Not reachable through the product: `withdraw_sompi + fee` would have to
+# exceed 2^64 sompi, about 184 billion KAS against a total supply near 28.7
+# billion, and `app.js:11766` rejects anything above the thread balance in
+# BigInt before the call. Enabled for coverage rather than for those two
+# sites: it turns a wrap anywhere in the crate into a visible panic instead
+# of a plausible wrong number.
+overflow-checks = true

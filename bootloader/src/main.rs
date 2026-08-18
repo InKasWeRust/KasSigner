@@ -216,6 +216,22 @@ compile_error!(
      log stubbed out. Drop --features verbose-boot."
 );
 
+// e12-capture and wdev-capture write RAW noise-source output (the camera bytes
+// the seed path hashes, and raw WDEV RNG words) to a removable SD card for
+// offline SP 800-90B analysis. Measurement only; a shipped build must not be
+// able to do that.
+#[cfg(all(feature = "e12-capture", feature = "silent"))]
+compile_error!(
+    "e12-capture writes the raw camera bytes the seed path hashes to SD. \
+     Measurement only. Drop --features e12-capture."
+);
+
+#[cfg(all(feature = "wdev-capture", feature = "silent"))]
+compile_error!(
+    "wdev-capture writes raw hardware RNG output to SD. Measurement only. \
+     Drop --features wdev-capture."
+);
+
 // ─── Logging macro (available to all modules via `use crate::log`) ───
 #[cfg(not(feature = "silent"))]
 #[macro_export]
@@ -560,24 +576,34 @@ fn main() -> ! {
             log!("   Backlight ON via PWM (brightness={})", app::data::DEFAULT_BRIGHTNESS);
         }
 
-        // ── Verify XCLK toggling ──
-        unsafe {
-            let iomux8 = (0x6000_9000u32 + 0x04 + 8 * 4) as *mut u32;
-            let v = core::ptr::read_volatile(iomux8);
-            core::ptr::write_volatile(iomux8, v | (1u32 << 9));
-        }
-        delay.delay_millis(2);
-        let mut xclk_tog = 0u32;
-        let mut xlast = unsafe {
-            (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 8) & 1
-        };
-        for _ in 0..200_000u32 {
-            let x = unsafe {
-                (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 8) & 1
-            };
-            if x != xlast { xclk_tog += 1; xlast = x; }
-        }
-        log!("   XCLK verify: {} toggles in 200K reads", xclk_tog);
+        // ── XCLK verify REMOVED 2026-08-15 ──
+        //
+        // It polled GPIO8 through GPIO_IN in a tight loop and counted
+        // transitions. XCLK is 20 MHz and each iteration is a volatile read
+        // plus a compare, so on a 240 MHz core the sampler ran at the same
+        // order as the signal: what it reported was aliasing, not clock
+        // health. Measured on Waveshare, same firmware, three boots:
+        // 61,539 toggles, then 2, then 3. Nothing about the clock changed
+        // between them; only the phase did.
+        //
+        // The near-zero readings prompted a camera investigation that found
+        // nothing wrong: the sensor was detected, configured, streaming full
+        // 230,400-byte frames, and decoded a QR. A check that reports a fault
+        // on a working device is worse than no check, because it teaches you
+        // to ignore the log.
+        //
+        // XCLK is already verified transitively, and better, a few lines
+        // below: `PCLK(GPIO9) toggles` is measured the same way but PCLK is
+        // DERIVED from XCLK, so a non-zero PCLK proves XCLK runs. In the boot
+        // that read XCLK as 2, PCLK read 133,331.
+        //
+        // The IO_MUX write that used to sit here set bit 9 (input enable) on
+        // GPIO8 so the pin could be read at all. It existed only to serve this
+        // measurement, so it goes with it and the pin keeps the configuration
+        // LEDC gave it.
+        //
+        // The 30 ms delay stays: it precedes camera bring-up and this is not
+        // the change in which to find out whether that timing mattered.
         delay.delay_millis(30);
 
         // NOTE: Do NOT call enable_lcd_cam_clocks() here — it reassigns GPIO8
@@ -926,10 +952,11 @@ fn main() -> ! {
     app::stack_probe::report("after boot tests");
 
     // Crypto KATs are invoked from inside boot_test::run_boot_tests, called
-    // just above, so there is no call here. See P-09: run_boot_tests is
-    // #[cfg(not(feature = "silent"))] and production implies silent, so the
-    // KATs do not run in a production build. Closing that needs a call site
-    // here plus a run_crypto_kats that takes a display for the halt screen.
+    // just above, so there is no call here. run_boot_tests is gated on
+    // `skip-tests` only, not on `silent`, so the KATs run in every build
+    // including production (P-09 closed); the guard above makes
+    // skip-tests + silent a compile error. In production the log is stubbed,
+    // so a failing KAT halts on a dark screen with no message.
 
     let (grid_zones, list_zones, page_up_zone, page_down_zone) = touch_zones();
     // AppData is ~13 KB after all the PSKT migration additions

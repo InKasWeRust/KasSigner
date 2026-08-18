@@ -38,6 +38,44 @@ pub fn handle_menu_touch(
     page_down_zone: &touch::TouchZone,
     x: u16, y: u16, is_back: bool,
 ) -> Option<bool> {
+    // E-13: raw WDEV_RND capture for offline SP 800-90B analysis.
+    //
+    // Fires ONCE, on the first menu touch of a session, and blocks the UI for
+    // as long as it takes. That is deliberate for a measurement build: there is
+    // no "capture" menu item to add and remove, no real feature is touched, and
+    // the trigger works identically on both boards because this function
+    // already carries `i2c` and `delay`.
+    //
+    // Five spacings in one run, written as WDEVCPA..WDEVCPE. Spacing is the
+    // experiment: a single value measures the RNG's rate limiter as much as its
+    // noise and reports the mixture as entropy. The offline min-entropy
+    // estimate across the five is what says where the limiter stops dominating.
+    //
+    // NEVER in a shipped build. Off unless `wdev-capture` is set.
+    #[cfg(feature = "wdev-capture")]
+    {
+        static mut E13_DONE: bool = false;
+        if !unsafe { E13_DONE } {
+            unsafe { E13_DONE = true; }
+            crate::log!("   [E13] capture starting, UI will block");
+            for spacing in [0u32, 16, 64, 256, 1024] {
+                match crate::hw::wdev_capture::WdevCapture::collect(250_000, spacing) {
+                    Ok(cap) => {
+                        let r = sdcard::with_sd_card(i2c, delay, |ct| {
+                            let fat32 = sdcard::mount_fat32(ct)?;
+                            cap.write_sd(ct, &fat32).map(|_| ())
+                        });
+                        if let Err(e) = r {
+                            crate::log!("   [E13] SD write failed at spacing {}: {}", spacing, e);
+                        }
+                    }
+                    Err(e) => crate::log!("   [E13] collect failed at spacing {}: {}", spacing, e),
+                }
+            }
+            crate::log!("   [E13] capture complete");
+        }
+    }
+
     let mut needs_redraw = false;
 
     match ad.app.state {
@@ -720,6 +758,14 @@ pub fn handle_menu_touch(
                                         let mut cam_bytes = 0u32;
                                         crate::hw::frame_noise::reset_baseline();
 
+                                        // E-12: keep the raw bytes the seed path hashes, for
+                                        // offline SP 800-90B analysis. Off unless
+                                        // `e12-capture` is set; sized for the larger frame
+                                        // (M5Stack 76,800), Waveshare partials fit inside it.
+                                        #[cfg(feature = "e12-capture")]
+                                        let mut e12 =
+                                            crate::hw::entropy_capture::Capture::new(8 * 76_800).ok();
+
                                         for frame_idx in 0..8u8 {
                                             if let Some(cam) = dvp_camera_opt.take() {
                                                 if let Some(dma_buf) = cam_dma_buf_opt.take() {
@@ -741,6 +787,8 @@ pub fn handle_menu_touch(
                                                             for i in 0..32 { pool[i] ^= hash[i]; }
                                                             got_entropy = true;
                                                             cam_bytes += pixels.len() as u32;
+                                                            #[cfg(feature = "e12-capture")]
+                                                            if let Some(c) = e12.as_mut() { c.push_frame(pixels); }
                                                             // Measured here, before buf_back moves
                                                             // back into the Option and the borrow
                                                             // on `pixels` ends.
@@ -802,6 +850,8 @@ pub fn handle_menu_touch(
                                                     for i in 0..32 { pool[i] ^= hash[i]; }
                                                     got_entropy = true;
                                                     cam_bytes += pixels.len() as u32;
+                                                    #[cfg(feature = "e12-capture")]
+                                                    if let Some(c) = e12.as_mut() { c.push_frame(pixels); }
                                                     if let Some(fm) =
                                                         crate::hw::frame_noise::measure(pixels)
                                                     {
@@ -821,6 +871,21 @@ pub fn handle_menu_touch(
                                                 }
                                             }
                                             delay.delay_millis(30);
+                                        }
+
+                                        // E-12: write the captured frames to SD before the summary
+                                        // is logged, so the file and the numbers that describe it
+                                        // appear together. The tag advances per capture, so one
+                                        // flash collects a whole light series: ENTCAPA, ENTCAPB ...
+                                        #[cfg(feature = "e12-capture")]
+                                        if let Some(c) = e12.take() {
+                                            let r = sdcard::with_sd_card(i2c, delay, |ct| {
+                                                let fat32 = sdcard::mount_fat32(ct)?;
+                                                c.write_sd(ct, &fat32)
+                                            });
+                                            if let Err(e) = r {
+                                                crate::log!("   [E12] SD write failed: {}", e);
+                                            }
                                         }
 
                                         // Report the camera the same way the IMU is reported.
@@ -1147,9 +1212,14 @@ pub fn handle_menu_touch(
                             ad.app.go_main_menu();
                         } else if x < 160 {
                             // Left: Phone/KasSee — standard legacy framing
-                            // (mode 0 + signed_qr_large=false → 106 B/frame,
-                            // single-QR if payload fits 134B else auto-splits
-                            // to V6-ish multi). Tuned for general QR readers.
+                            // (mode 0 + signed_qr_large=false → 227 B/frame,
+                            // single-QR if payload fits 230B else auto-splits
+                            // to multi). Tuned for general QR readers.
+                            // No density check here: 227 x 64 = 14,528 bytes,
+                            // and the largest KSPT v3 this device can build is
+                            // a 32-input 2-of-3 at about 10,600, so this path
+                            // always fits. The backstop in redraw.rs covers it
+                            // regardless.
                             ad.signed_qr_large = false;
                             ad.signed_qr_mode = 0;
                             ad.signed_qr_nframes = 0;
@@ -1180,27 +1250,40 @@ pub fn handle_menu_touch(
                                 crate::app::input::AppState::ShowQrFrameChoice;
                         } else if x < 160 {
                             // Left: Fast — V6 density (mode 0 +
-                            // signed_qr_large=false, 106 B/frame). Fewer
+                            // signed_qr_large=false, 227 B/frame). Fewer
                             // QRs per tx but needs a capable receiver
                             // (M5Stack GC0308, future OV5640 AF, OV2640
                             // wide). Same encoding as Phone/KasSee; users
                             // who know their peer has a good camera get
                             // the efficient path without going through
                             // the phone-compatible button name.
-                            ad.signed_qr_large = false;
-                            ad.signed_qr_mode = 0;
-                            ad.signed_qr_nframes = 0;
-                            ad.app.state = crate::app::input::AppState::ShowQR;
+                            // N-04: a greyed button does nothing. The chooser
+                            // already prints the frame count and the reason
+                            // under each option, so there is nothing to say
+                            // that is not on screen; proceeding would emit a
+                            // stream no receiver can assemble.
+                            if crate::handlers::camera_loop::density_fits(
+                                ad.signed_qr_len, 227)
+                            {
+                                ad.signed_qr_large = false;
+                                ad.signed_qr_mode = 0;
+                                ad.signed_qr_nframes = 0;
+                                ad.app.state = crate::app::input::AppState::ShowQR;
+                            }
                         } else {
                             // Right: Safe — V3 density (mode 3,
                             // signed_qr_large=true, 40 B/frame). More
                             // QRs, but decodes on every current camera
                             // including Waveshare OV5640 fixed-focus at
                             // close range. Universal ceiling today.
-                            ad.signed_qr_large = true;
-                            ad.signed_qr_mode = 3;
-                            ad.signed_qr_nframes = 0;
-                            ad.app.state = crate::app::input::AppState::ShowQR;
+                            if crate::handlers::camera_loop::density_fits(
+                                ad.signed_qr_len, 40)
+                            {
+                                ad.signed_qr_large = true;
+                                ad.signed_qr_mode = 3;
+                                ad.signed_qr_nframes = 0;
+                                ad.app.state = crate::app::input::AppState::ShowQR;
+                            }
                         }
                         needs_redraw = true;
                     }

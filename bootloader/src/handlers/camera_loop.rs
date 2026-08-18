@@ -109,13 +109,59 @@ static mut ESC_ALT_DENOM: usize = 3;
 static mut QR_ERROR_SHOWING: bool = false;
 static mut QR_GUIDE_VER: u8 = 0;
 static mut QR_VER_SAME_CNT: u8 = 0;
-// Multi-frame receive buffers. Increased from 20 to 40 frames (v1.0.3-wip)
-// to handle signed PSKBs which run ~2,600 bytes after adding two signatures
-// and chunk to 26 frames at the device's default 106-byte-per-frame output.
-// Slot size stays at 256 (max frag_len is 255 due to u8 header field).
-const MF_MAX_FRAMES: usize = 40;
+// Multi-frame receive buffers.
+//
+// 20 -> 40 in v1.0.3-wip, 40 -> 64 in v1.0.6. The 64 figure matches
+// `kassee/src/qr.rs:41` exactly, which is what the external review flagged
+// as a mismatch (V1-17): KasSee would generate up to 64 frames that this
+// side refused at 41.
+//
+// Measured before raising, at 248 bytes per frame device-to-KasSee:
+//   KSPT v1 unsigned, 32 in / 1 out   3,069 bytes   13 frames
+//   KSPT v3 multisig, 32 in, 1 sig    8,477 bytes   35 frames
+//   KSPT v3 multisig, 32 in, 2 sigs  10,589 bytes   43 frames  <- did not fit
+// So the old limit broke the *last* signature of a large multisig while the
+// partially signed form went through, which is the worst place to fail.
+//
+// Cost is 6,216 bytes of SRAM (MF_BUF 10,240 -> 16,384, plus the two
+// per-frame arrays). Moving MF_BUF to PSRAM was considered and deferred:
+// it saves 10 KB of SRAM but replaces a static array with a lazily
+// allocated pointer at three sites on the scan path, including the M-09
+// wipe. Do the simple thing first and measure the headroom.
+//
+// Slot size stays at 256: max frag_len is 255, the header field is a u8.
+pub(crate) const MF_MAX_FRAMES: usize = 64;
+
+/// Frames a payload needs at a given density, and whether that fits.
+///
+/// Lives beside `MF_MAX_FRAMES` so the density chooser, the tap handler and
+/// the emit backstop cannot drift apart: they all ask the same function. The
+/// two reachable densities are 227 bytes/frame ("Fast", mode 0) and 40
+/// ("Safe", mode 3).
+pub(crate) fn frames_needed(payload_len: usize, bytes_per_frame: usize) -> usize {
+    if bytes_per_frame == 0 {
+        // Cannot happen from either caller, but the manual ceiling below
+        // would divide by zero. Report "does not fit" rather than panic.
+        return usize::MAX;
+    }
+    // Manual ceiling to match the rest of the tree; see the
+    // `clippy::manual_div_ceil` allow in main.rs.
+    (payload_len + bytes_per_frame - 1) / bytes_per_frame
+}
+
+/// Whether a payload can be sent at this density inside the frame limit.
+pub(crate) fn density_fits(payload_len: usize, bytes_per_frame: usize) -> bool {
+    frames_needed(payload_len, bytes_per_frame) <= MF_MAX_FRAMES
+}
+
+/// Frames above which the progress dots split into two rows.
+///
+/// At or below this the row is unchanged from earlier firmware: 6 px dots,
+/// 4 px gaps, one row. Above it, two rows of 5 px dots, still one dot per
+/// frame. `MF_MAX_FRAMES / 2 = 32` per row at 5+3 spans 253 px of 320.
+const SINGLE_ROW_MAX: usize = 20;
 const MF_SLOT_SIZE: usize = 256;
-const MF_BUF_SIZE: usize = MF_MAX_FRAMES * MF_SLOT_SIZE; // 10,240 bytes
+const MF_BUF_SIZE: usize = MF_MAX_FRAMES * MF_SLOT_SIZE; // 16,384 bytes
 
 static mut MF_BUF: [u8; MF_BUF_SIZE] = [0u8; MF_BUF_SIZE];
 static mut MF_RECEIVED: [bool; MF_MAX_FRAMES] = [false; MF_MAX_FRAMES];
@@ -565,7 +611,10 @@ fn process_confirmed_qr(
     } else if len >= 4 && &data[..4] == b"KSPT" {
         // KSPT transaction — check version
         let pskt_version = if len >= 5 { data[4] } else { 0x01 };
-        if pskt_version == 0x02 || pskt_version == 0x03 {
+        // 0x05 is a SIGNED payload carrying hints, so it belongs to the signed
+        // parser. Without this it fell through to the unsigned one, which cannot
+        // read signatures - the relay between signers would fail.
+        if pskt_version == 0x02 || pskt_version == 0x03 || pskt_version == 0x05 {
             // v2/v3 KSPT: partially signed (from another signer)
             match wallet::pskt::parse_signed_pskt_v2(data, &mut ad.demo_tx) {
                 Ok(()) => {
@@ -592,14 +641,22 @@ fn process_confirmed_qr(
                 }
             }
         } else {
-            // v1 KSPT: unsigned (original format)
+            // v1 or v4 KSPT: unsigned.
+            //
+            // No new branch needed - v4 shares v1's body and only adds a hint
+            // trailer, so `parse_pskt` reads both and the version dispatch above
+            // (which routes 0x02/0x03 to the signed parser) already sends v4
+            // here. Only the log line had to learn the difference.
             ad.tx_sigs_present = 0;
             ad.tx_sigs_required = 0;
             match wallet::pskt::parse_pskt(data, &mut ad.demo_tx) {
                 Ok(()) => {
                     ad.tx_input_format = crate::app::data::TxInputFormat::KsptV1;
-                    log!("   → KSPT v1: {} in, {} out",
-                        ad.demo_tx.num_inputs, ad.demo_tx.num_outputs);
+                    let hinted = (0..ad.demo_tx.num_inputs)
+                        .any(|i| ad.demo_tx.inputs[i].ms45_hint.present);
+                    log!("   → KSPT v{}: {} in, {} out{}",
+                        pskt_version, ad.demo_tx.num_inputs, ad.demo_tx.num_outputs,
+                        if hinted { " (45' hints)" } else { "" });
                     ad.app.start_review(
                         ad.demo_tx.num_outputs as u8,
                         ad.demo_tx.num_inputs as u8);
@@ -974,8 +1031,13 @@ fn process_confirmed_qr(
         // import_kpub_any() peeks the header byte and routes correctly.
         if ad.ms_creating.n > 0 && !ad.ms_creating.active {
             // Multisig creation mode: import as cosigner key
-            match wallet::xpub::import_kpub_any(&data[..len]) {
-                Ok(xpub) => {
+            // Parts, not just pubkey and chain code. A 45' entry must
+            // re-serialize byte-identically, and the sort that fixes every
+            // address is a byte comparison over those strings, so dropping the
+            // depth, parent fingerprint and child number would put the key in a
+            // different slot and describe a different wallet.
+            match wallet::xpub::parse_kpub_parts_any(&data[..len]) {
+                Some(parts) => {
                     // Find the next empty slot
                     let mut ki: u8 = 0;
                     for i in 0..ad.ms_creating.n {
@@ -984,14 +1046,28 @@ fn process_confirmed_qr(
                             break;
                         }
                     }
-                    // Store cosigner account-level xpub (parent pubkey + chain code)
-                    // — required for per-address HD derivation in build_script.
-                    ad.ms_creating.cosigner_pubkeys[ki as usize] = xpub.pubkey;
-                    ad.ms_creating.cosigner_chain_codes[ki as usize] = xpub.chain_code;
+                    // Store the full account-level entry: pubkey and chain code
+                    // for per-address derivation in build_script, plus depth,
+                    // parent fingerprint and child number for exact re-export.
+                    ad.ms_creating.set_cosigner(ki as usize, &parts);
                     log!("   → kpub imported for multisig key {}/{}", ki + 1, ad.ms_creating.n);
                     sound::qr_decoded(delay);
                     let next = ki + 1;
                     if next >= ad.ms_creating.n {
+                        // Last entry is in: put the cosigners in canonical order
+                        // BEFORE building the script, and re-derive our own slot
+                        // from the sorted list.
+                        //
+                        // Entries arrive in SCAN order and nothing else sorts
+                        // them. `build_script` deliberately does not sort
+                        // children for 45', because a LOADED descriptor is
+                        // already sorted by `parse_descriptor_45`. A CREATED one
+                        // is not, so the redeem script followed scan order and
+                        // the wallet got an address no other implementation
+                        // computes - including this device after re-importing
+                        // its own descriptor.
+                        ad.ms_creating.sort_cosigners();
+                        let _ = crate::app::signing::resolve_ms_cosigner_index(ad);
                         ad.ms_creating.build_script();
                         ad.ms_creating.active = true;
                         if let Some(ms_slot) = ad.ms_store.find_free() {
@@ -1003,7 +1079,7 @@ fn process_confirmed_qr(
                     }
                     ad.needs_redraw = true;
                 }
-                Err(_) => {
+                None => {
                     log!("   → kpub decode failed");
                     sound::beep_error(delay);
                 }
@@ -1097,8 +1173,24 @@ fn process_multiframe(
 
         if frag_len + 3 > len { return; }
         // Bounds: reject frames outside the slot table (malformed QR would
-        // otherwise index past MF_RECEIVED). 32-input transactions run ~30
-        // frames, close enough to the 40-slot bound to make this guard real.
+        // otherwise index past MF_RECEIVED).
+        //
+        // The old text said "32-input transactions run ~30 frames, close
+        // enough to the 40-slot bound to make this guard real". Both numbers
+        // were stale: MF_MAX_FRAMES went to 64 in v1.0.6, and the payload
+        // sizes were never measured. Measured 2026-08-14 from the v3
+        // serializer, at the Fast density of 227 bytes/frame:
+        //
+        //   32 inputs, covenant redeem, 1 sig    7,786 B   35 frames
+        //   32 inputs, 2-of-3 redeem,   1 sig    8,554 B   38 frames
+        //   32 inputs, 2-of-3 redeem,   2 sigs  10,602 B   47 frames
+        //
+        // So the largest transaction this device can build still lands inside
+        // 64, and the guard is real for a different reason than the comment
+        // claimed: not because ordinary traffic approaches the bound, but
+        // because `frame_num` comes straight off a scanned QR and indexes
+        // MF_RECEIVED. Safe density (40 B/frame) tops out at 2,560 bytes, so
+        // anything of this size is Fast-only; `density_fits` enforces that.
         if frame_num >= MF_MAX_FRAMES || total as usize > MF_MAX_FRAMES { return; }
 
         if MF_TOTAL == 0 || MF_TOTAL != total {
@@ -1146,7 +1238,7 @@ fn process_multiframe(
                 // external RAM for the ~microseconds between assembly
                 // and `process_confirmed_qr`. Dropped at end of scope.
                 // `Zeroizing` (M-09): a multiframe payload can be a SeedQR, so
-                // this 10 KB PSRAM buffer can hold a mnemonic. `esp-alloc` does
+                // this 16 KB PSRAM buffer can hold a mnemonic. `esp-alloc` does
                 // not clear freed blocks.
                 let mut assembled: zeroize::Zeroizing<alloc::vec::Vec<u8>> =
                     zeroize::Zeroizing::new(alloc::vec![0u8; MF_BUF_SIZE]);
@@ -1169,6 +1261,23 @@ fn process_multiframe(
 /// Draw multi-frame scan progress dots in the bottom strip below the camera viewfinder.
 /// Gray dot = pending, teal dot = received. One dot per frame, horizontally centered.
 #[inline(never)]
+/// Frame progress dots under the viewfinder.
+///
+/// One dot per frame, always. Up to 20 frames it is a single row of 6 px
+/// dots, unchanged from before. Above that it splits into two rows of up to
+/// 32 at 5 px: frames 0..31 on top, 32..63 below.
+///
+/// The frame limit went from 40 to 64 in v1.0.6 while this still clamped at
+/// 20, so everything above frame 20 scanned blind.
+///
+/// A first attempt packed four frames into each of 20 dots and showed a
+/// brightness ramp. It kept the dots large but lost identity: a dot at
+/// three of four does not say whether frame 1, 21, 41 or 61 is missing, and
+/// on manual advance the sender needs to know which one to go back to. Two
+/// rows cost 1 px of dot size and give that back.
+///
+/// Geometry: 32 dots at 5 px with a 3 px gap span 253 px of 320, and two
+/// rows at y=227 and y=234 fit the 14 px strip cleared below.
 fn draw_mf_counter(
     boot_display: &mut display::BootDisplay<'_>,
     _received: u8,
@@ -1178,16 +1287,8 @@ fn draw_mf_counter(
     use embedded_graphics::primitives::{Circle, Rectangle, PrimitiveStyle};
     use embedded_graphics::pixelcolor::Rgb565;
 
-    let total_clamped = (total as usize).min(20);
-    if total_clamped == 0 { return; }
-
-    let dot_sz: u32 = 6;
-    let gap: i32 = 4;
-    let dot_y: i32 = 230;
-
-    // Center dots horizontally
-    let total_w = total_clamped as i32 * dot_sz as i32 + (total_clamped as i32 - 1) * gap;
-    let x_start = (320 - total_w) / 2;
+    let total = (total as usize).min(MF_MAX_FRAMES);
+    if total == 0 { return; }
 
     // Clear the bottom strip once
     Rectangle::new(
@@ -1199,15 +1300,38 @@ fn draw_mf_counter(
     let teal = display::KASPA_TEAL;
     let dim = Rgb565::new(6, 12, 6); // dark gray
 
+    // One row up to SINGLE_ROW_MAX, two rows beyond it.
+    let (dot_sz, gap, rows, per_row): (u32, i32, usize, usize) =
+        if total <= SINGLE_ROW_MAX {
+            (6, 4, 1, total)
+        } else {
+            // Manual ceiling; see the `clippy::manual_div_ceil` allow in main.rs.
+            (5, 3, 2, (total + 1) / 2)
+        };
+    let row_y: [i32; 2] = if rows == 1 { [230, 0] } else { [227, 234] };
+
     unsafe {
-        for i in 0..total_clamped {
-            let cx = x_start + i as i32 * (dot_sz as i32 + gap);
-            let color = if MF_RECEIVED[i] { teal } else { dim };
-            Circle::new(
-                embedded_graphics::geometry::Point::new(cx, dot_y),
-                dot_sz,
-            ).into_styled(PrimitiveStyle::with_fill(color))
-                .draw(&mut boot_display.display).ok();
+        // Both rows share one grid, computed from the longer row, so column
+        // k of the second row sits directly under column k of the first.
+        // Centring each row on its own width would stagger them whenever the
+        // frame count is odd.
+        let w = per_row as i32 * dot_sz as i32 + (per_row as i32 - 1) * gap;
+        let x_start = (320 - w) / 2;
+
+        for r in 0..rows {
+            let first = r * per_row;
+            if first >= total { break; }
+            let n = per_row.min(total - first);
+            for k in 0..n {
+                let f = first + k;
+                let cx = x_start + k as i32 * (dot_sz as i32 + gap);
+                let color = if MF_RECEIVED[f] { teal } else { dim };
+                Circle::new(
+                    embedded_graphics::geometry::Point::new(cx, row_y[r]),
+                    dot_sz,
+                ).into_styled(PrimitiveStyle::with_fill(color))
+                    .draw(&mut boot_display.display).ok();
+            }
         }
     }
 }

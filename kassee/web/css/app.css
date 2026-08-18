@@ -635,9 +635,12 @@ h2 {
     align-self: center;
 }
 
+/* Used = spent-empty. RED, not grey: an address with history is the one that
+   must not be handed out again, so it should read as a warning rather than as
+   dimmed noise. Funded keeps the orange. */
 .addr-badge.used {
-    color: var(--text-muted);
-    border-color: var(--text-muted);
+    color: var(--danger);
+    border-color: var(--danger);
 }
 
 .addr-explore {

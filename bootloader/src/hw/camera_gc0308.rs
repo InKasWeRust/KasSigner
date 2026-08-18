@@ -588,15 +588,32 @@ pub fn init_gc0308<I2C: embedded_hal::i2c::I2c>(
     log!("   GC0308 verify: out_en=0x{:02x} debug=0x{:02x} fmt=0x{:02x} sync=0x{:02x} drv=0x{:02x} mode2=0x{:02x} aec=0x{:02x}",
         out_en_rb, debug_rb, fmt_rb, sync_rb, drv_rb, mode2_rb, aec_rb);
 
-    // Verify subsample is disabled
+    // Record the subsample registers as the sensor leaves them.
+    //
+    // These are REPORTED, not checked, and the distinction is the whole point.
+    // `GC0308_DEFAULTS` never writes page-1 0x53 or 0x54: its only 0x53/0x54
+    // pair is at the page-0 colour pre-gain block (0x80/0x80), page 0 being
+    // selected at the top of the table and not left until the AWB section much
+    // further down. The page-1 subsample mode is written later, by
+    // `GC0308_SUBSAMPLE_QVGA` during re-init. So at this point the driver has
+    // never touched these registers and what comes back is the sensor's own
+    // state after the soft reset.
+    //
+    // Until 2026-08-14 this line printed "(expect bit7=0)" and "(expect 0x00)".
+    // Measured cold on M5Stack, twice, from a full power cycle: 0x83 and 0x22.
+    // The expectations described a configuration this driver never establishes,
+    // so every verbose boot reported a subsample fault that did not exist.
     sccb_write(i2c, 0xfe, 0x01);
     let sub53 = sccb_read(i2c, 0x53).unwrap_or(0xEE);
     let sub54 = sccb_read(i2c, 0x54).unwrap_or(0xEE);
     sccb_write(i2c, 0xfe, 0x00);
     let crop46 = sccb_read(i2c, 0x46).unwrap_or(0xEE);
-    log!("   Subsample: P1:0x53=0x{:02x}(expect bit7=0) P1:0x54=0x{:02x}(expect 0x00) crop=0x{:02x}",
+    log!("   Subsample (sensor defaults, pre re-init): P1:0x53=0x{:02x} P1:0x54=0x{:02x} crop=0x{:02x}",
         sub53, sub54, crop46);
-    log!("   Output format: 0x{:02x} (expect 0x11=Y-only)", fmt_rb);
+    // 0x24 is written as 0x91 by GC0308_DEFAULTS, commented there as
+    // "Y-only, ISP high 8 bits". The old text expected 0x11, which the driver
+    // has never asked for.
+    log!("   Output format: 0x{:02x} (expect 0x91 = Y-only, ISP high 8 bits)", fmt_rb);
 
     Ok(())
 }

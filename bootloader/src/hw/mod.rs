@@ -112,6 +112,12 @@ pub mod frame_noise;
 #[cfg(feature = "e12-capture")]
 pub mod entropy_capture;
 
+// E-13 raw WDEV_RND capture, for offline SP 800-90B analysis. Board-agnostic:
+// the register is on the SoC, not the board. Same shape as E-12 above, and the
+// same rule: never enable for a shipped build.
+#[cfg(feature = "wdev-capture")]
+pub mod wdev_capture;
+
 // ─── M5Stack-only modules ────────────────────────────────────
 // ES7210 audio ADC, identification only. Candidate entropy source for a board
 // whose only non-SoC source is a camera that goes bit-identical in darkness.
@@ -124,6 +130,8 @@ pub mod board;
 // Both boards as of 2026-08-02. Every register in here is SoC-level and
 // identical across the two; the gate meant untested, not incompatible.
 pub mod lockdown;
+/// Runtime read of the eFuse provisioning bits. SoC-level, both boards.
+pub mod efuse;
 #[cfg(feature = "waveshare")]
 pub mod ov5640_af_fw;
 

@@ -1,8 +1,8 @@
-<!-- KasSigner — Air-gapped offline signing device for Kaspa -->
+<!-- KasSigner: Air-gapped offline signing device for Kaspa -->
 <!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
 <!-- License: GPL-3.0-only -->
 
-# KasSigner — Reproducible Build Verification
+# KasSigner: Reproducible Build Verification
 
 ## Don't Trust, Verify
 
@@ -23,7 +23,7 @@ them against the published unsigned hashes.
 ```bash
 git clone https://github.com/InKasWeRust/KasSigner.git
 cd KasSigner
-git checkout v1.0.5      # the tag you are verifying
+git checkout v1.0.6      # the tag you are verifying
 ```
 
 ## 2. Build the toolchain image

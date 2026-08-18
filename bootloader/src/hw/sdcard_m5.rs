@@ -1570,10 +1570,20 @@ pub fn read_file_progress(
     }
 
     let mut cluster = entry.first_cluster();
+    let first_cluster = cluster; // N-09: loop check anchor
     let mut remaining = file_size;
     let mut pos = 0usize;
     let spc = fat32.sectors_per_cluster as u32;
 
+    // Terminates without an explicit bound: every iteration consumes
+    // min(remaining, cluster_bytes) and `mount_fat32` has already rejected
+    // a zero sectors_per_cluster, so the walk is bounded by
+    // ceil(file_size / cluster_bytes) steps whatever the chain does.
+    //
+    // A circular chain therefore ends too, having read the right number of
+    // bytes from the wrong clusters. The check after the loop catches a
+    // chain that stops early, not one that loops; every consumer of this
+    // function authenticates its data, so repeated clusters fail there.
     while remaining > 0 && (2..0x0FFF_FFF8).contains(&cluster) {
         let base_sector = fat32.cluster_to_sector(cluster);
         // How many full sectors do we need from this cluster?
@@ -1600,8 +1610,41 @@ pub fn read_file_progress(
         }
         progress(pos, file_size);
         if remaining > 0 {
-            cluster = read_fat_entry(card_type, fat32, cluster)?;
+            let next = read_fat_entry(card_type, fat32, cluster)?;
+            // N-09: reject the two chain loops that corruption actually produces.
+            // A circular chain still terminates here, because the walk is bounded by
+            // bytes consumed rather than by an end-of-chain marker, so without this
+            // it returns a full-length file assembled from repeated clusters and
+            // reports success. Nothing downstream is fooled, since AES-256-GCM and
+            // the firmware hash both fail on the content, but the user is: a damaged
+            // card presents as a wrong passphrase.
+            //
+            // PARTIAL BY CHOICE. Catches a self-loop and a jump back to the first
+            // cluster; a cycle closing mid-chain still passes. Complete detection
+            // needs Floyd's, and `read_fat_entry` has no cache, so that is one extra
+            // 512-byte SD read per two clusters, up to ~625 on a 5 MB stego import,
+            // for a fault with no security consequence. Two comparisons and no extra
+            // I/O was judged the right price. See INTERNAL_FINDINGS.md N-09.
+            //
+            // `delete_file` deliberately has no such check: it zeroes each entry as
+            // it walks, so a loop is destroyed as it is traversed and the walk ends
+            // on the freed cluster.
+            if next == cluster || next == first_cluster {
+                return Err("Circular FAT chain");
+            }
+            cluster = next;
         }
+    }
+
+    // The loop has two exits: everything was read, or the chain stopped
+    // being a data cluster (end-of-chain marker, free cluster, bad
+    // cluster). Both used to return `Ok(pos)`, so a truncated chain was
+    // reported as a successful short read.
+    //
+    // Also catches a non-empty file whose directory entry has no first
+    // cluster: the loop never runs and `pos` stays 0.
+    if pos != file_size {
+        return Err("Short FAT chain");
     }
 
     Ok(pos)
@@ -1672,7 +1715,33 @@ pub fn create_file_progress(
 
             progress(pos, total);
             if remaining > 0 {
-                cluster = read_fat_entry(card_type, fat32, cluster)?;
+                let next = read_fat_entry(card_type, fat32, cluster)?;
+                // N-09: reject the two chain loops that corruption actually produces.
+                // A circular chain still terminates here, because the walk is bounded by
+                // bytes consumed rather than by an end-of-chain marker, so without this
+                // it returns a full-length file assembled from repeated clusters and
+                // reports success. Nothing downstream is fooled, since AES-256-GCM and
+                // the firmware hash both fail on the content, but the user is: a damaged
+                // card presents as a wrong passphrase.
+                //
+                // PARTIAL BY CHOICE. Catches a self-loop and a jump back to the first
+                // cluster; a cycle closing mid-chain still passes. Complete detection
+                // needs Floyd's, and `read_fat_entry` has no cache, so that is one extra
+                // 512-byte SD read per two clusters, up to ~625 on a 5 MB stego import,
+                // for a fault with no security consequence. Two comparisons and no extra
+                // I/O was judged the right price. See INTERNAL_FINDINGS.md N-09.
+                //
+                // `delete_file` deliberately has no such check: it zeroes each entry as
+                // it walks, so a loop is destroyed as it is traversed and the walk ends
+                // on the freed cluster.
+                //
+                // On this write path the chain came from `allocate_chain`, so a loop is
+                // our own bug rather than card damage, and it would write one cluster
+                // twice instead of laying the file out.
+                if next == cluster || next == first_cluster {
+                    return Err("Circular FAT chain");
+                }
+                cluster = next;
             }
         }
     }

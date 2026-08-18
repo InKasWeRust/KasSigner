@@ -260,6 +260,11 @@ pub struct InputSummary {
     pub multisig_n: Option<u8>,
     pub sigs_present: u8,
     pub partial_sigs: Vec<PartialSigInfo>,
+    /// The covenant this coin belongs to, from `utxoEntry.covenantId`.
+    ///
+    /// Shown so the user has a second source for the id the signer displays.
+    /// Without it the device's number can only be compared against itself.
+    pub covenant_id: Option<String>,
 }
 
 /// One output.
@@ -272,6 +277,10 @@ pub struct OutputSummary {
     /// Decoded Kaspa address when the script is a recognized P2PK/P2SH
     /// form — saves the JS side from reimplementing address encoding.
     pub address: Option<String>,
+    /// The covenant binding this output carries, when it carries one.
+    /// `authorizing_input` is the input index the binding names.
+    pub covenant_id: Option<String>,
+    pub covenant_auth_input: Option<u32>,
 }
 
 /// Everything the UI needs to render a PSKB review screen.
@@ -481,6 +490,13 @@ fn parse_input_summary(inp: &Value) -> Result<InputSummary, String> {
         multisig_n,
         sigs_present,
         partial_sigs,
+        // Only ever a 64-char lowercase hex string or absent. Passed through
+        // as it arrived: this is shown to the user for comparison against the
+        // signer's screen, so it must not be reformatted on the way.
+        covenant_id: utxo
+            .get("covenantId")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
     })
 }
 
@@ -505,6 +521,16 @@ fn parse_output_summary(out: &Value, network_prefix: &str) -> Result<OutputSumma
         script_kind: kind,
         script_hex: hex::encode(&spk_script),
         address,
+        covenant_id: obj
+            .get("covenantBinding")
+            .and_then(|b| b.get("covenantId"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        covenant_auth_input: obj
+            .get("covenantBinding")
+            .and_then(|b| b.get("authorizingInput"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32),
     })
 }
 
@@ -1078,6 +1104,45 @@ fn encode_output_kspt(buf: &mut Vec<u8>, out: &Value) -> Result<(), String> {
 
 /// Re-emit a PSKB/PSKT as a KSPT v2 "partial" blob suitable for
 /// relay to KasSigner over QR. Does NOT require M sigs to be present.
+/// `(cosigner, chain, index)` from a `bip32Derivations` map, or None.
+///
+/// The LAST THREE unhardened components of the first `derivationPath` found,
+/// which is exactly the rule the device applies in `extract_ms45_hint`. Written
+/// to match it deliberately: the two must agree or the device resolves a slot the
+/// coordinator did not mean.
+///
+/// A path whose last three components are hardened, or absent, yields None - the
+/// device treats that the same way, and a 44' transaction simply has no hint.
+fn ms45_hint_from_derivations(map: Option<&Value>) -> Option<(u32, u32, u32)> {
+    let obj = map?.as_object()?;
+    for (_pubkey, entry) in obj.iter() {
+        let path = match entry.get("derivationPath").and_then(|v| v.as_str()) {
+            Some(p) => p,
+            None => continue,
+        };
+        let comps: Vec<&str> = path.split('/').collect();
+        if comps.len() < 3 {
+            continue;
+        }
+        let tail = &comps[comps.len() - 3..];
+        let mut vals = [0u32; 3];
+        let mut ok = true;
+        for (slot, c) in tail.iter().enumerate() {
+            match c.parse::<u32>() {
+                Ok(v) => vals[slot] = v,
+                Err(_) => {
+                    ok = false;
+                    break;
+                } // hardened marker or junk
+            }
+        }
+        if ok {
+            return Some((vals[0], vals[1], vals[2]));
+        }
+    }
+    None
+}
+
 pub fn relay_pskb_as_kspt_v2_hex(wire_hex: &str) -> Result<String, String> {
     let format = detect_format_hex(wire_hex);
     if format == PsktFormat::Unknown {
@@ -1140,8 +1205,27 @@ pub fn relay_pskb_as_kspt_v2_hex(wire_hex: &str) -> Result<String, String> {
 
     // ─── Build KSPT v3 partial buffer ───
     let mut buf: Vec<u8> = Vec::with_capacity(512);
+    // Version BY CONTENT: 0x05 when there are hints to carry, 0x03 otherwise.
+    //
+    // 0x05 is the signed-with-hints byte. Not 0x04, which is the UNSIGNED v4: the
+    // device routes 0x02/0x03/0x05 to its signed parser and everything else to the
+    // unsigned one, so 0x04 here would reach the wrong parser. And appending hints
+    // under 0x03 would make every signer that predates v4 refuse the relay, since
+    // its signed parser rejects trailers it does not recognise.
+    //
+    // A 44' relay has no hints and stays byte-identical to what it always was.
+    let in_hints: Vec<Option<(u32, u32, u32)>> = inputs
+        .iter()
+        .map(|inp| ms45_hint_from_derivations(inp.get("bip32Derivations")))
+        .collect();
+    let out_hints: Vec<Option<(u32, u32, u32)>> = outputs
+        .iter()
+        .map(|o| ms45_hint_from_derivations(o.get("bip32Derivations")))
+        .collect();
+    let has_hints = in_hints.iter().any(|h| h.is_some()) || out_hints.iter().any(|h| h.is_some());
+
     buf.extend_from_slice(b"KSPT");
-    buf.push(0x03); // version = v3 (u16 redeem_len)
+    buf.push(if has_hints { 0x05 } else { 0x03 }); // u16 redeem_len either way
     buf.push(0x00); // flags   = partial (RELAY)
     buf.extend_from_slice(&tx_version.to_le_bytes());
     buf.push(inputs.len() as u8);
@@ -1303,6 +1387,45 @@ pub fn relay_pskb_as_kspt_v2_hex(wire_hex: &str) -> Result<String, String> {
                 }
             }
         }
+    }
+
+    // Hint trailer: 0x44 'D' input, 0x45 'E' output, each
+    // index(u8) + cosigner(u32 LE) + chain(u32 LE) + addr_index(u32 LE).
+    //
+    // AFTER the stealth and covenant trailers, because the device's signed parser
+    // consumes them in that order and stops on the first byte that is not its
+    // marker - a hint record placed earlier would leave the covenant loop nothing
+    // to find.
+    //
+    // Only records that HAVE a hint are written, so a transaction mixing hinted
+    // and unhinted inputs round-trips: the device fills only the indices named.
+    if has_hints {
+        for (i, h) in in_hints.iter().enumerate() {
+            if let Some((cos, chain, idx)) = *h {
+                buf.push(0x44);
+                buf.push(i as u8);
+                buf.extend_from_slice(&cos.to_le_bytes());
+                buf.extend_from_slice(&chain.to_le_bytes());
+                buf.extend_from_slice(&idx.to_le_bytes());
+            }
+        }
+        for (i, h) in out_hints.iter().enumerate() {
+            if let Some((cos, chain, idx)) = *h {
+                buf.push(0x45);
+                buf.push(i as u8);
+                buf.extend_from_slice(&cos.to_le_bytes());
+                buf.extend_from_slice(&chain.to_le_bytes());
+                buf.extend_from_slice(&idx.to_le_bytes());
+            }
+        }
+        web_sys::console::log_1(
+            &format!(
+                "[KasSee] KSPT v5 relay: {} input hint(s), {} output hint(s)",
+                in_hints.iter().filter(|h| h.is_some()).count(),
+                out_hints.iter().filter(|h| h.is_some()).count()
+            )
+            .into(),
+        );
     }
 
     Ok(hex::encode(&buf))
@@ -3922,7 +4045,11 @@ pub fn merge_signed_kspt_v2_into_pskb(
     };
 
     // ── 4. Branch on KSPT version ──
-    if kspt_version == 0x02 || kspt_version == 0x03 {
+    //
+    // 0x05 is v3's body plus a hint trailer, so it takes the same path. Without
+    // it a signed KSPT from a v4 device fell through every branch and the merge
+    // was refused - which is what a signer-to-KasSee-to-signer round trip does.
+    if kspt_version == 0x02 || kspt_version == 0x03 || kspt_version == 0x05 {
         // ── v2/v3: multisig path (pubkey_pos + redeem script) ──
         let per_input = parse_kspt_v2_partials(&kspt)?;
 
@@ -3937,9 +4064,10 @@ pub fn merge_signed_kspt_v2_into_pskb(
         for (i, sigs_at_input) in per_input.iter().enumerate() {
             web_sys::console::log_1(
                 &format!(
-                    "[KasSee] merge input[{}]: {} sigs in KSPT v2",
+                    "[KasSee] merge input[{}]: {} sigs from KSPT v0x{:02x}",
                     i,
-                    sigs_at_input.len()
+                    sigs_at_input.len(),
+                    kspt_version
                 )
                 .into(),
             );
@@ -4095,7 +4223,7 @@ fn parse_kspt_v2_partials(data: &[u8]) -> Result<Vec<Vec<KsptSigRecord>>, String
         return Err("not a KSPT blob".into());
     }
     let version = r.u8()?;
-    if version != 0x02 && version != 0x03 {
+    if version != 0x02 && version != 0x03 && version != 0x05 {
         return Err(format!("unsupported KSPT version: 0x{:02x}", version));
     }
     let _flags = r.u8()?; // 0x00 partial, 0x01 fully signed — treat same
@@ -4147,7 +4275,11 @@ fn parse_kspt_v2_partials(data: &[u8]) -> Result<Vec<Vec<KsptSigRecord>>, String
         }
 
         // Redeem script (may be empty for P2PK). v3: u16 LE len, v2: u8 len.
-        let rs_len = if version == 0x03 {
+        // u16 on 0x03 AND 0x05: the width belongs to the BODY layout, and 0x05
+        // inherits v3's body unchanged - only the trailer differs. The firmware
+        // had this same branch and 0x05 fell to the u8 side, misaligning every
+        // later field and surfacing as a length error rather than a version one.
+        let rs_len = if version == 0x03 || version == 0x05 {
             r.u16_le()? as usize
         } else {
             r.u8()? as usize

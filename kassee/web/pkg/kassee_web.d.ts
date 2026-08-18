@@ -626,13 +626,27 @@ export function create_multisig_kspt(descriptor: string, source_address: string,
  * landing the user on the Review PSKB screen with 0/M sigs where
  * they can pick Relay → (Any wallet | KasSigner compact).
  */
-export function create_multisig_pskb(descriptor: string, source_address: string, dest_address: string, amount_sompi: bigint, fee_sompi: bigint, change_address: string, ws_url: string, addr_index: number): Promise<string>;
+export function create_multisig_pskb(descriptor: string, source_address: string, dest_address: string, amount_sompi: bigint, fee_sompi: bigint, change_address: string, ws_url: string, change_index_hint: number, addr_index: number): Promise<string>;
+
+/**
+ * Build a 45' multisig PSKB spending MANY addresses of one branch.
+ *
+ * `sources_json` is `[{"address":"kaspa:...","tx_id":"...","index":0}, ...]` -
+ * one entry per UTXO, so the caller picks both the addresses and the outputs.
+ *
+ * Each input carries its own redeem script and derivation path, which is the
+ * whole difference from the single-address builders.
+ *
+ * Spending several addresses together links them permanently on chain; that is
+ * the caller's choice to make, and the reason this is a separate entry point.
+ */
+export function create_multisig_pskb_multi_js(descriptor: string, sources_json: string, dest_address: string, amount_sompi: bigint, fee_sompi: bigint, cosigner_index: number, change_index_hint: number, ws_url: string): Promise<string>;
 
 /**
  * Same as `create_multisig_pskb` but with explicit UTXO indices
  * instead of greedy auto-selection.
  */
-export function create_multisig_pskb_selected(descriptor: string, source_address: string, dest_address: string, amount_sompi: bigint, fee_sompi: bigint, change_address: string, ws_url: string, addr_index: number, utxo_csv: string): Promise<string>;
+export function create_multisig_pskb_selected(descriptor: string, source_address: string, dest_address: string, amount_sompi: bigint, fee_sompi: bigint, change_address: string, ws_url: string, change_index_hint: number, addr_index: number, utxo_csv: string): Promise<string>;
 
 /**
  * Oracle attestation beacon for the SIMPLE oracle covenant (`build_oracle_covenant_script`),
@@ -777,6 +791,23 @@ export function fetch_utxos(wallet_json: string, ws_url: string): Promise<string
 export function fetch_utxos_for_address_js(address: string, ws_url: string): Promise<string>;
 
 /**
+ * Fetch UTXOs for MANY addresses in one RPC call → JSON array.
+ *
+ * `addresses_json` is a JSON array of address strings.
+ *
+ * The single-address binding above, called in a loop, is one network round
+ * trip per address. The stealth scan does exactly that over up to
+ * STEALTH_MAX_R = 512 candidates, which is 512 sequential round trips for a
+ * question the node answers in one: `getUtxosByAddresses` takes a LIST, and
+ * `fetch_utxos_for_address` only ever wrapped a single-element vector around
+ * it.
+ *
+ * Each returned UTXO carries its own `script_public_key`, so the caller can
+ * still attribute results to addresses without asking per address.
+ */
+export function fetch_utxos_for_addresses_js(addresses_json: string, ws_url: string): Promise<string>;
+
+/**
  * Search mempool for a TX that spent a specific UTXO and extract
  * the preimage from its sig_script. Used by the atomic swap watcher.
  *
@@ -845,6 +876,15 @@ export function merkle_proof_for_address(addresses_json: string, target_address:
  * Returns hex of the 32-byte root.
  */
 export function merkle_root_from_addresses(addresses_json: string, _network: string): string;
+
+/**
+ * One multisig address at an exact path → address string. No network.
+ *
+ * Used to identify which branch an address belongs to: derive candidates until
+ * one matches. That search runs in the browser and sends nothing, which is why
+ * it may try every branch while the network scan below must not.
+ */
+export function multisig_address_at_js(descriptor: string, addr_index: number, cosigner_index: number, chain: number): string;
 
 /**
  * Parse a decrypted covenant payload blob: [version:1][type:1][params...]
@@ -917,6 +957,11 @@ export function pskt_summary(wire_hex: string, network: string): string;
  * Reset multi-frame decoder state
  */
 export function reset_qr_decoder(): void;
+
+/**
+ * Scan ONE cosigner branch → JSON.
+ */
+export function scan_multisig_branch_js(descriptor: string, cosigner_index: number, depth: number, ws_url: string): Promise<string>;
 
 /**
  * Derive x-only pubkey from a 32-byte secret key hex.
@@ -1140,32 +1185,77 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly blake2b_hash: (a: number, b: number) => [number, number, number, number];
+    readonly broadcast_signed: (a: number, b: number, c: number, d: number) => any;
+    readonly build_covenant_payload: (a: number, b: number, c: number) => [number, number, number, number];
+    readonly build_utxo_subscribe_request: (a: number, b: number, c: bigint) => [number, number, number, number];
+    readonly build_vcc_subscribe_request: (a: bigint) => [number, number, number, number];
     readonly covenant_oracle_mb: (a: bigint, b: bigint, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number) => [number, number, number, number];
     readonly covenant_oracle_mb_heartbeat: (a: number, b: number) => [number, number, number, number];
     readonly covenant_oracle_mb_test_consumer: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly covenant_split_vault: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly covenant_tagged_vault: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly create_compound_kspt: (a: number, b: number, c: number, d: number, e: bigint, f: number, g: number) => any;
+    readonly create_compound_pskb: (a: number, b: number, c: number, d: number, e: bigint, f: number, g: number) => any;
+    readonly create_consolidate_kspt: (a: number, b: number, c: bigint, d: number, e: number) => any;
+    readonly create_consolidate_pskb: (a: number, b: number, c: bigint, d: number, e: number) => any;
+    readonly create_covenant_pskb: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number) => any;
+    readonly create_covenant_pskb_with_payload: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number) => any;
+    readonly create_multisig_kspt: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: bigint, i: number, j: number, k: number, l: number, m: number) => any;
+    readonly create_multisig_pskb: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: bigint, i: number, j: number, k: number, l: number, m: number, n: number) => any;
+    readonly create_multisig_pskb_multi_js: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: bigint, i: number, j: number, k: number, l: number) => any;
+    readonly create_multisig_pskb_selected: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: bigint, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number) => any;
     readonly create_oracle_mb_consume: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: bigint, n: number, o: number) => any;
     readonly create_oracle_mb_heartbeat_roll: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number, i: number) => any;
     readonly create_oracle_mb_publish: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number, s: number, t: number, u: number, v: number, w: number, x: number, y: number, z: number, a1: number, b1: number, c1: bigint, d1: number, e1: number, f1: number, g1: number, h1: number, i1: number, j1: number) => any;
+    readonly create_send_kspt: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number) => any;
+    readonly create_send_kspt_selected: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number, i: number, j: number) => any;
+    readonly create_send_pskb: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number) => any;
+    readonly create_send_pskb_selected: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number, i: number, j: number) => any;
+    readonly create_send_pskb_with_utxos: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number, i: number, j: number) => any;
+    readonly decode_address: (a: number, b: number) => [number, number, number, number];
+    readonly decode_qr_frame: (a: number, b: number) => [number, number, number, number];
+    readonly decoder_progress: () => [number, number];
+    readonly derive_covenant_payload_key: (a: number, b: number) => [number, number, number, number];
+    readonly encode_p2pk_address: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly encode_p2sh_address: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly extend_addresses: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+    readonly fetch_balance: (a: number, b: number, c: number, d: number) => any;
+    readonly fetch_utxos: (a: number, b: number, c: number, d: number) => any;
+    readonly fetch_utxos_for_address_js: (a: number, b: number, c: number, d: number) => any;
+    readonly fetch_utxos_for_addresses_js: (a: number, b: number, c: number, d: number) => any;
+    readonly find_preimage_for_utxo: (a: number, b: number, c: number, d: number, e: number, f: number) => any;
+    readonly find_preimage_in_block: (a: number, b: number, c: number, d: number, e: number, f: number) => any;
+    readonly generate_qr_frames: (a: number, b: number) => [number, number, number, number];
+    readonly generate_qr_svg_text: (a: number, b: number) => [number, number, number, number];
+    readonly get_fee_estimate: (a: number, b: number) => any;
+    readonly get_virtual_daa_score: (a: number, b: number) => any;
+    readonly import_kpub: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly import_kpub_raw: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly init: () => void;
+    readonly multisig_address_at_js: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+    readonly parse_covenant_payload: (a: number, b: number) => [number, number, number, number];
+    readonly parse_kpub: (a: number, b: number) => [number, number, number, number];
+    readonly pskt_detect: (a: number, b: number) => [number, number];
+    readonly pskt_finalize_and_broadcast: (a: number, b: number, c: number, d: number) => any;
+    readonly pskt_finalize_to_kspt: (a: number, b: number) => [number, number, number, number];
+    readonly pskt_merge_signed_kspt_v2: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly pskt_relay_to_kspt_v2: (a: number, b: number) => [number, number, number, number];
+    readonly pskt_summary: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly reset_qr_decoder: () => void;
+    readonly scan_multisig_branch_js: (a: number, b: number, c: number, d: number, e: number, f: number) => any;
+    readonly sha256_hash: (a: number, b: number) => [number, number, number, number];
+    readonly test_getblock: (a: number, b: number) => any;
+    readonly version: () => [number, number];
+    readonly coinbase_lane_key: () => [number, number];
+    readonly covenant_split_vault: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly covenant_tagged_vault: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly get_seq_commit_lane_proof: (a: number, b: number, c: number, d: number, e: number, f: number) => any;
+    readonly seq_commit_lane_key: (a: number, b: number) => [number, number, number, number];
     readonly split_vault_genesis: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: bigint, i: number, j: number, k: number, l: number) => any;
     readonly split_vault_spend: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: bigint, j: number, k: number, l: number, m: number) => any;
     readonly tagged_vault_covenant_id: (a: number, b: number, c: number, d: bigint, e: number, f: number) => [number, number, number, number];
     readonly tagged_vault_genesis: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: bigint, i: number, j: number, k: number, l: number) => any;
     readonly tagged_vault_keygen: (a: number, b: number) => [number, number, number, number];
     readonly tagged_vault_spend: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: bigint, j: number, k: number, l: number, m: number) => any;
-    readonly coinbase_lane_key: () => [number, number];
-    readonly create_stealth_spend: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number, i: number, j: number, k: number) => any;
-    readonly get_seq_commit_lane_proof: (a: number, b: number, c: number, d: number, e: number, f: number) => any;
-    readonly seq_commit_lane_key: (a: number, b: number) => [number, number, number, number];
-    readonly stealth_announce_lane_probe: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: bigint, i: number, j: number, k: bigint, l: bigint, m: number, n: number, o: number, p: number, q: bigint) => any;
-    readonly stealth_announcement_address: (a: number, b: number) => [number, number];
-    readonly stealth_create_payment: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number, i: number, j: number, k: number, l: number) => any;
-    readonly stealth_create_payment_lane: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number, i: number, j: number, k: number, l: number) => any;
-    readonly stealth_generate_payment: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly stealth_meta_from_kpub: (a: number, b: number) => [number, number, number, number];
-    readonly stealth_scan_announcement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
-    readonly stealth_scan_recent_blocks: (a: number, b: number, c: number) => any;
     readonly adaptor_bip340_sign: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly adaptor_bip340_verify: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly adaptor_broadcast_claim: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number, i: number) => any;
@@ -1224,61 +1314,20 @@ export interface InitOutput {
     readonly create_global_spending_limit_topup: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: bigint, l: number, m: number, n: number, o: number) => any;
     readonly create_global_spending_limit_withdraw: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: bigint, j: bigint, k: number, l: number) => any;
     readonly create_oracle_heartbeat: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: bigint, l: number, m: number) => any;
-    readonly blake2b_hash: (a: number, b: number) => [number, number, number, number];
-    readonly broadcast_signed: (a: number, b: number, c: number, d: number) => any;
-    readonly build_covenant_payload: (a: number, b: number, c: number) => [number, number, number, number];
-    readonly build_utxo_subscribe_request: (a: number, b: number, c: bigint) => [number, number, number, number];
-    readonly build_vcc_subscribe_request: (a: bigint) => [number, number, number, number];
-    readonly create_compound_kspt: (a: number, b: number, c: number, d: number, e: bigint, f: number, g: number) => any;
-    readonly create_compound_pskb: (a: number, b: number, c: number, d: number, e: bigint, f: number, g: number) => any;
-    readonly create_consolidate_kspt: (a: number, b: number, c: bigint, d: number, e: number) => any;
-    readonly create_consolidate_pskb: (a: number, b: number, c: bigint, d: number, e: number) => any;
-    readonly create_covenant_pskb: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number) => any;
-    readonly create_covenant_pskb_with_payload: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number) => any;
-    readonly create_multisig_kspt: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: bigint, i: number, j: number, k: number, l: number, m: number) => any;
-    readonly create_multisig_pskb: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: bigint, i: number, j: number, k: number, l: number, m: number) => any;
-    readonly create_multisig_pskb_selected: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: bigint, i: number, j: number, k: number, l: number, m: number, n: number, o: number) => any;
-    readonly create_send_kspt: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number) => any;
-    readonly create_send_kspt_selected: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number, i: number, j: number) => any;
-    readonly create_send_pskb: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number) => any;
-    readonly create_send_pskb_selected: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number, i: number, j: number) => any;
-    readonly create_send_pskb_with_utxos: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number, i: number, j: number) => any;
-    readonly decode_address: (a: number, b: number) => [number, number, number, number];
-    readonly decode_qr_frame: (a: number, b: number) => [number, number, number, number];
-    readonly decoder_progress: () => [number, number];
-    readonly derive_covenant_payload_key: (a: number, b: number) => [number, number, number, number];
-    readonly encode_p2pk_address: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly encode_p2sh_address: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly extend_addresses: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly fetch_balance: (a: number, b: number, c: number, d: number) => any;
-    readonly fetch_utxos: (a: number, b: number, c: number, d: number) => any;
-    readonly fetch_utxos_for_address_js: (a: number, b: number, c: number, d: number) => any;
-    readonly find_preimage_for_utxo: (a: number, b: number, c: number, d: number, e: number, f: number) => any;
-    readonly find_preimage_in_block: (a: number, b: number, c: number, d: number, e: number, f: number) => any;
-    readonly generate_qr_frames: (a: number, b: number) => [number, number, number, number];
-    readonly generate_qr_svg_text: (a: number, b: number) => [number, number, number, number];
-    readonly get_fee_estimate: (a: number, b: number) => any;
-    readonly get_virtual_daa_score: (a: number, b: number) => any;
-    readonly import_kpub: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly import_kpub_raw: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly init: () => void;
-    readonly parse_covenant_payload: (a: number, b: number) => [number, number, number, number];
-    readonly parse_kpub: (a: number, b: number) => [number, number, number, number];
-    readonly pskt_detect: (a: number, b: number) => [number, number];
-    readonly pskt_finalize_and_broadcast: (a: number, b: number, c: number, d: number) => any;
-    readonly pskt_finalize_to_kspt: (a: number, b: number) => [number, number, number, number];
-    readonly pskt_merge_signed_kspt_v2: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly pskt_relay_to_kspt_v2: (a: number, b: number) => [number, number, number, number];
-    readonly pskt_summary: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly reset_qr_decoder: () => void;
-    readonly sha256_hash: (a: number, b: number) => [number, number, number, number];
-    readonly test_getblock: (a: number, b: number) => any;
-    readonly version: () => [number, number];
-    readonly wasm_bindgen__convert__closures_____invoke__ha4ad0e5f40f3bbc4: (a: number, b: number, c: any) => [number, number];
-    readonly wasm_bindgen__convert__closures_____invoke__hb029ded8098aabe7: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h4f078dac72696ab5: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h4f078dac72696ab5_2: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h148c9614421699de: (a: number, b: number) => void;
+    readonly create_stealth_spend: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: number, i: number, j: number, k: number) => any;
+    readonly stealth_announce_lane_probe: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: bigint, i: number, j: number, k: bigint, l: bigint, m: number, n: number, o: number, p: number, q: bigint) => any;
+    readonly stealth_announcement_address: (a: number, b: number) => [number, number];
+    readonly stealth_create_payment: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number, i: number, j: number, k: number, l: number) => any;
+    readonly stealth_create_payment_lane: (a: number, b: number, c: number, d: number, e: bigint, f: bigint, g: number, h: number, i: number, j: number, k: number, l: number) => any;
+    readonly stealth_generate_payment: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+    readonly stealth_meta_from_kpub: (a: number, b: number) => [number, number, number, number];
+    readonly stealth_scan_announcement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
+    readonly stealth_scan_recent_blocks: (a: number, b: number, c: number) => any;
+    readonly wasm_bindgen__convert__closures_____invoke__h196ac2b234377f4a: (a: number, b: number, c: any) => [number, number];
+    readonly wasm_bindgen__convert__closures_____invoke__h451a1072b4ec071e: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h6f42bb3b13a7079a: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h6f42bb3b13a7079a_2: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__hb82728a63eb39624: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
