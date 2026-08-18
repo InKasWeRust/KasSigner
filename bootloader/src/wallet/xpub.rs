@@ -595,6 +595,113 @@ pub fn import_kpub(kpub_str: &[u8]) -> Result<super::bip32::ExtendedPubKey, Bip3
     })
 }
 
+/// The five fields of a serialized extended public key.
+///
+/// `import_kpub` returns an `ExtendedPubKey`, which keeps only pubkey, chain
+/// code and depth. The 45' descriptor needs the parent fingerprint and child
+/// number too, because an entry has to be re-serialized byte-identically on
+/// export, and because the depth is what catches a key exported from the wrong
+/// level of the tree.
+#[derive(Clone, Copy)]
+pub struct KpubParts {
+    pub depth: u8,
+    pub parent_fp: [u8; 4],
+    pub child_num: [u8; 4],
+    pub chain_code: [u8; 32],
+    pub pubkey: [u8; 33],
+}
+
+/// Serialize this seed's 45' MULTISIG cosigner key, `m/45'/111111'/account'`.
+///
+/// The counterpart of `derive_and_serialize_kpub`, which emits the 44' WALLET
+/// key. Both must exist and they are not interchangeable:
+///
+///   44'  `m/44'/111111'/0'`   watch-only single-sig. What KasSee imports to
+///                             follow a wallet's addresses.
+///   45'  `m/45'/111111'/0'`   the cosigner key a multisig descriptor holds.
+///
+/// A kpub carries NOTHING identifying its subtree - same version bytes, same
+/// length, valid checksum either way - so handing over the wrong one produces a
+/// descriptor that parses, an address that funds, and a wallet nobody can
+/// spend. That is not hypothetical: see N-23, where 2 KAS were stranded on
+/// mainnet because export still emitted 44' after creation moved to 45'.
+///
+/// The screen that calls this must say which key it is showing. Labelling is
+/// the only defence available at export time.
+pub fn derive_and_serialize_multisig_kpub(
+    seed: &[u8; 64],
+    out: &mut [u8; KPUB_MAX_LEN],
+) -> Result<usize, Bip32Error> {
+    let parts = derive_multisig_account_parts(seed, 0)?;
+    Ok(serialize_kpub_parts(&parts, out))
+}
+
+/// Re-serialize a kpub from its five fields. Exact inverse of
+/// `parse_kpub_parts`.
+///
+/// Needed because a descriptor entry must round-trip byte-identically: the 45'
+/// sort is a byte comparison over these strings, so an entry rebuilt from
+/// pubkey and chain code alone would carry a different depth, parent
+/// fingerprint or child number, sort to a different position, and describe a
+/// different wallet.
+///
+/// Unlike `serialize_kpub` this needs no private key and computes no
+/// fingerprint: every field is already known.
+///
+/// Returns the number of base58 characters written.
+pub fn serialize_kpub_parts(parts: &KpubParts, out: &mut [u8; KPUB_MAX_LEN]) -> usize {
+    let mut payload = [0u8; XPUB_PAYLOAD_LEN];
+    payload[0..4].copy_from_slice(&KASPA_XPUB_VERSION);
+    payload[4] = parts.depth;
+    payload[5..9].copy_from_slice(&parts.parent_fp);
+    payload[9..13].copy_from_slice(&parts.child_num);
+    payload[13..45].copy_from_slice(&parts.chain_code);
+    payload[45..78].copy_from_slice(&parts.pubkey);
+    let n = base58check_encode(&payload, out);
+    zeroize_buf(&mut payload);
+    n
+}
+
+/// Decode a kpub string into all five fields.
+///
+/// Same decode and the same checks as `import_kpub`: base58check (which
+/// verifies the four-byte checksum), payload length exactly 78, Kaspa version
+/// bytes. Adds the compressed-pubkey prefix check, which `import_kpub` leaves
+/// to its caller.
+///
+/// Deliberately does NOT check depth. The caller knows what it expects: a 45'
+/// descriptor entry is an account key at depth 3, but other paths use this for
+/// keys at other depths, and baking the expectation in here would make it wrong
+/// for them.
+pub fn parse_kpub_parts(kpub_str: &[u8]) -> Option<KpubParts> {
+    let mut payload = [0u8; 128];
+    let plen = base58check_decode(kpub_str, &mut payload);
+    if plen != XPUB_PAYLOAD_LEN {
+        return None;
+    }
+    if payload[0..4] != KASPA_XPUB_VERSION {
+        return None;
+    }
+    if payload[45] != 0x02 && payload[45] != 0x03 {
+        return None;
+    }
+
+    let mut parts = KpubParts {
+        depth: payload[4],
+        parent_fp: [0u8; 4],
+        child_num: [0u8; 4],
+        chain_code: [0u8; 32],
+        pubkey: [0u8; 33],
+    };
+    parts.parent_fp.copy_from_slice(&payload[5..9]);
+    parts.child_num.copy_from_slice(&payload[9..13]);
+    parts.chain_code.copy_from_slice(&payload[13..45]);
+    parts.pubkey.copy_from_slice(&payload[45..78]);
+
+    zeroize_buf(&mut payload);
+    Some(parts)
+}
+
 /// Import a Kaspa kpub from its raw 78-byte payload (no base58 wrapping).
 ///
 /// This is the V1 binary format: the bytes match the base58-decoded
@@ -634,6 +741,77 @@ pub fn import_kpub_any(blob: &[u8]) -> Result<super::bip32::ExtendedPubKey, Bip3
         PayloadKind::V1Raw(raw) => import_kpub_raw(raw),
         PayloadKind::Legacy(ascii) => import_kpub(ascii),
     }
+}
+
+/// Decode a kpub from either wire form into its five fields.
+///
+/// Mirrors `import_kpub_any`, which returns an `ExtendedPubKey` and so drops
+/// the parent fingerprint and child number. A 45' descriptor entry needs them,
+/// because the entry must re-serialize byte-identically and the sort that fixes
+/// every address is a byte comparison over those strings.
+pub fn parse_kpub_parts_any(blob: &[u8]) -> Option<KpubParts> {
+    use crate::qr::payload::{classify, PayloadKind};
+    match classify(blob) {
+        PayloadKind::V1Raw(raw) => {
+            if raw.len() != XPUB_PAYLOAD_LEN || raw[0..4] != KASPA_XPUB_VERSION {
+                return None;
+            }
+            if raw[45] != 0x02 && raw[45] != 0x03 {
+                return None;
+            }
+            let mut p = KpubParts {
+                depth: raw[4],
+                parent_fp: [0u8; 4],
+                child_num: [0u8; 4],
+                chain_code: [0u8; 32],
+                pubkey: [0u8; 33],
+            };
+            p.parent_fp.copy_from_slice(&raw[5..9]);
+            p.child_num.copy_from_slice(&raw[9..13]);
+            p.chain_code.copy_from_slice(&raw[13..45]);
+            p.pubkey.copy_from_slice(&raw[45..78]);
+            Some(p)
+        }
+        PayloadKind::Legacy(ascii) => parse_kpub_parts(ascii),
+    }
+}
+
+/// Our own 45' multisig account key as descriptor parts.
+///
+/// Same shape as `derive_account_raw_kpub_payload` and for the same reason: the
+/// parent fingerprint is HASH160 of the key one level UP, so the depth-2 parent
+/// at `m/45'/111111'` has to be derived separately from the account key itself.
+///
+/// Everything here is public material. The chain code and pubkey are what a
+/// cosigner publishes; nothing secret survives the call, and the seed is the
+/// caller's to wipe.
+pub fn derive_multisig_account_parts(
+    seed: &[u8; 64],
+    account: u32,
+) -> Result<KpubParts, Bip32Error> {
+    let parent_path: [u32; 2] = [
+        0x8000_002D, // 45' — multisig purpose, not 44'
+        0x8001_B207, // 111111'
+    ];
+    let parent_key = derive_path(seed, &parent_path)?;
+    let parent_pubkey = parent_key.public_key_compressed()?;
+
+    let account_key = super::bip32::derive_multisig_account_key(seed, account)?;
+    let xpub = account_key.to_xpub()?;
+
+    let child_index = account | 0x8000_0000;
+    Ok(KpubParts {
+        depth: 3,
+        parent_fp: parent_fingerprint(&parent_pubkey),
+        child_num: [
+            (child_index >> 24) as u8,
+            (child_index >> 16) as u8,
+            (child_index >> 8) as u8,
+            child_index as u8,
+        ],
+        chain_code: xpub.chain_code,
+        pubkey: xpub.pubkey,
+    })
 }
 
 // ─── Self-Tests ───────────────────────────────────────────────────────

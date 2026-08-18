@@ -2225,10 +2225,11 @@ export function create_multisig_kspt(descriptor, source_address, dest_address, a
  * @param {bigint} fee_sompi
  * @param {string} change_address
  * @param {string} ws_url
+ * @param {number} change_index_hint
  * @param {number} addr_index
  * @returns {Promise<string>}
  */
-export function create_multisig_pskb(descriptor, source_address, dest_address, amount_sompi, fee_sompi, change_address, ws_url, addr_index) {
+export function create_multisig_pskb(descriptor, source_address, dest_address, amount_sompi, fee_sompi, change_address, ws_url, change_index_hint, addr_index) {
     const ptr0 = passStringToWasm0(descriptor, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passStringToWasm0(source_address, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
@@ -2239,7 +2240,41 @@ export function create_multisig_pskb(descriptor, source_address, dest_address, a
     const len3 = WASM_VECTOR_LEN;
     const ptr4 = passStringToWasm0(ws_url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len4 = WASM_VECTOR_LEN;
-    const ret = wasm.create_multisig_pskb(ptr0, len0, ptr1, len1, ptr2, len2, amount_sompi, fee_sompi, ptr3, len3, ptr4, len4, addr_index);
+    const ret = wasm.create_multisig_pskb(ptr0, len0, ptr1, len1, ptr2, len2, amount_sompi, fee_sompi, ptr3, len3, ptr4, len4, change_index_hint, addr_index);
+    return ret;
+}
+
+/**
+ * Build a 45' multisig PSKB spending MANY addresses of one branch.
+ *
+ * `sources_json` is `[{"address":"kaspa:...","tx_id":"...","index":0}, ...]` -
+ * one entry per UTXO, so the caller picks both the addresses and the outputs.
+ *
+ * Each input carries its own redeem script and derivation path, which is the
+ * whole difference from the single-address builders.
+ *
+ * Spending several addresses together links them permanently on chain; that is
+ * the caller's choice to make, and the reason this is a separate entry point.
+ * @param {string} descriptor
+ * @param {string} sources_json
+ * @param {string} dest_address
+ * @param {bigint} amount_sompi
+ * @param {bigint} fee_sompi
+ * @param {number} cosigner_index
+ * @param {number} change_index_hint
+ * @param {string} ws_url
+ * @returns {Promise<string>}
+ */
+export function create_multisig_pskb_multi_js(descriptor, sources_json, dest_address, amount_sompi, fee_sompi, cosigner_index, change_index_hint, ws_url) {
+    const ptr0 = passStringToWasm0(descriptor, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(sources_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(dest_address, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ptr3 = passStringToWasm0(ws_url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ret = wasm.create_multisig_pskb_multi_js(ptr0, len0, ptr1, len1, ptr2, len2, amount_sompi, fee_sompi, cosigner_index, change_index_hint, ptr3, len3);
     return ret;
 }
 
@@ -2253,11 +2288,12 @@ export function create_multisig_pskb(descriptor, source_address, dest_address, a
  * @param {bigint} fee_sompi
  * @param {string} change_address
  * @param {string} ws_url
+ * @param {number} change_index_hint
  * @param {number} addr_index
  * @param {string} utxo_csv
  * @returns {Promise<string>}
  */
-export function create_multisig_pskb_selected(descriptor, source_address, dest_address, amount_sompi, fee_sompi, change_address, ws_url, addr_index, utxo_csv) {
+export function create_multisig_pskb_selected(descriptor, source_address, dest_address, amount_sompi, fee_sompi, change_address, ws_url, change_index_hint, addr_index, utxo_csv) {
     const ptr0 = passStringToWasm0(descriptor, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passStringToWasm0(source_address, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
@@ -2270,7 +2306,7 @@ export function create_multisig_pskb_selected(descriptor, source_address, dest_a
     const len4 = WASM_VECTOR_LEN;
     const ptr5 = passStringToWasm0(utxo_csv, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len5 = WASM_VECTOR_LEN;
-    const ret = wasm.create_multisig_pskb_selected(ptr0, len0, ptr1, len1, ptr2, len2, amount_sompi, fee_sompi, ptr3, len3, ptr4, len4, addr_index, ptr5, len5);
+    const ret = wasm.create_multisig_pskb_selected(ptr0, len0, ptr1, len1, ptr2, len2, amount_sompi, fee_sompi, ptr3, len3, ptr4, len4, change_index_hint, addr_index, ptr5, len5);
     return ret;
 }
 
@@ -2823,6 +2859,33 @@ export function fetch_utxos_for_address_js(address, ws_url) {
 }
 
 /**
+ * Fetch UTXOs for MANY addresses in one RPC call → JSON array.
+ *
+ * `addresses_json` is a JSON array of address strings.
+ *
+ * The single-address binding above, called in a loop, is one network round
+ * trip per address. The stealth scan does exactly that over up to
+ * STEALTH_MAX_R = 512 candidates, which is 512 sequential round trips for a
+ * question the node answers in one: `getUtxosByAddresses` takes a LIST, and
+ * `fetch_utxos_for_address` only ever wrapped a single-element vector around
+ * it.
+ *
+ * Each returned UTXO carries its own `script_public_key`, so the caller can
+ * still attribute results to addresses without asking per address.
+ * @param {string} addresses_json
+ * @param {string} ws_url
+ * @returns {Promise<string>}
+ */
+export function fetch_utxos_for_addresses_js(addresses_json, ws_url) {
+    const ptr0 = passStringToWasm0(addresses_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(ws_url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.fetch_utxos_for_addresses_js(ptr0, len0, ptr1, len1);
+    return ret;
+}
+
+/**
  * Search mempool for a TX that spent a specific UTXO and extract
  * the preimage from its sig_script. Used by the atomic swap watcher.
  *
@@ -3086,6 +3149,39 @@ export function merkle_root_from_addresses(addresses_json, _network) {
 }
 
 /**
+ * One multisig address at an exact path → address string. No network.
+ *
+ * Used to identify which branch an address belongs to: derive candidates until
+ * one matches. That search runs in the browser and sends nothing, which is why
+ * it may try every branch while the network scan below must not.
+ * @param {string} descriptor
+ * @param {number} addr_index
+ * @param {number} cosigner_index
+ * @param {number} chain
+ * @returns {string}
+ */
+export function multisig_address_at_js(descriptor, addr_index, cosigner_index, chain) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(descriptor, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.multisig_address_at_js(ptr0, len0, addr_index, cosigner_index, chain);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * Parse a decrypted covenant payload blob: [version:1][type:1][params...]
  * Returns JSON: { "version": 1, "covenant_type": N, "params_hex": "..." }
  * @param {string} plaintext_hex
@@ -3314,6 +3410,23 @@ export function pskt_summary(wire_hex, network) {
  */
 export function reset_qr_decoder() {
     wasm.reset_qr_decoder();
+}
+
+/**
+ * Scan ONE cosigner branch → JSON.
+ * @param {string} descriptor
+ * @param {number} cosigner_index
+ * @param {number} depth
+ * @param {string} ws_url
+ * @returns {Promise<string>}
+ */
+export function scan_multisig_branch_js(descriptor, cosigner_index, depth, ws_url) {
+    const ptr0 = passStringToWasm0(descriptor, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(ws_url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.scan_multisig_branch_js(ptr0, len0, cosigner_index, depth, ptr1, len1);
+    return ret;
 }
 
 /**
@@ -4121,7 +4234,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return wasm_bindgen__convert__closures_____invoke__hb029ded8098aabe7(a, state0.b, arg0, arg1);
+                        return wasm_bindgen__convert__closures_____invoke__h451a1072b4ec071e(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -4155,7 +4268,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return wasm_bindgen__convert__closures_____invoke__hb029ded8098aabe7(a, state0.b, arg0, arg1);
+                        return wasm_bindgen__convert__closures_____invoke__h451a1072b4ec071e(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -4193,6 +4306,10 @@ function __wbg_get_imports() {
         }, arguments); },
         __wbg_random_a72d453e63c9558c: function() {
             const ret = Math.random();
+            return ret;
+        },
+        __wbg_readyState_631d9f7c37e595d7: function(arg0) {
+            const ret = arg0.readyState;
             return ret;
         },
         __wbg_require_b4edbdcf3e2a1ef0: function() { return handleError(function () {
@@ -4262,23 +4379,23 @@ function __wbg_get_imports() {
             return ret;
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 153, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h4f078dac72696ab5);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 376, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h6f42bb3b13a7079a);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 494, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__ha4ad0e5f40f3bbc4);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 525, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h196ac2b234377f4a);
             return ret;
         },
         __wbindgen_cast_0000000000000003: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 153, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h4f078dac72696ab5_2);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 376, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h6f42bb3b13a7079a_2);
             return ret;
         },
         __wbindgen_cast_0000000000000004: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 152, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h148c9614421699de);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 375, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__hb82728a63eb39624);
             return ret;
         },
         __wbindgen_cast_0000000000000005: function(arg0) {
@@ -4312,27 +4429,27 @@ function __wbg_get_imports() {
     };
 }
 
-function wasm_bindgen__convert__closures_____invoke__h148c9614421699de(arg0, arg1) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h148c9614421699de(arg0, arg1);
+function wasm_bindgen__convert__closures_____invoke__hb82728a63eb39624(arg0, arg1) {
+    wasm.wasm_bindgen__convert__closures_____invoke__hb82728a63eb39624(arg0, arg1);
 }
 
-function wasm_bindgen__convert__closures_____invoke__h4f078dac72696ab5(arg0, arg1, arg2) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h4f078dac72696ab5(arg0, arg1, arg2);
+function wasm_bindgen__convert__closures_____invoke__h6f42bb3b13a7079a(arg0, arg1, arg2) {
+    wasm.wasm_bindgen__convert__closures_____invoke__h6f42bb3b13a7079a(arg0, arg1, arg2);
 }
 
-function wasm_bindgen__convert__closures_____invoke__h4f078dac72696ab5_2(arg0, arg1, arg2) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h4f078dac72696ab5_2(arg0, arg1, arg2);
+function wasm_bindgen__convert__closures_____invoke__h6f42bb3b13a7079a_2(arg0, arg1, arg2) {
+    wasm.wasm_bindgen__convert__closures_____invoke__h6f42bb3b13a7079a_2(arg0, arg1, arg2);
 }
 
-function wasm_bindgen__convert__closures_____invoke__ha4ad0e5f40f3bbc4(arg0, arg1, arg2) {
-    const ret = wasm.wasm_bindgen__convert__closures_____invoke__ha4ad0e5f40f3bbc4(arg0, arg1, arg2);
+function wasm_bindgen__convert__closures_____invoke__h196ac2b234377f4a(arg0, arg1, arg2) {
+    const ret = wasm.wasm_bindgen__convert__closures_____invoke__h196ac2b234377f4a(arg0, arg1, arg2);
     if (ret[1]) {
         throw takeFromExternrefTable0(ret[0]);
     }
 }
 
-function wasm_bindgen__convert__closures_____invoke__hb029ded8098aabe7(arg0, arg1, arg2, arg3) {
-    wasm.wasm_bindgen__convert__closures_____invoke__hb029ded8098aabe7(arg0, arg1, arg2, arg3);
+function wasm_bindgen__convert__closures_____invoke__h451a1072b4ec071e(arg0, arg1, arg2, arg3) {
+    wasm.wasm_bindgen__convert__closures_____invoke__h451a1072b4ec071e(arg0, arg1, arg2, arg3);
 }
 
 

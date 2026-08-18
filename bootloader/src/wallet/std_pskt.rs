@@ -123,6 +123,13 @@ pub enum PskError {
     VersionNotSupported,
     /// `inputCount` / `outputCount` in globals disagreed with array lens.
     CountMismatch,
+    /// `covenantBinding` was present but malformed: wrong `covenantId`
+    /// length or hex, `authorizingInput` out of range or naming an input
+    /// that does not exist, a repeated or missing member, an unknown
+    /// member, or a non-object value. Deliberately one variant for all of
+    /// them: the screen is the only channel in a production build, and a
+    /// user cannot act differently on the distinction.
+    InvalidCovenantBinding,
     /// Bundle had more than one PSKT element (unsupported by KasSigner).
     BundleMultiElement,
 
@@ -166,6 +173,7 @@ impl PskError {
             PskError::MissingField        => ("Incomplete bundle", "A field is missing"),
             PskError::DuplicateField      => ("Malformed bundle", "Duplicate field"),
             PskError::CountMismatch       => ("Inconsistent bundle", "Declared count is wrong"),
+            PskError::InvalidCovenantBinding => ("Bad covenant binding", "Malformed or incomplete"),
             PskError::BundleMultiElement  => ("Multi-bundle scanned", "Send one at a time"),
             PskError::VersionNotSupported => ("Unsupported version", "Update this firmware"),
 
@@ -319,6 +327,20 @@ fn hex_nibble(c: u8) -> Result<u8, PskError> {
     }
 }
 
+/// Mark a known field as seen. Returns `false` if it was already set, i.e.
+/// the bundle repeats a key.
+///
+/// A `u16` bitmask rather than one `bool` per key: `parse_input` alone
+/// carries eleven known fields, and the flags are only ever set and tested.
+#[inline]
+fn mark(bits: &mut u16, flag: u16) -> bool {
+    if *bits & flag != 0 {
+        return false;
+    }
+    *bits |= flag;
+    true
+}
+
 /// Strict lowercase-hex decoder.
 ///
 /// Writes decoded bytes into `dst`, returns the number of bytes
@@ -465,6 +487,13 @@ impl<'a> Tokenizer<'a> {
     /// tokens borrow from this buffer.
     pub fn new(data: &'a [u8]) -> Self {
         Self { data, pos: 0 }
+    }
+
+    /// The bytes being tokenized. Needed to re-read a value region the
+    /// tokenizer has already walked past, which is how the 45' derivation hint
+    /// is lifted out of a KeySource without a second parser for it.
+    pub fn source(&self) -> &'a [u8] {
+        self.data
     }
 
     /// Byte offset of the next token that `next()` will try to parse.
@@ -763,22 +792,65 @@ fn skip_value(tok: &mut Tokenizer<'_>) -> Result<(), PskError> {
 
 /// Consume tokens until the matching close brace/bracket is found,
 /// handling nesting. Called after an opening `{` or `[` has already
-/// been consumed.
+/// been consumed, with `close` naming the delimiter that opener expects.
+///
+/// Tracks the expected closer at every level rather than counting depth.
+/// A single counter treats `}` and `]` as interchangeable, so `{"a":[1}]`
+/// balances to zero and is accepted, which is not valid JSON. These are
+/// regions the parser does not interpret, but it re-emits their bytes
+/// verbatim, so accepting one means signing a bundle the next wallet in
+/// the chain will reject.
 fn skip_until_matching(tok: &mut Tokenizer<'_>, close: Tok<'_>) -> Result<(), PskError> {
-    let mut depth: u32 = 1;
-    while depth > 0 {
+    /// Deepest nesting accepted inside a skipped region. Real PSKT
+    /// nesting is five levels (bundle, element, inputs, input,
+    /// utxoEntry), so this is a wide margin that still bounds the
+    /// stack.
+    const MAX_DEPTH: usize = 32;
+
+    // One byte per open delimiter: `false` expects `}`, `true` expects `]`.
+    let mut expect_bracket = [false; MAX_DEPTH];
+    expect_bracket[0] = match close {
+        Tok::RBrace => false,
+        Tok::RBracket => true,
+        // Only the two callers above construct this, and both pass a
+        // closing delimiter. Anything else is a programming error.
+        _ => return Err(PskError::UnexpectedToken),
+    };
+    let mut depth: usize = 1;
+
+    loop {
         match tok.next()? {
-            Tok::LBrace | Tok::LBracket => depth += 1,
-            Tok::RBrace | Tok::RBracket => {
+            Tok::LBrace => {
+                if depth >= MAX_DEPTH {
+                    return Err(PskError::UnexpectedToken);
+                }
+                expect_bracket[depth] = false;
+                depth += 1;
+            }
+            Tok::LBracket => {
+                if depth >= MAX_DEPTH {
+                    return Err(PskError::UnexpectedToken);
+                }
+                expect_bracket[depth] = true;
+                depth += 1;
+            }
+            Tok::RBrace => {
                 depth -= 1;
-                // Only check the close discriminant at depth 0 — nested
-                // brace/bracket mismatches get caught structurally.
+                if expect_bracket[depth] {
+                    // Opened with `[`, closed with `}`.
+                    return Err(PskError::UnexpectedToken);
+                }
                 if depth == 0 {
-                    // No way to verify which close variant matched because
-                    // the tokenizer doesn't distinguish, but that's fine:
-                    // a mismatched `{` `]` would have been caught earlier
-                    // by increment/decrement balance. This loop just walks.
-                    let _ = close;
+                    return Ok(());
+                }
+            }
+            Tok::RBracket => {
+                depth -= 1;
+                if !expect_bracket[depth] {
+                    // Opened with `{`, closed with `]`.
+                    return Err(PskError::UnexpectedToken);
+                }
+                if depth == 0 {
                     return Ok(());
                 }
             }
@@ -786,7 +858,6 @@ fn skip_until_matching(tok: &mut Tokenizer<'_>, close: Tok<'_>) -> Result<(), Ps
             _ => { /* strings, numbers, literals inside — ignore */ }
         }
     }
-    Ok(())
 }
 
 /// Parse a hex-string JSON field into raw bytes. Returns the decoded
@@ -867,6 +938,12 @@ fn parse_pskt_object(
     const HAS_OUTPUTS: u8 = 1 << 2;
     let mut seen: u8 = 0;
 
+    // Declared counts from `global`. Checked against the parsed array
+    // lengths after the loop, because JSON member order is not fixed:
+    // `global` may legally appear after `inputs` and `outputs`.
+    let mut declared_input_count: usize = 0;
+    let mut declared_output_count: usize = 0;
+
     // Empty objects are rejected — we need all three fields.
     if let Tok::RBrace = tok.peek()? {
         return Err(PskError::MissingField);
@@ -883,7 +960,9 @@ fn parse_pskt_object(
                 if seen & HAS_GLOBAL != 0 {
                     return Err(PskError::DuplicateField);
                 }
-                parse_global(tok, tx, parsed)?;
+                let (n_in, n_out) = parse_global(tok, tx, parsed)?;
+                declared_input_count = n_in;
+                declared_output_count = n_out;
                 seen |= HAS_GLOBAL;
             }
             b"inputs" => {
@@ -920,6 +999,27 @@ fn parse_pskt_object(
     }
 
     // Validate counts match arrays.
+    //
+    // Deferred to here rather than checked inside `parse_global`: JSON
+    // member order is not fixed, so `global` may legally precede or follow
+    // the arrays, and `tx.num_inputs` is only reliable once all three
+    // top-level fields have been seen.
+    if declared_input_count != tx.num_inputs || declared_output_count != tx.num_outputs {
+        return Err(PskError::CountMismatch);
+    }
+
+    // A covenant binding names the input that authorises it. Upstream
+    // rejects an index with no matching input
+    // (`crypto/txscript/src/covenants.rs`, `AuthInputOutOfBounds`), so the
+    // device must not sign one. Deferred here for the same reason as the
+    // counts: an output may be parsed before `inputs` has been seen.
+    for i in 0..tx.num_outputs {
+        let o = &tx.outputs[i];
+        if o.has_covenant && (o.covenant_auth_input as usize) >= tx.num_inputs {
+            return Err(PskError::InvalidCovenantBinding);
+        }
+    }
+
     Ok(())
 }
 
@@ -927,11 +1027,14 @@ fn parse_pskt_object(
 // Parser — global
 // ═══════════════════════════════════════════════════════════════════════
 
+/// Returns the declared `(inputCount, outputCount)` so the caller can check
+/// them against the parsed array lengths once all three top-level fields have
+/// been seen. Both are bounded by MAX_INPUTS / MAX_OUTPUTS here.
 fn parse_global(
     tok: &mut Tokenizer<'_>,
     tx: &mut Transaction,
     parsed: &mut PsktParsed,
-) -> Result<(), PskError> {
+) -> Result<(usize, usize), PskError> {
     expect(tok, Tok::LBrace)?;
 
     // Most global fields are required; some are always-present but we
@@ -941,6 +1044,16 @@ fn parse_global(
     let mut seen_tx_version = false;
     let mut seen_input_count = false;
     let mut seen_output_count = false;
+    let mut declared_input_count: usize = 0;
+    let mut declared_output_count: usize = 0;
+
+    const S_FALLBACK: u16 = 1 << 0;
+    const S_INMOD: u16 = 1 << 1;
+    const S_OUTMOD: u16 = 1 << 2;
+    const S_XPUBS: u16 = 1 << 3;
+    const S_PROPRIETARIES: u16 = 1 << 4;
+    const S_ID: u16 = 1 << 5;
+    let mut seen_opt: u16 = 0;
 
     if let Tok::RBrace = tok.peek()? {
         return Err(PskError::MissingField);
@@ -972,32 +1085,46 @@ fn parse_global(
             b"inputCount" => {
                 if seen_input_count { return Err(PskError::DuplicateField); }
                 let n = expect_u64(tok)?;
-                if n as usize > MAX_INPUTS {
+                // Compare in u64. `n as usize` would narrow on a 32-bit
+                // target and let a value above u32::MAX past the bound.
+                if n > MAX_INPUTS as u64 {
                     return Err(PskError::TooManyInputs);
                 }
-                // We don't store input_count directly; num_inputs is set
-                // by parse_inputs_array. We validate consistency later.
+                // Bounded by MAX_INPUTS (32) above, so the cast is exact.
+                declared_input_count = n as usize;
                 seen_input_count = true;
-                let _ = n;
             }
             b"outputCount" => {
                 if seen_output_count { return Err(PskError::DuplicateField); }
                 let n = expect_u64(tok)?;
-                if n as usize > MAX_OUTPUTS {
+                if n > MAX_OUTPUTS as u64 {
                     return Err(PskError::TooManyOutputs);
                 }
+                // Bounded by MAX_OUTPUTS (8) above, so the cast is exact.
+                declared_output_count = n as usize;
                 seen_output_count = true;
-                let _ = n;
             }
             // ── Structural fields: shape is fixed, serializer reconstructs
             //    from known state. No capture needed.
             b"fallbackLockTime" | b"inputsModifiable" | b"outputsModifiable" => {
+                let flag = match key {
+                    b"fallbackLockTime" => S_FALLBACK,
+                    b"inputsModifiable" => S_INMOD,
+                    _ => S_OUTMOD,
+                };
+                if !mark(&mut seen_opt, flag) {
+                    return Err(PskError::DuplicateField);
+                }
                 skip_value(tok)?;
             }
             // ── Opaque fields: may carry content the serializer can't
             //    reconstruct. Capture only if non-default so a realistic
             //    2-of-3 multisig PSKT survives the 16-slot budget.
             b"xpubs" | b"proprietaries" => {
+                let flag = if key == b"xpubs" { S_XPUBS } else { S_PROPRIETARIES };
+                if !mark(&mut seen_opt, flag) {
+                    return Err(PskError::DuplicateField);
+                }
                 // Both are objects. Empty `{}` is the default in all
                 // canonical vectors; capture only if non-empty.
                 expect(tok, Tok::LBrace)?;
@@ -1010,6 +1137,9 @@ fn parse_global(
                 }
             }
             b"id" => {
+                if !mark(&mut seen_opt, S_ID) {
+                    return Err(PskError::DuplicateField);
+                }
                 // Either `null` or a hex string. `null` is the default.
                 match tok.next()? {
                     Tok::Null => { /* default, no capture */ }
@@ -1039,7 +1169,7 @@ fn parse_global(
     if !(seen_version && seen_tx_version && seen_input_count && seen_output_count) {
         return Err(PskError::MissingField);
     }
-    Ok(())
+    Ok((declared_input_count, declared_output_count))
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1093,6 +1223,18 @@ fn parse_input(
     let mut seen_outpoint = false;
     let mut seen_sighash = false;
 
+    // Optional fields. Required ones keep their own bools above; these are
+    // the eight that previously took the last occurrence silently.
+    const S_SEQUENCE: u16 = 1 << 0;
+    const S_REDEEM: u16 = 1 << 1;
+    const S_SIGOP: u16 = 1 << 2;
+    const S_PARTIALSIGS: u16 = 1 << 3;
+    const S_BIP32: u16 = 1 << 4;
+    const S_MINTIME: u16 = 1 << 5;
+    const S_FINALSIG: u16 = 1 << 6;
+    const S_PROPRIETARIES: u16 = 1 << 7;
+    let mut seen_opt: u16 = 0;
+
     if let Tok::RBrace = tok.peek()? {
         return Err(PskError::MissingField);
     }
@@ -1114,6 +1256,9 @@ fn parse_input(
                 seen_outpoint = true;
             }
             b"sequence" => {
+                if !mark(&mut seen_opt, S_SEQUENCE) {
+                    return Err(PskError::DuplicateField);
+                }
                 inp.sequence = expect_u64(tok)?;
             }
             b"sighashType" => {
@@ -1126,6 +1271,9 @@ fn parse_input(
                 seen_sighash = true;
             }
             b"redeemScript" => {
+                if !mark(&mut seen_opt, S_REDEEM) {
+                    return Err(PskError::DuplicateField);
+                }
                 // null OR hex string.
                 match tok.next()? {
                     Tok::Null => { inp.redeem_script_len = 0; }
@@ -1140,6 +1288,9 @@ fn parse_input(
                 }
             }
             b"sigOpCount" => {
+                if !mark(&mut seen_opt, S_SIGOP) {
+                    return Err(PskError::DuplicateField);
+                }
                 let n = expect_u64(tok)?;
                 if n > MAX_SIGS_PER_INPUT as u64 {
                     return Err(PskError::TooManyPartialSigs);
@@ -1147,19 +1298,48 @@ fn parse_input(
                 inp.sig_op_count = n as u8;
             }
             b"partialSigs" => {
+                // Guarded for a second reason: `parse_partial_sigs` writes
+                // from slot 0 and resets the count, so a repeat silently
+                // discards the first set.
+                if !mark(&mut seen_opt, S_PARTIALSIGS) {
+                    return Err(PskError::DuplicateField);
+                }
                 parse_partial_sigs(tok, inp)?;
             }
             b"bip32Derivations" => {
-                // We don't interpret KeySource; just skip the object
-                // shape. Capture so non-empty maps round-trip.
-                parse_bip32_derivations(tok, parsed, key_start)?;
+                // Guarded for a second reason: a repeat burns another
+                // `capture_unknown` slot from the 16-slot budget, and
+                // `find_captured_value` returns the first match, so the
+                // second capture is stored and never emitted.
+                if !mark(&mut seen_opt, S_BIP32) {
+                    return Err(PskError::DuplicateField);
+                }
+                // Capture so non-empty maps round-trip, AND pull the 45'
+                // derivation path out of the first KeySource that has one.
+                parse_bip32_derivations(tok, parsed, key_start, inp)?;
             }
-            b"minTime" | b"finalScriptSig" => {
-                // Always-present structural fields (null by default).
-                // Serializer reconstructs from known state.
+            // Always-present structural fields (null by default). The
+            // serializer reconstructs them from known state.
+            //
+            // One arm per key rather than the shared arm they used to have:
+            // `{"minTime":null,"finalScriptSig":null}` is the normal shape,
+            // and a single flag covering both would reject it.
+            b"minTime" => {
+                if !mark(&mut seen_opt, S_MINTIME) {
+                    return Err(PskError::DuplicateField);
+                }
+                skip_value(tok)?;
+            }
+            b"finalScriptSig" => {
+                if !mark(&mut seen_opt, S_FINALSIG) {
+                    return Err(PskError::DuplicateField);
+                }
                 skip_value(tok)?;
             }
             b"proprietaries" => {
+                if !mark(&mut seen_opt, S_PROPRIETARIES) {
+                    return Err(PskError::DuplicateField);
+                }
                 // Opaque. `{}` is the default — capture only if non-empty
                 // so V1.1 multisig flows don't blow the 16-slot budget.
                 // Peek at the first token inside the map.
@@ -1202,6 +1382,7 @@ fn parse_utxo_entry(
 
     let mut seen_amount = false;
     let mut seen_spk = false;
+    let mut seen_covenant = false;
 
     loop {
         let key = expect_string(tok)?;
@@ -1222,6 +1403,28 @@ fn parse_utxo_entry(
                     &mut spk.script,
                 )?;
                 seen_spk = true;
+            }
+            b"covenantId" => {
+                if seen_covenant { return Err(PskError::DuplicateField); }
+                // `null` when the coin carries no covenant, a 64-character
+                // lowercase hex string when it does. Validated as strictly as
+                // the output binding: a value the device cannot decode is a
+                // value it must not display.
+                match tok.next()? {
+                    Tok::Null => {
+                        inp.utxo_entry.has_covenant = false;
+                    }
+                    Tok::Str(hex_str) => {
+                        if hex_str.len() != 64 {
+                            return Err(PskError::InvalidCovenantBinding);
+                        }
+                        hex_decode_strict(hex_str, &mut inp.utxo_entry.covenant_id)
+                            .map_err(|_| PskError::InvalidCovenantBinding)?;
+                        inp.utxo_entry.has_covenant = true;
+                    }
+                    _ => return Err(PskError::InvalidCovenantBinding),
+                }
+                seen_covenant = true;
             }
             b"blockDaaScore" | b"isCoinbase" => {
                 // Not used in signing. Read and discard.
@@ -1352,14 +1555,127 @@ fn parse_partial_sigs(
     Ok(())
 }
 
+/// Parse `bip32Derivations` and, as a side effect, extract the 45' hint.
+///
+/// The object is `{ pubkey_hex: null-or-KeySource }`. The shape is validated
+/// and the whole field captured so it round-trips byte-for-byte, exactly as
+/// before. What is new is that a `derivationPath` string is read out of the
+/// first KeySource that carries one, into `inp.ms45_hint`.
+///
+/// **The FIRST is enough, and taking it is not a shortcut.** On a 45' multisig
+/// input every cosigner derives at the same
+/// `m/45'/111111'/account'/cosigner/chain/index`: the path belongs to the
+/// address being spent, and the entries differ only by pubkey and fingerprint.
+/// So any entry yields the same three trailing components.
+///
+/// Nothing here trusts the value. It is a search index; the signer must still
+/// derive at that path and confirm the pubkey appears in the input's redeem
+/// script before signing.
+/// Pull `cosigner/chain/index` out of a KeySource's `derivationPath`.
+///
+/// Reads the region `[start, end)`, which `skip_value` has already validated as
+/// well-formed JSON, looks for `"derivationPath"`, and takes the LAST THREE
+/// slash-separated components of its value. A 45' path is
+/// `m/45'/111111'/account'/cosigner/chain/index`, and only those three vary per
+/// address; the account prefix is fixed by our own derivation.
+///
+/// Returns `None` for anything that is not a usable 45' path: a `null` value, a
+/// missing field, a hardened final component (a `'` anywhere in the last three
+/// means it is not an address path), fewer than six components, or a number
+/// that does not fit `u32`.
+///
+/// Deliberately tolerant of formatting and deliberately unauthenticated. The
+/// redeem-script check downstream is what decides whether the path was right.
+fn extract_ms45_hint(
+    src: &[u8],
+    start: usize,
+    end: usize,
+) -> Option<crate::wallet::transaction::Ms45Hint> {
+    if start >= end || end > src.len() {
+        return None;
+    }
+    let region = &src[start..end];
+    let needle = b"\"derivationPath\"";
+    let mut i = 0usize;
+    let at = loop {
+        if i + needle.len() > region.len() {
+            return None;
+        }
+        if &region[i..i + needle.len()] == needle {
+            break i + needle.len();
+        }
+        i += 1;
+    };
+
+    // Skip to the opening quote of the value.
+    let mut j = at;
+    while j < region.len() && region[j] != b'"' {
+        if region[j] == b',' || region[j] == b'}' {
+            return None; // value was null or absent
+        }
+        j += 1;
+    }
+    if j >= region.len() {
+        return None;
+    }
+    j += 1;
+    let vstart = j;
+    while j < region.len() && region[j] != b'"' {
+        j += 1;
+    }
+    if j >= region.len() {
+        return None;
+    }
+    let path = &region[vstart..j];
+
+    // Split on '/', keep the last three components.
+    let mut comps: [&[u8]; 8] = [&[]; 8];
+    let mut n = 0usize;
+    let mut seg_start = 0usize;
+    for k in 0..=path.len() {
+        if k == path.len() || path[k] == b'/' {
+            if n < comps.len() {
+                comps[n] = &path[seg_start..k];
+                n += 1;
+            } else {
+                return None; // deeper than any path we emit
+            }
+            seg_start = k + 1;
+        }
+    }
+    if n < 6 {
+        return None;
+    }
+
+    let mut vals = [0u32; 3];
+    for (slot, comp) in comps[n - 3..n].iter().enumerate() {
+        if comp.is_empty() {
+            return None;
+        }
+        let mut v: u32 = 0;
+        for &c in comp.iter() {
+            if !c.is_ascii_digit() {
+                return None; // hardened marker or junk: not an address path
+            }
+            v = v.checked_mul(10)?.checked_add((c - b'0') as u32)?;
+        }
+        vals[slot] = v;
+    }
+
+    Some(crate::wallet::transaction::Ms45Hint {
+        present: true,
+        cosigner: vals[0],
+        chain: vals[1],
+        index: vals[2],
+    })
+}
+
 fn parse_bip32_derivations(
     tok: &mut Tokenizer<'_>,
     parsed: &mut PsktParsed,
     field_start: usize,
+    inp: &mut crate::wallet::transaction::TransactionInput,
 ) -> Result<(), PskError> {
-    // Object of { pubkey_hex: null-or-KeySource }. We don't interpret
-    // KeySource; we validate the shape and capture the whole field if
-    // non-empty so it round-trips.
     expect(tok, Tok::LBrace)?;
 
     let peek = tok.peek()?;
@@ -1375,8 +1691,15 @@ fn parse_bip32_derivations(
             return Err(PskError::InvalidPubkeyLen);
         }
         expect(tok, Tok::Colon)?;
-        // Value: null or object. skip_value handles both.
+        // Value: null or object. Peek: only an object can carry a path, and
+        // `skip_value` handles both forms once we are done looking.
+        let val_start = tok.position();
         skip_value(tok)?;
+        if !inp.ms45_hint.present {
+            if let Some(h) = extract_ms45_hint(tok.source(), val_start, tok.position()) {
+                inp.ms45_hint = h;
+            }
+        }
 
         match tok.next()? {
             Tok::Comma => continue,
@@ -1385,8 +1708,13 @@ fn parse_bip32_derivations(
         }
     }
 
-    // Capture the entire `"bip32Derivations": {...}` region.
+    // Capture the entire `"bip32Derivations": {...}` region, and remember WHICH
+    // region it is so the serializer can re-emit exactly this input's map.
+    // `unknowns_count` before the call is the index it will occupy; stored +1 so
+    // that zero, the value a zeroed Transaction starts with, means "no map".
+    let region_idx = parsed.unknowns_count;
     capture_unknown(parsed, field_start, tok.position())?;
+    inp.bip32_region = region_idx.saturating_add(1);
     Ok(())
 }
 
@@ -1436,6 +1764,12 @@ fn parse_output(
     let out = &mut tx.outputs[idx];
     let mut seen_amount = false;
     let mut seen_spk = false;
+    let mut seen_covenant = false;
+
+    const S_REDEEM: u16 = 1 << 0;
+    const S_BIP32: u16 = 1 << 1;
+    const S_PROPRIETARIES: u16 = 1 << 2;
+    let mut seen_opt: u16 = 0;
 
     if let Tok::RBrace = tok.peek()? {
         return Err(PskError::MissingField);
@@ -1464,13 +1798,26 @@ fn parse_output(
                 seen_spk = true;
             }
             b"redeemScript" => {
+                if !mark(&mut seen_opt, S_REDEEM) {
+                    return Err(PskError::DuplicateField);
+                }
                 // Structural — null or hex. Serializer emits from known
                 // state or passes through the parsed hex (outputs don't
                 // carry signer-relevant redeem scripts in our flow).
                 skip_value(tok)?;
             }
             b"covenantBinding" => {
-                // KIP-20 covenant binding: null or { "authorizingInput": N, "covenantId": "hex" }
+                // KIP-20 covenant binding: `null`, or an object carrying
+                // exactly `authorizingInput` and `covenantId`, each once.
+                //
+                // Validated strictly because both values are consumed twice:
+                // `sighash.rs` commits them for tx_version >= 1, and the
+                // covenant confirm screen displays the id. A value accepted
+                // here is both signed and shown.
+                if seen_covenant {
+                    return Err(PskError::DuplicateField);
+                }
+                seen_covenant = true;
                 match tok.peek()? {
                     Tok::Null => {
                         tok.next()?;
@@ -1478,21 +1825,53 @@ fn parse_output(
                     }
                     Tok::LBrace => {
                         tok.next()?;
-                        out.has_covenant = true;
+                        // `{}` is a contradiction: a binding is present but
+                        // carries nothing. `null` is how absence is spelled.
+                        if let Tok::RBrace = tok.peek()? {
+                            return Err(PskError::InvalidCovenantBinding);
+                        }
+                        let mut seen_auth = false;
+                        let mut seen_id = false;
                         loop {
                             let cb_key = expect_string(tok)?;
                             expect(tok, Tok::Colon)?;
                             match cb_key {
                                 b"authorizingInput" => {
-                                    out.covenant_auth_input = expect_u64(tok)? as u16;
+                                    if seen_auth {
+                                        return Err(PskError::InvalidCovenantBinding);
+                                    }
+                                    // Range-check before narrowing: `as u16`
+                                    // on an unchecked value turns 65536 into
+                                    // 0, which is then hashed and signed.
+                                    let n = expect_u64(tok)?;
+                                    if n > u16::MAX as u64 {
+                                        return Err(PskError::InvalidCovenantBinding);
+                                    }
+                                    out.covenant_auth_input = n as u16;
+                                    seen_auth = true;
                                 }
                                 b"covenantId" => {
-                                    let hex_str = expect_string(tok)?;
-                                    if hex_str.len() == 64 {
-                                        let _ = hex_decode_strict(hex_str, &mut out.covenant_id);
+                                    if seen_id {
+                                        return Err(PskError::InvalidCovenantBinding);
                                     }
+                                    let hex_str = expect_string(tok)?;
+                                    if hex_str.len() != 64 {
+                                        return Err(PskError::InvalidCovenantBinding);
+                                    }
+                                    // Propagate the decode error. Discarding
+                                    // it left a partially written id (the
+                                    // decoder writes byte by byte before
+                                    // failing) on the screen and in the
+                                    // sighash.
+                                    hex_decode_strict(hex_str, &mut out.covenant_id)
+                                        .map_err(|_| PskError::InvalidCovenantBinding)?;
+                                    seen_id = true;
                                 }
-                                _ => { skip_value(tok)?; }
+                                // Rejected rather than skipped: upstream
+                                // defines exactly these two members, and a
+                                // skipped member is also dropped from the
+                                // round trip.
+                                _ => return Err(PskError::InvalidCovenantBinding),
                             }
                             match tok.next()? {
                                 Tok::Comma => continue,
@@ -1500,19 +1879,51 @@ fn parse_output(
                                 _ => return Err(PskError::UnexpectedToken),
                             }
                         }
+                        if !(seen_auth && seen_id) {
+                            return Err(PskError::InvalidCovenantBinding);
+                        }
+                        // Set only once the object is known good, so a
+                        // rejected binding cannot leave the flag raised.
+                        out.has_covenant = true;
                     }
-                    _ => { skip_value(tok)?; }
+                    // Anything else (number, string, array, bool) is not a
+                    // binding. Previously skipped silently.
+                    _ => return Err(PskError::InvalidCovenantBinding),
                 }
             }
+            // Shared arm, per-key flag: both are present in every canonical
+            // output, so one flag covering both would reject the normal case.
             b"bip32Derivations" | b"proprietaries" => {
+                let flag = if key == b"bip32Derivations" { S_BIP32 } else { S_PROPRIETARIES };
+                if !mark(&mut seen_opt, flag) {
+                    return Err(PskError::DuplicateField);
+                }
                 // Opaque maps. Capture only if non-empty so the 16-slot
                 // budget survives realistic 2-of-3 multisig shapes.
                 expect(tok, Tok::LBrace)?;
+                let val_start = tok.position();
                 match tok.peek()? {
                     Tok::RBrace => { tok.next()?; }  // empty, no capture
                     _ => {
                         skip_until_matching(tok, Tok::RBrace)?;
+                        // Pull the derivation path out NOW, as the input side
+                        // does. An output claiming to be change can only be
+                        // checked against the FULL cosigner set, and this path
+                        // says where to rebuild it. Extracted at parse time so
+                        // the review screen never depends on the scratch buffer
+                        // still holding this region.
+                        if key == b"bip32Derivations" && !out.ms45_hint.present {
+                            if let Some(h) =
+                                extract_ms45_hint(tok.source(), val_start, tok.position())
+                            {
+                                out.ms45_hint = h;
+                            }
+                        }
+                        let region_idx = parsed.unknowns_count;
                         capture_unknown(parsed, key_start, tok.position())?;
+                        if key == b"bip32Derivations" {
+                            out.bip32_region = region_idx.saturating_add(1);
+                        }
                     }
                 }
             }
@@ -1587,6 +1998,44 @@ fn parse_output(
 /// `out`    — destination buffer, receives magic + hex(JSON).
 ///
 /// Returns the number of bytes written to `out`.
+/// Wire bytes the emitted bundle grows by for each input this device
+/// signs.
+///
+/// Signing fills two fields that were empty on the way in. Measured from a
+/// real emission rather than derived: `partialSigs` goes from `{}` to 213
+/// JSON characters (a 66-char pubkey, a 130-char signature and the
+/// punctuation), and `bip32Derivations` from `{}` to 75. That is 284 JSON
+/// characters, and the bundle is hex-encoded onto the wire, so 568 bytes.
+pub const EMIT_GROWTH_PER_SIGNED_INPUT: usize = 568;
+
+/// Predict the emitted size before signing anything.
+///
+/// The size check inside `HexWriter` is exact but runs at the end, so a
+/// bundle too large to emit was parsed, signed and only then refused: an
+/// 11-input PSKB spent about two seconds on eleven key operations and
+/// eleven verifications before `OutputBufferTooSmall`. The work was
+/// discarded and the user was told "Result too large", which suggests
+/// splitting the transaction when the real remedy is the compact format.
+///
+/// This serialises the unsigned bundle, which is pure JSON writing with no
+/// crypto, and adds the known per-signature growth. Exact rather than
+/// estimated, so it holds for any shape: covenant outputs, preserved
+/// unknown regions, whatever the scratch carries.
+///
+/// `n_to_sign` is how many inputs this device will actually sign, which on
+/// a cosigning pass is fewer than `tx.num_inputs`.
+pub fn predict_emitted_size(
+    tx: &Transaction,
+    parsed: &PsktParsed,
+    scratch: &[u8],
+    format: TxInputFormat,
+    n_to_sign: usize,
+    dry_run_buf: &mut [u8],
+) -> Result<usize, PskError> {
+    let unsigned = serialize_pskt(tx, parsed, scratch, format, dry_run_buf)?;
+    Ok(unsigned + n_to_sign * EMIT_GROWTH_PER_SIGNED_INPUT)
+}
+
 pub fn serialize_pskt(
     tx: &Transaction,
     parsed: &PsktParsed,
@@ -1856,7 +2305,7 @@ fn emit_inputs_array(
 fn emit_input(
     w: &mut HexWriter<'_>,
     tx: &Transaction,
-    _parsed: &PsktParsed,
+    parsed: &PsktParsed,
     idx: usize,
 ) -> Result<(), PskError> {
     let inp = &tx.inputs[idx];
@@ -1884,10 +2333,41 @@ fn emit_input(
     w.lit(b",\"sigOpCount\":")?;
     w.u64(inp.sig_op_count as u64)?;
 
-    // bip32Derivations: match partial sigs — emit an entry with null value
-    // per incoming pubkey so Combiner compatibility is preserved.
+    // bip32Derivations.
+    //
+    // Re-emit the INCOMING map verbatim when there was one. It is how the NEXT
+    // cosigner finds their key: one KeySource per cosigner, including those who
+    // have not signed yet. Regenerating it from `partialSigs` keeps only
+    // signers and nulls their KeySource, so a 45' bundle survived exactly one
+    // hop and the second signer refused on a payload this device had gutted.
+    // Observed with vector M5: two entries in, one entry out with a null value.
+    //
+    // Falls back to the regenerated null-map when no region was captured, which
+    // is the pre-existing behaviour for payloads that arrive without a map and
+    // preserves the kaspa-wallet-pskt invariant that every `partialSigs` pubkey
+    // also appears here.
+    //
+    // The region is recorded per input, not looked up by field name: a
+    // multi-input transaction has one such region per input and a name search
+    // would return the first one every time.
     w.lit(b",\"bip32Derivations\":")?;
-    emit_bip32_derivations_for_input(w, inp)?;
+    let mut emitted = false;
+    if inp.bip32_region > 0 {
+        let idx = (inp.bip32_region - 1) as usize;
+        if idx < parsed.unknowns_count as usize {
+            let (start, end): (u16, u16) = parsed.unknowns[idx];
+            // The captured region is `"bip32Derivations":{...}`; skip the key
+            // and colon so only the value is spliced.
+            let skip: u16 = b"\"bip32Derivations\":".len() as u16;
+            if start.saturating_add(skip) < end {
+                w.scratch_range(start + skip, end)?;
+                emitted = true;
+            }
+        }
+    }
+    if !emitted {
+        emit_bip32_derivations_for_input(w, inp)?;
+    }
 
     w.lit(b",\"finalScriptSig\":null,\"proprietaries\":{}")?;
     w.lit(b"}")?;
@@ -1898,12 +2378,25 @@ fn emit_utxo_entry(
     w: &mut HexWriter<'_>,
     inp: &crate::wallet::transaction::TransactionInput,
 ) -> Result<(), PskError> {
-    // {"amount":N,"scriptPublicKey":"<version><script hex>","blockDaaScore":0,"isCoinbase":false}
+    // {"amount":N,"scriptPublicKey":"<version><script hex>","blockDaaScore":0,
+    //  "isCoinbase":false[,"covenantId":"<hex>"]}
     w.lit(b"{\"amount\":")?;
     w.u64(inp.utxo_entry.amount)?;
     w.lit(b",\"scriptPublicKey\":")?;
     emit_script_public_key(w, &inp.utxo_entry.script_public_key)?;
-    w.lit(b",\"blockDaaScore\":0,\"isCoinbase\":false}")?;
+    // `blockDaaScore` and `isCoinbase` are written as constants because the
+    // device does not carry them: neither reaches the sighash, and neither has
+    // a field on `UtxoEntry`. Deliberate, not an oversight.
+    w.lit(b",\"blockDaaScore\":0,\"isCoinbase\":false")?;
+    // The covenant id is carried, so a bundle that round-trips through the
+    // device still tells the next signer which covenant each coin belongs to.
+    // Omitted rather than written as `null` when absent, matching the output
+    // binding and costing nothing on ordinary inputs.
+    if inp.utxo_entry.has_covenant {
+        w.lit(b",\"covenantId\":")?;
+        w.hex_string_field(&inp.utxo_entry.covenant_id)?;
+    }
+    w.lit(b"}")?;
     Ok(())
 }
 
@@ -2008,16 +2501,65 @@ fn emit_outputs_array(
 fn emit_output(
     w: &mut HexWriter<'_>,
     tx: &Transaction,
-    _parsed: &PsktParsed,
+    parsed: &PsktParsed,
     idx: usize,
 ) -> Result<(), PskError> {
     let out = &tx.outputs[idx];
-    // {"amount":N,"scriptPublicKey":"<hex>","redeemScript":null,"bip32Derivations":{},"proprietaries":{}}
+    // {"amount":N,"scriptPublicKey":"<hex>"[,"covenantBinding":{...}],
+    //  "redeemScript":null,"bip32Derivations":{},"proprietaries":{}}
     w.lit(b"{\"amount\":")?;
     w.u64(out.value)?;
     w.lit(b",\"scriptPublicKey\":")?;
     emit_script_public_key(w, &out.script_public_key)?;
-    w.lit(b",\"redeemScript\":null,\"bip32Derivations\":{},\"proprietaries\":{}}")?;
+
+    // `covenantBinding` used to be omitted entirely, so a covenant bundle
+    // that round-tripped through the device came back without it. The
+    // sighash commits the binding for tx_version >= 1 (`sighash.rs:428`),
+    // so the device signed over a value the emitted bundle no longer
+    // declared, and whoever finalised computed a different sighash. The
+    // second cosigner of a multisig covenant is where that bites: it parses
+    // a stripped bundle and signs a different message.
+    //
+    // Emitted whatever the transaction version. The binding is data the
+    // bundle arrived with, not something this device may drop because the
+    // version it happens to carry does not commit it.
+    //
+    // Written only when set, in KasSee's field order (`kspt.rs:1393`).
+    // KasSee also writes an explicit `null` on outputs without one; the
+    // parser treats the field as optional, so omitting it is equivalent and
+    // saves 46 wire bytes per plain output, on an emit path that is already
+    // the narrower half of the device (16,384 in, 8,192 out).
+    if out.has_covenant {
+        w.lit(b",\"covenantBinding\":{\"authorizingInput\":")?;
+        w.u64(out.covenant_auth_input as u64)?;
+        w.lit(b",\"covenantId\":")?;
+        w.hex_string_field(&out.covenant_id)?;
+        w.lit(b"}")?;
+    }
+
+    // Re-emit the output's map VERBATIM when there was one.
+    //
+    // This was a hardcoded empty object, so the first signer stripped every
+    // output's derivation claim and the next signer had nothing to verify. Same
+    // defect as N-20 on the input side, and the same fix: the parser already
+    // captured the region, nothing consumed it.
+    w.lit(b",\"redeemScript\":null,\"bip32Derivations\":")?;
+    let mut emitted = false;
+    if out.bip32_region > 0 {
+        let idx = (out.bip32_region - 1) as usize;
+        if idx < parsed.unknowns_count as usize {
+            let (start, end) = parsed.unknowns[idx];
+            let skip: u16 = b"\"bip32Derivations\":".len() as u16;
+            if start.saturating_add(skip) < end {
+                w.scratch_range(start + skip, end)?;
+                emitted = true;
+            }
+        }
+    }
+    if !emitted {
+        w.lit(b"{}")?;
+    }
+    w.lit(b",\"proprietaries\":{}}")?;
     Ok(())
 }
 

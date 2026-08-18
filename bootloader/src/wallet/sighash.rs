@@ -676,7 +676,17 @@ pub fn test_keyed_differs() -> bool {
 /// Test: basic sighash computation for a single-input transaction.
 pub fn test_sighash_basic() -> bool {
     // Create a simple transaction: 1 input, 1 output
-    let mut tx = Transaction::new();
+    // Heap, not stack. `Transaction` is 78,952 bytes and the frame that holds
+    // it is reserved on entry, so a stack local here claimed the space for the
+    // whole call whether or not it was still needed. Measured 2026-08-14 on
+    // M5Stack: `verbose-boot` tripped the ProCpu stack guard inside
+    // `self_test::test_sram`'s 2 KB buffer at test 1 of 5, SP 81,776 bytes
+    // below the floor, 186,272 bytes of depth against 105,008 usable. These
+    // tests never reached their own bodies in any build. See N-15.
+    let mut tx = match Transaction::new_boxed() {
+        Some(t) => t,
+        None => return false,
+    };
     tx.version = 0;
     tx.num_inputs = 1;
     tx.num_outputs = 1;
@@ -720,7 +730,11 @@ pub fn test_sighash_basic() -> bool {
 /// Test: different inputs produce different sighashes.
 pub fn test_sighash_different_inputs() -> bool {
     // Transaction with 2 inputs — each must have a different sighash
-    let mut tx = Transaction::new();
+    // Heap, not stack: see the note on the first boxed transaction in this file. N-15.
+    let mut tx = match Transaction::new_boxed() {
+        Some(t) => t,
+        None => return false,
+    };
     tx.version = 0;
     tx.num_inputs = 2;
     tx.num_outputs = 1;
@@ -785,7 +799,11 @@ pub fn test_sign_transaction_complete() -> bool {
     };
 
     // 2. Create transaction: 1 input (our UTXO), 1 output
-    let mut tx = Transaction::new();
+    // Heap, not stack: see the note on the first boxed transaction in this file. N-15.
+    let mut tx = match Transaction::new_boxed() {
+        Some(t) => t,
+        None => return false,
+    };
     tx.version = 0;
     tx.num_inputs = 1;
     tx.num_outputs = 1;
@@ -850,9 +868,430 @@ pub fn test_format_kas() -> bool {
     true
 }
 
-/// Runs all sighash tests
+
+// ═══════════════════════════════════════════════════════════════════
+// Consensus known-answer vectors, ported from rusty-kaspa 2.0.1
+// ═══════════════════════════════════════════════════════════════════
+//
+// Source: `consensus/core/src/hashing/sighash.rs`, `mod tests`,
+// `fn test_signature_hash`. The transaction, its UTXO entries, the
+// modifications and the expected digests are reproduced from upstream. Only
+// the representation differs: our `Transaction` is one fixed-size struct
+// carrying its own UTXO entries, where upstream pairs a `Transaction` with a
+// separate entry vector in `PopulatedTransaction`.
+//
+// WHY. Before this, `test_sighash_basic` checked that the digest was not all
+// zeros. That catches a hasher that returns nothing, and nothing else. A
+// sighash that is internally consistent but disagrees with consensus by one
+// field, one byte order or one length prefix passes it every time. These are
+// external truth: the node computed them, and if our keyed Blake2b, our field
+// order or our sub-hash gating diverges, one of these fails and names itself.
+//
+// WHAT IS COVERED. All six sighash types, both transaction versions, native
+// and subnetwork. Cases come in two kinds and the second kind is the one with
+// teeth: digests that MUST change when a field is modified, and digests that
+// MUST NOT. A hasher that simply mixed every field in would pass every case of
+// the first kind and fail every case of the second.
+//
+// Production signing is `SigHashType::All` at every call site, so the other
+// five types are unreachable on this device today. They are tested anyway.
+// `SigHashType::from_byte` accepts all six when parsing a SignedResponse, and
+// an unreachable branch that is wrong is a trap for whoever makes it reachable.
+
+/// `880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3`
+#[cfg(any(test, not(feature = "skip-tests")))]
+const VEC_PREV_TX_ID: [u8; 32] = [
+    0x88,0x0e,0xb9,0x81,0x9a,0x31,0x82,0x1d,0x9d,0x23,0x99,0xe2,0xf3,0x5e,0x24,0x33,
+    0xb7,0x26,0x37,0xe3,0x93,0xd7,0x1e,0xcc,0x9b,0x8d,0x02,0x50,0xf4,0x91,0x53,0xc3,
+];
+
+/// `208325613d2eeaf7176ac6c670b13c0043156c427438ed72d74b7800862ad884e8ac`
+#[cfg(any(test, not(feature = "skip-tests")))]
+const VEC_SPK1: [u8; 34] = [
+    0x20,0x83,0x25,0x61,0x3d,0x2e,0xea,0xf7,0x17,0x6a,0xc6,0xc6,0x70,0xb1,0x3c,0x00,
+    0x43,0x15,0x6c,0x42,0x74,0x38,0xed,0x72,0xd7,0x4b,0x78,0x00,0x86,0x2a,0xd8,0x84,
+    0xe8,0xac,
+];
+
+/// `20fcef4c106cf11135bbd70f02a726a92162d2fb8b22f0469126f800862ad884e8ac`
+#[cfg(any(test, not(feature = "skip-tests")))]
+const VEC_SPK2: [u8; 34] = [
+    0x20,0xfc,0xef,0x4c,0x10,0x6c,0xf1,0x11,0x35,0xbb,0xd7,0x0f,0x02,0xa7,0x26,0xa9,
+    0x21,0x62,0xd2,0xfb,0x8b,0x22,0xf0,0x46,0x91,0x26,0xf8,0x00,0x86,0x2a,0xd8,0x84,
+    0xe8,0xac,
+];
+
+/// Upstream's modified payload, `vec![6, 6, 6, 4, 2, 0, 1, 3, 3, 7]`.
+#[cfg(any(test, not(feature = "skip-tests")))]
+const VEC_MOD_PAYLOAD: [u8; 10] = [6, 6, 6, 4, 2, 0, 1, 3, 3, 7];
+
+/// Set a script public key from a slice, version 0.
+#[cfg(any(test, not(feature = "skip-tests")))]
+fn vec_set_spk(spk: &mut ScriptPublicKey, bytes: &[u8]) {
+    spk.version = 0;
+    spk.script[..bytes.len()].copy_from_slice(bytes);
+    spk.script_len = bytes.len();
+}
+
+/// Build the reference transaction.
+///
+/// Three inputs spending the same previous transaction at indices 0, 1 and 2,
+/// with sequences 0, 1 and 2 and amounts 100, 200 and 300. Input 0 spends
+/// SPK1, inputs 1 and 2 spend SPK2. Two outputs of 300, paying SPK2 then SPK1.
+///
+/// `sig_op_count` is 0 on every input, matching upstream's
+/// `ComputeCommit::SigopCount(0)`. That is NOT our own default of 1, and
+/// getting it wrong changes every version-0 digest here.
+///
+/// `version` selects the consensus branch: 0 hashes the sig-op-count material,
+/// 1 skips it and commits covenant presence per output instead. Upstream's
+/// version-1 transaction carries `ComputeCommit::ComputeBudget` values, which
+/// do not enter the digest at version 1 at all, which is why its four v1
+/// vectors share one expected hash. We have no compute-commit field and at
+/// version 1 we do not need one.
+#[cfg(any(test, not(feature = "skip-tests")))]
+fn vec_build_native(version: u16) -> Option<alloc::boxed::Box<Transaction>> {
+    let mut tx = Transaction::new_boxed()?;
+    tx.version = version;
+    tx.num_inputs = 3;
+    tx.num_outputs = 2;
+    tx.locktime = 1_615_462_089_000;
+    tx.gas = 0;
+    tx.payload_len = 0;
+
+    let amounts = [100u64, 200u64, 300u64];
+    for i in 0..3usize {
+        let inp = &mut tx.inputs[i];
+        inp.previous_outpoint.transaction_id = VEC_PREV_TX_ID;
+        inp.previous_outpoint.index = i as u32;
+        inp.sequence = i as u64;
+        inp.sig_op_count = 0;
+        inp.utxo_entry.amount = amounts[i];
+        let spk: &[u8] = if i == 0 { &VEC_SPK1 } else { &VEC_SPK2 };
+        vec_set_spk(&mut inp.utxo_entry.script_public_key, spk);
+    }
+
+    tx.outputs[0].value = 300;
+    vec_set_spk(&mut tx.outputs[0].script_public_key, &VEC_SPK2);
+    tx.outputs[1].value = 300;
+    vec_set_spk(&mut tx.outputs[1].script_public_key, &VEC_SPK1);
+
+    Some(tx)
+}
+
+/// The same transaction moved off the native subnetwork, with gas and payload.
+#[cfg(any(test, not(feature = "skip-tests")))]
+fn vec_build_subnetwork() -> Option<alloc::boxed::Box<Transaction>> {
+    let mut tx = vec_build_native(0)?;
+    tx.subnetwork_id = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    tx.gas = 250;
+    tx.payload[..11].copy_from_slice(&[10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
+    tx.payload_len = 11;
+    Some(tx)
+}
+
+// ─── Named modifications, for the cases a closure cannot express inline ───
+
+/// No modification: hash the transaction exactly as built.
+#[cfg(any(test, not(feature = "skip-tests")))]
+fn nop(_: &mut Transaction) {}
+
+#[cfg(any(test, not(feature = "skip-tests")))]
+fn vec_set_payload(tx: &mut Transaction) {
+    tx.payload[..VEC_MOD_PAYLOAD.len()].copy_from_slice(&VEC_MOD_PAYLOAD);
+    tx.payload_len = VEC_MOD_PAYLOAD.len();
+}
+
+/// Append `[1, 2, 3]` to the script being spent by input 0.
+#[cfg(any(test, not(feature = "skip-tests")))]
+fn vec_extend_spk0(tx: &mut Transaction) {
+    let spk = &mut tx.inputs[0].utxo_entry.script_public_key;
+    let n = spk.script_len;
+    spk.script[n..n + 3].copy_from_slice(&[1, 2, 3]);
+    spk.script_len = n + 3;
+}
+
+#[cfg(any(test, not(feature = "skip-tests")))]
+fn vec_set_subnetwork_id(tx: &mut Transaction) {
+    tx.subnetwork_id = [6, 6, 6, 4, 2, 0, 1, 3, 3, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+}
+
+/// Compare one computed digest against its expected value, naming it on failure.
+#[cfg(any(test, not(feature = "skip-tests")))]
+fn vec_check(
+    name: &str,
+    tx: &Transaction,
+    input_index: usize,
+    sighash_type: SigHashType,
+    expected: &[u8; 32],
+) -> bool {
+    let got = calculate_sighash(tx, input_index, sighash_type);
+    if &got == expected {
+        return true;
+    }
+    crate::log!(
+        "   [sighash-vec] FAIL {}: got {:02x}{:02x}{:02x}{:02x} want {:02x}{:02x}{:02x}{:02x}",
+        name, got[0], got[1], got[2], got[3],
+        expected[0], expected[1], expected[2], expected[3]
+    );
+    false
+}
+
+/// Consensus vectors from rusty-kaspa 2.0.1. Returns (passed, total).
+#[cfg(any(test, not(feature = "skip-tests")))]
+pub fn run_sighash_vectors() -> (u32, u32) {
+    let mut passed = 0u32;
+    let mut total = 0u32;
+
+    // Every case rebuilds its own transaction rather than mutating and
+    // restoring a shared one. A missed restore would make a later case pass or
+    // fail for a reason unrelated to what it tests, and these are the tests
+    // that are supposed to be trustworthy. Each box is freed at the end of its
+    // case, so peak heap is one transaction, not twenty-seven.
+    macro_rules! case {
+        ($name:expr, $build:expr, $idx:expr, $ty:expr, $exp:expr, $mutate:expr) => {{
+            total += 1;
+            match $build {
+                Some(mut tx) => {
+                    const EXPECTED: [u8; 32] = $exp;
+                    #[allow(clippy::redundant_closure_call)]
+                    ($mutate)(&mut *tx);
+                    if vec_check($name, &tx, $idx, $ty, &EXPECTED) {
+                        passed += 1;
+                    }
+                }
+                None => crate::log!("   [sighash-vec] SKIP {}: allocation failed", $name),
+            }
+        }};
+    }
+
+    // ── SIG_HASH_ALL, version 0 ─────────────────────────────────
+    case!("native-all-0", vec_build_native(0), 0, SigHashType::All,
+        [
+          0x03,0xb7,0xac,0x69,0x27,0xb2,0xb6,0x71,0x00,0x73,0x4c,0x3c,0xc3,0x13,0xff,0x8c,
+          0x2e,0x8b,0x3c,0xe3,0xe7,0x46,0xd4,0x6d,0xd6,0x60,0xb7,0x06,0xa9,0x16,0xb1,0xf5,
+        ],
+        nop);
+
+    // Another input's outpoint MUST change the digest: under ALL every
+    // input's previous outpoint is committed.
+    case!("native-all-0-modify-input-1", vec_build_native(0), 0, SigHashType::All,
+        [
+          0xa9,0xf5,0x63,0xd8,0x6c,0x0e,0xf1,0x9e,0xc2,0xe4,0xf4,0x83,0x90,0x1d,0x20,0x2e,
+          0x90,0x15,0x05,0x80,0xb6,0x12,0x3c,0x3d,0x49,0x2e,0x26,0xe7,0x96,0x5f,0x48,0x8c,
+        ],
+        |tx: &mut Transaction| tx.inputs[1].previous_outpoint.index = 2);
+
+    case!("native-all-0-modify-output-1", vec_build_native(0), 0, SigHashType::All,
+        [
+          0xaa,0xd2,0xb6,0x1b,0xd2,0x40,0x5d,0xfc,0xf7,0x29,0x4f,0xc2,0xbe,0x85,0xf3,0x25,
+          0x69,0x4f,0x02,0xdd,0xa2,0x2d,0x0a,0xf3,0x03,0x81,0xcb,0x50,0xd8,0x29,0x5e,0x0a,
+        ],
+        |tx: &mut Transaction| tx.outputs[1].value = 100);
+
+    case!("native-all-0-modify-sequence-1", vec_build_native(0), 0, SigHashType::All,
+        [
+          0x08,0x18,0xbd,0x0a,0x37,0x03,0x63,0x8d,0x4f,0x01,0x01,0x4c,0x92,0xcf,0x86,0x6a,
+          0x89,0x03,0xca,0xb3,0x6d,0xf2,0xfa,0x25,0x06,0xdc,0x0d,0x06,0xb9,0x42,0x95,0xe8,
+        ],
+        |tx: &mut Transaction| tx.inputs[1].sequence = 12345);
+
+    // A native transaction with an empty payload hashes the zero hash;
+    // giving it a payload must leave that branch.
+    case!("native-all-0-modify-payload", vec_build_native(0), 0, SigHashType::All,
+        [
+          0x72,0xea,0x6c,0x28,0x71,0xe0,0xf4,0x44,0x99,0xf1,0xc2,0xb5,0x56,0xf2,0x65,0xd9,
+          0x42,0x4b,0xfe,0xa6,0x7c,0xca,0x9c,0xb3,0x43,0xb4,0xb0,0x40,0xea,0xd6,0x55,0x25,
+        ],
+        vec_set_payload);
+
+    // ── Version 1: the sig-op-count material leaves the digest ──
+    // Version 1 is the covenant branch, live on mainnet since June 2026.
+    case!("native-v1-all-0", vec_build_native(1), 0, SigHashType::All,
+        [
+          0x5b,0x26,0x57,0x52,0x4b,0xe6,0x72,0xe0,0x19,0x89,0x76,0x46,0xb5,0x6d,0xa3,0xd1,
+          0x92,0xb4,0x53,0xd7,0x8a,0xe5,0xe6,0xe5,0xc0,0x7f,0x02,0x9a,0x69,0xf5,0xf0,0x75,
+        ],
+        nop);
+
+    // Same digest: at version 1 sig-op counts are not hashed at all, so
+    // changing one must be invisible. Catches a version gate that still
+    // hashes them.
+    case!("native-v1-all-0-modify-sigopcount-1", vec_build_native(1), 0, SigHashType::All,
+        [
+          0x5b,0x26,0x57,0x52,0x4b,0xe6,0x72,0xe0,0x19,0x89,0x76,0x46,0xb5,0x6d,0xa3,0xd1,
+          0x92,0xb4,0x53,0xd7,0x8a,0xe5,0xe6,0xe5,0xc0,0x7f,0x02,0x9a,0x69,0xf5,0xf0,0x75,
+        ],
+        |tx: &mut Transaction| tx.inputs[1].sig_op_count = 123);
+
+    // ── ALL | ANYONECANPAY ──────────────────────────────────────
+    case!("native-all-acp-0", vec_build_native(0), 0, SigHashType::AllAnyOneCanPay,
+        [
+          0x24,0x82,0x1e,0x46,0x6e,0x53,0xff,0x8e,0x5f,0xa9,0x32,0x57,0xcb,0x17,0xbb,0x06,
+          0x13,0x1a,0x48,0xbe,0x4e,0xf2,0x82,0xe8,0x7f,0x59,0xd2,0xbd,0xc9,0xaf,0xeb,0xc2,
+        ],
+        nop);
+
+    // Our OWN input still counts under ANYONECANPAY.
+    case!("native-all-acp-0-modify-input-0", vec_build_native(0), 0, SigHashType::AllAnyOneCanPay,
+        [
+          0xd0,0x9c,0xb6,0x39,0xf3,0x35,0xee,0x69,0xac,0x71,0xf2,0xad,0x43,0xfd,0x9e,0x59,
+          0x05,0x2d,0x38,0xa7,0xd0,0x63,0x8d,0xe4,0xcf,0x98,0x93,0x46,0x58,0x8a,0x7c,0x38,
+        ],
+        |tx: &mut Transaction| tx.inputs[0].previous_outpoint.index = 2);
+
+    // Other inputs must NOT. This is the point of ANYONECANPAY and the
+    // case a hasher that commits to everything gets wrong.
+    case!("native-all-acp-0-modify-input-1", vec_build_native(0), 0, SigHashType::AllAnyOneCanPay,
+        [
+          0x24,0x82,0x1e,0x46,0x6e,0x53,0xff,0x8e,0x5f,0xa9,0x32,0x57,0xcb,0x17,0xbb,0x06,
+          0x13,0x1a,0x48,0xbe,0x4e,0xf2,0x82,0xe8,0x7f,0x59,0xd2,0xbd,0xc9,0xaf,0xeb,0xc2,
+        ],
+        |tx: &mut Transaction| tx.inputs[1].previous_outpoint.index = 2);
+
+    case!("native-all-acp-0-modify-sequence-1", vec_build_native(0), 0, SigHashType::AllAnyOneCanPay,
+        [
+          0x24,0x82,0x1e,0x46,0x6e,0x53,0xff,0x8e,0x5f,0xa9,0x32,0x57,0xcb,0x17,0xbb,0x06,
+          0x13,0x1a,0x48,0xbe,0x4e,0xf2,0x82,0xe8,0x7f,0x59,0xd2,0xbd,0xc9,0xaf,0xeb,0xc2,
+        ],
+        |tx: &mut Transaction| tx.inputs[1].sequence = 12345);
+
+    // ── NONE ────────────────────────────────────────────────────
+    case!("native-none-0", vec_build_native(0), 0, SigHashType::None,
+        [
+          0x38,0xce,0x4b,0xc9,0x3c,0xf9,0x11,0x6d,0x2e,0x37,0x7b,0x33,0xff,0x84,0x49,0xc6,
+          0x65,0xb7,0xb5,0xe2,0xf2,0xe6,0x53,0x03,0xc5,0x43,0xb9,0xaf,0xda,0xa4,0xbb,0xba,
+        ],
+        nop);
+
+    // Outputs are not committed under NONE.
+    case!("native-none-0-modify-output-1", vec_build_native(0), 0, SigHashType::None,
+        [
+          0x38,0xce,0x4b,0xc9,0x3c,0xf9,0x11,0x6d,0x2e,0x37,0x7b,0x33,0xff,0x84,0x49,0xc6,
+          0x65,0xb7,0xb5,0xe2,0xf2,0xe6,0x53,0x03,0xc5,0x43,0xb9,0xaf,0xda,0xa4,0xbb,0xba,
+        ],
+        |tx: &mut Transaction| tx.outputs[1].value = 100);
+
+    // Our own sequence is still committed, through the per-input field
+    // rather than the sequences sub-hash.
+    case!("native-none-0-modify-sequence-0", vec_build_native(0), 0, SigHashType::None,
+        [
+          0xd9,0xef,0xdd,0x5e,0xda,0xa0,0xd3,0xfd,0x01,0x33,0xee,0x3a,0xb7,0x31,0xd8,0xc2,
+          0x0e,0x0a,0x1b,0x9f,0x3c,0x05,0x81,0x60,0x1a,0xe2,0x07,0x5d,0xb1,0x10,0x92,0x68,
+        ],
+        |tx: &mut Transaction| tx.inputs[0].sequence = 12345);
+
+    // Other sequences are not: the sequences sub-hash is zeroed.
+    case!("native-none-0-modify-sequence-1", vec_build_native(0), 0, SigHashType::None,
+        [
+          0x38,0xce,0x4b,0xc9,0x3c,0xf9,0x11,0x6d,0x2e,0x37,0x7b,0x33,0xff,0x84,0x49,0xc6,
+          0x65,0xb7,0xb5,0xe2,0xf2,0xe6,0x53,0x03,0xc5,0x43,0xb9,0xaf,0xda,0xa4,0xbb,0xba,
+        ],
+        |tx: &mut Transaction| tx.inputs[1].sequence = 12345);
+
+    // ── NONE | ANYONECANPAY ─────────────────────────────────────
+    case!("native-none-acp-0", vec_build_native(0), 0, SigHashType::NoneAnyOneCanPay,
+        [
+          0x06,0xaa,0x9f,0x42,0x39,0x49,0x1e,0x07,0xbb,0x2b,0x6b,0xda,0x6b,0x06,0x57,0xb9,
+          0x21,0xae,0xae,0x51,0xe1,0x93,0xd2,0xc5,0xbf,0x9e,0x81,0x43,0x9c,0xfe,0xaf,0xa0,
+        ],
+        nop);
+
+    // The amount being spent is committed per input, which is what stops
+    // a signature being replayed against a different UTXO.
+    case!("native-none-acp-0-modify-amount-spent", vec_build_native(0), 0, SigHashType::NoneAnyOneCanPay,
+        [
+          0xf0,0x7f,0x45,0xf3,0x63,0x4d,0x3e,0xa8,0xc0,0xf2,0xcb,0x67,0x6f,0x56,0xe2,0x09,
+          0x93,0xed,0xf9,0xbe,0x07,0xa8,0x3b,0xf0,0xdf,0xdb,0x3d,0xeb,0xcf,0x14,0x41,0xbf,
+        ],
+        |tx: &mut Transaction| tx.inputs[0].utxo_entry.amount = 666);
+
+    // So is the script being spent, length prefix included.
+    case!("native-none-acp-0-modify-prev-spk", vec_build_native(0), 0, SigHashType::NoneAnyOneCanPay,
+        [
+          0x20,0xa5,0x25,0xc5,0x4d,0xc3,0x3b,0x2a,0x61,0x20,0x1f,0x05,0x23,0x3c,0x08,0x6d,
+          0xbe,0x8e,0x06,0xe9,0x51,0x57,0x75,0x18,0x1e,0xd9,0x65,0x50,0xb4,0xf2,0xd7,0x14,
+        ],
+        vec_extend_spk0);
+
+    // ── SINGLE ──────────────────────────────────────────────────
+    case!("native-single-0", vec_build_native(0), 0, SigHashType::Single,
+        [
+          0x44,0xa0,0xb4,0x07,0xff,0x7b,0x23,0x9d,0x44,0x77,0x43,0xdd,0x50,0x3f,0x7a,0xd2,
+          0x3d,0xb5,0xb2,0xee,0x4d,0x25,0x27,0x9b,0xd3,0xdf,0xfa,0xf6,0xb4,0x74,0xe0,0x05,
+        ],
+        nop);
+
+    // Only the output at our own index is committed.
+    case!("native-single-0-modify-output-1", vec_build_native(0), 0, SigHashType::Single,
+        [
+          0x44,0xa0,0xb4,0x07,0xff,0x7b,0x23,0x9d,0x44,0x77,0x43,0xdd,0x50,0x3f,0x7a,0xd2,
+          0x3d,0xb5,0xb2,0xee,0x4d,0x25,0x27,0x9b,0xd3,0xdf,0xfa,0xf6,0xb4,0x74,0xe0,0x05,
+        ],
+        |tx: &mut Transaction| tx.outputs[1].value = 100);
+
+    // Input 2 has no output 2. The outputs sub-hash must be the zero hash,
+    // not an out-of-bounds read and not a panic.
+    case!("native-single-2-no-corresponding-output", vec_build_native(0), 2, SigHashType::Single,
+        [
+          0x02,0x2a,0xd9,0x67,0x19,0x2f,0x39,0xd8,0xd5,0x89,0x5d,0x24,0x3e,0x02,0x5e,0xc1,
+          0x4c,0xc7,0xa7,0x97,0x08,0xc5,0xe3,0x64,0x89,0x4d,0x4e,0xff,0x3c,0xec,0xb1,0xb0,
+        ],
+        nop);
+
+    case!("native-single-acp-0", vec_build_native(0), 0, SigHashType::SingleAnyOneCanPay,
+        [
+          0x43,0xb2,0x0a,0xba,0x77,0x50,0x50,0xcf,0x9b,0xa8,0xd5,0xe4,0x8f,0xc7,0xed,0x2d,
+          0xc6,0xc0,0x71,0xd2,0x3f,0x30,0x38,0x2a,0xea,0x58,0xb7,0xc5,0x9c,0xfb,0x8e,0xd7,
+        ],
+        nop);
+
+    case!("native-single-acp-2-no-corresponding-output", vec_build_native(0), 2, SigHashType::SingleAnyOneCanPay,
+        [
+          0x84,0x66,0x89,0x13,0x1f,0xb0,0x8b,0x77,0xf8,0x3a,0xf1,0xd3,0x90,0x10,0x76,0x73,
+          0x2e,0xf0,0x9d,0x3f,0x8f,0xdf,0xf9,0x45,0xbe,0x89,0xaa,0x43,0x00,0x56,0x2e,0x5f,
+        ],
+        nop);
+
+    // ── Subnetwork: gas, payload and subnetwork id enter the digest ──
+    case!("subnetwork-all-0", vec_build_subnetwork(), 0, SigHashType::All,
+        [
+          0xb2,0xf4,0x21,0xc9,0x33,0xeb,0x7e,0x1a,0x91,0xf1,0xd9,0xe1,0xef,0xa3,0xf1,0x20,
+          0xfe,0x41,0x93,0x26,0xc0,0xdb,0xac,0x48,0x77,0x52,0x18,0x95,0x22,0x55,0x0e,0x0c,
+        ],
+        nop);
+
+    case!("subnetwork-all-modify-payload", vec_build_subnetwork(), 0, SigHashType::All,
+        [
+          0x12,0xab,0x63,0xb9,0xae,0xa3,0xd5,0x8d,0xb3,0x39,0x24,0x5a,0x9b,0x6e,0x9c,0xb6,
+          0x07,0x5b,0x22,0x53,0x61,0x5c,0xe0,0xfb,0x18,0x10,0x4d,0x28,0xde,0x44,0x35,0xa1,
+        ],
+        vec_set_payload);
+
+    case!("subnetwork-all-modify-gas", vec_build_subnetwork(), 0, SigHashType::All,
+        [
+          0x25,0x01,0xed,0xfc,0x00,0x68,0xd5,0x91,0x16,0x0c,0x4b,0xd9,0x86,0x46,0xc6,0xe6,
+          0x89,0x2c,0xdc,0x05,0x11,0x82,0xa8,0xbe,0x3c,0xcd,0x6d,0x67,0xf1,0x04,0xfd,0x17,
+        ],
+        |tx: &mut Transaction| tx.gas = 1234);
+
+    case!("subnetwork-all-modify-subnetwork-id", vec_build_subnetwork(), 0, SigHashType::All,
+        [
+          0xa5,0xd1,0x23,0x0e,0xde,0x0d,0xfc,0xfd,0x52,0x2e,0x04,0x12,0x3a,0x7b,0xcd,0x72,
+          0x14,0x62,0xfe,0xd1,0xd3,0xa8,0x73,0x52,0x03,0x1a,0x4f,0x6e,0x3c,0x43,0x89,0xb6,
+        ],
+        vec_set_subnetwork_id);
+
+    (passed, total)
+}
+
+/// Runs all sighash tests: the local self-consistency checks first, then the
+/// consensus vectors.
+///
+/// The five local tests answer "does this module behave sensibly"; the vectors
+/// answer "does it agree with the node". Only the second question protects
+/// funds, but the first localises a failure faster when both fail together.
 #[cfg(any(test, feature = "verbose-boot"))]
-/// Run all sighash test vectors.
 pub fn run_sighash_tests() -> (u32, u32) {
     let mut passed = 0u32;
     let total = 5u32;
@@ -862,6 +1301,11 @@ pub fn run_sighash_tests() -> (u32, u32) {
     if test_sighash_different_inputs() { passed += 1; }
     if test_sign_transaction_complete() { passed += 1; }
     if test_format_kas() { passed += 1; }
+
+    // The consensus vectors are NOT run here. They moved to
+    // `boot_test::run_crypto_kats` so they execute in builds that ship, not
+    // only in `verbose-boot` builds that must never ship. Running them in both
+    // places would just hash the same 27 transactions twice per boot.
 
     (passed, total)
 }

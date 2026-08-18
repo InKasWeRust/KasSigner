@@ -20,6 +20,10 @@
 // Called from main loop when needs_redraw is true.
 
 use crate::{hw::battery, hw::display, hw::sound, features::fw_update, hw::sdcard, ui::seed_manager, wallet};
+// Only use of `log!` in this file: the N-04 frame-count backstop, which
+// should never fire because the density chooser greys out modes that do
+// not fit. If it does fire, the numbers are what you want.
+use crate::log;
 use embedded_graphics::prelude::DrawTarget;
 /// Redraw the current screen based on AppState. Called when needs_redraw is set.
 pub fn redraw_screen(
@@ -485,7 +489,8 @@ pub fn redraw_screen(
                 }
                 crate::app::input::AppState::ReviewTx { page } => {
                     boot_display.draw_tx_page(&ad.demo_tx, page,
-                        &ad.pubkey_cache, &ad.change_pubkey_cache);
+                        &ad.pubkey_cache, &ad.change_pubkey_cache,
+                        &ad.ms_store.configs);
                 }
                 crate::app::input::AppState::ConfirmTx => {
                     // TOTAL across all outputs, not outputs[0].
@@ -539,9 +544,21 @@ pub fn redraw_screen(
                         // covenants at once is not a shape this device
                         // constructs, and showing one identity is better than
                         // showing none.
-                        let cov_id = (0..ad.demo_tx.num_outputs)
-                            .find(|&i| ad.demo_tx.outputs[i].has_covenant)
-                            .map(|i| &ad.demo_tx.outputs[i].covenant_id);
+                        let cov_idx = (0..ad.demo_tx.num_outputs)
+                            .find(|&i| ad.demo_tx.outputs[i].has_covenant);
+                        // The binding's id when an output carries one, otherwise
+                        // the id of the covenant being spent from. Before the
+                        // input carried its covenant id there was nothing to
+                        // show in the second case and the screen fell back to a
+                        // label; a spend from a covenant is exactly when the
+                        // user most needs the number.
+                        let cov_id = cov_idx
+                            .map(|i| &ad.demo_tx.outputs[i].covenant_id)
+                            .or_else(|| {
+                                (0..ad.demo_tx.num_inputs)
+                                    .find(|&i| ad.demo_tx.inputs[i].utxo_entry.has_covenant)
+                                    .map(|i| &ad.demo_tx.inputs[i].utxo_entry.covenant_id)
+                            });
                         boot_display.draw_confirm_send_covenant(&amt_kas, &fee_kas, cov_id);
                     } else {
                         boot_display.draw_confirm_send_screen(&amt_kas, &fee_kas);
@@ -554,7 +571,7 @@ pub fn redraw_screen(
                     );
                 }
                 crate::app::input::AppState::ShowQrFrameChoice => {
-                    boot_display.draw_kspt_frame_choice();
+                    boot_display.draw_kspt_frame_choice(ad.qr_is_descriptor);
                 }
                 crate::app::input::AppState::ShowQrDensityChoice => {
                     // Second screen of the "KasSigner" KSPT export path —
@@ -563,7 +580,7 @@ pub fn redraw_screen(
                     // handler in handlers/menu.rs sets signed_qr_mode +
                     // signed_qr_large based on selection and transitions
                     // to ShowQR.
-                    boot_display.draw_kspt_density_choice();
+                    boot_display.draw_kspt_density_choice(ad.signed_qr_len);
                 }
                 crate::app::input::AppState::ShowQR => {
                     if ad.signed_qr_len > 0 {
@@ -600,7 +617,12 @@ pub fn redraw_screen(
                         // subsequent signers (v2 partial KSPT). False for
                         // descriptor export, kpub export, and regular
                         // P2PK txs where there's no SIGNER concept.
-                        let is_multisig = (0..ad.demo_tx.num_inputs).any(|i| {
+                        // A descriptor is not a transaction, so none of the
+                        // signature reasoning below applies to it. `demo_tx`
+                        // still holds whatever was parsed last, which is where
+                        // the stale m-of-n badge came from.
+                        let is_multisig = !ad.qr_is_descriptor
+                            && (0..ad.demo_tx.num_inputs).any(|i| {
                             let (st, _) = wallet::pskt::analyze_input_script(&ad.demo_tx, i);
                             st == wallet::transaction::ScriptType::Multisig
                                 || st == wallet::transaction::ScriptType::P2SH
@@ -608,7 +630,7 @@ pub fn redraw_screen(
                         // For the first signer derive sigs present/required
                         // from the tx itself so the SIGNER badge shows
                         // correct counts even without a prior v2 scan.
-                        if is_multisig && ad.tx_sigs_required == 0 {
+                        if is_multisig && ad.tx_sigs_required == 0 && !ad.qr_is_descriptor {
                             let (p, r) = wallet::pskt::signature_status(&ad.demo_tx);
                             ad.tx_sigs_present = p;
                             ad.tx_sigs_required = r;
@@ -622,6 +644,41 @@ pub fn redraw_screen(
                             boot_display.draw_qr_screen(&ad.signed_qr_buf[..ad.signed_qr_len]);
                         } else {
                             let n_frames = (ad.signed_qr_len + max_payload - 1) / max_payload;
+                            // N-04: never narrow an uncapped count.
+                            //
+                            // `signed_qr_nframes` is a u8, and this used to
+                            // store `n_frames as u8` with no comparison. A
+                            // payload needing 265 frames stored 9, and the
+                            // device then rendered nine frames each declaring
+                            // `total = 9`. A receiver has no way to know: nine
+                            // fragments of a 265-frame payload assemble into
+                            // 360 bytes that are not the transaction.
+                            //
+                            // Reachable from the "Safe" button (mode 3, 40
+                            // bytes/frame) with any payload above 10,240
+                            // bytes, which a fully signed 32-input 2-of-3
+                            // exceeds at 10,589. Counts between 65 and 255
+                            // stored correctly and were refused by the
+                            // receiver's own check, so those failed closed.
+                            //
+                            // The density chooser greys out modes that cannot
+                            // fit, so this is the backstop for any path that
+                            // reaches ShowQR without passing through it.
+                            if !crate::handlers::camera_loop::density_fits(
+                                ad.signed_qr_len, max_payload)
+                            {
+                                log!("   QR: {} bytes needs {} frames, limit {}",
+                                     ad.signed_qr_len, n_frames,
+                                     crate::handlers::camera_loop::MF_MAX_FRAMES);
+                                boot_display.draw_tx_error_screen(
+                                    "Too much data", "Use a lower density");
+                                // Same pairing every other refusal uses: without
+                                // the state change the app stays in ShowQR and a
+                                // tap is routed to the frame-advance handler with
+                                // no frames to advance.
+                                ad.app.state = crate::app::input::AppState::Rejected;
+                                return;
+                            }
                             // First time entering multi-frame: show mode choice
                             if ad.signed_qr_nframes == 0 {
                                 ad.signed_qr_frame = 0;
@@ -677,7 +734,12 @@ pub fn redraw_screen(
                     boot_display.draw_multisig_pick_seed(key_idx, ad.ms_creating.n, &ad.seed_mgr, ad.ms_scroll);
                 }
                 crate::app::input::AppState::MultisigShowAddress => {
-                    let mut label_buf = [0u8; 8];
+                    // 16, not 8: a 45' label is "2-of-3 45'#1", 12 bytes. At 8 it
+                    // truncated to "2-of-3 4", which reads as a different
+                    // threshold rather than as a cut-off label.
+                    // 24, not 16: the 45' label is now "2-of-3 45' S1/C0", exactly 16 bytes,
+                    // which would truncate at 16 and read as a different chain.
+                    let mut label_buf = [0u8; 24];
                     let label_len = ad.ms_creating.label(&mut label_buf);
                     let label = core::str::from_utf8(&label_buf[..label_len]).unwrap_or("?-of-?");
                     let script_hash = wallet::sighash::blake2b_hash(
@@ -687,6 +749,9 @@ pub fn redraw_screen(
                         &script_hash, wallet::address::AddressType::P2SH, &mut addr_buf);
                     boot_display.draw_multisig_result(label, addr,
                         ad.ms_creating.addr_index,
+                        if ad.ms_creating.v45 {
+                            Some((ad.ms_creating.cosigner_index, ad.ms_creating.chain))
+                        } else { None },
                         &ad.ms_creating.script[..ad.ms_creating.script_len]);
                 }
                 crate::app::input::AppState::MultisigShowAddressQR => {
@@ -707,7 +772,12 @@ pub fn redraw_screen(
                     }
                 }
                 crate::app::input::AppState::MultisigDescriptor => {
-                    let mut label_buf = [0u8; 8];
+                    // 16, not 8: a 45' label is "2-of-3 45'#1", 12 bytes. At 8 it
+                    // truncated to "2-of-3 4", which reads as a different
+                    // threshold rather than as a cut-off label.
+                    // 24, not 16: the 45' label is now "2-of-3 45' S1/C0", exactly 16 bytes,
+                    // which would truncate at 16 and read as a different chain.
+                    let mut label_buf = [0u8; 24];
                     let label_len = ad.ms_creating.label(&mut label_buf);
                     let label = core::str::from_utf8(&label_buf[..label_len]).unwrap_or("?-of-?");
                     // Build x-only views of each cosigner parent pubkey for the
@@ -817,7 +887,7 @@ pub fn redraw_screen(
                     boot_display.draw_sd_file_list_ex(&ad.sd_file_list, ad.sd_file_count, ad.sd_file_scroll, &fps, 0);
                 }
                 crate::app::input::AppState::ShowQrPopup => {
-                    boot_display.draw_showqr_popup();
+                    boot_display.draw_showqr_popup(ad.qr_is_descriptor);
                 }
                 crate::app::input::AppState::SdKsptFilename => {
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "FILENAME");

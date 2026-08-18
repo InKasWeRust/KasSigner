@@ -65,6 +65,29 @@ impl SkewedGridLocation {
          */
         let grid_size = measure_timing_pattern(img, &group);
 
+        // Bound the grid size both ways before anything downstream uses it.
+        //
+        // LOWER: 21 is QR version 1, the smallest grid that exists. Anything
+        // below it is not a QR and the timing scan misread the pattern.
+        //
+        // UPPER: 69 is version 13. The device's own encoder stops at V9
+        // (`qr/encoder.rs`, MAX_VERSION = 9, 230 bytes) because the Fast
+        // density is 227 bytes/frame; KasSee's chunked path is capped at 251
+        // bytes, landing at V10-V11 (grid 57-61); its unbounded
+        // `generate_svg_from_text` (swap invites, commitment messages) is the
+        // only thing that could go higher, and anything past V13 is already
+        // beyond what this camera resolves reliably.
+        //
+        // WHY IT MATTERS: `grid_size > 21` is the gate into
+        // `find_alignment_pattern`, whose spiral is bounded by an UNBOUNDED
+        // `size_estimate` (see the note there). A misread timing pattern
+        // reporting version 40 opens that door for free.
+        const MIN_PLAUSIBLE_GRID: usize = 21;
+        const MAX_PLAUSIBLE_GRID: usize = 69;
+        if !(MIN_PLAUSIBLE_GRID..=MAX_PLAUSIBLE_GRID).contains(&grid_size) {
+            return None;
+        }
+
         /* Make an estimate based for the alignment pattern based on extending
          * lines from capstones A and C.
          */
@@ -252,10 +275,34 @@ where
      * roughly the right size. Don't look too far from the estimate
      * point.
      */
+    // Bound the spiral to the image.
+    //
+    // `size_estimate` is an area derived from a perspective un-map/re-map of
+    // the capstone geometry, and NOTHING bounds it: near-degenerate geometry
+    // makes it enormous. The loop below runs while `step_size^2 <
+    // size_estimate * 100` and its total work is quadratic in `step_size`, so
+    // an unbounded estimate makes it effectively unbounded. The comment above
+    // it already said "Don't look too far from the estimate point"; nothing
+    // enforced that.
+    //
+    // MEASURED, host fuzz 2026-08-15 (K-F), at the real capture geometry
+    // (480x480, denom 3, the size camera_loop feeds): 5 capstones, 1 group,
+    // `size_estimate` 1,591,728, so the spiral ran to step_size ~12,616 on an
+    // image whose diagonal is 679 px. `detect_grids` took 709 ms on a desktop
+    // x86 and returned zero grids; on an ESP32-S3 that is 15-20 seconds of
+    // core 1 unresponsive while a QR is in front of the camera. At other sizes
+    // the same mechanism reached 31 seconds.
+    //
+    // An alignment pattern is a handful of modules across and always inside
+    // the frame, so a search wider than the image diagonal is meaningless by
+    // construction. Clamping to the diagonal cannot reject a real one.
+    let diag = img.width().saturating_add(img.height());
+    let size_estimate = size_estimate.min(diag.saturating_mul(diag));
+
     let mut dir = 0;
     let mut step_size = 1;
 
-    while step_size * step_size < size_estimate * 100 {
+    while step_size * step_size < size_estimate * 100 && step_size <= diag {
         const DX_MAP: [i32; 4] = [1, 0, -1, 0];
         const DY_MAP: [i32; 4] = [0, -1, 0, 1];
         for _pass in 0..step_size {

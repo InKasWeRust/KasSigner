@@ -21,9 +21,10 @@ full security policy.
 5. Ensure the firmware compiles for both targets:
    - Waveshare: `cd bootloader && ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release --features waveshare`
    - M5Stack: `cd bootloader && cargo build --release --no-default-features --features m5stack`
-6. Run clippy for both targets, and make sure it is clean:
-   - Waveshare: `cd bootloader && ESP_HAL_CONFIG_PSRAM_MODE=octal cargo clippy --release --features ov5640-af`
-   - M5Stack: `cd bootloader && cargo clippy --release --no-default-features --features m5stack`
+6. Run clippy in the three project configurations, all with `-D warnings`, and make sure every one is clean:
+   - M5Stack: `cd bootloader && cargo clippy --release --no-default-features --features m5stack -- -D warnings`
+   - Waveshare: `cd bootloader && ESP_HAL_CONFIG_PSRAM_MODE=octal cargo clippy --release --features ov5640-af -- -D warnings`
+   - M5Stack with the measurement features: `cd bootloader && cargo clippy --release --no-default-features --features m5stack,e12-capture,rng-probe -- -D warnings`
 7. Flash and check the boot output: the hardware self-tests and the crypto known-answer tests run at boot and must all pass. Do not build with `skip-tests` for this step, since that is what removes them
 8. If modifying KasSee Web (`kassee/`), verify the WASM build: `cd kassee && RUSTUP_TOOLCHAIN=stable ./build.sh`
 9. Commit with clear messages

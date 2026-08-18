@@ -299,9 +299,62 @@ fn parse_utxo_payload(data: &[u8]) -> Result<Vec<UtxoEntry>, String> {
 
 // ─── WebSocket RPC call ───
 
-async fn ws_rpc_call(ws_url: &str, op: u8, payload: &[u8]) -> Result<Vec<u8>, String> {
+// ─── Connection pool ───
+//
+// One socket per URL, held open and reused.
+//
+// Every call used to open a fresh WebSocket and close it at the end, so a
+// balance refresh paid a TCP connect, a TLS handshake and the node's own
+// handshake before a single byte of request went out - and `withNodeRetry` can
+// repeat that across several nodes. With 85 addresses the query itself is one
+// message; the seconds were setup. Reconnecting that often also looks, from a
+// public node's side, like a client hammering connection setup, which is what
+// gets throttled.
+//
+// Responses already carry the request id and are matched on it, so reuse needs
+// no protocol change. A socket is dropped from the pool on any failure and the
+// next call reopens it, which is also how a node going away is handled.
+thread_local! {
+    static WS_POOL: RefCell<Option<(String, WebSocket)>> = const { RefCell::new(None) };
+}
+
+/// A socket that is OPEN for this url, reusing the pooled one when possible.
+fn pooled_socket(ws_url: &str) -> Result<(WebSocket, bool), String> {
+    let existing = WS_POOL.with(|p| {
+        let b = p.borrow();
+        match &*b {
+            Some((url, ws)) if url == ws_url && ws.ready_state() == WebSocket::OPEN => {
+                Some(ws.clone())
+            }
+            _ => None,
+        }
+    });
+    if let Some(ws) = existing {
+        return Ok((ws, true));
+    }
+    // Replace whatever was there: a different url, or a socket no longer open.
+    WS_POOL.with(|p| {
+        if let Some((_, old)) = p.borrow_mut().take() {
+            old.close().ok();
+        }
+    });
     let ws = WebSocket::new(ws_url).map_err(|e| format!("WS create: {:?}", e))?;
     ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
+    WS_POOL.with(|p| *p.borrow_mut() = Some((ws_url.to_string(), ws.clone())));
+    Ok((ws, false))
+}
+
+/// Drop the pooled socket so the next call reconnects.
+fn drop_pooled_socket() {
+    WS_POOL.with(|p| {
+        if let Some((_, ws)) = p.borrow_mut().take() {
+            ws.close().ok();
+        }
+    });
+}
+
+async fn ws_rpc_call(ws_url: &str, op: u8, payload: &[u8]) -> Result<Vec<u8>, String> {
+    let (ws, reused) = pooled_socket(ws_url)?;
 
     let id: u64 = (js_sys::Math::random() * 1_000_000.0) as u64;
     let request = build_request(id, op, payload);
@@ -315,8 +368,12 @@ async fn ws_rpc_call(ws_url: &str, op: u8, payload: &[u8]) -> Result<Vec<u8>, St
         js_sys::Promise::new(&mut |resolve, _reject| {
             let res = result.clone();
             let req = request.clone();
+            let req_now = request.clone();
             let ws2 = ws.clone();
 
+            // Registered below either way; on a REUSED socket `onopen` will
+            // never fire again, so the send is done directly after the handlers
+            // are in place instead of waiting for an event that has passed.
             let on_open = Closure::once(move |_: JsValue| {
                 let arr = js_sys::Uint8Array::from(&req[..]);
                 ws2.send_with_array_buffer(&arr.buffer()).ok();
@@ -406,6 +463,14 @@ async fn ws_rpc_call(ws_url: &str, op: u8, payload: &[u8]) -> Result<Vec<u8>, St
             on_message.forget();
             on_error.forget();
 
+            // Reused socket: send immediately, since `onopen` already fired for
+            // this connection and will not fire again. Done AFTER onmessage is
+            // registered, or a fast reply could arrive with no handler.
+            if reused {
+                let arr = js_sys::Uint8Array::from(&req_now[..]);
+                ws.send_with_array_buffer(&arr.buffer()).ok();
+            }
+
             // 15-second timeout: if no response arrives, resolve with timeout error
             let res4 = res.clone();
             let resolve4 = resolve.clone();
@@ -434,10 +499,34 @@ async fn ws_rpc_call(ws_url: &str, op: u8, payload: &[u8]) -> Result<Vec<u8>, St
     JsFuture::from(promise)
         .await
         .map_err(|_| "Promise failed".to_string())?;
-    ws.close().ok();
+    // NOT closed: the socket stays in the pool for the next call. Only a
+    // failure drops it, below.
 
     let response = result.borrow_mut().take();
-    response.unwrap_or_else(|| Err("No response".into()))
+    match response {
+        Some(Ok(v)) => Ok(v),
+        Some(Err(e)) => {
+            // Classify by KIND, not by Ok/Err.
+            //
+            // An RPC-level error means the node answered and the socket is
+            // healthy - keep it. A TIMEOUT or a socket error means the opposite,
+            // and those arrive as Err too.
+            //
+            // Getting this wrong kept a dead socket pooled: a node that had gone
+            // away left the browser's `ready_state` at OPEN (half-open TCP), so
+            // every refresh sent into the void and waited the full 15 s. Nothing
+            // recovered until reload.
+            if e.contains("timeout") || e.contains("WebSocket error") {
+                drop_pooled_socket();
+            }
+            Err(e)
+        }
+        None => {
+            // No response at all: the socket died mid-flight.
+            drop_pooled_socket();
+            Err("No response".into())
+        }
+    }
 }
 
 // ─── Public API: UTXO fetch ───
@@ -451,6 +540,24 @@ pub async fn fetch_all_utxos(ws_url: &str, wallet: &WalletData) -> Result<Vec<Ut
         .collect();
 
     let payload = build_get_utxos_payload(&all_addresses)?;
+    let response = ws_rpc_call(ws_url, OP_GET_UTXOS_BY_ADDRESSES, &payload).await?;
+    parse_utxo_payload(&response)
+}
+
+/// Fetch UTXOs for MANY addresses in ONE call.
+///
+/// `getUtxosByAddresses` has always taken a list; `fetch_utxos_for_address`
+/// merely wrapped a single-element vector around it. Callers that loop over
+/// addresses were paying a network round trip each for a question the node
+/// answers once.
+pub async fn fetch_utxos_for_addresses(
+    ws_url: &str,
+    addresses: &[String],
+) -> Result<Vec<UtxoEntry>, String> {
+    if addresses.is_empty() {
+        return Ok(Vec::new());
+    }
+    let payload = build_get_utxos_payload(addresses)?;
     let response = ws_rpc_call(ws_url, OP_GET_UTXOS_BY_ADDRESSES, &payload).await?;
     parse_utxo_payload(&response)
 }

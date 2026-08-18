@@ -107,6 +107,35 @@ pub fn handle_tx_touch(
                             let in_cancel  = (30..=290).contains(&x) && (168..=230).contains(&y);
 
                             if in_confirm {
+                                // REFUSE a transaction whose change claim a
+                                // trusted descriptor contradicts.
+                                //
+                                // Not the same as an unverifiable claim, which
+                                // is only warned about: there the device lacks
+                                // the information and the risk is the user's to
+                                // take. Here a descriptor that reproduces this
+                                // transaction's own INPUT - so it is this
+                                // wallet's key set - fails to reproduce the
+                                // output. The claim is false, and no honest
+                                // coordinator produces that.
+                                //
+                                // Forging it would need the whole cosigner set,
+                                // and anyone holding that already knows the real
+                                // addresses, so there is no benign reading.
+                                if let Some(o) = crate::wallet::transaction::find_forged_change(
+                                    &ad.demo_tx, &ad.ms_store.configs,
+                                ) {
+                                    crate::log!(
+                                        "   REFUSED: output {} claims to be change at a path \
+                                         this wallet's descriptor does not produce",
+                                        o + 1
+                                    );
+                                    boot_display.draw_rejected_screen("Forged change output");
+                                    sound::beep_error(delay);
+                                    delay.delay_millis(2500);
+                                    ad.app.go_main_menu();
+                                    return Some(true);
+                                }
                                 ad.app.menu.cursor = 0;
                                 let evt = crate::app::input::ButtonEvent::LongPress;
                                 ad.app.handle_boot(evt);
@@ -148,6 +177,18 @@ pub fn handle_tx_touch(
                                 ad.ms_creating = wallet::transaction::MultisigConfig::new();
                                 ad.ms_creating.m = ad.ms_m;
                                 ad.ms_creating.n = ad.ms_n;
+                                // 45' ONLY from v1.0.6. The rusty-kaspa standard, so a
+                                // wallet made here is reproducible by kaspawallet.
+                                //
+                                // Every 44' path stays reachable forever: existing
+                                // wallets hold funds at those addresses, and the device
+                                // must still parse `multi_hd(`, run the 44' branch of
+                                // build_script, match keys with the 44' matcher, and
+                                // re-export a 44' descriptor. What dies here is only the
+                                // ability to CREATE a new one. The 44' branch is legacy,
+                                // not dead code: deleting it strands every existing
+                                // wallet with no way to rebuild its address.
+                                ad.ms_creating.v45 = true;
                                 ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: 0 };
                                 needs_redraw = true;
                             }
@@ -301,14 +342,53 @@ pub fn handle_tx_touch(
                                         // build_script() never used; it has been
                                         // removed entirely.
                                         if key_idx < ad.ms_creating.n {
-                                            let acct = wallet::bip32::ExtendedPrivKey::from_raw(&ad.acct_key_raw);
-                                            // Export own account xpub (pubkey + chain code) —
-                                            // both needed for HD derivation of per-address children.
-                                            if let Ok(own_xpub) = acct.to_xpub() {
-                                                ad.ms_creating.cosigner_pubkeys[key_idx as usize] = own_xpub.pubkey;
-                                                ad.ms_creating.cosigner_chain_codes[key_idx as usize] = own_xpub.chain_code;
+                                            // Our own entry, from the 45' subtree.
+                                            //
+                                            // NOT `acct_key_raw`: that holds the 44' account
+                                            // key at m/44'/111111'/0', a different subtree
+                                            // entirely. Using it here would put a 44' key in a
+                                            // 45' descriptor, which parses cleanly, has a valid
+                                            // checksum, and yields an address no quorum can
+                                            // spend. The seed is derived fresh and wiped.
+                                            let own = crate::app::signing::own_multisig_parts(ad);
+                                            if own.is_none() {
+                                                // Say so. This used to be a bare
+                                                // `if let Some(..)` with no else: on a
+                                                // slot that cannot produce a 45' key the
+                                                // tap did nothing at all - no key added,
+                                                // no state change, no message.
+                                                //
+                                                // An xprv slot is imported AT 44' account
+                                                // level, so the parent to walk down the
+                                                // 45' branch from does not exist. It can
+                                                // never be a cosigner in a 45' wallet, and
+                                                // that is worth saying at the moment
+                                                // someone tries rather than leaving them
+                                                // tapping a dead button.
+                                                boot_display.draw_rejected_screen(
+                                                    if ad.active_kind()
+                                                        == crate::ui::seed_manager::SlotKind::Xprv
+                                                    {
+                                                        "xprv slot cannot be a 45' cosigner"
+                                                    } else {
+                                                        "No seed loaded"
+                                                    },
+                                                );
+                                                sound::beep_error(delay);
+                                                delay.delay_millis(2000);
+                                                needs_redraw = true;
+                                                break;
+                                            }
+                                            if let Some(parts) = own {
+                                                ad.ms_creating.set_cosigner(key_idx as usize, &parts);
                                                 let next = key_idx + 1;
                                                 if next >= ad.ms_creating.n {
+                                                    // Canonical order before the
+                                                    // script, then re-derive our
+                                                    // own slot. See the note at
+                                                    // the camera_loop site.
+                                                    ad.ms_creating.sort_cosigners();
+                                                    let _ = crate::app::signing::resolve_ms_cosigner_index(ad);
                                                     ad.ms_creating.build_script();
                                                     ad.ms_creating.active = true;
                                                     if let Some(ms_slot) = ad.ms_store.find_free() {
@@ -337,18 +417,55 @@ pub fn handle_tx_touch(
                             }
                             needs_redraw = true;
                         } else if y >= 195 {
-                            // Bottom nav band — split by x into [<] / [#N] / [>].
-                            if x <= 90 {
+                            // Bottom nav band — [<] [cN] [#N] [>].
+                            //
+                            // [cN] is 45' only: it picks the COSIGNER family, the
+                            // level 44' does not have. Placed in the gap between
+                            // [<] and [#N] so neither existing target shrinks.
+                            // 45' band: [<] S1 / C0 / #5 [>]. S and C CYCLE on tap;
+                            // #N keeps the picker, where 0..99 needs one.
+                            //
+                            // Cycling suits a value with two or five options: no
+                            // keypad, no wrong prompt, and an invalid value cannot
+                            // be entered at all.
+                            if ad.ms_creating.v45 && (118..=158).contains(&x) {
+                                // C — chain: 0 receive, 1 change.
+                                ad.ms_creating.chain ^= 1;
+                                ad.ms_creating.build_script();
+                                needs_redraw = true;
+                            } else if ad.ms_creating.v45 && (166..=250).contains(&x) {
+                                // #N — address index picker.
+                                ad.addr_input_len = 0;
+                                ad.ms_picking_key = 255;
+                                ad.app.state = crate::app::input::AppState::AddrIndexPicker;
+                                needs_redraw = true;
+                            } else if ad.ms_creating.v45 && (62..=110).contains(&x) {
+                                // CYCLES, it does not open the picker.
+                                //
+                                // The cosigner index has at most MAX_MULTISIG_KEYS
+                                // values - two for a 2-of-2 - so a numeric keypad
+                                // titled "go to address #" was the wrong instrument
+                                // for it: wrong prompt, and it accepted values that
+                                // are not families. One tap advances, wrapping at n,
+                                // so an invalid value cannot be entered at all.
+                                //
+                                // [#N] keeps the picker, where 0..99 needs one.
+                                let n = ad.ms_creating.n;
+                                if n > 0 {
+                                    ad.ms_creating.cosigner_index =
+                                        (ad.ms_creating.cosigner_index + 1) % n;
+                                    ad.ms_creating.build_script();
+                                }
+                                needs_redraw = true;
+                            } else if x <= 90 {
                                 // [<] — previous address (saturating at 0)
                                 if ad.ms_creating.addr_index > 0 {
                                     ad.ms_creating.addr_index -= 1;
                                     ad.ms_creating.build_script();
                                     for i in 0..crate::wallet::transaction::MAX_MULTISIG_WALLETS {
                                         if ad.ms_store.configs[i].active
-                                            && ad.ms_store.configs[i].m == ad.ms_creating.m
-                                            && ad.ms_store.configs[i].n == ad.ms_creating.n
-                                            && ad.ms_store.configs[i].cosigner_pubkeys
-                                                == ad.ms_creating.cosigner_pubkeys
+                                            && ad.ms_store.configs[i]
+                                                .same_wallet_as(&ad.ms_creating)
                                         {
                                             ad.ms_store.configs[i] = ad.ms_creating.clone();
                                             break;
@@ -363,10 +480,8 @@ pub fn handle_tx_touch(
                                     ad.ms_creating.build_script();
                                     for i in 0..crate::wallet::transaction::MAX_MULTISIG_WALLETS {
                                         if ad.ms_store.configs[i].active
-                                            && ad.ms_store.configs[i].m == ad.ms_creating.m
-                                            && ad.ms_store.configs[i].n == ad.ms_creating.n
-                                            && ad.ms_store.configs[i].cosigner_pubkeys
-                                                == ad.ms_creating.cosigner_pubkeys
+                                            && ad.ms_store.configs[i]
+                                                .same_wallet_as(&ad.ms_creating)
                                         {
                                             ad.ms_store.configs[i] = ad.ms_creating.clone();
                                             break;
@@ -454,26 +569,15 @@ pub fn handle_tx_touch(
                                 // Size: 130 hex chars per cosigner vs 64 in v1.0.x — descriptor
                                 // QR roughly 2× larger. Still fits in single QR for N≤3; N=4..5
                                 // may require multi-frame.
-                                let hex = b"0123456789abcdef";
-                                let mut pos: usize = 0;
-                                for &b in b"multi_hd(" { ad.signed_qr_buf[pos] = b; pos += 1; }
-                                ad.signed_qr_buf[pos] = b'0' + ad.ms_creating.m; pos += 1;
-                                for i in 0..ad.ms_creating.n as usize {
-                                    ad.signed_qr_buf[pos] = b','; pos += 1;
-                                    // Compressed pubkey (33 bytes = 66 hex chars)
-                                    let pk = &ad.ms_creating.cosigner_pubkeys[i];
-                                    for j in 0..33 {
-                                        ad.signed_qr_buf[pos] = hex[(pk[j] >> 4) as usize]; pos += 1;
-                                        ad.signed_qr_buf[pos] = hex[(pk[j] & 0x0f) as usize]; pos += 1;
-                                    }
-                                    // Chain code (32 bytes = 64 hex chars)
-                                    let cc = &ad.ms_creating.cosigner_chain_codes[i];
-                                    for j in 0..32 {
-                                        ad.signed_qr_buf[pos] = hex[(cc[j] >> 4) as usize]; pos += 1;
-                                        ad.signed_qr_buf[pos] = hex[(cc[j] & 0x0f) as usize]; pos += 1;
-                                    }
-                                }
-                                ad.signed_qr_buf[pos] = b')'; pos += 1;
+                                // One writer for both schemes, next to the parser
+                                // that reads it back. Header on for a file: it
+                                // tells a human what they opened, and every
+                                // reader skips it.
+                                let pos = crate::handlers::sd::write_descriptor(
+                                    &ad.ms_creating,
+                                    &mut ad.signed_qr_buf,
+                                    true,
+                                );
                                 ad.signed_qr_len = pos;
 
                                 // Auto-increment filename: MD000001.TXT
@@ -490,28 +594,22 @@ pub fn handle_tx_touch(
                                 needs_redraw = true;
                         } else if (190..=230).contains(&y) && (10..=150).contains(&x) {
                                 // QR button — show HD descriptor as QR for KasSee / another KasSigner.
-                                let hex = b"0123456789abcdef";
-                                let mut pos: usize = 0;
-                                for &b in b"multi_hd(" { ad.signed_qr_buf[pos] = b; pos += 1; }
-                                ad.signed_qr_buf[pos] = b'0' + ad.ms_creating.m; pos += 1;
-                                for i in 0..ad.ms_creating.n as usize {
-                                    ad.signed_qr_buf[pos] = b','; pos += 1;
-                                    let pk = &ad.ms_creating.cosigner_pubkeys[i];
-                                    for j in 0..33 {
-                                        ad.signed_qr_buf[pos] = hex[(pk[j] >> 4) as usize]; pos += 1;
-                                        ad.signed_qr_buf[pos] = hex[(pk[j] & 0x0f) as usize]; pos += 1;
-                                    }
-                                    let cc = &ad.ms_creating.cosigner_chain_codes[i];
-                                    for j in 0..32 {
-                                        ad.signed_qr_buf[pos] = hex[(cc[j] >> 4) as usize]; pos += 1;
-                                        ad.signed_qr_buf[pos] = hex[(cc[j] & 0x0f) as usize]; pos += 1;
-                                    }
-                                }
-                                ad.signed_qr_buf[pos] = b')'; pos += 1;
+                                // Header OFF for a QR: 46 bytes of payload that
+                                // cost frames, that nobody reads on screen, and
+                                // that KasSee's parser does not skip.
+                                let pos = crate::handlers::sd::write_descriptor(
+                                    &ad.ms_creating,
+                                    &mut ad.signed_qr_buf,
+                                    false,
+                                );
                                 ad.signed_qr_len = pos;
                                 ad.signed_qr_nframes = 0;
                                 ad.signed_qr_frame = 0;
                                 ad.qr_manual_frames = false;
+                                // Not a transaction: suppress the signature
+                                // badges `ShowQR` draws from `demo_tx`, which
+                                // here is whatever was parsed last.
+                                ad.qr_is_descriptor = true;
                                 ad.app.state = crate::app::input::AppState::ShowQR;
                                 needs_redraw = true;
                         }

@@ -278,6 +278,7 @@ pub async fn create_multisig_pskb(
     fee_sompi: u64,
     change_address: &str,
     ws_url: &str,
+    change_index_hint: u32,
     addr_index: u32,
 ) -> Result<String, JsValue> {
     kspt::create_multisig_pskb(
@@ -288,6 +289,7 @@ pub async fn create_multisig_pskb(
         fee_sompi,
         change_address,
         ws_url,
+        change_index_hint,
         addr_index,
     )
     .await
@@ -306,6 +308,7 @@ pub async fn create_multisig_pskb_selected(
     fee_sompi: u64,
     change_address: &str,
     ws_url: &str,
+    change_index_hint: u32,
     addr_index: u32,
     utxo_csv: &str,
 ) -> Result<String, JsValue> {
@@ -321,6 +324,7 @@ pub async fn create_multisig_pskb_selected(
         fee_sompi,
         change_address,
         ws_url,
+        change_index_hint,
         addr_index,
         &indices,
     )
@@ -335,6 +339,102 @@ pub async fn fetch_utxos_for_address_js(address: &str, ws_url: &str) -> Result<S
         .await
         .map_err(|e| JsValue::from_str(&e))?;
     serde_json::to_string(&utxos).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+/// Fetch UTXOs for MANY addresses in one RPC call → JSON array.
+///
+/// `addresses_json` is a JSON array of address strings.
+///
+/// The single-address binding above, called in a loop, is one network round
+/// trip per address. The stealth scan does exactly that over up to
+/// STEALTH_MAX_R = 512 candidates, which is 512 sequential round trips for a
+/// question the node answers in one: `getUtxosByAddresses` takes a LIST, and
+/// `fetch_utxos_for_address` only ever wrapped a single-element vector around
+/// it.
+///
+/// Each returned UTXO carries its own `script_public_key`, so the caller can
+/// still attribute results to addresses without asking per address.
+#[wasm_bindgen]
+pub async fn fetch_utxos_for_addresses_js(
+    addresses_json: &str,
+    ws_url: &str,
+) -> Result<String, JsValue> {
+    let addresses: Vec<String> = serde_json::from_str(addresses_json)
+        .map_err(|e| JsValue::from_str(&format!("addresses_json: {}", e)))?;
+    if addresses.is_empty() {
+        return Ok("[]".to_string());
+    }
+    let utxos = rpc::fetch_utxos_for_addresses(ws_url, &addresses)
+        .await
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&utxos).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+/// Build a 45' multisig PSKB spending MANY addresses of one branch.
+///
+/// `sources_json` is `[{"address":"kaspa:...","tx_id":"...","index":0}, ...]` -
+/// one entry per UTXO, so the caller picks both the addresses and the outputs.
+///
+/// Each input carries its own redeem script and derivation path, which is the
+/// whole difference from the single-address builders.
+///
+/// Spending several addresses together links them permanently on chain; that is
+/// the caller's choice to make, and the reason this is a separate entry point.
+// wasm-bindgen exports take scalars from JS; a parameter struct is not an
+// option at this boundary, so the eight arguments stay.
+#[allow(clippy::too_many_arguments)]
+#[wasm_bindgen]
+pub async fn create_multisig_pskb_multi_js(
+    descriptor: &str,
+    sources_json: &str,
+    dest_address: &str,
+    amount_sompi: u64,
+    fee_sompi: u64,
+    cosigner_index: u32,
+    change_index_hint: u32,
+    ws_url: &str,
+) -> Result<String, JsValue> {
+    kspt::create_multisig_pskb_multi(
+        descriptor,
+        sources_json,
+        dest_address,
+        amount_sompi,
+        fee_sompi,
+        cosigner_index,
+        change_index_hint,
+        ws_url,
+    )
+    .await
+    .map_err(|e| JsValue::from_str(&e))
+}
+
+/// One multisig address at an exact path → address string. No network.
+///
+/// Used to identify which branch an address belongs to: derive candidates until
+/// one matches. That search runs in the browser and sends nothing, which is why
+/// it may try every branch while the network scan below must not.
+#[wasm_bindgen]
+pub fn multisig_address_at_js(
+    descriptor: &str,
+    addr_index: u32,
+    cosigner_index: u32,
+    chain: u32,
+) -> Result<String, JsValue> {
+    kspt::multisig_address_at(descriptor, addr_index, cosigner_index, chain)
+        .map_err(|e| JsValue::from_str(&e))
+}
+
+/// Scan ONE cosigner branch → JSON.
+#[wasm_bindgen]
+pub async fn scan_multisig_branch_js(
+    descriptor: &str,
+    cosigner_index: u32,
+    depth: u32,
+    ws_url: &str,
+) -> Result<String, JsValue> {
+    kspt::scan_multisig_branch(descriptor, cosigner_index, depth, ws_url)
+        .await
+        .map_err(|e| JsValue::from_str(&e))
 }
 
 // ─── Single-sig PSKB (standard PSKT wire format for P2PK) ───

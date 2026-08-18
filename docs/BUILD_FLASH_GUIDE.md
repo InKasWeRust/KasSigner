@@ -5,7 +5,7 @@
 # KasSigner: Build, Sign & Flash Guide
 
 > Step-by-step guide for building, signing, and flashing KasSigner firmware.
-> Covers all three device configurations: dev Waveshare, eFuse Waveshare, and M5Stack.
+> Covers dev and eFuse Waveshare, and dev and eFuse M5Stack CoreS3 Lite.
 
 ## Prerequisites
 
@@ -166,11 +166,11 @@ nothing gates anything. **The same procedure works on both boards**, and it
 starts from a powered-off device:
 
 1. Unplug USB (the device must be off)
-2. Press and hold the BOOT button (the reset button on M5Stack CoreS3)
+2. Press and hold the BOOT button (both boards have one)
 3. Plug USB in while still holding
 4. Release the button
 
-Verified on both Waveshare and M5Stack CoreS3, 2026-08-03.
+Verified on Waveshare 2026-08-03 and on a Secure Boot provisioned M5Stack CoreS3 Lite running production firmware 2026-08-18.
 
 Holding the button and tapping RESET with the cable already connected does NOT
 work. The board has to be powered off first: GPIO0 is sampled as the chip
@@ -232,10 +232,10 @@ The simplest path. Uses `espflash` directly.
 
 ```bash
 cd bootloader
-ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release --features skip-tests
+ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release --features ov5640-af
 ```
 
-This compiles, flashes, and opens the serial monitor in one command.
+Drop `ov5640-af` if the plain OV5640 or OV2640 module is fitted. This compiles, flashes, and opens the serial monitor in one command. The boot self-tests and crypto known-answer tests run and print `All crypto KATs passed`; do not add `skip-tests` to a flash you intend to use.
 The device boots with `[DEV] Development mode` and hash mismatch (expected. No convergence).
 
 ### With hash convergence (optional)
@@ -295,7 +295,7 @@ Boot log will show:
 
 ### Option B: Local build + Schnorr + RSA (full signature stack)
 
-`tools/build_with_hash.sh` runs the 3-pass hash convergence and Schnorr signing for you:
+`tools/build_with_hash.sh` runs the hash convergence (up to five passes, stops when two agree) and Schnorr signing for you:
 
 ```bash
 export ESP_HAL_CONFIG_PSRAM_MODE=octal
@@ -324,29 +324,11 @@ espflash monitor --port /dev/cu.usbmodem21201 --no-stub
 
 Boot log will show `secure boot verification succeeded`, `Code segment hash: OK`, and `Signature present` (Schnorr verified).
 
-<details>
-<summary>Manual 3-pass convergence (what build_with_hash.sh automates)</summary>
-
-Build, save-image, and gen-hash in a loop until the hash is stable:
-
-```bash
-export ESP_HAL_CONFIG_PSRAM_MODE=octal
-cd bootloader && cargo build --release --features skip-tests && cd ..
-espflash save-image --chip esp32s3 \
-  bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-  bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader.bin
-cargo run --manifest-path tools/Cargo.toml --bin gen-hash -- \
-  bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader.bin \
-  <your_signing_key>.bin
-# Repeat build -> save-image -> gen-hash until gen-hash reports the same hash twice (CONVERGED).
-```
-</details>
-
-## 4. Flash: M5Stack CoreS3 / CoreS3 Lite
+## 4. Flash: Dev M5Stack CoreS3 Lite (No eFuse, No Secure Boot)
 
 ```bash
 cd bootloader
-cargo run --release --no-default-features --features m5stack,skip-tests
+cargo run --release --no-default-features --features m5stack
 ```
 
 Or from Docker binary:
@@ -360,13 +342,13 @@ python3 -m esptool --port /dev/cu.usbmodem21201 write_flash 0x10000 kassigner-m5
 espflash monitor
 ```
 
-### eFuse M5Stack CoreS3 (Secure Boot V2)
+## 5. Flash: eFuse M5Stack CoreS3 Lite (Secure Boot V2)
 
-Same chip-level procedure as the Waveshare in section 3, different artifacts and
-different board handling. Read the Board Profiles section of
-[EFUSE_RUNBOOK.md](EFUSE_RUNBOOK.md) first: CoreS3 has no BOOT button, GPIO0 is
-driven by a comparator off the power button, and with the battery connected
-unplugging USB does not power the chip down.
+Same chip-level procedure as the Waveshare in section 3, different artifacts.
+Read the Board Profiles section of [EFUSE_RUNBOOK.md](EFUSE_RUNBOOK.md) first.
+The CoreS3 Lite has working RST and BOOT buttons and enters download mode the
+same way as the Waveshare; with a battery connected, unplugging USB does not
+power the chip down, so power it off before the BOOT-button sequence.
 
 Secure Boot V2 signs each image separately, so the merged `-full.bin` cannot be
 signed as a unit. Extract the second-stage bootloader at its exact length:
@@ -413,9 +395,12 @@ does not close download mode. If the first connect fails with "No serial data
 received", that is the production build gating USB a second into boot. Retry, or
 enter download mode: unplug USB, hold BOOT, plug USB, release.
 
-## 5. Build KasSee Web (Companion Wallet)
+## 6. Build KasSee Web (Companion Wallet)
 
 KasSee ships with pre-built WASM in `kassee/web/pkg/` and works out of the box. Open `kassee/web/index.html` in any modern browser. To rebuild from source, see **Building KasSee from source** in the README.
+
+
+---
 
 ## Troubleshooting
 
@@ -434,13 +419,14 @@ espflash monitor --port /dev/cu.usbmodem21201 --no-stub
 ### Device stuck in download mode (`boot:0x0`)
 Unplug USB, wait 5 seconds, replug. Don't hold any buttons during power-on.
 
-### SRAM self-test crashes on eFuse board
-Build with `--features skip-tests`. The 4MB flash partition layout on some boards
-causes stack pressure during the SRAM write test.
+### Boot self-tests halt
+If the device halts during Phase 1 or the crypto known-answer tests, that is a
+defect: report it with the serial log. Do not build with `skip-tests` to get past
+it; a shipped image cannot be built that way.
 
 ### Hash mismatch at boot
-Run `build_with_hash.sh` or the manual 3-pass convergence. Plain `cargo build`
-without hash convergence will always show hash mismatch.
+Run `build_with_hash.sh` (or the Docker build). Plain `cargo build` without
+hash convergence will always show a hash mismatch.
 
 ### `cargo build` doesn't recompile after changing constants
 ```bash
@@ -462,7 +448,7 @@ docker rm ks-extract
 |-------|------|-------------|-------------|
 | RSA-3072 Secure Boot | ROM verifies bootloader + app signature | ESP32-S3 silicon | eFuse devices only |
 | SHA-256 Hash | Firmware embeds its own hash, verifies at boot | KasSigner app code | All devices |
-| Schnorr Signature | Developer signs the firmware hash | KasSigner app code | Optional (dev key) |
+| Schnorr Signature | Developer signs the firmware hash | KasSigner app code | Required in `production` builds; optional in dev |
 | Docker Reproducibility | Anyone can rebuild and verify identical binary | Binary hash comparison | Public verification |
 
 ## Key Files

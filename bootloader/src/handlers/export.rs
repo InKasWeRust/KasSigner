@@ -128,7 +128,10 @@ pub fn handle_export_touch(
                             // ms_picking_key: 255 = multisig wallet index picker,
                             // 0 = plain address picking. (Former per-key values
                             // 1..254 died with the MultisigPickAddr screen.)
-                            if ad.ms_picking_key == 255 {
+                            // 255 = address index, 254 = cosigner index. Both
+                            // return to the multisig address screen; only the
+                            // field they write differs.
+                            if ad.ms_picking_key == 255 || ad.ms_picking_key == 254 {
                                 ad.ms_picking_key = 0;
                                 ad.app.state = crate::app::input::AppState::MultisigShowAddress;
                             } else {
@@ -177,16 +180,51 @@ pub fn handle_export_touch(
                                                 val = val * 10 + (ad.addr_input_buf[i] - b'0') as u16;
                                             }
                                             ad.addr_input_len = 0;
-                                            if ad.ms_picking_key == 255 {
+                                            // 254 = COSIGNER index: which address
+                                            // family to display.
+                                            //
+                                            // Every family's redeem script holds all
+                                            // N cosigner keys, so any of them is
+                                            // spendable by the quorum - the family
+                                            // only decides who hands the address out.
+                                            // Being able to browse them is what lets a
+                                            // participant verify an address another
+                                            // cosigner issued, and reach funds sent to
+                                            // a family whose owner has gone.
+                                            //
+                                            // Bounded by n: a descriptor with N
+                                            // cosigners has exactly N families, and an
+                                            // index at or above N is not one any
+                                            // participant hands out.
+                                            //
+                                            // 45' only. 44' has no cosigner level and
+                                            // the button is not drawn for it.
+                                            if ad.ms_picking_key == 254 {
+                                                ad.ms_picking_key = 0;
+                                                if ad.ms_creating.v45
+                                                    && (val as u8) < ad.ms_creating.n
+                                                {
+                                                    ad.ms_creating.cosigner_index = val as u8;
+                                                    ad.ms_creating.build_script();
+                                                }
+                                                ad.app.state =
+                                                    crate::app::input::AppState::MultisigShowAddress;
+                                                needs_redraw = true;
+                                            } else if ad.ms_picking_key == 255 {
                                                 ad.ms_picking_key = 0;
                                                 ad.ms_creating.addr_index = val as u32;
                                                 ad.ms_creating.build_script();
                                                 for i in 0..crate::wallet::transaction::MAX_MULTISIG_WALLETS {
+                                                    // THIRD site of this comparison. Two
+                                                    // were replaced by `same_wallet_as`
+                                                    // yesterday and this one was missed:
+                                                    // it omits the SCHEME, so a 44' and a
+                                                    // 45' wallet with identical cosigners
+                                                    // and threshold compare equal and one
+                                                    // overwrites the other's stored config.
                                                     if ad.ms_store.configs[i].active
-                                                        && ad.ms_store.configs[i].m == ad.ms_creating.m
-                                                        && ad.ms_store.configs[i].n == ad.ms_creating.n
-                                                        && ad.ms_store.configs[i].cosigner_pubkeys
-                                                            == ad.ms_creating.cosigner_pubkeys
+                                                        && ad.ms_store.configs[i]
+                                                            .same_wallet_as(&ad.ms_creating)
                                                     {
                                                         ad.ms_store.configs[i] = ad.ms_creating.clone();
                                                         break;
@@ -721,6 +759,70 @@ pub fn handle_export_touch(
                                                 }
                                                 Err(_) => {
                                                     boot_display.draw_rejected_screen("kpub derivation failed");
+                                                    delay.delay_millis(2000);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    2 => {
+                                        // kpub Multisig QR: m/45'/111111'/0'.
+                                        //
+                                        // A DIFFERENT key from arms 0 and 1, which
+                                        // export m/44'/111111'/0' for single-sig
+                                        // watch-only. Neither substitutes for the
+                                        // other, and neither can be converted into
+                                        // the other: they are sibling branches under
+                                        // the master key, and the 45' step is
+                                        // hardened, so only the seed can produce it.
+                                        //
+                                        // QR only. This key is scanned by another
+                                        // device during multisig creation; nothing
+                                        // reads a cosigner key off a card.
+                                        //
+                                        // Mnemonic slots only. An xprv slot is
+                                        // imported AT 44' account level, so the parent
+                                        // to walk down the 45' branch from does not
+                                        // exist. Refusing is the honest answer:
+                                        // deriving anything from the 44' key would
+                                        // hand over a plausible kpub that builds an
+                                        // unspendable wallet, which is N-23 exactly.
+                                        if ad.active_kind()
+                                            == crate::ui::seed_manager::SlotKind::Xprv
+                                        {
+                                            boot_display.draw_rejected_screen(
+                                                "xprv slot has no 45' key");
+                                            delay.delay_millis(2000);
+                                        } else {
+                                            ad.kpub_nframes = 0;
+                                            ad.kpub_user_nframes = 0;
+                                            ad.kpub_frame = 0;
+                                            boot_display.draw_saving_screen("Deriving cosigner key...");
+                                            let mut kpub_buf = [0u8; wallet::xpub::KPUB_MAX_LEN];
+                                            let pp = ad.seed_mgr.active_slot()
+                                                .map(|s: &seed_manager::SeedSlot| s.passphrase_str())
+                                                .unwrap_or("");
+                                            let kpub_res = match crate::app::signing::derive_seed(
+                                                &ad.mnemonic_indices, ad.word_count, pp,
+                                            ) {
+                                                Some(seed_bytes) => {
+                                                    wallet::xpub::derive_and_serialize_multisig_kpub(
+                                                        &seed_bytes.bytes, &mut kpub_buf)
+                                                }
+                                                None => Err(wallet::bip32::Bip32Error::InvalidKey),
+                                            };
+                                            match kpub_res {
+                                                Ok(len) => {
+                                                    ad.kpub_len = len;
+                                                    ad.kpub_data[..len]
+                                                        .copy_from_slice(&kpub_buf[..len]);
+                                                    ad.kpub_export_return =
+                                                        crate::app::input::AppState::WatchOnlyMenu;
+                                                    ad.app.state =
+                                                        crate::app::input::AppState::ExportKpub;
+                                                }
+                                                Err(_) => {
+                                                    boot_display.draw_rejected_screen(
+                                                        "cosigner key derivation failed");
                                                     delay.delay_millis(2000);
                                                 }
                                             }

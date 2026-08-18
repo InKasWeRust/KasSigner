@@ -219,98 +219,16 @@ pub const KEY_COLS: usize = 3;
 /// PIN dots Y position
 pub const DOTS_Y: i32 = 45;
 
-// ─── Tests ──────────────────────────────────────────────────────────
-
-#[cfg(any(test, feature = "verbose-boot"))]
-/// Test: basic PIN digit entry.
-pub fn test_pin_entry_basic() -> bool {
-    let mut pin = PinEntry::new("Test");
-    pin.push_digit(1);
-    pin.push_digit(2);
-    pin.push_digit(3);
-    pin.push_digit(4);
-    pin.push_digit(5);
-    pin.push_digit(6);
-
-    pin.len == 6 && pin.try_confirm()
-}
-
-#[cfg(any(test, feature = "verbose-boot"))]
-/// Test: PIN too short is rejected.
-pub fn test_pin_too_short() -> bool {
-    let mut pin = PinEntry::new("Test");
-    pin.push_digit(1);
-    pin.push_digit(2);
-    pin.push_digit(3);
-
-    !pin.try_confirm() && pin.error
-}
-
-#[cfg(any(test, feature = "verbose-boot"))]
-/// Test: backspace removes last digit.
-pub fn test_pin_backspace() -> bool {
-    let mut pin = PinEntry::new("Test");
-    pin.push_digit(1);
-    pin.push_digit(2);
-    pin.push_digit(3);
-    pin.backspace();
-
-    pin.len == 2 && pin.digits[0] == 1 && pin.digits[1] == 2
-}
-
-#[cfg(any(test, feature = "verbose-boot"))]
-/// Test: PIN comparison logic.
-pub fn test_pin_match() -> bool {
-    let mut a = PinEntry::new("A");
-    let mut b = PinEntry::new("B");
-
-    for d in [1, 2, 3, 4, 5, 6] {
-        a.push_digit(d);
-        b.push_digit(d);
-    }
-
-    let same = a.matches(&b);
-
-    b.backspace();
-    b.push_digit(9);
-
-    let diff = !a.matches(&b);
-
-    same && diff
-}
-
-#[cfg(any(test, feature = "verbose-boot"))]
-/// Test: keypad touch zone hit detection.
-pub fn test_keypad_zones() -> bool {
-    // Center of digit "5" key: col 1 (x=157), row 1 (y=129)
-    let five = check_keypad_tap(157, 129);
-    // Center of "0" key: col 1 (x=157), row 3 (y=213)
-    let zero = check_keypad_tap(157, 213);
-    // Center of backspace: col 0 (x=57), row 3 (y=213)
-    let bksp = check_keypad_tap(57, 213);
-    // Center of OK: col 2 (x=257), row 3 (y=213)
-    let ok = check_keypad_tap(257, 213);
-    // Outside all keys
-    let none = check_keypad_tap(0, 0);
-
-    five == KeypadAction::Digit(5)
-        && zero == KeypadAction::Digit(0)
-        && bksp == KeypadAction::Backspace
-        && ok == KeypadAction::Confirm
-        && none == KeypadAction::None
-}
-
-#[cfg(any(test, feature = "verbose-boot"))]
-/// Run all PIN entry tests.
-pub fn run_pin_tests() -> (u32, u32) {
-    let mut passed = 0u32;
-    let total = 5u32;
-
-    if test_pin_entry_basic() { passed += 1; }
-    if test_pin_too_short() { passed += 1; }
-    if test_pin_backspace() { passed += 1; }
-    if test_pin_match() { passed += 1; }
-    if test_keypad_zones() { passed += 1; }
-
-    (passed, total)
-}
+// ─── Tests removed 2026-08-14 ───────────────────────────────────────
+//
+// Five tests lived here and passed honestly: they checked that the keypad maps
+// taps to digits, handles backspace, rejects short entries and compares two
+// entries. The widget is correct. It is also instantiated by nothing, because
+// this device has no PIN, so the tests verified a screen that cannot be
+// reached and printed "PIN UI verified OK" at every verbose boot.
+//
+// The module itself is now referenced by nothing at all. Removing it is the UI
+// half of L-09, which already covers `validate_pin` and `PinStrength` in
+// `wallet/storage.rs`, and is deliberately NOT done here: deleting a file is a
+// larger change than deleting its tests, and the two halves should land
+// together under one finding.

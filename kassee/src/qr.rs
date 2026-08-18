@@ -27,8 +27,9 @@ use std::fmt::Write;
 ///
 /// Firmware side needs nothing: frag_len is a u8 and MF_SLOT_SIZE is 256
 /// (bootloader/src/handlers/camera_loop.rs), so 248 is comfortably inside
-/// both. The firmware's own MF_MAX_FRAMES of 40 covers 9,920 bytes of
-/// transaction at this size.
+/// both. The firmware's own MF_MAX_FRAMES is 64 (it was 40 when this note was
+/// written), so 248 bytes/frame covers 15,872 bytes of transaction, which
+/// comfortably exceeds SIGNED_QR_BUF_LEN of 14,528. Corrected 2026-08-15.
 const MAX_FRAME_DATA: usize = 248;
 
 /// Largest single-frame payload: the V11 byte-mode ECC-M capacity. A single

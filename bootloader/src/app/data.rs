@@ -66,12 +66,36 @@ pub const DEFAULT_BRIGHTNESS: u8 = 102;
 /// before this depth is raised any further.
 pub const EXT_BANK_DEPTH: usize = 1000;
 
+/// Values for `AppData::sd_txt_origin`.
+///
+/// One place where the whole set is visible. They were bare literals at six
+/// assignment sites and four comparison points, with no list anywhere, which
+/// is how a fourth value came to be handled but never assigned.
+pub const SD_ORIGIN_ADDRESS: u8 = 0;
+/// A kpub export or import.
+pub const SD_ORIGIN_KPUB: u8 = 1;
+/// A multisig descriptor.
+pub const SD_ORIGIN_DESCRIPTOR: u8 = 2;
+/// A transaction: KSPT or PSKB, plain or encrypted.
+pub const SD_ORIGIN_KSPT: u8 = 3;
+
 /// Capacity of `AppData::signed_qr_buf`.
 ///
-/// Header 48 bytes, ~156 per input, ~45 per output, so this holds well
-/// over MAX_INPUTS worth of signed transaction. The signing pre-check
-/// reads `signed_qr_buf.len()` rather than repeating the number.
-pub const SIGNED_QR_BUF_LEN: usize = 8192;
+/// Sized to the QR ceiling, not to a round number: 64 frames at 227 bytes
+/// per frame is 14,528, and a stream longer than that cannot be displayed
+/// whatever this buffer holds. Raising it further would only help the SD
+/// export path.
+///
+/// The old 8,192 was sized on KSPT arithmetic, about 156 wire bytes per
+/// input, where 32 inputs fit comfortably. PSKB is hex-encoded JSON and
+/// costs about 878 wire bytes per unsigned input plus 568 more once
+/// signed, so 8,192 capped a PSKB round trip at **five inputs** while the
+/// frame limit would not have bitten until ten. The buffer was the binding
+/// constraint and nothing said so.
+///
+/// The signing pre-check reads `signed_qr_buf.len()` rather than repeating
+/// the number, so this stays the single place it is decided.
+pub const SIGNED_QR_BUF_LEN: usize = 14_528;
 
 /// Capacity of every SD file picker: `sd_file_list` plus the TXT, JPEG
 /// and import-JPEG lists.
@@ -302,7 +326,18 @@ pub struct AppData {
     pub seed_backup_return: crate::app::input::AppState,
     pub address_return: crate::app::input::AppState,
     pub kpub_export_return: crate::app::input::AppState,
-    /// SD TXT save origin: 0=multisig address, 1=kpub (used by SdKsptEncryptPass back-nav)
+    /// What the SD import and encrypt flows are carrying.
+    ///
+    /// Selects the routing after a decrypt and the question asked before an
+    /// encrypted save. Use the `SD_ORIGIN_*` constants below rather than a
+    /// bare number.
+    ///
+    /// `SD_ORIGIN_KSPT` was missing: the branch that handles it exists and
+    /// is correct, but nothing ever assigned the value, so it never ran.
+    /// Every decrypted transaction fell into the address arm and reported
+    /// "Not a valid address", and an encrypted save asked the multisig
+    /// address question. The doc comment here listed only two of the three
+    /// values that were in use, so no reader could check the set.
     pub sd_txt_origin: u8,
     /// QR multi-frame display: true = manual tap-to-advance, false = auto-cycle
     pub qr_manual_frames: bool,
@@ -347,13 +382,24 @@ pub struct AppData {
     /// and tripped the guard inside PBKDF2 on the SD restore path.
     ///
     /// Sized for 32 P2SH inputs at ~215B signed, plus outputs. Callers
-    /// pass it as a slice, so read `.len()` rather than assuming 8192.
+    /// pass it as a slice, so read `.len()` rather than assuming a size.
     pub signed_qr_buf: alloc::boxed::Box<[u8]>,
     pub signed_qr_len: usize,
     pub signed_qr_frame: u8,
     pub signed_qr_nframes: u8,
     /// Covenant backup: bytes stored in signed_qr_buf[0..covb_len]. >0 triggers SD save.
     pub covb_len: usize,
+    /// The QR being shown is NOT a signed transaction.
+    ///
+    /// `ShowQR` is the signed-transaction screen: it reads `demo_tx` to draw
+    /// signature badges and an m-of-n count. A descriptor is shown through the
+    /// same screen and has none of that, so the badges came from whatever
+    /// transaction happened to be parsed last - stale, and meaningless beside a
+    /// descriptor.
+    ///
+    /// Set when a non-transaction payload is loaded into `signed_qr_buf`, and
+    /// cleared whenever a real signed payload is put there.
+    pub qr_is_descriptor: bool,
     pub signed_qr_large: bool, // true = multi-frame large QR for device-to-device
     /// Signed-KSPT QR frame-size mode (v1.0.3+).
     ///   0 = use signed_qr_large legacy picker (phone=106B or device=55B)
@@ -650,7 +696,20 @@ pub fn new() -> Self {
                 &["Show Seed Words", "QR Export", "Backup to SD"]
             ),
             watch_only_menu: crate::app::input::Menu::from_items(
-                &["kpub as QR", "kpub to SD"]
+                // Two DIFFERENT keys. The first two entries export
+                // m/44'/111111'/0', the key a wallet uses to WATCH single-sig
+                // addresses. The third exports m/45'/111111'/0', the cosigner
+                // key a multisig descriptor holds.
+                //
+                // A kpub carries nothing identifying its subtree - same version
+                // bytes, same length, valid checksum either way - so the label
+                // is the only defence at export time. Handing over the wrong one
+                // builds a wallet that funds and cannot be spent: see N-23.
+                //
+                // QR only, no SD. A cosigner key is scanned by another device
+                // during multisig creation; there is no flow that reads one off
+                // a card.
+                &["kpub as QR", "kpub to SD", "kpub Multisig QR"]
             ),
             signing_keys_menu: crate::app::input::Menu::from_items(
                 &["xprv Account", "Private Key"]
@@ -751,7 +810,7 @@ pub fn new() -> Self {
             ms_n: 3,
             ms_scroll: 0,
             ms_picking_key: 0,
-            // Built in place on the heap. `Box::new([0u8; 8192])` would
+            // Built in place on the heap. `Box::new([0u8; N])` would
             // construct the array in this frame first and then copy it,
             // reintroducing the very cost being removed.
             signed_qr_buf: alloc::vec![0u8; SIGNED_QR_BUF_LEN].into_boxed_slice(),
@@ -759,6 +818,7 @@ pub fn new() -> Self {
             signed_qr_frame: 0,
             signed_qr_nframes: 0,
             covb_len: 0,
+            qr_is_descriptor: false,
             signed_qr_large: false,
             signed_qr_mode: 0,
             signed_qr_via_density: false,

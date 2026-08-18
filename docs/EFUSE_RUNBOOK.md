@@ -48,7 +48,7 @@ straight to the chip's native USB, D- on GPIO19 and D+ on GPIO20 on both. Both
 have working RST and BOOT buttons, and the download-mode sequence is the same on
 each: unplug USB, hold BOOT, plug USB in, release.
 
-| | Waveshare ESP32-S3-Touch-LCD-2 | M5Stack CoreS3 |
+| | Waveshare ESP32-S3-Touch-LCD-2 | M5Stack CoreS3 Lite |
 |---|---|---|
 | PSRAM | octal (`ESP_HAL_CONFIG_PSRAM_MODE=octal`) | quad (no env var) |
 | Build | `--features production` | `--no-default-features --features m5stack,production` |
@@ -415,7 +415,7 @@ meaningless.
 ## Target Configuration
 
 The same configuration applies to both boards. Every eFuse below is chip-level;
-nothing here differs between Waveshare and M5Stack CoreS3.
+nothing here differs between Waveshare and M5Stack CoreS3 Lite.
 
 | eFuse | Target | Why |
 |---|---|---|
@@ -461,7 +461,7 @@ is not provisioned.
 ## Confirmed on Hardware
 
 Full Secure Boot V2 provisioning run end to end on both Waveshare
-ESP32-S3-Touch-LCD-2 and M5Stack CoreS3. The observations below are chip-level
+ESP32-S3-Touch-LCD-2 and M5Stack CoreS3 Lite. The observations below are chip-level
 and applied identically to both.
 
 Signed images boot on an unprovisioned board, which is what makes the whole path
@@ -494,12 +494,12 @@ The ESP32-S3 has 6 key blocks (BLOCK_KEY0 through BLOCK_KEY5). Plan allocation:
 
 ## KasSigner-Specific Notes
 
-1. **Two signing systems coexist.** Hardware secure boot (RSA-3072, verified by ROM) and software Schnorr verify (verified by our code in `features/verify.rs`). Both must pass for the app to run.
+1. **Two signing systems coexist.** Hardware secure boot (RSA-3072, verified by ROM) and software Schnorr verify (verified by our code in `features/verify.rs`). Both must pass for the app to run on a `production` build.
 
 2. **The `esp-bootloader-esp-idf` crate** provides a pre-built second-stage bootloader. For secure boot, this bootloader binary must also be signed.
 
-3. **No OTA.** KasSigner is air-gapped, so firmware updates require physical UART access. If `DIS_DOWNLOAD_MODE` is burned, the board cannot be updated at all. Leave UART download enabled. `ENABLE_SECURITY_DOWNLOAD` narrows it further and still allows signed firmware flashing, but see the note in Step 8 before burning it.
+3. **No OTA.** KasSigner is air-gapped, so firmware updates require physical USB access. If `DIS_DOWNLOAD_MODE` is burned, the board cannot be updated at all. Leave UART download enabled. `ENABLE_SECURITY_DOWNLOAD` narrows it further and still allows signed firmware flashing, but see the note in Step 8 before burning it.
 
 4. **Test on a sacrificial board first.** Keep a spare of whichever board you are provisioning, and burn that one first. Never experiment on the primary development board.
 
-5. **Artifact names differ per board.** `kassigner-m5stack.bin` and `kassigner-m5stack-full.bin` for CoreS3, `kassigner-waveshare*` and `kassigner-waveshare-af*` for the others. The RSA key and every eFuse command are board-independent; only the images change.
+5. **Artifact names differ per board.** `kassigner-m5stack.bin` and `kassigner-m5stack-full.bin` for CoreS3 Lite, `kassigner-waveshare*` and `kassigner-waveshare-af*` for the others. The RSA key and every eFuse command are board-independent; only the images change.

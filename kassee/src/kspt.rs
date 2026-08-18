@@ -534,9 +534,90 @@ fn serialize_kspt_multi(
 ///
 /// Returns (M, Vec<[u8;32]>) — the lex-sorted x-only pubkeys for the redeem script.
 fn parse_descriptor(desc: &str, addr_index: u32) -> Result<(u8, Vec<[u8; 32]>), String> {
-    let desc = desc.trim();
+    parse_descriptor_at(desc, addr_index, 0, 0)
+}
 
-    if desc.starts_with("multi_hd(") && desc.ends_with(')') {
+/// As `parse_descriptor`, with an explicit cosigner index for the 45' scheme.
+///
+/// `cosigner_index` is IGNORED by the 44' and legacy branches: they have no such
+/// level. It selects the address family for `multi_hd45(`.
+fn parse_descriptor_at(
+    desc: &str,
+    addr_index: u32,
+    cosigner_index: u32,
+    chain: u32,
+) -> Result<(u8, Vec<[u8; 32]>), String> {
+    let desc = strip_header(desc);
+
+    if desc.starts_with("multi_hd45(") && desc.ends_with(')') {
+        // ── 45' standard: multi_hd45(M,<kpub>,<kpub>,...) ──
+        //
+        // Entries are base58check kpub strings, account keys at
+        // m/45'/111111'/account'. Two things differ from the 44' branch below
+        // and both change the address:
+        //
+        //   1. SORT THE PARENT STRINGS, not the derived children. rusty-kaspa
+        //      sorts `xpub_key.to_string(...)` (wallet/core/src/wallet/mod.rs),
+        //      so descriptors arrive unordered - its own cross-implementation
+        //      vector lists five keys in an order that sorts to the permutation
+        //      [3, 0, 2, 1, 4]. Sorting on load is what makes an external
+        //      descriptor work at all; trusting the written order silently
+        //      yields a different redeem script.
+        //
+        //   2. Derive at /cosigner_index/0/addr_index, with the SAME cosigner
+        //      index applied to every key. That extra level is what gives each
+        //      participant their own address family.
+        //
+        // The sort is a plain byte comparison, not case-insensitive: base58
+        // spans digits, uppercase and lowercase, so 'Z' sorts before 't'.
+        let inner = &desc[11..desc.len() - 1];
+        let parts: Vec<&str> = inner.split(',').collect();
+        if parts.len() < 3 {
+            return Err("Need at least M and 2 cosigner kpubs".into());
+        }
+        let m: u8 = parts[0]
+            .trim()
+            .parse()
+            .map_err(|_| "Invalid M value in descriptor".to_string())?;
+
+        let mut entries: Vec<&str> = parts[1..].iter().map(|e| e.trim()).collect();
+        entries.sort_unstable();
+        for w in entries.windows(2) {
+            if w[0] == w[1] {
+                return Err("Duplicate cosigner kpub in descriptor".into());
+            }
+        }
+
+        let mut pubkeys = Vec::new();
+        for kpub_str in &entries {
+            let parent = crate::bip32::ExtPubKey::from_kpub(kpub_str)
+                .map_err(|e| format!("Invalid cosigner kpub: {}", e))?;
+            if parent.depth != 3 {
+                return Err(format!(
+                    "Cosigner kpub must be an account key at depth 3, got depth {}",
+                    parent.depth
+                ));
+            }
+            // /cosigner/chain/index. The chain was hardcoded 0 while change
+            // returned to the source address; it is a real dimension now.
+            let family = parent.derive_child(cosigner_index)?;
+            let chain_node = family.derive_child(chain)?;
+            let addr_child = chain_node.derive_child(addr_index)?;
+
+            let compressed = addr_child.key.to_encoded_point(true);
+            let mut xonly = [0u8; 32];
+            xonly.copy_from_slice(&compressed.as_bytes()[1..33]);
+            pubkeys.push(xonly);
+        }
+
+        if m == 0 || m as usize > pubkeys.len() {
+            return Err(format!("Invalid M={} for N={}", m, pubkeys.len()));
+        }
+        // NO sort here: the order was fixed above by sorting the parents, and
+        // the redeem script must follow it. Sorting the children as 44' does
+        // would produce an address no other implementation computes.
+        Ok((m, pubkeys))
+    } else if desc.starts_with("multi_hd(") && desc.ends_with(')') {
         // ── HD format: multi_hd(M,<130hex>,<130hex>,...) ──
         let inner = &desc[9..desc.len() - 1]; // strip "multi_hd(" and ")"
         let parts: Vec<&str> = inner.split(',').collect();
@@ -621,6 +702,512 @@ fn parse_descriptor(desc: &str, addr_index: u32) -> Result<(u8, Vec<[u8; 32]>), 
     }
 }
 
+/// Build the `bip32Derivations` map for a 45' multisig input.
+///
+/// One entry per cosigner: compressed pubkey -> { keyFingerprint, derivationPath }.
+///
+/// **This is what lets the device sign without holding the descriptor.** The
+/// path belongs to the ADDRESS being spent, so every cosigner derives at the
+/// same `m/45'/111111'/account'/cosigner/chain/index`; the entries differ only
+/// by pubkey and fingerprint. Without it the device cannot know which cosigner
+/// slot the address uses and refuses, because searching costs
+/// `n + 2n + 2n*100` derivations per input per seed slot.
+///
+/// Keys are COMPRESSED (33 bytes), not the x-only form used in the redeem
+/// script: the field is keyed by pubkey and the parity byte is part of it.
+///
+/// `keyFingerprint` is the cosigner kpub's own parent fingerprint, read
+/// straight from the serialized key rather than recomputed. It is a hint for
+/// fast skipping, never an authority - the device verifies the derived pubkey
+/// against the redeem script before signing.
+///
+/// Returns an empty map for 44' descriptors: they have no cosigner level, and
+/// the device matches those keys through its 44' address table instead.
+fn build_bip32_derivations(
+    descriptor: &str,
+    addr_index: u32,
+    cosigner_index: u32,
+    chain: u32,
+) -> Result<serde_json::Value, String> {
+    let desc = strip_header(descriptor);
+    if !desc.starts_with("multi_hd45(") {
+        return Ok(serde_json::json!({}));
+    }
+    let inner = &desc[11..desc.len() - 1];
+    let parts: Vec<&str> = inner.split(',').collect();
+    let mut entries: Vec<&str> = parts[1..].iter().map(|e| e.trim()).collect();
+    entries.sort_unstable();
+
+    let path = format!(
+        "m/45'/111111'/0'/{}/{}/{}",
+        cosigner_index, chain, addr_index
+    );
+    let mut map = serde_json::Map::new();
+    for kpub_str in &entries {
+        let parent = crate::bip32::ExtPubKey::from_kpub(kpub_str)
+            .map_err(|e| format!("Invalid cosigner kpub: {}", e))?;
+        // Parent fingerprint, bytes 5..9 of the serialized payload.
+        let decoded = bs58::decode(kpub_str)
+            .with_check(None)
+            .into_vec()
+            .map_err(|e| format!("Base58 decode failed: {}", e))?;
+        let fingerprint = hex::encode(&decoded[5..9]);
+
+        let family = parent.derive_child(cosigner_index)?;
+        let chain_node = family.derive_child(chain)?;
+        let child = chain_node.derive_child(addr_index)?;
+        let compressed = child.key.to_encoded_point(true);
+        map.insert(
+            hex::encode(compressed.as_bytes()),
+            serde_json::json!({
+                "keyFingerprint": fingerprint,
+                "derivationPath": path,
+            }),
+        );
+    }
+    Ok(serde_json::Value::Object(map))
+}
+
+/// How deep to scan a branch. 40 receive + 40 change is ONE rpc call.
+pub const CHANGE_SCAN_DEPTH: u32 = 40;
+
+/// One multisig address at an exact `(cosigner, chain, index)`. No network.
+pub fn multisig_address_at(
+    descriptor: &str,
+    addr_index: u32,
+    cosigner_index: u32,
+    chain: u32,
+) -> Result<String, String> {
+    let (m, pks) = parse_descriptor_at(descriptor, addr_index, cosigner_index, chain)?;
+    let script = build_redeem_script(m, &pks);
+    let hash = blake2b_hash(&script);
+    Ok(crate::address::encode_p2sh_address(&hash, "kaspa"))
+}
+
+/// Scan ONE cosigner branch and report what is on it.
+///
+/// Returns JSON: `{ balance_sompi, utxo_count, funded: [{chain,index,address,
+/// amount}], next_change_index, next_receive_index, cosigner_index, depth }`.
+///
+/// **One branch, deliberately.** A descriptor describes N branches, one per
+/// participant, but only yours is any of this node's business. Querying all of
+/// them would name other participants' addresses to whichever node you happen
+/// to be using - their exposure, not yours to spend.
+///
+/// **`next_change_index` is the working purpose.** Change used the INPUT's
+/// address index, so spending one address repeatedly sent every change output
+/// back to the same chain-1 address, which is the reuse a change chain exists
+/// to prevent.
+///
+/// **A UTXO scan cannot see a fully spent address.** An index used and then
+/// emptied looks free, so change may land somewhere that already has history.
+/// A privacy regression, not a loss of funds, and closing it needs per-address
+/// history from the rate-limited REST path.
+pub async fn scan_multisig_branch(
+    descriptor: &str,
+    cosigner_index: u32,
+    depth: u32,
+    ws_url: &str,
+) -> Result<String, String> {
+    let mut addrs = Vec::with_capacity((depth as usize) * 2);
+    for chain in 0..2u32 {
+        for idx in 0..depth {
+            addrs.push((
+                chain,
+                idx,
+                multisig_address_at(descriptor, idx, cosigner_index, chain)?,
+            ));
+        }
+    }
+    let list: Vec<String> = addrs.iter().map(|(_, _, a)| a.clone()).collect();
+    let utxos = crate::rpc::fetch_utxos_for_addresses(ws_url, &list).await?;
+
+    let mut by_script: std::collections::HashMap<Vec<u8>, u64> = std::collections::HashMap::new();
+    for u in &utxos {
+        *by_script.entry(u.script_public_key.clone()).or_insert(0) += u.amount;
+    }
+
+    let mut funded = Vec::new();
+    let mut balance: u64 = 0;
+    let mut chain0_used = vec![false; depth as usize];
+    let mut chain1_used = vec![false; depth as usize];
+    // Script -> which (chain, index, address) it belongs to, so the raw UTXOs
+    // below can be labelled without a second derivation pass.
+    let mut owner: std::collections::HashMap<Vec<u8>, (u32, u32, String)> =
+        std::collections::HashMap::new();
+    for (chain, idx, addr) in &addrs {
+        let spk = match crate::address::address_to_script_pubkey(addr) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        owner.insert(spk.clone(), (*chain, *idx, addr.clone()));
+        if let Some(amount) = by_script.get(&spk) {
+            balance += *amount;
+            if *chain == 0 {
+                chain0_used[*idx as usize] = true;
+            } else {
+                chain1_used[*idx as usize] = true;
+            }
+            funded.push(serde_json::json!({
+                "chain": chain, "index": idx, "address": addr, "amount": amount,
+            }));
+        }
+    }
+
+    // Individual OUTPOINTS, not just per-address totals.
+    //
+    // `funded` aggregates by address, which is right for a balance view but
+    // useless for building a transaction: an input needs `tx_id` and `index`.
+    // A multi-address spend selects outpoints, so they have to come out of here.
+    let mut utxo_list = Vec::with_capacity(utxos.len());
+    for u in &utxos {
+        if let Some((chain, idx, addr)) = owner.get(&u.script_public_key) {
+            utxo_list.push(serde_json::json!({
+                "chain": chain,
+                "index": idx,
+                "address": addr,
+                "tx_id": u.tx_id,
+                "outpoint_index": u.index,
+                "amount": u.amount,
+            }));
+        }
+    }
+    let first_free =
+        |used: &[bool]| -> u32 { used.iter().position(|u| !*u).unwrap_or(used.len()) as u32 };
+    let result = serde_json::json!({
+        "balance_sompi": balance,
+        "utxo_count": utxos.len(),
+        "funded": funded,
+        "utxos": utxo_list,
+        "next_change_index": first_free(&chain1_used),
+        "next_receive_index": first_free(&chain0_used),
+        "cosigner_index": cosigner_index,
+        "depth": depth,
+    });
+    serde_json::to_string(&result).map_err(|e| e.to_string())
+}
+
+/// Build a 45' multisig PSKB spending from MANY addresses of one branch.
+///
+/// `sources` is `[{address, tx_id, index}]` - each entry names one UTXO to
+/// spend, so the caller chooses both the addresses and which of their outputs
+/// are used.
+///
+/// **Why this exists.** The single-address builders cannot combine UTXOs, and
+/// change rotation creates a new change address on every spend. Without this,
+/// every spend leaves a UTXO that can only ever be spent alone: a wallet used
+/// fifty times holds fifty UTXOs that can never be merged, and the smallest
+/// eventually cost more in fee than they hold. Dust with no exit, not a privacy
+/// trade.
+///
+/// **What differs from one address.** Each input carries its OWN
+/// `redeemScript` and its OWN `bip32Derivations` at its own
+/// `(cosigner, chain, index)`. The single-address builders derive one of each
+/// and reuse it for every input, which is correct only while every input shares
+/// an address.
+///
+/// **The cost the caller is accepting.** Spending several addresses together
+/// links them permanently: every address in the transaction becomes provably
+/// one wallet. That is why this is explicit rather than automatic.
+// Eight scalars because the wasm export below passes them straight through
+// from JS; a parameter struct would not cross the wasm-bindgen boundary.
+#[allow(clippy::too_many_arguments)]
+pub async fn create_multisig_pskb_multi(
+    descriptor: &str,
+    sources_json: &str,
+    dest_address: &str,
+    amount_sompi: u64,
+    fee_sompi: u64,
+    cosigner_index: u32,
+    change_index_hint: u32,
+    ws_url: &str,
+) -> Result<String, String> {
+    #[derive(serde::Deserialize)]
+    struct Src {
+        address: String,
+        tx_id: String,
+        index: u32,
+    }
+    let sources: Vec<Src> =
+        serde_json::from_str(sources_json).map_err(|e| format!("sources_json: {}", e))?;
+    if sources.is_empty() {
+        return Err("No inputs selected".into());
+    }
+
+    let desc = strip_header(descriptor);
+    if !desc.starts_with("multi_hd45(") {
+        return Err("Multi-address spend requires a 45' descriptor".into());
+    }
+
+    // Resolve every distinct address ONCE: which (chain, index) produces it, and
+    // the redeem script and derivation map that go with it. Addresses repeat
+    // when several UTXOs share one, so caching avoids re-deriving per input.
+    let mut resolved: std::collections::HashMap<String, (String, serde_json::Value, usize)> =
+        std::collections::HashMap::new();
+    for s in &sources {
+        if resolved.contains_key(&s.address) {
+            continue;
+        }
+        let mut found: Option<(u32, u32)> = None;
+        'outer: for chain in 0..2u32 {
+            for idx in 0..CHANGE_SCAN_DEPTH {
+                if multisig_address_at(desc, idx, cosigner_index, chain)? == s.address {
+                    found = Some((chain, idx));
+                    break 'outer;
+                }
+            }
+        }
+        let (chain, idx) = found.ok_or_else(|| {
+            format!(
+                "{} is not in branch {} (checked both chains, indices 0..{})",
+                s.address, cosigner_index, CHANGE_SCAN_DEPTH
+            )
+        })?;
+        let (m, pks) = parse_descriptor_at(desc, idx, cosigner_index, chain)?;
+        let script = build_redeem_script(m, &pks);
+        let derivs = build_bip32_derivations(desc, idx, cosigner_index, chain)?;
+        resolved.insert(s.address.clone(), (hex::encode(&script), derivs, pks.len()));
+    }
+
+    // Fetch every address's UTXOs in ONE rpc call, then pick the named outpoints.
+    let addr_list: Vec<String> = {
+        let mut v: Vec<String> = sources.iter().map(|s| s.address.clone()).collect();
+        v.sort();
+        v.dedup();
+        v
+    };
+    let utxos = crate::rpc::fetch_utxos_for_addresses(ws_url, &addr_list).await?;
+
+    let mut selected = Vec::new();
+    for s in &sources {
+        let hit = utxos
+            .iter()
+            .find(|u| u.tx_id == s.tx_id && u.index == s.index)
+            .ok_or_else(|| format!("UTXO {}:{} not found (already spent?)", s.tx_id, s.index))?;
+        selected.push((s.address.clone(), hit.clone()));
+    }
+
+    let selected_total: u64 = selected.iter().map(|(_, u)| u.amount).sum();
+    let total_needed = amount_sompi.saturating_add(fee_sompi);
+    if selected_total < total_needed {
+        return Err(format!(
+            "Selected {} sompi but need {} (amount {} + fee {})",
+            selected_total, total_needed, amount_sompi, fee_sompi
+        ));
+    }
+
+    // ── Outputs: destination, then change if any is left ──
+    let mut outputs: Vec<(u64, Vec<u8>)> = Vec::new();
+    outputs.push((
+        amount_sompi,
+        crate::address::address_to_script_pubkey(dest_address)?,
+    ));
+
+    let change_amount = selected_total - total_needed;
+    let mut change_index: Option<usize> = None;
+    let mut change_derivations = serde_json::json!({});
+    // Dust change is dropped into the fee rather than creating an unspendable
+    // output - the same rule the single-address builders apply.
+    let final_change = if change_amount > 0 && is_dust(change_amount) {
+        0
+    } else {
+        change_amount
+    };
+    if final_change > 0 {
+        let chg_idx = if change_index_hint != u32::MAX {
+            change_index_hint
+        } else {
+            match scan_multisig_branch(desc, cosigner_index, CHANGE_SCAN_DEPTH, ws_url).await {
+                Ok(j) => serde_json::from_str::<serde_json::Value>(&j)
+                    .ok()
+                    .and_then(|v| v["next_change_index"].as_u64())
+                    .map(|n| n as u32)
+                    .unwrap_or(0),
+                Err(_) => 0,
+            }
+        };
+        let (cm, cpks) = parse_descriptor_at(desc, chg_idx, cosigner_index, 1)?;
+        let cscript = build_redeem_script(cm, &cpks);
+        let chash = blake2b_hash(&cscript);
+        let caddr = crate::address::encode_p2sh_address(&chash, "kaspa");
+        change_derivations = build_bip32_derivations(desc, chg_idx, cosigner_index, 1)?;
+        change_index = Some(outputs.len());
+        outputs.push((
+            final_change,
+            crate::address::address_to_script_pubkey(&caddr)?,
+        ));
+    }
+
+    // ── Inputs: each with ITS OWN redeem script and derivation map ──
+    let mut inputs_json = Vec::<serde_json::Value>::with_capacity(selected.len());
+    for (addr, utxo) in &selected {
+        let (redeem_hex, derivs, n_keys) = resolved
+            .get(addr)
+            .ok_or_else(|| format!("unresolved address {}", addr))?;
+        let spk_hex = format!("0000{}", hex::encode(&utxo.script_public_key));
+        inputs_json.push(serde_json::json!({
+            "utxoEntry": {
+                "amount": utxo.amount,
+                "scriptPublicKey": spk_hex,
+                "blockDaaScore": utxo.block_daa_score,
+                "isCoinbase": false,
+                "covenantId": utxo.covenant_id
+            },
+            "previousOutpoint": { "transactionId": utxo.tx_id, "index": utxo.index },
+            "sequence": 0u64,
+            "minTime": serde_json::Value::Null,
+            "partialSigs": {},
+            "sighashType": 1u8,
+            "redeemScript": redeem_hex,
+            "sigOpCount": *n_keys as u8,
+            "bip32Derivations": derivs,
+            "finalScriptSig": serde_json::Value::Null,
+            "proprietaries": {}
+        }));
+    }
+
+    let mut outputs_json = Vec::<serde_json::Value>::with_capacity(outputs.len());
+    for (oi, (amount, script)) in outputs.iter().enumerate() {
+        let spk_hex = format!("0000{}", hex::encode(script));
+        let od = if Some(oi) == change_index {
+            change_derivations.clone()
+        } else {
+            serde_json::json!({})
+        };
+        outputs_json.push(serde_json::json!({
+            "amount": amount,
+            "scriptPublicKey": spk_hex,
+            "redeemScript": serde_json::Value::Null,
+            "bip32Derivations": od,
+            "proprietaries": {}
+        }));
+    }
+
+    let num_in = inputs_json.len() as u64;
+    let num_out = outputs_json.len() as u64;
+    let pskt = serde_json::json!({
+        "global": {
+            "version": 0u8,
+            "txVersion": 0u16,
+            "fallbackLockTime": serde_json::Value::Null,
+            "inputsModifiable": false,
+            "outputsModifiable": false,
+            "inputCount": num_in,
+            "outputCount": num_out,
+            "xpubs": {},
+            "id": serde_json::Value::Null,
+            "proprietaries": {}
+        },
+        "inputs": inputs_json,
+        "outputs": outputs_json
+    });
+
+    let pskb_body = serde_json::Value::Array(vec![pskt]);
+    let json_bytes =
+        serde_json::to_vec(&pskb_body).map_err(|e| format!("serialize PSKB JSON: {}", e))?;
+    let mut wire: Vec<u8> = Vec::with_capacity(4 + json_bytes.len() * 2);
+    wire.extend_from_slice(b"PSKB");
+    wire.extend_from_slice(hex::encode(&json_bytes).as_bytes());
+    let wire_hex = hex::encode(&wire);
+
+    web_sys::console::log_1(&format!(
+        "[KasSee] Multisig PSKB (multi): {} inputs across {} address(es), send {}, change {}, wire hex {} chars",
+        num_in, addr_list.len(), amount_sompi, final_change, wire_hex.len()
+    ).into());
+
+    Ok(wire_hex)
+}
+
+/// Find the address index, and for 45' the cosigner index, that reproduce
+/// `source_address`. Returns `(addr_index, cosigner_index)`.
+///
+/// 44' has ONE address family, so only the address index is searched, 0..99, as
+/// before. 45' has N families - one per cosigner - because the cosigner level
+/// sits between the account key and the chain, and which family an address
+/// belongs to is not recoverable from the address itself. So both dimensions
+/// are searched.
+///
+/// The cosigner loop is bounded by N rather than by a constant: a descriptor
+/// with N cosigners has exactly N families, and an index at or above N is not a
+/// family any participant hands out.
+///
+/// Legacy `multi(` descriptors have no HD levels and take the caller's index
+/// unchanged.
+fn discover_indices(
+    descriptor: &str,
+    source_address: &str,
+    addr_index: u32,
+) -> Result<(u32, u32, u32), String> {
+    let desc = strip_header(descriptor);
+
+    if desc.starts_with("multi_hd45(") {
+        // Entry count bounds the family loop. The parser validates the entries
+        // properly; this only needs an upper bound.
+        let n_cosigners = desc.matches(',').count().max(1) as u32;
+        // THREE dimensions now: cosigner family, chain, address index.
+        //
+        // Chain 1 is where multisig change lives once it stops returning to the
+        // source address, so an address handed to us can be on either chain and
+        // there is nothing in the address itself that says which. Receive first,
+        // since that is the common case.
+        for cos in 0..n_cosigners {
+            for chain in 0..2u32 {
+                for try_idx in 0..100u32 {
+                    let (m, pks) = parse_descriptor_at(desc, try_idx, cos, chain)?;
+                    let script = build_redeem_script(m, &pks);
+                    let script_hash = blake2b_hash(&script);
+                    let derived = crate::address::encode_p2sh_address(&script_hash, "kaspa");
+                    if derived == source_address {
+                        return Ok((try_idx, cos, chain));
+                    }
+                }
+            }
+        }
+        return Err(format!(
+            "Could not find a cosigner/chain/index triple (0..{} x 0..1 x 0..99) matching {}",
+            n_cosigners.saturating_sub(1),
+            source_address
+        ));
+    }
+
+    if desc.starts_with("multi_hd(") {
+        for try_idx in 0..100u32 {
+            let (m, pks) = parse_descriptor(desc, try_idx)?;
+            let script = build_redeem_script(m, &pks);
+            let script_hash = blake2b_hash(&script);
+            let derived = crate::address::encode_p2sh_address(&script_hash, "kaspa");
+            if derived == source_address {
+                return Ok((try_idx, 0, 0));
+            }
+        }
+        return Err(format!(
+            "Could not find address index (tried 0..99) that matches source address {}",
+            source_address
+        ));
+    }
+
+    Ok((addr_index, 0, 0))
+}
+
+/// Strip an optional `#` header line and surrounding whitespace.
+///
+/// A 45' descriptor may be written with a comment line above it, e.g.
+/// `# KasSigner multisig, 45' coordinated, 2-of-3`. It is DECORATIVE: the
+/// `multi_hd45(` prefix is the sole authority for the scheme, and a header that
+/// contradicts it is ignored rather than treated as an error. It must never
+/// reach the entry list, because the sort is a byte comparison and a label
+/// inside an entry would change every address.
+fn strip_header(desc: &str) -> &str {
+    let mut s = desc.trim();
+    while s.starts_with('#') {
+        s = match s.find('\n') {
+            Some(i) => s[i + 1..].trim_start(),
+            None => "",
+        };
+    }
+    s.trim()
+}
+
 /// Build redeem script: OP_M OP_DATA_32 <pk1> ... OP_N OP_CHECKMULTISIG
 fn build_redeem_script(m: u8, pubkeys: &[[u8; 32]]) -> Vec<u8> {
     let n = pubkeys.len() as u8;
@@ -653,32 +1240,10 @@ pub async fn create_multisig_kspt(
     // 0..99 and matching the derived P2SH address against source_address.
     // This saves the user from manually entering an index number.
     // For legacy multi(...) descriptors, addr_index is ignored (always 0).
-    let final_index = if descriptor.trim().starts_with("multi_hd(") {
-        let mut found: Option<u32> = None;
-        for try_idx in 0..100u32 {
-            let (m, pks) = parse_descriptor(descriptor, try_idx)?;
-            let script = build_redeem_script(m, &pks);
-            let script_hash = blake2b_hash(&script);
-            let derived_addr = crate::address::encode_p2sh_address(&script_hash, "kaspa");
-            if derived_addr == source_address {
-                found = Some(try_idx);
-                break;
-            }
-        }
-        match found {
-            Some(idx) => idx,
-            None => {
-                return Err(format!(
-                    "Could not find address index (tried 0..99) that matches source address {}",
-                    source_address
-                ))
-            }
-        }
-    } else {
-        addr_index // legacy: use as-is (typically 0)
-    };
+    let (final_index, final_cosigner, final_chain) =
+        discover_indices(descriptor, source_address, addr_index)?;
 
-    let (m, pubkeys) = parse_descriptor(descriptor, final_index)?;
+    let (m, pubkeys) = parse_descriptor_at(descriptor, final_index, final_cosigner, final_chain)?;
     let redeem_script = build_redeem_script(m, &pubkeys);
 
     let dest_script = crate::address::address_to_script_pubkey(dest_address)?;
@@ -742,16 +1307,32 @@ pub async fn create_multisig_kspt(
         // destination, and multisig change legitimately returns to the address
         // being spent from, which is exactly the intuition that fails.
         //
-        // Multisig has no change chain here by decision: `parse_descriptor`
-        // derives on chain 0 only, so there is no separate change address to
-        // send to. That makes this check both correct and complete.
-        if change_address != source_address {
-            return Err(format!(
-                "Multisig change must return to the source address ({}), got {}",
-                source_address, change_address
-            ));
-        }
-        let change_script = crate::address::address_to_script_pubkey(change_address)?;
+        // Change goes to the CHANGE CHAIN for 45', /cosigner/1/index.
+        //
+        // It used to be required to return to the source address, because the
+        // parser derived on chain 0 only and there was no other address to send
+        // to. Reusing the spent address every time is poor hygiene and makes the
+        // wallet's history trivially linkable, and the chain level exists in the
+        // standard path precisely for this.
+        //
+        // 44' keeps the old rule: it has no cosigner level and no separate
+        // change chain, so the source address is still the only correct answer.
+        let desc_is_45 = strip_header(descriptor).starts_with("multi_hd45(");
+        let change_script = if desc_is_45 {
+            let (cm, cpks) = parse_descriptor_at(descriptor, final_index, final_cosigner, 1)?;
+            let cscript = build_redeem_script(cm, &cpks);
+            let chash = blake2b_hash(&cscript);
+            let caddr = crate::address::encode_p2sh_address(&chash, "kaspa");
+            crate::address::address_to_script_pubkey(&caddr)?
+        } else {
+            if change_address != source_address {
+                return Err(format!(
+                    "Multisig change must return to the source address ({}), got {}",
+                    source_address, change_address
+                ));
+            }
+            crate::address::address_to_script_pubkey(change_address)?
+        };
         outputs.push((final_change, change_script));
     }
 
@@ -1266,7 +1847,12 @@ fn serialize_pskb_single_sig(
             "amount": utxo.amount,
             "scriptPublicKey": spk_hex,
             "blockDaaScore": utxo.block_daa_score,
-            "isCoinbase": false
+            "isCoinbase": false,
+            // The UTXO's on-chain covenant id, so the signer can tell a
+            // continuation from a genesis: the node rejects a continuation
+            // whose binding id differs from the authorizing input's. Absent
+            // when the UTXO carries no covenant.
+            "covenantId": utxo.covenant_id
         });
 
         let outpoint = serde_json::json!({
@@ -1361,7 +1947,9 @@ pub fn serialize_pskb_with_covenants(
                 "amount": utxo.amount,
                 "scriptPublicKey": spk_hex,
                 "blockDaaScore": utxo.block_daa_score,
-                "isCoinbase": false
+                "isCoinbase": false,
+                // The UTXO's on-chain covenant id; see the note above.
+                "covenantId": utxo.covenant_id
             },
             "previousOutpoint": {
                 "transactionId": utxo.tx_id,
@@ -1449,7 +2037,7 @@ pub fn serialize_pskb_with_covenants_and_payload(
     for utxo in inputs {
         let spk_hex = format!("0000{}", hex::encode(&utxo.script_public_key));
         inputs_json.push(serde_json::json!({
-            "utxoEntry": { "amount": utxo.amount, "scriptPublicKey": spk_hex, "blockDaaScore": utxo.block_daa_score, "isCoinbase": false },
+            "utxoEntry": { "amount": utxo.amount, "scriptPublicKey": spk_hex, "blockDaaScore": utxo.block_daa_score, "isCoinbase": false, "covenantId": utxo.covenant_id },
             "previousOutpoint": { "transactionId": utxo.tx_id, "index": utxo.index },
             "sequence": 0u64, "minTime": serde_json::Value::Null, "partialSigs": {}, "sighashType": 1u8,
             "redeemScript": serde_json::Value::Null, "sigOpCount": 1u8, "bip32Derivations": {},
@@ -1525,37 +2113,20 @@ pub async fn create_multisig_pskb(
     fee: u64,
     change_address: &str,
     ws_url: &str,
+    // First unused change index, or u32::MAX to derive it here.
+    change_index_hint: u32,
     addr_index: u32,
 ) -> Result<String, String> {
     // ── HD address-index auto-discovery (identical to create_multisig_kspt) ──
-    let final_index = if descriptor.trim().starts_with("multi_hd(") {
-        let mut found: Option<u32> = None;
-        for try_idx in 0..100u32 {
-            let (m, pks) = parse_descriptor(descriptor, try_idx)?;
-            let script = build_redeem_script(m, &pks);
-            let script_hash = blake2b_hash(&script);
-            let derived_addr = crate::address::encode_p2sh_address(&script_hash, "kaspa");
-            if derived_addr == source_address {
-                found = Some(try_idx);
-                break;
-            }
-        }
-        match found {
-            Some(idx) => idx,
-            None => {
-                return Err(format!(
-                    "Could not find address index (tried 0..99) that matches source address {}",
-                    source_address
-                ))
-            }
-        }
-    } else {
-        addr_index
-    };
+    let (final_index, final_cosigner, final_chain) =
+        discover_indices(descriptor, source_address, addr_index)?;
 
-    let (m, pubkeys) = parse_descriptor(descriptor, final_index)?;
+    let (m, pubkeys) = parse_descriptor_at(descriptor, final_index, final_cosigner, final_chain)?;
     let redeem_script = build_redeem_script(m, &pubkeys);
     let redeem_script_hex = hex::encode(&redeem_script);
+    // The derivation hint. Empty for 44', which needs none.
+    let derivations =
+        build_bip32_derivations(descriptor, final_index, final_cosigner, final_chain)?;
 
     let dest_script = crate::address::address_to_script_pubkey(dest_address)?;
 
@@ -1591,6 +2162,10 @@ pub async fn create_multisig_pskb(
     }
 
     let change_amount = selected_total - amount_sompi - fee;
+    // Which output is change, and its derivation map. Set only when a 45'
+    // change output is created; a payment to someone else carries no path.
+    let mut change_index: Option<usize> = None;
+    let mut change_derivations = serde_json::json!({});
     let final_change = if change_amount > 0 && is_dust(change_amount) {
         0u64
     } else {
@@ -1601,13 +2176,60 @@ pub async fn create_multisig_pskb(
     let mut outputs: Vec<(u64, Vec<u8>)> = vec![(amount_sompi, dest_script)];
     if final_change > 0 {
         // Same invariant as `create_multisig_kspt`; see the note there.
-        if change_address != source_address {
-            return Err(format!(
-                "Multisig change must return to the source address ({}), got {}",
-                source_address, change_address
-            ));
-        }
-        let change_script = crate::address::address_to_script_pubkey(change_address)?;
+        // 45' change goes to /cosigner/1/index, the change chain. It carries
+        // its own derivation map so the DEVICE can verify it: rebuilding a
+        // multisig address needs every cosigner key, so a signer holding one
+        // seed cannot check it without the path plus the descriptor. Omit the
+        // map and every device shows this output as an unverified claim.
+        //
+        // 44' has no change chain and still returns to the source address.
+        let desc_is_45 = strip_header(descriptor).starts_with("multi_hd45(");
+        let change_script = if desc_is_45 {
+            // ROTATE: the first chain-1 index with nothing on it.
+            //
+            // Change used `final_index`, the index of the address being spent,
+            // so spending one address repeatedly sent every change output to
+            // the same chain-1 address.
+            //
+            // Falls back to `final_index` if the scan fails: a transaction to a
+            // reused address beats no transaction.
+            // The CALLER's index wins when it supplies one.
+            //
+            // A UTXO scan cannot see a spent-empty address, so computing the
+            // index here would hand back an index that was used and emptied -
+            // and rotation would stop rotating after one round. The caller can
+            // see transaction history and passes the answer in; `u32::MAX`
+            // means "no hint, work it out", which is the old behaviour.
+            let chg_idx = if change_index_hint != u32::MAX {
+                change_index_hint
+            } else {
+                match scan_multisig_branch(descriptor, final_cosigner, CHANGE_SCAN_DEPTH, ws_url)
+                    .await
+                {
+                    Ok(j) => serde_json::from_str::<serde_json::Value>(&j)
+                        .ok()
+                        .and_then(|v| v["next_change_index"].as_u64())
+                        .map(|n| n as u32)
+                        .unwrap_or(final_index),
+                    Err(_) => final_index,
+                }
+            };
+            let (cm, cpks) = parse_descriptor_at(descriptor, chg_idx, final_cosigner, 1)?;
+            let cscript = build_redeem_script(cm, &cpks);
+            let chash = blake2b_hash(&cscript);
+            let caddr = crate::address::encode_p2sh_address(&chash, "kaspa");
+            change_derivations = build_bip32_derivations(descriptor, chg_idx, final_cosigner, 1)?;
+            crate::address::address_to_script_pubkey(&caddr)?
+        } else {
+            if change_address != source_address {
+                return Err(format!(
+                    "Multisig change must return to the source address ({}), got {}",
+                    source_address, change_address
+                ));
+            }
+            crate::address::address_to_script_pubkey(change_address)?
+        };
+        change_index = Some(outputs.len());
         outputs.push((final_change, change_script));
     }
 
@@ -1640,7 +2262,12 @@ pub async fn create_multisig_pskb(
             "amount": utxo.amount,
             "scriptPublicKey": spk_hex,
             "blockDaaScore": utxo.block_daa_score,
-            "isCoinbase": false
+            "isCoinbase": false,
+            // The UTXO's on-chain covenant id, so the signer can tell a
+            // continuation from a genesis: the node rejects a continuation
+            // whose binding id differs from the authorizing input's. Absent
+            // when the UTXO carries no covenant.
+            "covenantId": utxo.covenant_id
         });
 
         let outpoint = serde_json::json!({
@@ -1672,7 +2299,7 @@ pub async fn create_multisig_pskb(
             // the two emitters consistent prevents an asymmetric
             // mainnet failure mode.
             "sigOpCount": pubkeys.len() as u8,
-            "bip32Derivations": {},
+            "bip32Derivations": derivations,
             "finalScriptSig": serde_json::Value::Null,
             "proprietaries": {}
         });
@@ -1681,13 +2308,21 @@ pub async fn create_multisig_pskb(
 
     // Outputs JSON
     let mut outputs_json = Vec::<serde_json::Value>::with_capacity(outputs.len());
-    for (amount, script) in &outputs {
+    for (oi, (amount, script)) in outputs.iter().enumerate() {
         let spk_hex = format!("0000{}", hex::encode(script));
+        // Only the CHANGE output carries a map. A payment to someone else has
+        // no path of ours, and claiming one would be a lie the device is now
+        // built to catch.
+        let od = if Some(oi) == change_index {
+            change_derivations.clone()
+        } else {
+            serde_json::json!({})
+        };
         let output = serde_json::json!({
             "amount": amount,
             "scriptPublicKey": spk_hex,
             "redeemScript": serde_json::Value::Null,
-            "bip32Derivations": {},
+            "bip32Derivations": od,
             "proprietaries": {}
         });
         outputs_json.push(output);
@@ -1756,37 +2391,20 @@ pub async fn create_multisig_pskb_selected(
     fee: u64,
     change_address: &str,
     ws_url: &str,
+    // First unused change index, or u32::MAX to derive it here.
+    change_index_hint: u32,
     addr_index: u32,
     utxo_indices: &[usize],
 ) -> Result<String, String> {
-    let final_index = if descriptor.trim().starts_with("multi_hd(") {
-        let mut found: Option<u32> = None;
-        for try_idx in 0..100u32 {
-            let (m, pks) = parse_descriptor(descriptor, try_idx)?;
-            let script = build_redeem_script(m, &pks);
-            let script_hash = blake2b_hash(&script);
-            let derived_addr = crate::address::encode_p2sh_address(&script_hash, "kaspa");
-            if derived_addr == source_address {
-                found = Some(try_idx);
-                break;
-            }
-        }
-        match found {
-            Some(idx) => idx,
-            None => {
-                return Err(format!(
-                    "Could not find address index (tried 0..99) that matches source address {}",
-                    source_address
-                ))
-            }
-        }
-    } else {
-        addr_index
-    };
+    let (final_index, final_cosigner, final_chain) =
+        discover_indices(descriptor, source_address, addr_index)?;
 
-    let (m, pubkeys) = parse_descriptor(descriptor, final_index)?;
+    let (m, pubkeys) = parse_descriptor_at(descriptor, final_index, final_cosigner, final_chain)?;
     let redeem_script = build_redeem_script(m, &pubkeys);
     let redeem_script_hex = hex::encode(&redeem_script);
+    // The derivation hint. Empty for 44', which needs none.
+    let derivations =
+        build_bip32_derivations(descriptor, final_index, final_cosigner, final_chain)?;
 
     let dest_script = crate::address::address_to_script_pubkey(dest_address)?;
 
@@ -1830,6 +2448,10 @@ pub async fn create_multisig_pskb_selected(
     }
 
     let change_amount = selected_total - amount_sompi - fee;
+    // Which output is change, and its derivation map. Set only when a 45'
+    // change output is created; a payment to someone else carries no path.
+    let mut change_index: Option<usize> = None;
+    let mut change_derivations = serde_json::json!({});
     let final_change = if change_amount > 0 && is_dust(change_amount) {
         0u64
     } else {
@@ -1839,13 +2461,60 @@ pub async fn create_multisig_pskb_selected(
     let mut outputs: Vec<(u64, Vec<u8>)> = vec![(amount_sompi, dest_script)];
     if final_change > 0 {
         // Same invariant as `create_multisig_kspt`; see the note there.
-        if change_address != source_address {
-            return Err(format!(
-                "Multisig change must return to the source address ({}), got {}",
-                source_address, change_address
-            ));
-        }
-        let change_script = crate::address::address_to_script_pubkey(change_address)?;
+        // 45' change goes to /cosigner/1/index, the change chain. It carries
+        // its own derivation map so the DEVICE can verify it: rebuilding a
+        // multisig address needs every cosigner key, so a signer holding one
+        // seed cannot check it without the path plus the descriptor. Omit the
+        // map and every device shows this output as an unverified claim.
+        //
+        // 44' has no change chain and still returns to the source address.
+        let desc_is_45 = strip_header(descriptor).starts_with("multi_hd45(");
+        let change_script = if desc_is_45 {
+            // ROTATE: the first chain-1 index with nothing on it.
+            //
+            // Change used `final_index`, the index of the address being spent,
+            // so spending one address repeatedly sent every change output to
+            // the same chain-1 address.
+            //
+            // Falls back to `final_index` if the scan fails: a transaction to a
+            // reused address beats no transaction.
+            // The CALLER's index wins when it supplies one.
+            //
+            // A UTXO scan cannot see a spent-empty address, so computing the
+            // index here would hand back an index that was used and emptied -
+            // and rotation would stop rotating after one round. The caller can
+            // see transaction history and passes the answer in; `u32::MAX`
+            // means "no hint, work it out", which is the old behaviour.
+            let chg_idx = if change_index_hint != u32::MAX {
+                change_index_hint
+            } else {
+                match scan_multisig_branch(descriptor, final_cosigner, CHANGE_SCAN_DEPTH, ws_url)
+                    .await
+                {
+                    Ok(j) => serde_json::from_str::<serde_json::Value>(&j)
+                        .ok()
+                        .and_then(|v| v["next_change_index"].as_u64())
+                        .map(|n| n as u32)
+                        .unwrap_or(final_index),
+                    Err(_) => final_index,
+                }
+            };
+            let (cm, cpks) = parse_descriptor_at(descriptor, chg_idx, final_cosigner, 1)?;
+            let cscript = build_redeem_script(cm, &cpks);
+            let chash = blake2b_hash(&cscript);
+            let caddr = crate::address::encode_p2sh_address(&chash, "kaspa");
+            change_derivations = build_bip32_derivations(descriptor, chg_idx, final_cosigner, 1)?;
+            crate::address::address_to_script_pubkey(&caddr)?
+        } else {
+            if change_address != source_address {
+                return Err(format!(
+                    "Multisig change must return to the source address ({}), got {}",
+                    source_address, change_address
+                ));
+            }
+            crate::address::address_to_script_pubkey(change_address)?
+        };
+        change_index = Some(outputs.len());
         outputs.push((final_change, change_script));
     }
 
@@ -1861,7 +2530,9 @@ pub async fn create_multisig_pskb_selected(
                 "amount": utxo.amount,
                 "scriptPublicKey": spk_hex,
                 "blockDaaScore": utxo.block_daa_score,
-                "isCoinbase": false
+                "isCoinbase": false,
+                // The UTXO's on-chain covenant id; see the note above.
+                "covenantId": utxo.covenant_id
             },
             "previousOutpoint": {
                 "transactionId": utxo.tx_id,
@@ -1873,7 +2544,7 @@ pub async fn create_multisig_pskb_selected(
             "sighashType": 1u8,
             "redeemScript": redeem_script_hex,
             "sigOpCount": pubkeys.len() as u8,
-            "bip32Derivations": {},
+            "bip32Derivations": derivations,
             "finalScriptSig": serde_json::Value::Null,
             "proprietaries": {}
         });
@@ -1881,13 +2552,19 @@ pub async fn create_multisig_pskb_selected(
     }
 
     let mut outputs_json = Vec::<serde_json::Value>::with_capacity(outputs.len());
-    for (amount, script) in &outputs {
+    for (oi, (amount, script)) in outputs.iter().enumerate() {
         let spk_hex = format!("0000{}", hex::encode(script));
+        // Only the CHANGE output carries a map; see `create_multisig_pskb`.
+        let od = if Some(oi) == change_index {
+            change_derivations.clone()
+        } else {
+            serde_json::json!({})
+        };
         outputs_json.push(serde_json::json!({
             "amount": amount,
             "scriptPublicKey": spk_hex,
             "redeemScript": serde_json::Value::Null,
-            "bip32Derivations": {},
+            "bip32Derivations": od,
             "proprietaries": {}
         }));
     }

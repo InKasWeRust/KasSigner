@@ -684,6 +684,71 @@ const KASPA_ACCOUNT_PATH: [u32; 3] = [
     0 | HARDENED_BIT,        // account 0
 ];
 
+/// Kaspa 45' multisig account path: m/45'/111111'/account' (3 hardened).
+///
+/// The rusty-kaspa standard for multisig (`wallet/keys/src/derivation/gen1/hd.rs`,
+/// `build_derivate_path`: purpose is 45 for multisig, 44 for single-sig).
+/// From here an address is `/cosigner_index/chain/addr_index` — one level more
+/// than 44', and the cosigner level is NOT hardened.
+const KASPA_MULTISIG_ACCOUNT_PATH: [u32; 3] = [
+    45 | HARDENED_BIT,      // purpose: multisig
+    111_111 | HARDENED_BIT, // coin_type (Kaspa)
+    0 | HARDENED_BIT,       // account, filled per call
+];
+
+/// Derive the 45' multisig account key at m/45'/111111'/account'.
+///
+/// Same cost as `derive_account_key`: three hardened derivations. A different
+/// subtree entirely, so a 44' account key is not convertible to this and vice
+/// versa — which is exactly why a 44' and a 45' `kpub` being byte-
+/// indistinguishable is a hazard: both parse, only one works.
+pub fn derive_multisig_account_key(
+    seed: &[u8; 64],
+    account: u32,
+) -> Result<ExtendedPrivKey, Bip32Error> {
+    let mut path = KASPA_MULTISIG_ACCOUNT_PATH;
+    path[2] = account | HARDENED_BIT;
+    derive_path(seed, &path)
+}
+
+/// Our own slot in a sorted 45' cosigner list, i.e. our `cosigner_index`.
+///
+/// Compares our account public key against each entry. The list is already
+/// sorted by the descriptor parser, so the matching position IS the index.
+///
+/// Returns `None` when our key is absent, and the caller must treat that as a
+/// refusal rather than a default. Two reasons:
+///
+///   - The descriptor is not ours. Picking a family anyway would display
+///     addresses for a wallet we cannot sign for.
+///   - It is the ONLY check that catches a 44'-vs-45' key mix-up. A `kpub`
+///     carries nothing identifying its subtree, so a 44' key pasted into a 45'
+///     descriptor parses cleanly, has a valid checksum and yields a plausible
+///     address. It fails here, and it fails on the device of the participant
+///     whose key is wrong, which is where the mistake can actually be fixed.
+///
+/// Comparing the compressed key includes the parity byte, so two keys sharing
+/// an x coordinate with opposite parity are not confused.
+///
+/// rusty-kaspa takes the LOWEST slot across every key the wallet holds
+/// (`wallet/core/src/wallet/mod.rs:737`, `min_cosigner_index`) because one of
+/// its accounts may hold several of the multisig's private keys. Our seed
+/// manager exposes a single active slot, so there is exactly one candidate and
+/// first-match is that minimum.
+pub fn resolve_cosigner_index(
+    ms_account_key: &ExtendedPrivKey,
+    cosigner_pubkeys: &[[u8; 33]],
+    n: usize,
+) -> Option<u8> {
+    let ours = ms_account_key.public_key_compressed().ok()?;
+    for i in 0..n.min(cosigner_pubkeys.len()) {
+        if cosigner_pubkeys[i] == ours {
+            return Some(i as u8);
+        }
+    }
+    None
+}
+
 /// Derive the Kaspa account key at m/44'/111111'/0'.
 /// This is expensive (3 hardened derivations with HMAC-SHA512 each),
 /// but only needs to be done once per seed load.

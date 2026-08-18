@@ -693,6 +693,169 @@ pub fn ensure_session_account_key(
     ad.acct_key_raw[..32].iter().any(|&b| b != 0)
 }
 
+/// Our own 45' multisig account key, as descriptor parts.
+///
+/// Returns `None` when there is no seed to derive from: no slot loaded, or an
+/// xprv slot, which is imported at 44' account level and cannot walk down the
+/// 45' branch.
+///
+/// Deliberately derives the seed rather than reusing `acct_key_raw`. That field
+/// holds the 44' account key, a different subtree; putting it into a 45'
+/// descriptor would produce an entry that parses, checksums and renders a
+/// plausible address that no quorum can spend. Same wipe discipline as
+/// `ensure_session_account_key`: seed and passphrase copy are zeroed on every
+/// exit path.
+pub fn own_multisig_parts(
+    ad: &mut crate::app::data::AppData,
+) -> Option<wallet::xpub::KpubParts> {
+    if !ad.seed_loaded || ad.active_kind() == crate::ui::seed_manager::SlotKind::Xprv {
+        crate::log!("   [ms45] no seed to derive our own cosigner key from");
+        return None;
+    }
+    let (mut pp_bytes, pp_len) = match ad.seed_mgr.active_slot() {
+        Some(slot) => {
+            let p = slot.passphrase_str();
+            let mut b = [0u8; 64];
+            let l = p.len().min(64);
+            b[..l].copy_from_slice(&p.as_bytes()[..l]);
+            (b, l)
+        }
+        None => ([0u8; 64], 0),
+    };
+    let pp = core::str::from_utf8(&pp_bytes[..pp_len]).unwrap_or("");
+    let seed_opt = derive_seed(&ad.mnemonic_indices, ad.word_count, pp);
+    let mut seed = match seed_opt {
+        Some(s) => s,
+        None => {
+            for b in pp_bytes.iter_mut() {
+                unsafe { core::ptr::write_volatile(b, 0); }
+            }
+            return None;
+        }
+    };
+    let parts = wallet::xpub::derive_multisig_account_parts(&seed.bytes, 0).ok();
+    for b in seed.bytes.iter_mut() {
+        unsafe { core::ptr::write_volatile(b, 0); }
+    }
+    for b in pp_bytes.iter_mut() {
+        unsafe { core::ptr::write_volatile(b, 0); }
+    }
+    parts
+}
+
+/// Outcome of resolving our slot in a 45' descriptor.
+///
+/// Three states rather than a bool, because the two failures need different
+/// words on screen. Collapsing them reports a good descriptor as bad, which is
+/// the kind of message that sends someone to look in the wrong place.
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum MsResolve {
+    /// Index resolved, or the config is 44' and has no index.
+    Ok,
+    /// No seed loaded, or the slot cannot produce one. The descriptor was not
+    /// examined and may be perfectly good.
+    NoSeed,
+    /// Parsed fine, but our account key is not among its cosigners. Either the
+    /// descriptor belongs to someone else, or one of its keys is wrong, and
+    /// this is the check that catches a 44'-vs-45' `kpub` mix-up.
+    NotOurs,
+}
+
+/// Resolve our own slot in a loaded 45' descriptor, i.e. `cosigner_index`.
+///
+/// Returns true when the config is usable. For a 44' config it is a no-op that
+/// returns true, because 44' has no cosigner index: every participant shares
+/// one address family.
+///
+/// **A false return must be treated as a refusal to load, not a default.**
+/// It means our account key is not among the descriptor's cosigners, so either
+/// the descriptor is not ours, or one of the keys in it is wrong. Choosing a
+/// family anyway would display addresses for a wallet we cannot sign for.
+///
+/// This is also the only check that catches a 44'-vs-45' `kpub` mix-up. Such a
+/// key parses cleanly, has a valid checksum and yields a plausible address, so
+/// nothing earlier can reject it. It fails here, on the device of the
+/// participant whose key is wrong, which is the one place the mistake can be
+/// fixed.
+///
+/// Cost: three hardened derivations plus a PBKDF2 stretch if the seed is not
+/// already in hand, the same price as `ensure_session_account_key`. It runs
+/// once per descriptor load, not per address.
+///
+/// The 45' account key is NOT cached in `acct_key_raw`. That field holds the
+/// 44' key at `m/44'/111111'/0'` and the whole display and signing path reads
+/// it; a different subtree in the same slot would be silently wrong everywhere.
+pub fn resolve_ms_cosigner_index(ad: &mut crate::app::data::AppData) -> MsResolve {
+    if !ad.ms_creating.v45 {
+        return MsResolve::Ok;
+    }
+    if !ad.seed_loaded {
+        // Not a bad descriptor, and not the wrong one: there is simply nothing
+        // to compare it against yet. The multisig menu has no seed guard, so
+        // this path is reachable, and reporting it as "Bad descriptor" would
+        // send the user to check a file that is fine.
+        crate::log!("   [ms45] no seed loaded, cannot resolve cosigner index");
+        return MsResolve::NoSeed;
+    }
+    if ad.active_kind() == crate::ui::seed_manager::SlotKind::Xprv {
+        // An xprv slot is imported at account level on the 44' path, so there
+        // is no seed to walk down the 45' branch from.
+        crate::log!("   [ms45] xprv slot cannot derive a 45' account key");
+        return MsResolve::NoSeed;
+    }
+
+    let (mut pp_bytes, pp_len) = match ad.seed_mgr.active_slot() {
+        Some(slot) => {
+            let p = slot.passphrase_str();
+            let mut b = [0u8; 64];
+            let l = p.len().min(64);
+            b[..l].copy_from_slice(&p.as_bytes()[..l]);
+            (b, l)
+        }
+        None => ([0u8; 64], 0),
+    };
+    let pp = core::str::from_utf8(&pp_bytes[..pp_len]).unwrap_or("");
+    let seed_opt = derive_seed(&ad.mnemonic_indices, ad.word_count, pp);
+    let mut seed = match seed_opt {
+        Some(s) => s,
+        None => {
+            for b in pp_bytes.iter_mut() {
+                unsafe { core::ptr::write_volatile(b, 0); }
+            }
+            return MsResolve::NoSeed;
+        }
+    };
+
+    let n = ad.ms_creating.n as usize;
+    let found = match wallet::bip32::derive_multisig_account_key(&seed.bytes, 0) {
+        Ok(ms_acct) => wallet::bip32::resolve_cosigner_index(
+            &ms_acct,
+            &ad.ms_creating.cosigner_pubkeys,
+            n,
+        ),
+        Err(_) => None,
+    };
+
+    for b in seed.bytes.iter_mut() {
+        unsafe { core::ptr::write_volatile(b, 0); }
+    }
+    for b in pp_bytes.iter_mut() {
+        unsafe { core::ptr::write_volatile(b, 0); }
+    }
+
+    match found {
+        Some(idx) => {
+            ad.ms_creating.cosigner_index = idx;
+            crate::log!("   [ms45] cosigner index {} of {}", idx, n);
+            MsResolve::Ok
+        }
+        None => {
+            crate::log!("   [ms45] our account key is not in this descriptor");
+            MsResolve::NotOurs
+        }
+    }
+}
+
 /// Wipe the previous slot's session cache and synchronously prime the
 /// new one. Called at every seed-load confirmation point (passphrase OK,
 /// slot select, BIP85 auto-load, delete-fallback activation) so the
@@ -780,6 +943,55 @@ pub fn derive_change_pubkey_from_acct(
     }
 }
 
+/// Collapse a serializer `Result` to a byte count, naming the failure first.
+///
+/// Every caller here has to end up with a `usize`, because `signed_qr_len` is
+/// one, and `.unwrap_or(0)` did that by throwing the reason away. The cost is
+/// recorded twice in this file: once at the unknown-region bug below, where a
+/// transaction signed correctly in ~170 ms and reached the user as "Signing
+/// Failed" with nothing to act on, and once as N-06, where a large transaction
+/// overflows `SIGNED_QR_BUF_LEN` and reports `Signed response: 0 bytes`.
+///
+/// The error already carries a user-facing mapping, `PsktError::screen_text`,
+/// which renders `OutputBufferTooSmall` as "Result too large / Split the
+/// transaction". Nothing was wrong with the message; it was discarded one
+/// frame before anything could read it.
+///
+/// This does not change what the caller receives: a failure is still 0 bytes,
+/// and the UI still shows "Signing Failed". It changes what the serial log
+/// says, so the cause is identifiable instead of guessable.
+///
+/// N-06 note: at 32 inputs the redeem script is written once per input, and
+/// the real covenant scripts are 57 to 101 bytes (piggy bank, dead-man switch,
+/// 2-of-3). That puts a 32-input spend at 7.1 to 8.6 KB of the 14,528-byte
+/// buffer, so this path is NOT reachable for any covenant this project builds:
+/// v3 only overflows once a redeem exceeds 287 bytes with one signature per
+/// input, or 221 with two. Deduplicating the redeem would save 1.8 to 3.1 KB
+/// and was deferred as not worth a wire-format change. If that changes, the
+/// arithmetic is in INTERNAL_FINDINGS.md under N-06.
+#[inline(never)]
+fn serialized_or_zero(
+    r: Result<usize, wallet::pskt::PsktError>,
+    which: &str,
+    num_inputs: usize,
+) -> usize {
+    match r {
+        Ok(n) => n,
+        Err(e) => {
+            let (line1, line2) = e.screen_text();
+            crate::log!(
+                "   SERIALIZE FAILED ({}): {} / {} — {} inputs, buffer {} bytes",
+                which,
+                line1,
+                line2,
+                num_inputs,
+                crate::app::data::SIGNED_QR_BUF_LEN
+            );
+            0
+        }
+    }
+}
+
 /// Sign a transaction and serialize the response (single key — backward compat)
 #[inline(never)]
 pub fn sign_and_serialize(
@@ -787,9 +999,13 @@ pub fn sign_and_serialize(
     privkey: &[u8; 32],
     buf: &mut [u8],
 ) -> usize {
-    wallet::pskt::sign_transaction_in_place(tx, privkey, wallet::transaction::SigHashType::All)
-        .and_then(|_| wallet::pskt::serialize_signed_pskt(tx, buf))
-        .unwrap_or(0)
+    let n = tx.num_inputs;
+    serialized_or_zero(
+        wallet::pskt::sign_transaction_in_place(tx, privkey, wallet::transaction::SigHashType::All)
+            .and_then(|_| wallet::pskt::serialize_signed_pskt(tx, buf)),
+        "v1",
+        n,
+    )
 }
 
 /// Sign a transaction with multi-address support: each input is matched
@@ -802,9 +1018,13 @@ pub fn sign_and_serialize_multi(
     buf: &mut [u8],
 ) -> usize {
     let acct = wallet::bip32::ExtendedPrivKey::from_raw(acct_raw);
-    wallet::pskt::sign_transaction_multi_addr(tx, &acct, wallet::transaction::SigHashType::All, ext)
-        .and_then(|_| wallet::pskt::serialize_signed_pskt(tx, buf))
-        .unwrap_or(0)
+    let n = tx.num_inputs;
+    serialized_or_zero(
+        wallet::pskt::sign_transaction_multi_addr(tx, &acct, wallet::transaction::SigHashType::All, ext)
+            .and_then(|_| wallet::pskt::serialize_signed_pskt(tx, buf)),
+        "v1 multi-addr",
+        n,
+    )
 }
 
 /// Sign a transaction with multisig support: tries all loaded seed slots,
@@ -903,19 +1123,62 @@ pub fn sign_and_serialize_multisig(
     crate::log!("[sign_t] multisig sign: {} ms ({} inputs)", sign_ms, tx.num_inputs);
 
     let result = match signed {
-        Ok(_new_sigs) => {
+        Ok(new_sigs) => {
             // Use v2 serialization if any input is multisig or P2SH, else v1 for compat
             let has_multisig = (0..tx.num_inputs).any(|i| {
                 let (st, _) = wallet::pskt::analyze_input_script(tx, i);
                 st == wallet::transaction::ScriptType::Multisig || st == wallet::transaction::ScriptType::P2SH
             });
+
+            // Zero new signatures on a multisig transaction is a FAILURE, not a
+            // pass-through. It used to serialize anyway, returning a PSKB that
+            // looks normal, carries no new signature, and is only revealed as
+            // useless when a node rejects the broadcast.
+            //
+            // The likeliest cause is a payload built without its derivation map.
+            // A standard multisig PSKB carries `bip32_derivations` per input;
+            // without it the device cannot know which of the N cosigner slots
+            // this address belongs to, and the only alternative is to search
+            // `n + 2n + 2n*SIGN_MATCH_DEPTH` derivations per input per seed
+            // slot. At SIGN_MATCH_DEPTH = 100 that is 609 derivations for a
+            // 2-of-3, which measured against the BIP32 and MS45 KATs is between
+            // 5 and 24 seconds PER INPUT, per slot. Not a viable fallback at
+            // either end of that range, so the device reports the malformed
+            // payload instead of grinding.
+            //
+            // The other cause is an honest one: the transaction is not ours to
+            // sign. Same outcome, and the message names both.
+            if has_multisig && new_sigs == 0 {
+                crate::log!(
+                    "   MULTISIG: no key matched any input ({} inputs). Payload is \
+                     missing its bip32_derivations map, or this wallet is not a \
+                     cosigner.",
+                    tx.num_inputs
+                );
+                for (s, _) in seeds.iter_mut() { zeroize_seed(s); }
+                return 0;
+            }
+
             if has_multisig {
-                wallet::pskt::serialize_signed_pskt_v2(tx, buf).unwrap_or(0)
+                serialized_or_zero(
+                    wallet::pskt::serialize_signed_pskt_v2(tx, buf),
+                    "v3 multisig",
+                    tx.num_inputs,
+                )
             } else {
-                wallet::pskt::serialize_signed_pskt(tx, buf).unwrap_or(0)
+                serialized_or_zero(
+                    wallet::pskt::serialize_signed_pskt(tx, buf),
+                    "v1",
+                    tx.num_inputs,
+                )
             }
         }
-        Err(_) => 0,
+        Err(_) => {
+            // Signing itself failed, not serialization. Distinguished from the
+            // serializer failures above so the log says which half broke.
+            crate::log!("   SIGNING FAILED before serialization ({} inputs)", tx.num_inputs);
+            0
+        }
     };
     let t_end = Instant::now();
     let ser_ms = (t_end - t_after_sign).as_millis();
@@ -960,6 +1223,48 @@ pub fn sign_and_serialize_pskt_multi(
     format: crate::app::data::TxInputFormat,
     out: &mut [u8],
 ) -> usize {
+    // PSRAM-heap scratch — keeps this 8 KB off the stack so it doesn't
+    // bloat main's frame via cross-function allocation hoisting.
+    // Dropped at end of function; cost is only during signing.
+    let mut tmp: alloc::vec::Vec<u8> = alloc::vec![0u8; crate::app::data::SIGNED_QR_BUF_LEN];
+
+    // Pre-flight, before any key operation.
+    //
+    // The size check inside `HexWriter` is exact but runs at the end, so a
+    // bundle too large to emit used to be parsed, signed and only then
+    // refused: an 11-input PSKB spent about two seconds on eleven
+    // signatures and eleven verifications before `OutputBufferTooSmall`,
+    // and every one of them was discarded.
+    //
+    // Both ceilings are checked, because they bind at different points. On
+    // this format the emit frames bind first, at 10 inputs, while the
+    // buffer binds at 11. A payload that fits the buffer but not 64 frames
+    // would otherwise produce a stream no receiver can assemble.
+    //
+    // 227 bytes per frame is the densest emit mode, so this is the most
+    // permissive frame test; the density chooser then greys out anything
+    // sparser that still will not fit.
+    let predicted = match wallet::std_pskt::predict_emitted_size(
+        tx, pskt_parsed, scratch_json, format, tx.num_inputs, &mut tmp,
+    ) {
+        Ok(n) => n,
+        Err(e) => {
+            crate::log!("[pskt] multi: unsigned bundle will not serialize: {:?}", e);
+            return 0;
+        }
+    };
+    let fits_buffer = predicted <= tmp.len() && predicted <= out.len();
+    let fits_frames = crate::handlers::camera_loop::density_fits(predicted, 227);
+    if !fits_buffer || !fits_frames {
+        crate::log!(
+            "[pskt] multi: {} inputs would emit {} bytes, buffer {} frames {}, refused before signing",
+            tx.num_inputs, predicted,
+            if fits_buffer { "ok" } else { "over" },
+            if fits_frames { "ok" } else { "over" },
+        );
+        return 0;
+    }
+
     let acct = wallet::bip32::ExtendedPrivKey::from_raw(acct_raw);
     if wallet::pskt::sign_transaction_multi_addr(
         tx, &acct, wallet::transaction::SigHashType::All, ext,
@@ -973,10 +1278,7 @@ pub fn sign_and_serialize_pskt_multi(
         return 0;
     }
     wallet::std_pskt::move_ksp_sigs_to_pskt(tx);
-    // PSRAM-heap scratch — keeps this 4 KB off the stack so it doesn't
-    // bloat main's frame via cross-function allocation hoisting.
-    // Dropped at end of function; cost is only during signing.
-    let mut tmp: alloc::vec::Vec<u8> = alloc::vec![0u8; 8192];
+    // `tmp` was allocated above for the pre-flight; reused here.
     match wallet::std_pskt::serialize_pskt(tx, pskt_parsed, scratch_json, format, &mut tmp) {
         Ok(n) => {
             if n > out.len() {
@@ -1009,6 +1311,67 @@ pub fn sign_and_serialize_pskt_multisig(
 ) -> usize {
     use esp_hal::time::Instant;
     let t_start = Instant::now();
+
+    // N-14: predict the emitted size BEFORE ANYTHING ELSE.
+    //
+    // Placed above the seed gathering, not merely above the signing. The
+    // prediction needs only the parsed transaction, so a payload that cannot
+    // be returned is refused without a PBKDF2 stretch and without putting seed
+    // material on the stack at all. Measured with vector M8: the first version
+    // sat after the slot was unlocked and the log showed `seed derivation:
+    // 651 ms` before the refusal - work spent on a transaction that was never
+    // going to be signed.
+    //
+    // Same pre-flight `sign_and_serialize_pskt_multi` has, and it applies to
+    // BOTH schemes: a 44' and a 45' input serialize to the same JSON shape, one
+    // `partialSigs` entry with a 64-byte Schnorr signature, so the scheme does
+    // not enter the arithmetic. 44' creation is disabled from 1.0.6 but those
+    // wallets hold funds and must stay spendable, and they overflow the same
+    // way.
+    //
+    // This was parked because the signature count was unknown before signing:
+    // the device used to sign with every loaded slot, so a worst-case estimate
+    // meant assuming MAX_SIGS_PER_INPUT = 5 and over-refusing exactly where
+    // payloads are already tight. `MAX_SIGN_SLOTS` is 1 now - one slot signs -
+    // so this device adds at most ONE signature per input and the prediction is
+    // exact rather than pessimistic.
+    //
+    // `predict_emitted_size` SERIALIZES the unsigned bundle rather than
+    // estimating it, so the `bip32Derivations` map that N-20 made survive is
+    // counted for real; the per-input constant covers only the signature entry.
+    // Measured against the vectors: M5 grew 2484 -> 2902 wire bytes for one
+    // signature and M6 grew 2902 -> 3326, both about 418 against the 568 the
+    // predictor assumes.
+    //
+    // Both ceilings are checked because they bind at different points: the
+    // output buffer, and 64 QR frames at the densest 227-byte mode, beyond
+    // which no receiver can assemble the stream whatever the buffer holds.
+    {
+        let mut dry: alloc::vec::Vec<u8> =
+            alloc::vec![0u8; crate::app::data::SIGNED_QR_BUF_LEN];
+        match wallet::std_pskt::predict_emitted_size(
+            tx, pskt_parsed, scratch_json, format, tx.num_inputs, &mut dry,
+        ) {
+            Ok(predicted) => {
+                let fits_buffer = predicted <= dry.len() && predicted <= out.len();
+                let fits_frames =
+                    crate::handlers::camera_loop::density_fits(predicted, 227);
+                if !fits_buffer || !fits_frames {
+                    crate::log!(
+                        "[pskt] multisig: {} inputs would emit {} bytes, buffer {} frames {}, refused before signing",
+                        tx.num_inputs, predicted,
+                        if fits_buffer { "ok" } else { "over" },
+                        if fits_frames { "ok" } else { "over" },
+                    );
+                    return 0;
+                }
+            }
+            Err(e) => {
+                crate::log!("[pskt] multisig: unsigned bundle will not serialize: {:?}", e);
+                return 0;
+            }
+        }
+    }
 
     // ONE SLOT SIGNS, same as the KSPT path above and for the same reasons:
     // `active_seed_idx` could come back None while signing proceeded with a
@@ -1060,10 +1423,38 @@ pub fn sign_and_serialize_pskt_multisig(
         return 0;
     }
 
-    if wallet::pskt::sign_transaction_multisig(
+    // The COUNT matters, not just Ok/Err. This used to be `.is_err()`, which
+    // let `Ok(0)` through: no key matched any input, nothing was signed, and
+    // the device serialized and displayed a QR that looks like a signed
+    // response and carries no new signature. The user broadcasts it and the
+    // node rejects it, with nothing on the device having said so.
+    //
+    // Observed 2026-08-15 with vector M3 (45' hint pointing at the wrong
+    // cosigner index): 9 frames emitted, 0/2 signatures, no error. The refusal
+    // to sign was CORRECT - the key derived at the hinted path is not in the
+    // redeem script, and the redeem script is the authority - but staying
+    // silent about it was not.
+    //
+    // The likely causes, in order: the payload is missing its
+    // `bip32_derivations` map, the hint points at a path this wallet does not
+    // own, or the transaction simply is not ours to sign. All three are the
+    // same outcome for the user and the log names them.
+    let new_sigs = match wallet::pskt::sign_transaction_multisig(
         tx, &seeds, wallet::transaction::SigHashType::All, active_seed_idx,
-    ).is_err() {
-        crate::log!("[pskt] multisig: signing failed: no loaded key matches any input");
+    ) {
+        Ok(n) => n,
+        Err(_) => {
+            crate::log!("[pskt] multisig: signing failed: no loaded key matches any input");
+            for (s, _) in seeds.iter_mut() { zeroize_seed(s); }
+            return 0;
+        }
+    };
+    if new_sigs == 0 {
+        crate::log!(
+            "[pskt] multisig: no key matched any input ({} inputs). Missing or wrong \
+             bip32_derivations, or this wallet is not a cosigner.",
+            tx.num_inputs
+        );
         for (s, _) in seeds.iter_mut() { zeroize_seed(s); }
         return 0;
     }
@@ -1077,7 +1468,7 @@ pub fn sign_and_serialize_pskt_multisig(
     wallet::std_pskt::move_ksp_sigs_to_pskt(tx);
 
     // PSRAM-heap scratch — see sign_and_serialize_pskt_multi for rationale.
-    let mut tmp: alloc::vec::Vec<u8> = alloc::vec![0u8; 8192];
+    let mut tmp: alloc::vec::Vec<u8> = alloc::vec![0u8; crate::app::data::SIGNED_QR_BUF_LEN];
     let n = match wallet::std_pskt::serialize_pskt(
         tx, pskt_parsed, scratch_json, format, &mut tmp,
     ) {
@@ -1255,10 +1646,15 @@ pub fn handle_signing_step(
                 // Capacity is read from the buffer itself rather than
                 // repeated here; the previous copy said 4096 while the
                 // buffer was 8192. Header=48, per
-                // input=156, per output=45. At 156 B/input this ceiling is
-                // ~25 inputs, comfortably above MAX_INPUTS=16. (Was 1024, a
-                // stale value from when the buffer was smaller — it rejected
-                // valid 6+ input consolidations that fit fine.)
+                // input=156, per output=45.
+                //
+                // These are KSPT figures. PSKB costs about 878 wire bytes
+                // per unsigned input and 568 more once signed, so a PSKB
+                // bundle passes this check and then fails in the
+                // serializer; that path has its own pre-flight in
+                // `sign_and_serialize_pskt_multi`. (Was 1024, a stale value
+                // from when the buffer was smaller: it rejected valid
+                // 6-input consolidations that fit fine.)
                 let estimated_size = 48
                     + (ad.demo_tx.num_inputs * 156)
                     + (ad.demo_tx.num_outputs * 45);
@@ -1284,7 +1680,12 @@ pub fn handle_signing_step(
                     boot_display.draw_saving_screen("Deriving addresses...");
                     fill_display_caches(ad);
                 }
-                log!("   Signing input {}/{}...", input_idx + 1, ad.app.total_inputs);
+                // Progress through the review, not a key operation. Signing
+                // happens once, on the last input, in the branch below. The
+                // old wording said "Signing input N/M" for every step, so a
+                // log could read "Signing input 10/10" immediately followed
+                // by "refused before signing", which is a contradiction.
+                log!("   Input {}/{} reviewed", input_idx + 1, ad.app.total_inputs);
 
                 // On last input, sign all and serialize
                 // Use multi-address signing: each input is matched to the correct key
@@ -1384,7 +1785,17 @@ pub fn handle_signing_step(
                                         wallet::std_pskt::pskt_signature_status(&ad.demo_tx);
                                     ad.tx_sigs_present = present;
                                     ad.tx_sigs_required = required;
-                                    if present < required {
+                                    // Three outcomes, not two. A zero-length
+                                    // response means the signer refused and
+                                    // added nothing, and saying "pass to next
+                                    // signer" there tells the user to hand on a
+                                    // payload that gained no signature.
+                                    // Observed with vector M3 (45' hint at the
+                                    // wrong cosigner index): the refusal was
+                                    // correct, the line that followed it was not.
+                                    if ad.signed_qr_len == 0 {
+                                        log!("   REFUSED: nothing signed, no response emitted");
+                                    } else if present < required {
                                         log!("   Partial: {}/{} sigs — pass to next signer", present, required);
                                     } else {
                                         log!("   Fully signed: {}/{}", present, required);
@@ -1446,7 +1857,10 @@ pub fn handle_signing_step(
                                 let (present, required) = wallet::pskt::signature_status(&ad.demo_tx);
                                 ad.tx_sigs_present = present;
                                 ad.tx_sigs_required = required;
-                                if present < required {
+                                // Same three outcomes as the PSKB path above.
+                                if ad.signed_qr_len == 0 {
+                                    log!("   REFUSED: nothing signed, no response emitted");
+                                } else if present < required {
                                     log!("   Partial: {}/{} sigs — pass to next signer", present, required);
                                 } else {
                                     log!("   Fully signed: {}/{}", present, required);
@@ -1488,14 +1902,33 @@ pub fn handle_signing_step(
                             pos += 2;
                         }
                         if let Ok(s) = core::str::from_utf8(&hex_buf[..pos]) {
-                            log!("   KSSN_HEX_START");
+                            // Marker renamed from KSSN_HEX_* on 2026-08-14 (N-05).
+                            // What this dumps is `signed_qr_buf`, filled by
+                            // `sign_and_serialize_multi` -> `serialize_signed_pskt`,
+                            // which writes PSKT_MAGIC, "KSPT". KSSN is a different
+                            // format (SIGNED_MAGIC, pskt.rs:87) that this device has
+                            // never emitted here: it is reachable only from
+                            // `pskt::test_full_sign_flow`. The label named a format
+                            // the payload is not.
+                            log!("   KSPT_HEX_START");
                             log!("{}", s);
-                            log!("   KSSN_HEX_END");
+                            log!("   KSPT_HEX_END");
                         }
                     }
                 }
 
                 ad.app.advance_signing();
+
+                // The signing path has produced a payload, so whatever
+                // `signed_qr_buf` held before (a descriptor QR left over from
+                // the multisig create or descriptor screen) is gone. Clear the
+                // descriptor flag HERE, on both the single-sig and the multisig
+                // route. It used to be cleared only inside the single-sig
+                // branch below, so a multisig sign after viewing a descriptor
+                // reached ShowQrFrameChoice with the flag still set: the picker
+                // was titled DESCRIPTOR QR and ShowQR framed the signed bundle
+                // as a descriptor. Found on the provisioned units, 2026-08-18.
+                ad.qr_is_descriptor = false;
 
                 // After all inputs are signed, advance_signing() lands
                 // us on ShowQrFrameChoice (the "Wallet vs KasSigner"
@@ -1560,11 +1993,20 @@ pub fn cycle_signed_qr(
                     // multi-frame QRs always use the left-aligned layout
                     // so the right info column stays available for the
                     // FRAMES counter. SIGNER badge only for multisig.
-                    let is_multisig = (0..ad.demo_tx.num_inputs).any(|i| {
-                        let (st, _) = wallet::pskt::analyze_input_script(&ad.demo_tx, i);
-                        st == wallet::transaction::ScriptType::Multisig
-                            || st == wallet::transaction::ScriptType::P2SH
-                    });
+                    // A descriptor is not a transaction, so the signature badge
+                    // means nothing beside it. `demo_tx` still holds whatever was
+                    // parsed last, which is where the stale m-of-n came from.
+                    //
+                    // The SECOND of two badge draws: `redraw.rs` has the other.
+                    // Guarding only that one left this path - the frame-paging
+                    // redraw - still drawing it, which is why the badge came back
+                    // as soon as the frames advanced.
+                    let is_multisig = !ad.qr_is_descriptor
+                        && (0..ad.demo_tx.num_inputs).any(|i| {
+                            let (st, _) = wallet::pskt::analyze_input_script(&ad.demo_tx, i);
+                            st == wallet::transaction::ScriptType::Multisig
+                                || st == wallet::transaction::ScriptType::P2SH
+                        });
                     boot_display.draw_qr_screen_left(&frame_buf[..qr_len]);
                     let mut fc_buf: heapless::String<8> = heapless::String::new();
                     core::fmt::Write::write_fmt(&mut fc_buf,

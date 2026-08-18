@@ -281,6 +281,18 @@ pub(crate) fn delay_us_systimer(us: u32) {
 
 /// Enable RC_FAST_CLK so the WDEV RNG receives clock-jitter entropy.
 /// Idempotent; safe to call before every collection.
+/// Raw WDEV_RND read, for the E-13 offline capture only.
+///
+/// Deliberately the thinnest possible accessor: no spacing, no enabling, no
+/// accounting. The capture module owns all of that, so the read cost measured
+/// offline is a read and nothing else. `WDEV_RND` is private to this module and
+/// stays that way; this is the one hole, and it is behind a feature flag that
+/// must never ship.
+#[cfg(feature = "wdev-capture")]
+pub(crate) fn wdev_read_raw() -> u32 {
+    unsafe { core::ptr::read_volatile(WDEV_RND as *const u32) }
+}
+
 pub(crate) fn enable_rc_fast() {
     unsafe {
         // The RNG's own clock enable. Read-modify-write, never a bare store:
@@ -311,9 +323,26 @@ pub enum EntropyError {
 
 /// Result of the continuous health tests run over each `fill()` WDEV window.
 ///
-/// Recorded, not enforced. Whether a failure should refuse the operation is a
-/// product decision that has not been taken yet; this measures first so the
-/// decision can be made against real numbers rather than against a guess.
+/// RECORDED AND ENFORCED. `fill()` refuses on `!healthy`: it zeroes the
+/// caller's buffer, logs `[rng-health] REFUSED` with these five figures, and
+/// returns `EntropyError::SourceDegraded`. Every caller fails closed on that,
+/// so a degraded window stops signing (`schnorr.rs`, the RFC6979 hedge aux),
+/// ECIES encryption and SD salt/nonce generation.
+///
+/// This comment said "Recorded, not enforced. Whether a failure should refuse
+/// the operation is a product decision that has not been taken yet" until
+/// 2026-08-14. The decision had been taken and the refusal shipped; only the
+/// comment lagged. It is corrected here because it was read in place of the
+/// code and produced a wrong finding in the v1.0.6 audit triage, which is the
+/// precise failure mode that document exists to warn about.
+///
+/// The measure-first reasoning it recorded was sound and the numbers arrived:
+/// three boots on M5Stack, 2026-08-14, gave ones/1024 of 483, 516 and 506 with
+/// repeats 0, distinct 32/32, stuck 0/32 and monotonic false in all three.
+///
+/// Seed generation is separately gated by `frame_noise::is_live`, which is the
+/// stronger guard for that path. These tests cover the callers the camera
+/// never sees.
 #[derive(Clone, Copy)]
 pub struct WdevHealth {
     /// Consecutive identical words. Expect 0. A dead source scores 31.

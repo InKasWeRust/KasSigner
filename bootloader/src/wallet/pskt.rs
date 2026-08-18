@@ -62,8 +62,20 @@
 // Typical total: ~200-300 bytes for 1in/2out (fits in 1-2 QR codes)
 //
 // ═══════════════════════════════════════════════════════════════════
-// SIGNED RESPONSE FORMAT
+// SIGNED RESPONSE FORMAT ("KSSN") — NOT THE WIRE FORMAT. TEST ONLY.
 // ═══════════════════════════════════════════════════════════════════
+//
+// This device does not emit KSSN. What goes out after signing is KSPT, written
+// by `serialize_signed_pskt` (PSKT_MAGIC, "KSPT"). Enumerated 2026-08-14:
+// SIGNED_MAGIC is written only by `SignedResponse::serialize` and read only by
+// `SignedResponse::parse`; `SignedResponse` is produced only by
+// `sign_transaction`, whose only caller in the tree is `test_full_sign_flow`.
+// The whole format is reachable from one test.
+//
+// Kept because that test is a useful end-to-end exercise of the signing path.
+// Removing the format and rewriting the test against KSPT is tracked; it is not
+// N-05, which was the log label in `app/signing.rs` that named this format
+// while dumping a KSPT payload.
 //
 // Header:
 //   magic:    4 bytes  "KSSN" (0x4B 0x53 0x53 0x4E = KasSigner Signed)
@@ -83,7 +95,10 @@ use super::transaction::*;
 /// Magic bytes for unsigned KSPT
 const PSKT_MAGIC: [u8; 4] = [0x4B, 0x53, 0x50, 0x54]; // "KSPT"
 
-/// Magic bytes for signed response
+/// Magic bytes for the KSSN signed response.
+///
+/// TEST ONLY. Never emitted by this device; see the format block above. The
+/// signed payload that actually leaves the device is KSPT, `PSKT_MAGIC`.
 const SIGNED_MAGIC: [u8; 4] = [0x4B, 0x53, 0x53, 0x4E]; // "KSSN"
 
 /// Current format version
@@ -91,6 +106,45 @@ const FORMAT_VERSION: u8 = 0x01;
 
 /// KSPT v3: identical to v2 but redeem_len is u16 LE instead of u8.
 const FORMAT_VERSION_V3: u8 = 0x03;
+/// v4: v1 body plus a derivation-hint trailer.
+///
+/// A 45' multisig input cannot be signed without knowing WHICH
+/// `(cosigner, chain, index)` produced its address: the redeem script proves the
+/// key set but not our slot in it, and a 40-derivation table scan per input is
+/// what the hint replaces. The compact QR transport had no way to carry that, so
+/// a relayed KSPT lost it and the device refused to sign.
+///
+/// Emitted ONLY when at least one hint is present. A 44' transaction still goes
+/// out as v1, which keeps the existing wallets working on firmware that has
+/// never heard of v4 - and that firmware rejects v4 with `UnsupportedVersion`,
+/// which tells the user to update rather than `TrailingData`, which would look
+/// like a corrupt scan.
+const FORMAT_VERSION_V4: u8 = 0x04;
+/// Trailer markers. One per record type, matching the signed serializer's style
+/// (`0x53` stealth tweak, `0x43` covenant binding) rather than one marker with a
+/// kind byte.
+///
+/// `0x44` 'D' input hint, `0x45` 'E' output hint. Outputs need their own because
+/// N-26 established that the output derivation map is what lets the device verify
+/// CHANGE: without it a relayed transaction shows change as unverifiable, which
+/// is the whole point of having carried it.
+const TRAILER_MS45_IN: u8 = 0x44;
+const TRAILER_MS45_OUT: u8 = 0x45;
+/// `index(u8) + cosigner(u32 LE) + chain(u32 LE) + addr_index(u32 LE)`.
+const MS45_HINT_BODY: usize = 1 + 4 + 4 + 4;
+/// SIGNED KSPT carrying the same hint trailer.
+///
+/// A separate byte from the unsigned `0x04` for two reasons. The camera routes
+/// `0x02`/`0x03` to the signed parser and everything else to the unsigned one, so
+/// a signed payload marked `0x04` would be handed to the wrong parser. And the
+/// signed parser deliberately REFUSES trailers it does not know, so appending
+/// hints under `0x03` would make every existing signer reject the relay.
+///
+/// Without this the trailer died at the first signature: the device parsed v4,
+/// signed, then re-serialized as v3 and dropped the hints, so the SECOND signer
+/// received a transaction it could not resolve a slot in. Observed on hardware
+/// 2026-08-17 - the first device signed 1/2 and the second failed.
+const FORMAT_VERSION_SIGNED_V4: u8 = 0x05;
 
 /// Maximum signatures in response
 pub const MAX_SIGNATURES: usize = MAX_INPUTS;
@@ -121,6 +175,23 @@ pub enum PsktError {
     NoInputs,
     /// No outputs present
     NoOutputs,
+    /// Covenant binding record malformed: `has_cov` outside {0,1}, or an
+    /// `authorizing_input` naming an input that does not exist.
+    InvalidCovenantBinding,
+    /// Bytes remained after a structurally complete payload.
+    ///
+    /// A correct KSPT has no tail: the header declares the input and
+    /// output counts, every field declares its own length, and reading
+    /// them all lands exactly on the final byte. Leftover bytes are not a
+    /// payload, they are evidence that the buffer and the header disagree,
+    /// which is what a mixed multi-frame assembly looks like when the
+    /// fragments happen to line up.
+    ///
+    /// Deliberately strict: an unrecognised future trailer is refused
+    /// rather than ignored. That costs forward compatibility if a trailer
+    /// type is ever added, and the version byte is the place to handle
+    /// that.
+    TrailingData,
 }
 
 impl PsktError {
@@ -141,6 +212,8 @@ impl PsktError {
             PsktError::OutputBufferTooSmall => ("Result too large", "Split the transaction"),
             PsktError::NoInputs            => ("No inputs", "Nothing to sign"),
             PsktError::NoOutputs           => ("No outputs", "Nothing to send"),
+            PsktError::InvalidCovenantBinding => ("Bad covenant binding", "Malformed or incomplete"),
+            PsktError::TrailingData        => ("Extra data in bundle", "Rescan or resend"),
         }
     }
 }
@@ -268,6 +341,12 @@ impl<'a> ByteWriter<'a> {
         self.write_bytes(&val.to_le_bytes())
     }
 
+    /// Counterpart to `read_u32_le`, which already existed - the writer side did
+    /// not, since nothing had needed a 32-bit field until the v4 hint trailer.
+    fn write_u32_le(&mut self, val: u32) -> Result<(), PsktError> {
+        self.write_bytes(&val.to_le_bytes())
+    }
+
     /// SPK length, extended encoding mirroring read_spk_len / KasSee push_spk_len.
     fn write_spk_len(&mut self, len: usize) -> Result<(), PsktError> {
         if len <= 254 {
@@ -304,9 +383,12 @@ pub fn parse_pskt(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
     }
 
     let version = r.read_u8()?;
-    if version != FORMAT_VERSION {
+    // v1 and v4 share an identical BODY; v4 only adds a trailer, so one parser
+    // reads both and older senders keep working unchanged.
+    if version != FORMAT_VERSION && version != FORMAT_VERSION_V4 {
         return Err(PsktError::UnsupportedVersion);
     }
+    let has_hint_trailer = version == FORMAT_VERSION_V4;
 
     let flags = r.read_u8()?; // bit 0x02 = has redeem scripts, bit 0x04 = has covenant bindings
     let has_redeem = (flags & 0x02) != 0;
@@ -402,15 +484,82 @@ pub fn parse_pskt(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
         // Covenant binding (flag 0x04)
         if has_covenant_data {
             let has_cov = r.read_u8()?;
-            if has_cov == 1 {
-                tx.outputs[i].has_covenant = true;
-                tx.outputs[i].covenant_auth_input = r.read_u16_le()?;
-                let cov_id_bytes = r.read_bytes(32)?;
-                tx.outputs[i].covenant_id.copy_from_slice(cov_id_bytes);
-            } else {
-                tx.outputs[i].has_covenant = false;
+            match has_cov {
+                0 => tx.outputs[i].has_covenant = false,
+                1 => {
+                    tx.outputs[i].has_covenant = true;
+                    tx.outputs[i].covenant_auth_input = r.read_u16_le()?;
+                    let cov_id_bytes = r.read_bytes(32)?;
+                    tx.outputs[i].covenant_id.copy_from_slice(cov_id_bytes);
+                }
+                // Anything else means the sender and this parser disagree
+                // about the record. Previously treated as "absent", which
+                // silently dropped a binding the sender believed it sent.
+                _ => return Err(PsktError::InvalidCovenantBinding),
             }
         }
+    }
+
+    // Every binding must name an input that exists. Same rule the node
+    // applies (`crypto/txscript/src/covenants.rs`, `AuthInputOutOfBounds`).
+    // Checked after the loop because `num_inputs` is known from the header
+    // but the outputs are only complete here.
+    for i in 0..num_outputs {
+        let o = &tx.outputs[i];
+        if o.has_covenant && (o.covenant_auth_input as usize) >= num_inputs {
+            return Err(PsktError::InvalidCovenantBinding);
+        }
+    }
+
+    // ── v4 hint trailer ──
+    //
+    // Read BEFORE the trailing-data check, which is what rejected v4 payloads on
+    // firmware that predates it. Unknown markers are an error rather than a skip:
+    // a hint the sender believed it sent and we silently dropped means the device
+    // scans a 40-entry table or refuses to sign, and the user has no way to tell
+    // why. Same reasoning as `InvalidCovenantBinding` above.
+    if has_hint_trailer {
+        while r.remaining() > 0 {
+            let marker = r.read_u8()?;
+            match marker {
+                TRAILER_MS45_IN | TRAILER_MS45_OUT => {
+                    if r.remaining() < MS45_HINT_BODY {
+                        return Err(PsktError::TrailingData);
+                    }
+                    let idx = r.read_u8()? as usize;
+                    let cosigner = r.read_u32_le()?;
+                    let chain = r.read_u32_le()?;
+                    let addr_index = r.read_u32_le()?;
+                    let h = Ms45Hint {
+                        present: true,
+                        cosigner,
+                        chain,
+                        index: addr_index,
+                    };
+                    // A record naming a record that does not exist means the
+                    // sender and this parser disagree about the transaction.
+                    if marker == TRAILER_MS45_IN {
+                        if idx >= num_inputs {
+                            return Err(PsktError::TrailingData);
+                        }
+                        tx.inputs[idx].ms45_hint = h;
+                    } else {
+                        if idx >= num_outputs {
+                            return Err(PsktError::TrailingData);
+                        }
+                        tx.outputs[idx].ms45_hint = h;
+                    }
+                }
+                _ => return Err(PsktError::TrailingData),
+            }
+        }
+    }
+
+    // The header and the field lengths together account for every byte of
+    // a well-formed KSPT, so anything left over means they disagree with
+    // the buffer we were handed.
+    if r.remaining() != 0 {
+        return Err(PsktError::TrailingData);
     }
 
     Ok(())
@@ -432,9 +581,18 @@ pub fn serialize_pskt(tx: &Transaction, output: &mut [u8]) -> Result<usize, Pskt
     let has_covenant_data = (0..tx.num_outputs).any(|i| tx.outputs[i].has_covenant);
     let flags: u8 = if has_covenant_data { 0x04 } else { 0x00 };
 
+    // Version by CONTENT: v4 only when there is a hint to carry.
+    //
+    // A 44' transaction has no hints and goes out as v1, so wallets on firmware
+    // that predates v4 keep working. Bumping unconditionally would break every
+    // one of them for a field they never use.
+    let has_hints = (0..tx.num_inputs).any(|i| tx.inputs[i].ms45_hint.present)
+        || (0..tx.num_outputs).any(|i| tx.outputs[i].ms45_hint.present);
+    let ver = if has_hints { FORMAT_VERSION_V4 } else { FORMAT_VERSION };
+
     // Header
     w.write_bytes(&PSKT_MAGIC)?;
-    w.write_u8(FORMAT_VERSION)?;
+    w.write_u8(ver)?;
     w.write_u8(flags)?;
 
     // Global
@@ -477,6 +635,40 @@ pub fn serialize_pskt(tx: &Transaction, output: &mut [u8]) -> Result<usize, Pskt
                 w.write_bytes(&output_tx.covenant_id)?;
             } else {
                 w.write_u8(0)?;
+            }
+        }
+    }
+
+    // ── v4 hint trailer ──
+    //
+    // PER-RECORD, not per-transaction: a multi-address spend gives every input
+    // its own `(cosigner, chain, index)`, so one header field could not describe
+    // it. Only inputs and outputs that HAVE a hint get a record, so a mix of
+    // hinted and unhinted inputs round-trips correctly.
+    //
+    // Outputs carry theirs because the output derivation map is what lets the
+    // device verify CHANGE (N-26). A trailer with inputs only would sign fine and
+    // show change as unverifiable, losing the check on the compact path that the
+    // PSKB path has.
+    if has_hints {
+        for i in 0..tx.num_inputs {
+            let h = &tx.inputs[i].ms45_hint;
+            if h.present {
+                w.write_u8(TRAILER_MS45_IN)?;
+                w.write_u8(i as u8)?;
+                w.write_u32_le(h.cosigner)?;
+                w.write_u32_le(h.chain)?;
+                w.write_u32_le(h.index)?;
+            }
+        }
+        for i in 0..tx.num_outputs {
+            let h = &tx.outputs[i].ms45_hint;
+            if h.present {
+                w.write_u8(TRAILER_MS45_OUT)?;
+                w.write_u8(i as u8)?;
+                w.write_u32_le(h.cosigner)?;
+                w.write_u32_le(h.chain)?;
+                w.write_u32_le(h.index)?;
             }
         }
     }
@@ -1102,10 +1294,23 @@ pub fn sign_transaction_multisig(
 
     // Pre-derive account keys for loaded slots
     let mut acct_keys: [Option<bip32::ExtendedPrivKey>; 8] = [None, None, None, None, None, None, None, None];
+    // And the 45' multisig account keys, m/45'/111111'/0'. A DIFFERENT subtree
+    // from the 44' key above, so neither substitutes for the other: a 45' input
+    // signed with a 44'-derived key produces a signature for a pubkey that is
+    // not in the redeem script, which the network rejects.
+    //
+    // Derived here, once per seed for the whole transaction, for the same
+    // reason the 44' keys are: three hardened HMAC-SHA512 steps each, and
+    // paying that per input was the 45-second signing time this loop was
+    // rewritten to avoid.
+    let mut ms45_keys: [Option<bip32::ExtendedPrivKey>; 8] = [None, None, None, None, None, None, None, None];
     for s in 0..num_seeds {
         if seeds[s].1 {
             if let Ok(ak) = bip32::derive_account_key(&seeds[s].0) {
                 acct_keys[s] = Some(ak);
+            }
+            if let Ok(mk) = bip32::derive_multisig_account_key(&seeds[s].0, 0) {
+                ms45_keys[s] = Some(mk);
             }
         }
     }
@@ -1145,6 +1350,22 @@ pub fn sign_transaction_multisig(
     // Using Option so we don't pay the build cost until needed, and
     // `built` tracks which slots have been populated.
     let mut addr_tables: [Option<bip32::AddrPubkeyTable>; 8] =
+        [None, None, None, None, None, None, None, None];
+
+    // Hinted key cache, ACROSS inputs.
+    //
+    // The derivation was already hoisted out of the cosigner-position loop, but
+    // it still ran once per INPUT. A multisig spend normally sweeps several
+    // UTXOs from one address, so every input carries the same hint and the same
+    // three-step path: vector M7 signed 6 inputs in 2321 ms, 387 ms each, where
+    // all six shared one path and five derivations repeated work already done.
+    //
+    // NOT hoisted unconditionally, because inputs may legitimately differ: one
+    // transaction can spend from two addresses, or from two cosigner families.
+    // Keyed on the hint and recomputed when it changes, so it costs one
+    // comparison per input and stays exact either way.
+    let mut hint_cache_key: Option<(u32, u32, u32)> = None;
+    let mut hint_cache: [Option<(bip32::ExtendedPrivKey, [u8; 32])>; 8] =
         [None, None, None, None, None, None, None, None];
 
     for i in 0..tx.num_inputs {
@@ -1210,6 +1431,50 @@ pub fn sign_transaction_multisig(
                         }
                     }
 
+                    // Derive the hinted key ONCE per input, before the
+                    // position loop.
+                    //
+                    // The hint carries ONE path for the whole input - the path
+                    // of the address being spent - so every cosigner position
+                    // compares against the same derived key. Deriving inside the
+                    // loop walked the same three steps `n` times.
+                    //
+                    // Measured: 2-of-2 signed in 595 ms, 2-of-3 in 764 ms. The
+                    // 169 ms delta is three derivations at ~47 ms, i.e. exactly
+                    // one extra walk for the extra position. At N=5 it would be
+                    // 15 derivations where 3 suffice.
+                    //
+                    // `None` covers both "no hint" and "hint did not derive",
+                    // and the position loop treats them alike: no match, fall
+                    // through to whatever the scheme allows.
+                    // The x-only pubkey is computed here too, not in the
+                    // position loop. `public_key_x_only()` is a scalar multiply
+                    // - about the cost of a derivation - and the key is the same
+                    // for every position, so calling it per position repeated
+                    // the work n times for one answer. Same mistake as deriving
+                    // in the loop, one level down.
+                    if tx.inputs[i].ms45_hint.present {
+                        let h = tx.inputs[i].ms45_hint;
+                        let key = (h.cosigner, h.chain, h.index);
+                        if hint_cache_key != Some(key) {
+                            hint_cache = [None, None, None, None, None, None, None, None];
+                            for s in 0..num_seeds {
+                                if let Some(mk) = ms45_keys[s].as_ref() {
+                                    if let Ok(k) = bip32::derive_child(mk, h.cosigner)
+                                        .and_then(|k| bip32::derive_child(&k, h.chain))
+                                        .and_then(|k| bip32::derive_child(&k, h.index))
+                                    {
+                                        if let Ok(pk) = k.public_key_x_only() {
+                                            hint_cache[s] = Some((k, pk));
+                                        }
+                                    }
+                                }
+                            }
+                            hint_cache_key = Some(key);
+                        }
+                    }
+                    let hint_key = &hint_cache;
+
                     for pos in 0..ms.n as usize {
                         // Already have a sig for this position? skip
                         let already = (0..tx.inputs[i].sig_count as usize)
@@ -1256,7 +1521,78 @@ pub fn sign_transaction_multisig(
                                 // 45 s signing time we saw. The table
                                 // caps derivations at 40 per seed for
                                 // the entire tx regardless of input count.
-                                if seed_pos_match[s].is_none() {
+                                // 45' hint path, tried BEFORE the address table.
+                                //
+                                // The hint carries the derivation path of the
+                                // ADDRESS BEING SPENT, so every cosigner of this
+                                // input derives at the same
+                                // /cosigner/chain/index and this device's own
+                                // cosigner index is irrelevant here.
+                                //
+                                // UNTRUSTED INPUT. It arrives in the same PSKB an
+                                // attacker could craft, so it says where to LOOK
+                                // and never what to trust: the derived pubkey is
+                                // compared against `target_pk`, which came out of
+                                // this input's redeem script, which is what the
+                                // P2SH address hashes to and what the user
+                                // approved on the review screen. A crafted hint
+                                // can only make us derive a key that then fails
+                                // to match, costing three derivations.
+                                //
+                                // Three derivations, not a table build, and only
+                                // when a hint is present.
+                                if seed_pos_match[s].is_none() && tx.inputs[i].ms45_hint.present {
+                                    if let Some((addr_key, pk)) = hint_key[s].as_ref() {
+                                        {
+                                            {
+                                                if *pk == *target_pk {
+                                                    let privkey = addr_key.private_key_bytes();
+                                                    if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
+                                                        let sc = tx.inputs[i].sig_count as usize;
+                                                        if sc < MAX_SIGS_PER_INPUT {
+                                                            tx.inputs[i].sigs[sc].signature = sig.bytes;
+                                                            tx.inputs[i].sigs[sc].sighash_type = sighash_type.to_byte();
+                                                            tx.inputs[i].sigs[sc].pubkey_pos = pos as u8;
+                                                            tx.inputs[i].sigs[sc].present = true;
+                                                            if let Ok(pk_c) = addr_key.public_key_compressed() {
+                                                                tx.inputs[i].sigs[sc].pubkey_compressed = pk_c;
+                                                            }
+                                                            tx.inputs[i].sig_count += 1;
+                                                            total_new_sigs += 1;
+                                                        }
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Skip the 44' address table when a 45' hint
+                                // was present and did not match.
+                                //
+                                // The table scans m/44'/111111'/0'/{0,1}/0..N.
+                                // A 45' key lives at
+                                // m/45'/111111'/0'/{cos}/{chain}/{idx} - a
+                                // different subtree with an extra level - so it
+                                // CANNOT appear in that table. Building it is 40
+                                // derivations spent proving something already
+                                // known.
+                                //
+                                // Measured before this guard, vector M1 (2-of-2,
+                                // one input, hint present): `multisig sign` was
+                                // 2476 ms. The hint itself is three derivations.
+                                // The cost was the table being built for the
+                                // cosigner position that is NOT ours, where the
+                                // hint correctly fails to match and the old code
+                                // fell straight through to the scan.
+                                //
+                                // Only skipped when a hint was actually present.
+                                // A 44' multisig input carries no hint and still
+                                // needs the table, which is how legacy wallets
+                                // keep signing.
+                                let hint_tried = tx.inputs[i].ms45_hint.present;
+                                if seed_pos_match[s].is_none() && !hint_tried {
                                     // Lazy build
                                     if addr_tables[s].is_none() {
                                         addr_tables[s] =
@@ -1608,9 +1944,14 @@ pub fn signature_status(tx: &Transaction) -> (u8, u8) {
 pub fn serialize_signed_pskt_v2(tx: &Transaction, output: &mut [u8]) -> Result<usize, PsktError> {
     let mut w = ByteWriter::new(output);
 
-    // Header: "KSPT" + version 0x03 + flags
+    // Header: "KSPT" + version + flags.
+    //
+    // 0x05 when there are hints to carry, 0x03 otherwise, so a 44' relay is
+    // byte-identical to what it always was.
+    let has_hints = (0..tx.num_inputs).any(|i| tx.inputs[i].ms45_hint.present)
+        || (0..tx.num_outputs).any(|i| tx.outputs[i].ms45_hint.present);
     w.write_bytes(&PSKT_MAGIC)?;
-    w.write_u8(FORMAT_VERSION_V3)?; // v3: u16 LE redeem_len
+    w.write_u8(if has_hints { FORMAT_VERSION_SIGNED_V4 } else { FORMAT_VERSION_V3 })?;
     let fully = if is_fully_signed(tx) { 0x01u8 } else { 0x00u8 };
     w.write_u8(fully)?; // flags: 0x01 = fully signed, 0x00 = partial
 
@@ -1703,6 +2044,34 @@ pub fn serialize_signed_pskt_v2(tx: &Transaction, output: &mut [u8]) -> Result<u
         }
     }
 
+    // Hint records, so the NEXT signer gets what this one got.
+    //
+    // The hint is what lets a signer find its slot without a 40-derivation table
+    // scan, and the output hint is what lets it verify change. Dropping them here
+    // meant only the first signer had them.
+    if has_hints {
+        for i in 0..tx.num_inputs {
+            let h = &tx.inputs[i].ms45_hint;
+            if h.present {
+                w.write_u8(TRAILER_MS45_IN)?;
+                w.write_u8(i as u8)?;
+                w.write_u32_le(h.cosigner)?;
+                w.write_u32_le(h.chain)?;
+                w.write_u32_le(h.index)?;
+            }
+        }
+        for i in 0..tx.num_outputs {
+            let h = &tx.outputs[i].ms45_hint;
+            if h.present {
+                w.write_u8(TRAILER_MS45_OUT)?;
+                w.write_u8(i as u8)?;
+                w.write_u32_le(h.cosigner)?;
+                w.write_u32_le(h.chain)?;
+                w.write_u32_le(h.index)?;
+            }
+        }
+    }
+
     Ok(w.written())
 }
 
@@ -1720,7 +2089,9 @@ pub fn parse_signed_pskt_v2(data: &[u8], tx: &mut Transaction) -> Result<(), Psk
         return Err(PsktError::InvalidMagic);
     }
     let version = r.read_u8()?;
-    if version != 0x02 && version != FORMAT_VERSION_V3 {
+    if version != 0x02 && version != FORMAT_VERSION_V3
+        && version != FORMAT_VERSION_SIGNED_V4
+    {
         return Err(PsktError::UnsupportedVersion);
     }
     let _flags = r.read_u8()?; // 0x00=partial, 0x01=fully signed
@@ -1778,8 +2149,18 @@ pub fn parse_signed_pskt_v2(data: &[u8], tx: &mut Transaction) -> Result<(), Psk
             tx.inputs[i].sighash_type = tx.inputs[i].sigs[0].sighash_type;
         }
 
-        // Redeem script for P2SH round-trip (v3: u16 LE, v2: u8)
-        let rs_len = if version == FORMAT_VERSION_V3 {
+        // Redeem script for P2SH round-trip. u16 LE on v3 AND on the signed v4,
+        // u8 only on the original v2.
+        //
+        // `version == FORMAT_VERSION_V3` alone sent 0x05 down the u8 path while
+        // the writer had emitted u16, so every field after the first redeem
+        // script was misaligned and the parse died as BufferTooShort - a length
+        // error, which is why it did not look like a version problem. The width
+        // belongs to the BODY layout, and v4 inherits v3's body unchanged; only
+        // the trailer differs.
+        let rs_len = if version == FORMAT_VERSION_V3
+            || version == FORMAT_VERSION_SIGNED_V4
+        {
             r.read_u16_le()? as usize
         } else {
             r.read_u8()? as usize
@@ -1825,6 +2206,40 @@ pub fn parse_signed_pskt_v2(data: &[u8], tx: &mut Transaction) -> Result<(), Psk
         }
     }
 
+    // Hint records: 0x44 input, 0x45 output. Same peek-and-consume shape as the
+    // two loops above, and only present on 0x05.
+    // `> MS45_HINT_BODY`, not `>= 1 + MS45_HINT_BODY`: same bound, and clippy's
+    // int_plus_one rejects the second form.
+    while r.remaining() > MS45_HINT_BODY
+        && matches!(r.peek_u8(), Some(TRAILER_MS45_IN) | Some(TRAILER_MS45_OUT))
+    {
+        let marker = r.read_u8()?;
+        let idx = r.read_u8()? as usize;
+        let cosigner = r.read_u32_le()?;
+        let chain = r.read_u32_le()?;
+        let addr_index = r.read_u32_le()?;
+        let h = Ms45Hint { present: true, cosigner, chain, index: addr_index };
+        if marker == TRAILER_MS45_IN {
+            if idx >= ni {
+                return Err(PsktError::TrailingData);
+            }
+            tx.inputs[idx].ms45_hint = h;
+        } else {
+            if idx >= no {
+                return Err(PsktError::TrailingData);
+            }
+            tx.outputs[idx].ms45_hint = h;
+        }
+    }
+
+    // Both trailer loops above stop on the first byte that is not their
+    // marker, so a trailer type this firmware does not know would be left
+    // behind rather than skipped. Refuse instead of signing a bundle whose
+    // tail we did not understand.
+    if r.remaining() != 0 {
+        return Err(PsktError::TrailingData);
+    }
+
     Ok(())
 }
 
@@ -1832,7 +2247,17 @@ pub fn parse_signed_pskt_v2(data: &[u8], tx: &mut Transaction) -> Result<(), Psk
 /// Test: KSPT serialize/parse round-trip.
 pub fn test_serialize_parse_roundtrip() -> bool {
     // Create transaction, serialize, parse, verify equality
-    let mut tx = Transaction::new();
+    // Heap, not stack. `Transaction` is 78,952 bytes and the frame that holds
+    // it is reserved on entry, so a stack local here claimed the space for the
+    // whole call whether or not it was still needed. Measured 2026-08-14 on
+    // M5Stack: `verbose-boot` tripped the ProCpu stack guard inside
+    // `self_test::test_sram`'s 2 KB buffer at test 1 of 5, SP 81,776 bytes
+    // below the floor, 186,272 bytes of depth against 105,008 usable. These
+    // tests never reached their own bodies in any build. See N-15.
+    let mut tx = match Transaction::new_boxed() {
+        Some(t) => t,
+        None => return false,
+    };
     tx.version = 0;
     tx.num_inputs = 1;
     tx.num_outputs = 2;
@@ -1872,8 +2297,12 @@ pub fn test_serialize_parse_roundtrip() -> bool {
         Err(_) => return false,
     };
 
-    // Parsear
-    let mut tx2 = Transaction::new();
+    // Parsear. Second box: this frame held TWO 78,952-byte transactions,
+    // 157,904 bytes in one frame against 105,008 usable.
+    let mut tx2 = match Transaction::new_boxed() {
+        Some(t) => t,
+        None => return false,
+    };
     if parse_pskt(&buf[..size], &mut tx2).is_err() {
         return false;
     }
@@ -1891,10 +2320,128 @@ pub fn test_serialize_parse_roundtrip() -> bool {
 }
 
 #[cfg(any(test, feature = "verbose-boot"))]
+/// Test: a v4 hint trailer survives a serialize/parse round trip.
+///
+/// Covers what the v1 test cannot: that the version is bumped BY CONTENT, that
+/// input and output records are both read back, and that an unhinted input in the
+/// same transaction stays unhinted. The last one matters for a multi-address
+/// spend, where a mix is normal and a parser that filled every input from the
+/// first record would sign with the wrong path.
+pub fn test_ms45_hint_roundtrip() -> bool {
+    let mut tx = match Transaction::new_boxed() {
+        Some(t) => t,
+        None => return false,
+    };
+    tx.version = 0;
+    tx.num_inputs = 2;
+    tx.num_outputs = 2;
+    tx.inputs[0].utxo_entry.amount = 300_000_000;
+    tx.inputs[1].utxo_entry.amount = 200_000_000;
+    tx.inputs[0].utxo_entry.script_public_key.script_len = 35;
+    tx.inputs[1].utxo_entry.script_public_key.script_len = 35;
+    tx.outputs[0].value = 100_000_000;
+    tx.outputs[1].value = 399_400_000;
+    tx.outputs[0].script_public_key.script_len = 34;
+    tx.outputs[1].script_public_key.script_len = 35;
+
+    // Input 0 hinted, input 1 NOT: the mix is the point.
+    tx.inputs[0].ms45_hint = Ms45Hint { present: true, cosigner: 1, chain: 0, index: 7 };
+    tx.inputs[1].ms45_hint = Ms45Hint::none();
+    // Output 1 is change, on chain 1.
+    tx.outputs[1].ms45_hint = Ms45Hint { present: true, cosigner: 1, chain: 1, index: 3 };
+
+    let mut buf = [0u8; 1024];
+    let size = match serialize_pskt(&tx, &mut buf) {
+        Ok(n) => n,
+        Err(_) => return false,
+    };
+    // Version chosen by content, not unconditionally.
+    if buf[4] != FORMAT_VERSION_V4 {
+        return false;
+    }
+
+    let mut tx2 = match Transaction::new_boxed() {
+        Some(t) => t,
+        None => return false,
+    };
+    if parse_pskt(&buf[..size], &mut tx2).is_err() {
+        return false;
+    }
+
+    tx2.inputs[0].ms45_hint.present
+        && tx2.inputs[0].ms45_hint.cosigner == 1
+        && tx2.inputs[0].ms45_hint.chain == 0
+        && tx2.inputs[0].ms45_hint.index == 7
+        && !tx2.inputs[1].ms45_hint.present
+        && !tx2.outputs[0].ms45_hint.present
+        && tx2.outputs[1].ms45_hint.present
+        && tx2.outputs[1].ms45_hint.cosigner == 1
+        && tx2.outputs[1].ms45_hint.chain == 1
+        && tx2.outputs[1].ms45_hint.index == 3
+}
+
+#[cfg(any(test, feature = "verbose-boot"))]
+/// Test: hints survive the SIGNED relay between signers.
+///
+/// This is the hop that failed on hardware. The first device parsed v4, signed,
+/// then re-serialized through `serialize_signed_pskt_v2`, which wrote v3 and
+/// dropped the trailer - so the second signer received a transaction with no
+/// hints and could not resolve its slot. A round trip through the signed
+/// serializer is what would have caught it here rather than on two devices.
+pub fn test_ms45_hint_signed_roundtrip() -> bool {
+    let mut tx = match Transaction::new_boxed() {
+        Some(t) => t,
+        None => return false,
+    };
+    tx.version = 0;
+    tx.num_inputs = 1;
+    tx.num_outputs = 2;
+    tx.inputs[0].utxo_entry.amount = 300_000_000;
+    tx.inputs[0].utxo_entry.script_public_key.script_len = 35;
+    tx.inputs[0].sig_op_count = 2;
+    tx.outputs[0].value = 100_000_000;
+    tx.outputs[0].script_public_key.script_len = 34;
+    tx.outputs[1].value = 199_400_000;
+    tx.outputs[1].script_public_key.script_len = 35;
+    tx.inputs[0].ms45_hint = Ms45Hint { present: true, cosigner: 1, chain: 0, index: 0 };
+    tx.outputs[1].ms45_hint = Ms45Hint { present: true, cosigner: 1, chain: 1, index: 3 };
+
+    let mut buf = [0u8; 1024];
+    let size = match serialize_signed_pskt_v2(&tx, &mut buf) {
+        Ok(n) => n,
+        Err(_) => return false,
+    };
+    // Version bumped BY CONTENT, and not to the unsigned 0x04, which the camera
+    // would route to the wrong parser.
+    if buf[4] != FORMAT_VERSION_SIGNED_V4 {
+        return false;
+    }
+
+    let mut tx2 = match Transaction::new_boxed() {
+        Some(t) => t,
+        None => return false,
+    };
+    if parse_signed_pskt_v2(&buf[..size], &mut tx2).is_err() {
+        return false;
+    }
+    tx2.inputs[0].ms45_hint.present
+        && tx2.inputs[0].ms45_hint.cosigner == 1
+        && tx2.inputs[0].ms45_hint.chain == 0
+        && tx2.inputs[0].ms45_hint.index == 0
+        && tx2.outputs[1].ms45_hint.present
+        && tx2.outputs[1].ms45_hint.chain == 1
+        && tx2.outputs[1].ms45_hint.index == 3
+}
+
+#[cfg(any(test, feature = "verbose-boot"))]
 /// Test: invalid KSPT magic bytes are rejected.
 pub fn test_invalid_magic() -> bool {
     let bad_data = [0x00, 0x00, 0x00, 0x00, 0x01, 0x00];
-    let mut tx = Transaction::new();
+    // Heap, not stack: see the note on the first boxed transaction in this file. N-15.
+    let mut tx = match Transaction::new_boxed() {
+        Some(t) => t,
+        None => return false,
+    };
     matches!(parse_pskt(&bad_data, &mut tx), Err(PsktError::InvalidMagic))
 }
 
@@ -1920,7 +2467,11 @@ pub fn test_full_sign_flow() -> bool {
     };
 
     // 2. Build transaction
-    let mut tx = Transaction::new();
+    // Heap, not stack: see the note on the first boxed transaction in this file. N-15.
+    let mut tx = match Transaction::new_boxed() {
+        Some(t) => t,
+        None => return false,
+    };
     tx.version = 0;
     tx.num_inputs = 1;
     tx.num_outputs = 2;
@@ -1957,7 +2508,11 @@ pub fn test_full_sign_flow() -> bool {
         Err(_) => return false,
     };
 
-    let mut parsed_tx = Transaction::new();
+    // Second box in this frame, same reason as the roundtrip test above.
+    let mut parsed_tx = match Transaction::new_boxed() {
+        Some(t) => t,
+        None => return false,
+    };
     if parse_pskt(&pskt_buf[..pskt_size], &mut parsed_tx).is_err() {
         return false;
     }
