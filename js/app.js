@@ -2401,8 +2401,19 @@ function startMsConsolidate() {
     showScreen('multisig');
 }
 
-async function refreshMsWallet() {
+// `light` refreshes balance and UTXOs over the node WebSocket only and keeps
+// the used-address sets from the last full scan. The full scan adds
+// `msScanUsed(40)`: 80 REST calls to api.kaspa.org spaced 250 ms apart, about
+// 20 s. That is fine on entry and on the Refresh button; it is not something
+// to run every 30 s or after every broadcast, which is what `light` is for.
+let msRefreshing = false;
+async function refreshMsWallet(light = false) {
     if (!msBranch) return;
+    if (msRefreshing) return;
+    msRefreshing = true;
+    try { await _refreshMsWalletInner(light); } finally { msRefreshing = false; }
+}
+async function _refreshMsWalletInner(light) {
     const n = msCosignerCount(msBranch.descriptor) || '?';
     el('msw-subtitle').textContent = 'Branch S' + msBranch.cosigner + ' of ' + n;
     el('msw-balance').textContent = '…';
@@ -2426,8 +2437,11 @@ async function refreshMsWallet() {
 
         // History, not just UTXOs. The scan above cannot see a spent-empty
         // address; this can, and both the next indices and the address list
-        // depend on knowing the difference.
-        const usedSets = await msScanUsed(40);
+        // depend on knowing the difference. A light refresh reuses the sets
+        // from the last full scan instead of hitting the REST API again.
+        const usedSets = light && msBranch.usedReceive
+            ? { receive: msBranch.usedReceive, change: msBranch.usedChange, partial: false }
+            : await msScanUsed(40);
         msBranch.usedReceive = usedSets.receive;
         msBranch.usedChange = usedSets.change;
         const fundedR = new Set(r.funded.filter(f => f.chain === 0).map(f => f.index));
@@ -2978,8 +2992,8 @@ function showScreen(name) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     const screen = document.getElementById(`screen-${name}`);
     if (screen) screen.classList.add('active');
-    // Auto-refresh when on dashboard
-    if (name === 'dashboard' && walletData) {
+    // Auto-refresh on the dashboard and on the multisig wallet screen
+    if ((name === 'dashboard' && walletData) || (name === 'ms-wallet' && msBranch)) {
         startAutoRefresh();
     } else {
         stopAutoRefresh();
@@ -6653,9 +6667,12 @@ el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handle
             _broadcastReturnScreen = null;
             showScreen(ret);
             if (ret === 'covenant') covReturnAfterBroadcast();
-            if (ret === 'ms-wallet') setTimeout(() => refreshMsWallet(), 500);
+            // 2 s, not 500 ms: half a second after submit the node's UTXO index
+            // has often not caught up, especially a home node, so the first
+            // refresh showed the old balance and nothing followed it.
+            if (ret === 'ms-wallet') setTimeout(() => refreshMsWallet(true), 2000);
             // Refresh balance after TX broadcast
-            if (walletData && ret !== 'ms-wallet') setTimeout(() => refreshBalance(), 500);
+            if (walletData && ret !== 'ms-wallet') setTimeout(() => refreshBalance(), 2000);
         } else if (msBranch) {
             // A multisig SEND reaches broadcast without anyone setting a return
             // screen - only the Broadcast TX button did that - so finishing a
@@ -6663,7 +6680,7 @@ el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handle
             // wallet. Handled at the fallback so every route in is covered,
             // not just the one that was noticed.
             showScreen('ms-wallet');
-            setTimeout(() => refreshMsWallet(), 500);
+            setTimeout(() => refreshMsWallet(true), 2000);
         } else {
             showDonateScreen();
         }
@@ -6928,6 +6945,9 @@ function startAutoRefresh() {
     autoRefreshTimer = setInterval(() => {
         if (currentScreenName === 'dashboard' && walletData && !refreshing) {
             refreshBalance();
+        } else if (currentScreenName === 'ms-wallet' && msBranch && !msRefreshing) {
+            // Light: one WebSocket scan to the node, no REST history calls.
+            refreshMsWallet(true);
         }
     }, AUTO_REFRESH_INTERVAL);
 }
