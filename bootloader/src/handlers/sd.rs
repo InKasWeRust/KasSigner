@@ -633,7 +633,16 @@ pub(crate) fn write_file_to_sd(
 ) -> Result<(), &'static str> {
     sdcard::with_sd_card(i2c, delay, |ct| {
         let fat32 = sdcard::mount_fat32(ct)?;
-        let _ = sdcard::delete_file(ct, &fat32, fname);
+        // Same rule as `sdcard::overwrite_file`: "not found" is the one
+        // outcome worth ignoring, because replacing a file that is not there
+        // is a create. Any other failure means the old chain or its directory
+        // entry is still live, and creating on top of it leaves two entries
+        // for one name over clusters neither fully owns.
+        match sdcard::delete_file(ct, &fat32, fname) {
+            Ok(()) => {}
+            Err("File not found") => {}
+            Err(e) => return Err(e),
+        }
         sdcard::create_file(ct, &fat32, fname, data)?;
         Ok(())
     })
@@ -833,7 +842,13 @@ pub fn handle_sd_touch(
                                     }
                                     let sd_result = sdcard::with_sd_card(i2c, delay, |ct| {
                                         let fat32 = sdcard::mount_fat32(ct)?;
-                                        let _ = sdcard::delete_file(ct, &fat32, &name_83);
+                                        // Fail closed on a real delete error,
+                                        // as `write_file_to_sd` above does.
+                                        match sdcard::delete_file(ct, &fat32, &name_83) {
+                                            Ok(()) => {}
+                                            Err("File not found") => {}
+                                            Err(e) => return Err(e),
+                                        }
                                         sdcard::create_file(ct, &fat32, &name_83, &hex_buf)?;
                                         Ok(())
                                     });

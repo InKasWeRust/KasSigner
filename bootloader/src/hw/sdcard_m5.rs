@@ -106,6 +106,7 @@ const CMD18: u8  = 18;  // READ_MULTIPLE_BLOCK
 const CMD24: u8  = 24;  // WRITE_BLOCK
 const CMD25: u8  = 25;  // WRITE_MULTIPLE_BLOCK
 const CMD55: u8  = 55;  // APP_CMD
+const CMD9: u8   = 9;   // SEND_CSD
 const CMD58: u8  = 58;  // READ_OCR
 const ACMD41: u8 = 41;  // SD_SEND_OP_COND
 
@@ -1856,7 +1857,16 @@ pub fn overwrite_file(
     name_83: &[u8; 11],
     data: &[u8],
 ) -> Result<(), &'static str> {
-    let _ = delete_file(card_type, fat32, name_83);
+    // "Not found" is the one acceptable outcome to ignore: overwriting a
+    // file that does not exist yet is a create. Any other failure means the
+    // old chain or its directory entry is still live, and creating on top of
+    // it leaves the card with two entries for one name and clusters no
+    // longer owned by either. Fail instead of writing into that.
+    match delete_file(card_type, fat32, name_83) {
+        Ok(()) => {}
+        Err("File not found") => {}
+        Err(e) => return Err(e),
+    }
     create_file(card_type, fat32, name_83, data)?;
     Ok(())
 }
@@ -2096,20 +2106,225 @@ pub fn format_fat32<I2C: embedded_hal::i2c::I2c>(
 }
 
 /// Internal format logic — runs inside with_sd_card closure.
+/// Read a sector back and compare it against the bytes just written.
+///
+/// A card that accepts a write has not necessarily kept it: `fast_write_block`
+/// only sees the data-response token and the busy release, both of which a
+/// card can give for a write it then discards. The first differing byte is
+/// logged so a failure names the structure and the offset instead of only the
+/// fact that something is wrong.
+fn verify_sector(
+    card_type: SdCardType,
+    sector: u32,
+    expect: &[u8; 512],
+    label: &'static str,
+) -> Result<(), &'static str> {
+    let mut back = [0u8; 512];
+    sd_read_block(card_type, sector, &mut back)?;
+    if back != *expect {
+        for i in 0..512 {
+            if back[i] != expect[i] {
+                log!("[SD-FMT] {} sector {} offset {}: wrote {:02x} read {:02x}",
+                    label, sector, i, expect[i], back[i]);
+                break;
+            }
+        }
+        // Head and tail of what came back, then the same sector read a second
+        // time. A read taken immediately after a write can be reporting the
+        // bus rather than the card: if the retry differs from the first read,
+        // the write landed and the read was wrong; if both agree, the sector
+        // really holds this. All-FF means neither the new nor the old content
+        // is being returned at all.
+        log!("[SD-FMT]   read[0..4]={:02x} {:02x} {:02x} {:02x} read[510..512]={:02x} {:02x}",
+            back[0], back[1], back[2], back[3], back[510], back[511]);
+        let mut again = [0u8; 512];
+        sd_read_block(card_type, sector, &mut again)?;
+        log!("[SD-FMT]   retry[0..4]={:02x} {:02x} {:02x} {:02x} retry[510..512]={:02x} {:02x}",
+            again[0], again[1], again[2], again[3], again[510], again[511]);
+        if again == *expect {
+            log!("[SD-FMT]   retry MATCHES what was written");
+        }
+        return Err(label);
+    }
+    Ok(())
+}
+
+/// Reserved sectors before the first FAT, the FAT32 default.
+const RESERVED_SECTORS: u16 = 32;
+/// Two FATs, the FAT32 default: the second is the spare copy.
+const NUM_FATS: u8 = 2;
+
+/// FAT32 is only valid at 65,525 clusters or more; below that the count
+/// makes it FAT16 by definition and a host will read it as one.
+const FAT32_MIN_CLUSTERS: u32 = 65_525;
+
+/// Sector count from a 16-byte CSD register.
+///
+/// Both layouts are handled: CSD v2 (SDHC and SDXC) states capacity directly,
+/// v1 (standard capacity) states it as a size and a multiplier.
+fn csd_sectors(csd: &[u8; 16]) -> Result<u32, &'static str> {
+    match csd[0] >> 6 {
+        1 => {
+            // v2: C_SIZE is CSD bits 69:48, capacity is (C_SIZE + 1) * 512 KB.
+            let c_size = (((csd[7] & 0x3F) as u32) << 16)
+                | ((csd[8] as u32) << 8)
+                | (csd[9] as u32);
+            c_size.checked_add(1)
+                .and_then(|n| n.checked_mul(1024))
+                .ok_or("CSD capacity overflow")
+        }
+        0 => {
+            // v1: bits 73:62 size, 49:47 multiplier, 83:80 block length.
+            let read_bl_len = (csd[5] & 0x0F) as u32;
+            if !(9..=11).contains(&read_bl_len) {
+                return Err("CSD block length invalid");
+            }
+            let c_size = (((csd[6] & 0x03) as u32) << 10)
+                | ((csd[7] as u32) << 2)
+                | ((csd[8] as u32) >> 6);
+            let c_size_mult = (((csd[9] & 0x03) as u32) << 1) | ((csd[10] as u32) >> 7);
+            let blocks = (c_size + 1) * (1u32 << (c_size_mult + 2));
+            let per_block = 1u32 << (read_bl_len - 9);
+            blocks.checked_mul(per_block).ok_or("CSD capacity overflow")
+        }
+        _ => Err("Unknown CSD version"),
+    }
+}
+
+/// A capacity is only believed if it could hold a FAT32 volume at all and
+/// stays inside what 32-bit sector arithmetic addresses. A misparsed CSD
+/// almost always lands outside this range, which is the point.
+fn csd_plausible(sectors: u32) -> bool {
+    (131_072..=0x8000_0000).contains(&sectors)
+}
+
+/// Read the card's sector count from its CSD (CMD9).
+///
+/// The card is asked how large it is rather than being probed for its end.
+/// An earlier version of this function searched for the last readable sector
+/// by reading past it; those out-of-range reads leave the card in an error
+/// state, after which writes are acknowledged and discarded and reads return
+/// all ones. A format built on that reported success over an untouched card.
+fn read_card_sectors(card_type: SdCardType) -> Result<u32, &'static str> {
+    let _ = card_type; // CMD9 takes no address argument in SPI mode.
+    gpio_clear(PIN_SD_CS);
+    bb_delay();
+
+    let r = bb_sd_cmd(CMD9, 0);
+    if r != 0x00 {
+        gpio_set(PIN_SD_CS);
+        return Err("CMD9 failed");
+    }
+
+    let mut found = false;
+    for _ in 0..10000u32 {
+        let token = bb_transfer(0xFF);
+        if token == 0xFE { found = true; break; }
+        if token != 0xFF {
+            gpio_set(PIN_SD_CS);
+            return Err("CSD error token");
+        }
+    }
+    if !found {
+        gpio_set(PIN_SD_CS);
+        return Err("CSD timeout");
+    }
+
+    let mut csd = [0u8; 16];
+    for b in csd.iter_mut() {
+        *b = bb_transfer(0xFF);
+    }
+    bb_transfer(0xFF); // CRC
+    bb_transfer(0xFF);
+    gpio_set(PIN_SD_CS);
+    bb_transfer(0xFF);
+
+    log!("[SD-FMT] CSD {:02x}{:02x}{:02x}{:02x} {:02x}{:02x}{:02x}{:02x} {:02x}{:02x}{:02x}{:02x} {:02x}{:02x}{:02x}{:02x}",
+        csd[0], csd[1], csd[2], csd[3], csd[4], csd[5], csd[6], csd[7],
+        csd[8], csd[9], csd[10], csd[11], csd[12], csd[13], csd[14], csd[15]);
+
+    let sectors = csd_sectors(&csd)?;
+    if !csd_plausible(sectors) {
+        return Err("CSD capacity implausible");
+    }
+    Ok(sectors)
+}
+
+/// Geometry derived from the card in front of us, not assumed.
+struct FormatGeometry {
+    total_sectors: u32,
+    sectors_per_cluster: u8,
+    fat_size: u32,
+    clusters: u32,
+}
+
+/// Solve cluster size and FAT size against the measured sector count.
+///
+/// The old constants declared 7.5 GiB of filesystem with a 1,024-sector FAT
+/// behind it. That FAT addresses 131,070 clusters, about 4 GiB at 32 KB
+/// each, so roughly half of what the BPB advertised had no FAT entry to
+/// describe it: a host filling the card walks off the end of the table.
+/// Every field below is derived from the card instead.
+fn derive_geometry(total_sectors: u32) -> Result<FormatGeometry, &'static str> {
+    let reserved = RESERVED_SECTORS as u32;
+    let num_fats = NUM_FATS as u32;
+
+    // Largest clusters first: fewer FAT sectors to write and to clear, and
+    // the card holds a handful of small files, so slack per file is not
+    // worth a longer format. Drop down only if the card is too small to
+    // reach the FAT32 cluster floor at that size.
+    for spc in [64u32, 32, 16, 8, 4, 2, 1] {
+        if total_sectors <= reserved {
+            break;
+        }
+        // 128 FAT32 entries per 512-byte sector. One pass converges: a FAT
+        // sized for the whole data region is never smaller than one sized
+        // for that region minus the FAT itself. Manual ceiling, matching the
+        // `clippy::manual_div_ceil` allow in main.rs: `div_ceil` is not
+        // stable in this no_std toolchain.
+        let approx_clusters = (total_sectors - reserved) / spc;
+        let fat_size = (approx_clusters + 2 + 127) / 128;
+        let fat_total = num_fats * fat_size;
+        if total_sectors <= reserved + fat_total {
+            continue;
+        }
+        let clusters = (total_sectors - reserved - fat_total) / spc;
+        if clusters < FAT32_MIN_CLUSTERS {
+            continue;
+        }
+        // The FAT must describe every cluster the BPB claims, which is the
+        // invariant the old constants broke.
+        if fat_size * 128 < clusters + 2 {
+            continue;
+        }
+        return Ok(FormatGeometry {
+            total_sectors: reserved + fat_total + clusters * spc,
+            sectors_per_cluster: spc as u8,
+            fat_size,
+            clusters,
+        });
+    }
+    Err("Card too small for FAT32")
+}
+
+/// Internal format logic — runs inside with_sd_card closure.
 fn do_format_fat32(card_type: SdCardType) -> Result<(), &'static str> {
-    // Verify card is accessible
     let mut test = [0u8; 512];
     sd_read_block(card_type, 0, &mut test)?;
     log!("[SD-FMT] MBR read OK sig={:02x}{:02x}", test[510], test[511]);
 
-    let sectors_per_cluster: u8 = 64;  // 32KB clusters
-    let reserved_sectors: u16 = 32;
-    let num_fats: u8 = 2;
-    let fat_size: u32 = 1024;
+    // Geometry comes from the card, not from constants.
+    let probed = read_card_sectors(card_type)?;
+    let geo = derive_geometry(probed)?;
+    let sectors_per_cluster: u8 = geo.sectors_per_cluster;
+    let reserved_sectors: u16 = RESERVED_SECTORS;
+    let num_fats: u8 = NUM_FATS;
+    let fat_size: u32 = geo.fat_size;
     let root_cluster: u32 = 2;
-    let total_sectors: u32 = 0x00F00000;
+    let total_sectors: u32 = geo.total_sectors;
+    log!("[SD-FMT] card {} sectors, fs {}, spc {}, fat {} sectors, {} clusters",
+        probed, total_sectors, sectors_per_cluster, fat_size, geo.clusters);
 
-    // Build BPB
     let mut bpb = [0u8; 512];
     bpb[0] = 0xEB; bpb[1] = 0x58; bpb[2] = 0x90;
     bpb[3..11].copy_from_slice(b"MSDOS5.0");
@@ -2133,21 +2348,31 @@ fn do_format_fat32(card_type: SdCardType) -> Result<(), &'static str> {
 
     sd_write_block(card_type, 0, &bpb)?;
     sd_write_block(card_type, 6, &bpb)?; // backup
+    // Immediately, before the thousands of writes that follow: this
+    // separates a card that never keeps a write from one that keeps it and
+    // loses it later.
+    verify_sector(card_type, 0, &bpb, "Verify BPB early")?;
 
-    // FSInfo sector
+    // Free count and next free cluster are real values rather than
+    // "unknown": cluster 2 is the root directory, everything above is free.
+    let free_count = geo.clusters - 1;
     let mut fsinfo = [0u8; 512];
     fsinfo[0] = 0x52; fsinfo[1] = 0x52; fsinfo[2] = 0x61; fsinfo[3] = 0x41;
     fsinfo[484] = 0x72; fsinfo[485] = 0x72; fsinfo[486] = 0x41; fsinfo[487] = 0x61;
-    fsinfo[488] = 0xFF; fsinfo[489] = 0xFF; fsinfo[490] = 0xFF; fsinfo[491] = 0xFF;
-    fsinfo[492] = 0x03;
+    fsinfo[488..492].copy_from_slice(&free_count.to_le_bytes());
+    fsinfo[492..496].copy_from_slice(&3u32.to_le_bytes());
     fsinfo[510] = 0x55; fsinfo[511] = 0xAA;
     sd_write_block(card_type, 1, &fsinfo)?;
+    // Sector 7 is the backup FSInfo, mirroring sector 1 the way 6 mirrors 0.
+    sd_write_block(card_type, 7, &fsinfo)?;
 
-    // Clear reserved sectors
+    // Every write from here is checked. Discarding these errors let a
+    // format that failed halfway report success, leaving a card whose BPB
+    // describes a filesystem its FAT does not.
     let zeros = [0u8; 512];
     for s in 2..reserved_sectors as u32 {
-        if s == 6 { continue; } // backup BPB already written
-        let _ = sd_write_block(card_type, s, &zeros);
+        if s == 6 || s == 7 { continue; } // already written
+        sd_write_block(card_type, s, &zeros)?;
     }
 
     // FAT tables — first sector has media byte + EOC markers for clusters 0,1,2
@@ -2159,16 +2384,33 @@ fn do_format_fat32(card_type: SdCardType) -> Result<(), &'static str> {
     let fat2_start = fat1_start + fat_size;
     sd_write_block(card_type, fat1_start, &fat_first)?;
     sd_write_block(card_type, fat2_start, &fat_first)?;
-    for i in 1..32u32.min(fat_size) {
-        let _ = sd_write_block(card_type, fat1_start + i, &zeros);
-        let _ = sd_write_block(card_type, fat2_start + i, &zeros);
+    // The whole table, not its first 32 sectors. Clearing part of it left a
+    // previous filesystem's entries in place beyond the cleared range,
+    // where they read as allocated chains on a card that reports empty.
+    for i in 1..fat_size {
+        sd_write_block(card_type, fat1_start + i, &zeros)?;
+        sd_write_block(card_type, fat2_start + i, &zeros)?;
     }
 
     // Clear root directory cluster
     let data_start = reserved_sectors as u32 + num_fats as u32 * fat_size;
     for i in 0..sectors_per_cluster as u32 {
-        let _ = sd_write_block(card_type, data_start + i, &zeros);
+        sd_write_block(card_type, data_start + i, &zeros)?;
     }
+
+    // Read back every structure that decides whether the card is usable,
+    // including the last FAT sector, which is the one a partial clear leaves
+    // stale. Checked at the end as well as early, so a write that lands and
+    // is later lost looks different from one that never lands at all.
+    verify_sector(card_type, 0, &bpb, "Verify BPB")?;
+    verify_sector(card_type, 6, &bpb, "Verify BPB backup")?;
+    verify_sector(card_type, 1, &fsinfo, "Verify FSInfo")?;
+    verify_sector(card_type, fat1_start, &fat_first, "Verify FAT1")?;
+    verify_sector(card_type, fat2_start, &fat_first, "Verify FAT2")?;
+    verify_sector(card_type, fat1_start + fat_size - 1, &zeros, "Verify FAT1 tail")?;
+    verify_sector(card_type, fat2_start + fat_size - 1, &zeros, "Verify FAT2 tail")?;
+    verify_sector(card_type, data_start, &zeros, "Verify root")?;
+    log!("[SD-FMT] Verified: BPB, FSInfo, both FATs, root");
 
     Ok(())
 }

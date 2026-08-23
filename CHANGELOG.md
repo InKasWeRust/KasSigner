@@ -114,9 +114,10 @@ shipped is below.
 - A 45' PSKB from an external coordinator that carries no derivation hints
   cannot yet be signed; KasSee always writes them, so this affects other
   coordinators only.
-- Multi-frame QR transfers still carry no session identifier. A frame from
-  another transfer mixed into a scan makes the parse fail, so the effect is a
-  failed scan rather than a wrong result.
+- Multi-frame QR transfers still carry no session identifier. Every mixed
+  assembly we can construct fails the parse, so the practical effect is a
+  failed scan, but universal rejection is not proven; the device review
+  screen remains the control on what is signed.
 - The multisig descriptor is a second secret with the same backup requirement as
   the seed. Losing it loses access to the funds.
 
@@ -209,9 +210,10 @@ Security section below.
 - Backup password stretching is still PBKDF2. A memory-hard replacement is
   designed but deferred, so a weak backup password can be attacked offline.
   Use a strong one, and a strong passphrase.
-- Multi-frame QR transfers still carry no session identifier. A frame from
-  another transfer mixed into a scan makes the parse fail, so the effect is a
-  failed scan rather than a wrong result.
+- Multi-frame QR transfers still carry no session identifier. Every mixed
+  assembly we can construct fails the parse, so the practical effect is a
+  failed scan, but universal rejection is not proven; the device review
+  screen remains the control on what is signed.
 
 ## [1.0.4]: 2026-07-02
 
