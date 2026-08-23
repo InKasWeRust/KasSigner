@@ -542,9 +542,17 @@ pub fn parse_pskt(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
                         if idx >= num_inputs {
                             return Err(PsktError::TrailingData);
                         }
+                        // A second hint for the same record is the same
+                        // disagreement: one sender cannot mean both.
+                        if tx.inputs[idx].ms45_hint.present {
+                            return Err(PsktError::TrailingData);
+                        }
                         tx.inputs[idx].ms45_hint = h;
                     } else {
                         if idx >= num_outputs {
+                            return Err(PsktError::TrailingData);
+                        }
+                        if tx.outputs[idx].ms45_hint.present {
                             return Err(PsktError::TrailingData);
                         }
                         tx.outputs[idx].ms45_hint = h;
@@ -2223,9 +2231,17 @@ pub fn parse_signed_pskt_v2(data: &[u8], tx: &mut Transaction) -> Result<(), Psk
             if idx >= ni {
                 return Err(PsktError::TrailingData);
             }
+            // Same rule as the unsigned parser: a second hint for the same
+            // record is a disagreement, one sender cannot mean both.
+            if tx.inputs[idx].ms45_hint.present {
+                return Err(PsktError::TrailingData);
+            }
             tx.inputs[idx].ms45_hint = h;
         } else {
             if idx >= no {
+                return Err(PsktError::TrailingData);
+            }
+            if tx.outputs[idx].ms45_hint.present {
                 return Err(PsktError::TrailingData);
             }
             tx.outputs[idx].ms45_hint = h;

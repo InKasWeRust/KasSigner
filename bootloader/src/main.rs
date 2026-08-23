@@ -1803,6 +1803,33 @@ fn main() -> ! {
                     tracker = hw::touch::TouchTracker::new();
                 }
             }
+
+            // Waveshare: if the state left the camera family during this
+            // cycle, the exit came from one of the instant-back paths inside
+            // `run_camera_cycle` (`check_immediate_tap`, or the back poll
+            // during the DMA wait). Those bypass the Tap dispatch above, so
+            // the `wake_debounce = 150` cure at the dispatch site never runs.
+            // The finger is still in the 48x48 logo corner, the state is
+            // already MainMenu, and the duress check `continue`s past the
+            // redraw on every iteration the CST816D keeps reporting the
+            // lingering contact: the menu is live under a frozen viewfinder
+            // until a second tap flushes the controller. Same primitive and
+            // value as the dispatch-site fix and the M5Stack post-cycle
+            // block: outlasts a lingering contact, far shorter than a
+            // deliberate second tap, and it never skips the redraw itself.
+            #[cfg(feature = "waveshare")]
+            {
+                let still_camera = matches!(
+                    ad.app.state,
+                    app::input::AppState::ScanQR
+                    | app::input::AppState::CameraSettings
+                    | app::input::AppState::SignMsgScanQr
+                    | app::input::AppState::DecryptSecretScan
+                );
+                if !still_camera {
+                    wake_debounce = 150;
+                }
+            }
         }
         // Waveshare: camera PWDN management when not scanning
         #[cfg(feature = "waveshare")]
