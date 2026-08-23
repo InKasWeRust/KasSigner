@@ -2244,6 +2244,22 @@ function msStripHeader(text) {
     return t;
 }
 
+/// Is a 45' branch loaded?
+///
+/// The spend screen used to ask `msActive`, a flag set at load and cleared when
+/// the load screen is backed out of (`btn-msl-back`). That clear leaves
+/// `msBranch` in place, so the two can disagree, and when they do this screen
+/// is unusable: the summary still names the branch, the source field stays
+/// hidden because a 45' branch has no single source address, and the guards
+/// demand the address the screen has hidden. Asking the descriptor instead
+/// cannot drift, because it is the same fact the screen was laid out from.
+///
+/// 44' is deliberately excluded: it really does spend from one address, its
+/// source field is shown, and those paths are unchanged.
+function msIs45Loaded() {
+    return !!(msBranch && msStripHeader(msBranch.descriptor).startsWith('multi_hd45('));
+}
+
 async function handleMsLoad() {
     const rawDesc = el('input-msl-descriptor').value.trim();
     const addr = el('input-msl-address').value.trim();
@@ -2305,9 +2321,14 @@ async function handleMsLoad() {
         sum.innerHTML = '<span style="color:var(--text-dim,#888)">Branch S'
             + found.cosigner + '</span>';
     } else {
-        // 44' really does spend from one address, and it is this one.
-        sum.innerHTML = '<span style="color:var(--text-dim,#888)">From</span> '
-            + '<span style="font-family:monospace;word-break:break-all">' + addr + '</span>';
+        // 44': the branch address IS the source and already sits in the hidden
+        // source field; repeating it here was noise, the same conclusion the
+        // 45' branch above reached for its own line. Name the scheme instead,
+        // the one fact this screen does not show anywhere else.
+        const mMatch = msStripHeader(d).match(/^multi(?:_hd)?\((\d+),/);
+        const mOf = (mMatch ? mMatch[1] + '-of-' : '') + n;
+        sum.innerHTML = '<span style="color:var(--text-dim,#888)">' + mOf
+            + " multisig \u00b7 44'</span>";
     }
 
     if (!is45) {
@@ -2375,7 +2396,7 @@ function startMsConsolidate() {
     let dest;
     try { dest = multisig_address_at_js(msBranch.descriptor, idx, msBranch.cosigner, 0); }
     catch (e) { toast('Could not derive destination', 'error'); return; }
-    const total = msPicked.reduce((a, p) => a + Number(p.amount), 0);
+    const total = msPicked.reduce((a, p) => a + BigInt(p.amount), 0n);
     // Amount is the total MINUS the fee.
     //
     // The create path treats this field as the destination amount and adds the
@@ -2387,16 +2408,16 @@ function startMsConsolidate() {
         toast('Could not read the cosigner count from the descriptor', 'error', 4000);
         return;
     }
-    const fee = Number(getCovFee(msPicked.length, nCosigners));
+    const fee = getCovFee(msPicked.length, nCosigners);
     if (total <= fee) {
-        toast('Selection does not cover the fee (' + (fee / 1e8).toFixed(8) + ' KAS)',
+        toast('Selection does not cover the fee (' + sompiToKasStr(fee) + ' KAS)',
               'error', 4000);
         return;
     }
     el('input-ms-dest').value = dest;
-    el('input-ms-amount').value = ((total - fee) / 1e8).toFixed(8);
+    el('input-ms-amount').value = sompiToKasStr(total - fee);
     el('btn-toggle-ms-utxos').textContent = msPicked.length + ' input(s) → C0 #' + idx
-        + ' · ' + ((total - fee) / 1e8).toFixed(8) + ' KAS ▸';
+        + ' · ' + sompiToKasStr(total - fee) + ' KAS ▸';
     toast('Review and send to consolidate', 'info', 2000);
     showScreen('multisig');
 }
@@ -3155,7 +3176,11 @@ function bindEvents() {
         // This always went to the dashboard, so leaving the spend screen threw
         // away the loaded branch and the descriptor and address had to be
         // entered again. With a 45' wallet loaded it belongs one level up.
-        if (msBranch) { showScreen('ms-wallet'); return; }
+        // A 44' branch has no wallet screen: ms-wallet is never populated
+        // for it, so routing there lands on an empty shell. "One level up"
+        // for 44' is the load screen it came from.
+        if (msIs45Loaded()) { showScreen('ms-wallet'); return; }
+        if (msBranch) { showScreen('ms-load'); return; }
         showScreen(walletData ? 'dashboard' : 'welcome');
     };
     el('btn-ms-create').onclick = () => handleMultisigCreate();
@@ -3309,19 +3334,23 @@ function bindEvents() {
                 for (const addr of addrs) {
                     const utxosJson = await fetch_utxos_for_address_js(addr, wsUrl);
                     const utxos = JSON.parse(utxosJson);
-                    const total = utxos.reduce((s, u) => s + (u.amount || 0), 0);
+                    const total = utxos.reduce((s, u) => s + BigInt(u.amount || 0), 0n);
                     amounts.push(total);
                     statusEl.textContent = 'Fetched ' + amounts.length + '/' + addrs.length + ' balances...';
                 }
 
-                const totalSompi = amounts.reduce((s, a) => s + a, 0);
-                statusEl.textContent = 'Total: ' + (totalSompi / 1e8).toFixed(4) + ' KAS. Generating proof...';
+                const totalSompi = amounts.reduce((s, a) => s + a, 0n);
+                statusEl.textContent = 'Total: ' + (Number(totalSompi) / 1e8).toFixed(4) + ' KAS. Generating proof...';
 
                 if (!window._crowdfundPk || !window._crowdfundVk) {
                     toast('Run ZK Trusted Setup first', 'error'); return;
                 }
 
-                const amountsJson = JSON.stringify(amounts.map(a => Number(a)));
+                // Hand-built integer literals: JSON.stringify throws on BigInt,
+                // and serde's Vec<u64> on the wasm side reads unquoted integer
+                // literals exactly to u64. Identical wire format below 2^53,
+                // exact above it, where Number() used to round.
+                const amountsJson = '[' + amounts.map(a => a.toString()).join(',') + ']';
                 const proofResult = JSON.parse(zk_crowdfund_prove(window._crowdfundPk, window._crowdfundVk, amountsJson));
 
                 if (!proofResult.verified) {
@@ -4640,7 +4669,7 @@ el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handle
                 // (a close is impossible) do we compute the partial max that must
                 // leave a >=0.1 KAS continuation.
                 if (maxAllowed > 0n && balance <= maxAllowed) {
-                    el('cov-bene-amount').value = (Number(balance) / 1e8).toFixed(8).replace(/\.?0+$/, '');
+                    el('cov-bene-amount').value = sompiToKasStr(balance);
                     toast('Full drain: ' + el('cov-bene-amount').value + ' KAS (closes the thread)', 'ok', 2000);
                     return;
                 }
@@ -4672,7 +4701,7 @@ el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handle
                     }
                 }
                 if (bestWithdraw <= 0n) { toast('Balance too low to withdraw', 'error'); return; }
-                el('cov-bene-amount').value = (Number(bestWithdraw) / 1e8).toFixed(8).replace(/\.?0+$/, '');
+                el('cov-bene-amount').value = sompiToKasStr(bestWithdraw);
                 toast('Max: ' + el('cov-bene-amount').value + ' KAS', 'ok', 1500);
             } catch (e) {
                 toast('Error: ' + e, 'error');
@@ -7892,8 +7921,8 @@ async function handleCreateTx() {
                     toast('Pick the wallet UTXO(s) to deposit. The selected amount (minus fee) goes into the piggy.', 'error', 5000);
                     return;
                 }
-                let selTotal = 0;
-                for (const i of selectedUtxoIndices) if (cachedUtxos && cachedUtxos[i]) selTotal += cachedUtxos[i].amount;
+                let selTotal = 0n;
+                for (const i of selectedUtxoIndices) if (cachedUtxos && cachedUtxos[i]) selTotal += BigInt(cachedUtxos[i].amount);
                 // Tight compute-mass fee scaled to the picked inputs (single P2SH
                 // output, no covenant input). The payload now carries the full
                 // salted redeem script for recovery, so size the fee from the real
@@ -7902,14 +7931,14 @@ async function handleCreateTx() {
                 const _addParams = buildCovenantParamsHex(lastCovenantResult);
                 const _addPayloadBytes = 30 + Math.ceil(_addParams.length / 2); // nonce(12)+hdr(2)+tag(16)+params
                 _additiveFee = covDepositFee({ p2pkInputs: selectedUtxoIndices.length, payloadBytes: _addPayloadBytes });
-                const feeN = Number(_additiveFee);
-                const KIP9_MIN = 10000000; // 0.1 KAS — a smaller change output explodes storage mass
-                const change = selTotal - Number(amountSompi) - feeN;
+                const feeN = _additiveFee;
+                const KIP9_MIN = 10000000n; // 0.1 KAS — a smaller change output explodes storage mass
+                const change = selTotal - amountSompi - feeN;
                 if (change < KIP9_MIN) {
                     // No viable change: full-spend the selection into one piggy output.
                     const folded = selTotal - feeN;
-                    if (folded <= 0) { hideLoading(); toast('Selected UTXOs do not cover the fee.', 'error'); return; }
-                    amountSompi = BigInt(folded);
+                    if (folded <= 0n) { hideLoading(); toast('Selected UTXOs do not cover the fee.', 'error'); return; }
+                    amountSompi = folded;
                 }
             }
 
@@ -7927,20 +7956,20 @@ async function handleCreateTx() {
             // because buildCovenantParamsHex and the fold are identical for both.
             if (['timelocked-savings', 'dms'].includes(lastCovenantResult.type || '')
                 && selectedUtxoIndices && selectedUtxoIndices.length > 0) {
-                let selTotalS = 0;
-                for (const i of selectedUtxoIndices) if (cachedUtxos && cachedUtxos[i]) selTotalS += cachedUtxos[i].amount;
+                let selTotalS = 0n;
+                for (const i of selectedUtxoIndices) if (cachedUtxos && cachedUtxos[i]) selTotalS += BigInt(cachedUtxos[i].amount);
                 // Reuse the SAME fee for the fold below and the builder so the
                 // single-output balance still nets to zero change.
                 const _savParams = buildCovenantParamsHex(lastCovenantResult);
                 const _savPayloadBytes = 30 + Math.ceil(_savParams.length / 2); // nonce(12)+hdr(2)+tag(16)+params
                 _additiveFee = covDepositFee({ p2pkInputs: selectedUtxoIndices.length, payloadBytes: _savPayloadBytes });
-                const feeS = Number(_additiveFee);
-                const KIP9_MIN_S = 10000000; // 0.1 KAS
-                const changeS = selTotalS - Number(amountSompi) - feeS;
-                if (changeS > 0 && changeS < KIP9_MIN_S) {
+                const feeS = _additiveFee;
+                const KIP9_MIN_S = 10000000n; // 0.1 KAS
+                const changeS = selTotalS - amountSompi - feeS;
+                if (changeS > 0n && changeS < KIP9_MIN_S) {
                     const foldedS = selTotalS - feeS;
-                    if (foldedS <= 0) { hideLoading(); toast('Selected UTXOs do not cover the fee.', 'error'); return; }
-                    amountSompi = BigInt(foldedS);
+                    if (foldedS <= 0n) { hideLoading(); toast('Selected UTXOs do not cover the fee.', 'error'); return; }
+                    amountSompi = foldedS;
                     console.log('[KasSee] ' + (lastCovenantResult.type || '') + ' deposit: folded dust change ' + changeS + ' sompi into the deposit (single output, KIP-9 safe), fee=' + feeS);
                 }
             }
@@ -7993,13 +8022,13 @@ async function handleCreateTx() {
                     // dust-sized change (< 0.1 KAS), fold it in so the TX stays a single
                     // output (KIP-9 safe), matching the savings/DMS deposit path. The
                     // tagged-genesis builder below still tags output[0] with G.
-                    if (Number(amountSompi) > 0 && selectedUtxoIndices && selectedUtxoIndices.length > 0) {
-                        let _gSel = 0;
-                        for (const i of selectedUtxoIndices) if (cachedUtxos && cachedUtxos[i]) _gSel += cachedUtxos[i].amount;
-                        const _gFee = Number(covDepositFee({ p2pkInputs: selectedUtxoIndices.length, payloadBytes: 230 }));
-                        const _gChange = _gSel - Number(amountSompi) - _gFee;
-                        const KIP9_MIN_G = 10000000; // 0.1 KAS
-                        if (_gChange > 0 && _gChange < KIP9_MIN_G) {
+                    if (amountSompi > 0n && selectedUtxoIndices && selectedUtxoIndices.length > 0) {
+                        let _gSel = 0n;
+                        for (const i of selectedUtxoIndices) if (cachedUtxos && cachedUtxos[i]) _gSel += BigInt(cachedUtxos[i].amount);
+                        const _gFee = covDepositFee({ p2pkInputs: selectedUtxoIndices.length, payloadBytes: 230 });
+                        const _gChange = _gSel - amountSompi - _gFee;
+                        const KIP9_MIN_G = 10000000n; // 0.1 KAS
+                        if (_gChange > 0n && _gChange < KIP9_MIN_G) {
                             amountSompi = 0n; // builder folds the whole selection into one output
                             console.log('[KasSee] thread genesis: dust change ' + _gChange + ' sompi, folding whole selection (single output, KIP-9 safe)');
                         }
@@ -9161,7 +9190,7 @@ async function toggleMsUtxos() {
     // address's UTXOs, which is the limit being removed. This fills the same
     // `ms-utxo-list` panel with every outpoint on the branch instead, so the
     // control behaves exactly as it does in a single-sig wallet.
-    if (msActive && msBranch) { fillMsBranchUtxoList(); return; }
+    if (msIs45Loaded()) { fillMsBranchUtxoList(); return; }
     const list = el('ms-utxo-list');
     if (!list.classList.contains('hidden')) {
         list.classList.add('hidden');
@@ -9237,8 +9266,8 @@ async function handleMultisigCreate() {
 
     if (!descriptor) { toast('Paste the multisig descriptor', 'error'); return; }
     // A selection carries its own addresses, so no source field is involved.
-    if (!sourceAddr && !(msActive && msBranch && msPicked.length > 0)) {
-        toast(msActive && msBranch
+    if (!sourceAddr && !(msIs45Loaded() && msPicked.length > 0)) {
+        toast(msIs45Loaded()
             ? 'Select UTXOs to spend'
             : 'Enter the P2SH source address', 'error');
         return;
@@ -9280,12 +9309,12 @@ async function handleMultisigCreate() {
         // mistake this whole estimator was written to stop: it does not bounce
         // the transaction, it underpays and gets refused at relay AFTER the
         // devices have signed it.
-        const nInputs = (msActive && msBranch && msPicked.length > 0)
+        const nInputs = (msIs45Loaded() && msPicked.length > 0)
             ? msPicked.length
             : ((msSelectedUtxoIndices && msSelectedUtxoIndices.length > 0)
                 ? msSelectedUtxoIndices.length
                 : ((msCachedUtxos && msCachedUtxos.length > 0) ? msCachedUtxos.length : 1));
-        const fee = Number(getCovFee(nInputs, nCosigners));
+        const fee = getCovFee(nInputs, nCosigners);
         const wsUrl = await resolveNodeUrl();
         const addrIndexEl = el('input-ms-addr-index');
         const addrIndex = addrIndexEl ? parseInt(addrIndexEl.value) || 0 : 0;
@@ -9300,7 +9329,7 @@ async function handleMultisigCreate() {
             ? msBranch.next_change_index : 0xFFFFFFFF;
 
         let pskbHex;
-        if (msActive && msBranch && msPicked.length > 0) {
+        if (msIs45Loaded() && msPicked.length > 0) {
             // MULTI-ADDRESS path: the selection carries its own addresses, so
             // each input gets its own redeem script and derivation path.
             pskbHex = await create_multisig_pskb_multi_js(
@@ -9343,16 +9372,16 @@ function msMaxFromSelection() {
         toast('Could not read the cosigner count from the descriptor', 'error', 4000);
         return;
     }
-    const total = msPicked.reduce((a, p) => a + Number(p.amount), 0);
-    const fee = Number(getCovFee(msPicked.length, nCosigners));
+    const total = msPicked.reduce((a, p) => a + BigInt(p.amount), 0n);
+    const fee = getCovFee(msPicked.length, nCosigners);
     if (total <= fee) {
-        toast('Selection does not cover the fee (' + (fee / 1e8).toFixed(8) + ' KAS)',
+        toast('Selection does not cover the fee (' + sompiToKasStr(fee) + ' KAS)',
               'error', 4000);
         return;
     }
-    el('input-ms-amount').value = ((total - fee) / 1e8).toFixed(8);
-    toast('Max: ' + ((total - fee) / 1e8).toFixed(8) + ' KAS after '
-          + (fee / 1e8).toFixed(8) + ' fee', 'info', 2500);
+    el('input-ms-amount').value = sompiToKasStr(total - fee);
+    toast('Max: ' + sompiToKasStr(total - fee) + ' KAS after '
+          + sompiToKasStr(fee) + ' fee', 'info', 2500);
 }
 
 async function handleMsMax() {
@@ -9360,9 +9389,9 @@ async function handleMsMax() {
     // 45' with a selection: MAX is the selected total minus the fee for exactly
     // those inputs. There is no source address to fetch from, and asking for one
     // is the limit being removed.
-    if (msActive && msBranch && msPicked.length > 0) { msMaxFromSelection(); return; }
+    if (msIs45Loaded() && msPicked.length > 0) { msMaxFromSelection(); return; }
     if (!sourceAddr) {
-        toast(msActive && msBranch
+        toast(msIs45Loaded()
             ? 'Select UTXOs first'
             : 'Enter source address first', 'error');
         return;
@@ -9381,10 +9410,9 @@ async function handleMsMax() {
 
     // If UTXOs are manually selected, use those
     if (msSelectedUtxoIndices && msSelectedUtxoIndices.length > 0 && msCachedUtxos) {
-        const fee = Number(getCovFee(msSelectedUtxoIndices.length, nCosigners));
-        const selectedTotal = msSelectedUtxoIndices.reduce((s, i) => s + msCachedUtxos[i].amount, 0);
-        const maxKas = Math.max(0, (selectedTotal - fee) / 1e8);
-        el('input-ms-amount').value = maxKas.toFixed(8);
+        const fee = getCovFee(msSelectedUtxoIndices.length, nCosigners);
+        const selectedTotal = msSelectedUtxoIndices.reduce((s, i) => s + BigInt(msCachedUtxos[i].amount), 0n);
+        el('input-ms-amount').value = sompiToKasStr(selectedTotal > fee ? selectedTotal - fee : 0n);
         return;
     }
 
@@ -9394,13 +9422,12 @@ async function handleMsMax() {
         const utxosJson = await fetch_utxos_for_address_js(sourceAddr, wsUrl);
         hideLoading();
         const utxos = JSON.parse(utxosJson);
-        const total = utxos.reduce((s, u) => s + u.amount, 0);
+        const total = utxos.reduce((s, u) => s + BigInt(u.amount), 0n);
         // This branch spends EVERY UTXO, so the input count is exact here; no
         // estimate needed, unlike the create path.
-        const fee = Number(getCovFee(utxos.length, nCosigners));
-        const maxKas = Math.max(0, (total - fee) / 100000000);
-        el('input-ms-amount').value = maxKas.toFixed(8);
-        el('ms-balance-info').textContent = 'Balance: ' + (total / 100000000).toFixed(8) + ' KAS (' + utxos.length + ' UTXOs)';
+        const fee = getCovFee(utxos.length, nCosigners);
+        el('input-ms-amount').value = sompiToKasStr(total > fee ? total - fee : 0n);
+        el('ms-balance-info').textContent = 'Balance: ' + (Number(total) / 100000000).toFixed(8) + ' KAS (' + utxos.length + ' UTXOs)';
     } catch (e) {
         hideLoading();
         toast('Balance fetch failed: ' + e, 'error');
@@ -11562,7 +11589,7 @@ async function handleCovGenerate() {
             if (cooldownSec <= 0) { toast('Set a cooldown period', 'error'); return; }
             const cooldownDaa = BigInt(cooldownSec * 10);
             resultJson = covenant_global_spending_limit(ownerPk, sompi, cooldownDaa, network);
-            _covExtra.max_withdraw_sompi = Number(sompi);
+            _covExtra.max_withdraw_sompi = sompi.toString();
             _covExtra.cooldown_daa = Number(cooldownDaa);
         } else if (t === 'escrow') {
             const theirPk = addrToXOnly(el('cov-escrow-pk').value);
@@ -11731,7 +11758,7 @@ async function handleCovGenerate() {
             console.log('[KasSee] Global allowance: bene=' + benePkHex.substring(0,8) + '..., max=' + kas + ' KAS, cooldown=' + seq + ' blocks (' + formatDuration(seq) + '), start=' + (startDaa > 0n ? 'DAA ' + startDaa : 'immediate'));
             resultJson = covenant_global_allowance(ownerPk, benePkHex, sompi, BigInt(seq), startDaa, network);
             _covExtra.beneficiary_pubkey_hex = benePkHex;
-            _covExtra.max_withdraw_sompi = Number(sompi);
+            _covExtra.max_withdraw_sompi = sompi.toString();
             _covExtra.cooldown_daa = Number(seq);
             _covExtra.start_daa = Number(startDaa);
             if (startVal) _covExtra.start_date_iso = new Date(startVal).toISOString();
@@ -15966,13 +15993,18 @@ function oracleMbSpliceFee(wireHex, changeAddr) {
       wireBytes[0] !== 0x50 || wireBytes[1] !== 0x53 || wireBytes[2] !== 0x4b || wireBytes[3] !== 0x42) {
     throw new Error('not a PSKB envelope');
   }
-  const arr = JSON.parse(new TextDecoder().decode(hexToBytes(new TextDecoder().decode(wireBytes.slice(4)))));
+  // Quote every amount before parsing: JSON.parse rounds integer literals
+  // above 2^53, and this function re-serializes what it parsed, so a large
+  // output amount would round-trip rounded. Quoted, the digits pass through
+  // untouched, and the fee push below rides the same convention.
+  const arr = JSON.parse(new TextDecoder().decode(hexToBytes(new TextDecoder().decode(wireBytes.slice(4))))
+      .replace(/"amount"\s*:\s*(\d+)/g, '"amount":"$1"'));
   const pskt = Array.isArray(arr) ? arr[0] : arr;
   const outs = pskt && pskt.outputs;
   if (!Array.isArray(outs) || !outs.length) throw new Error('roll PSKB has no outputs to splice the fee into');
   const fee = ORACLE_MB.feeSompi;
-  const isStr = typeof outs[0].amount === 'string';
-  outs.push({ amount: isStr ? fee.toString() : Number(fee), scriptPublicKey: ORACLE_MB.feeSpk, proprietaries: {} });
+  // Every amount is a string after the quoting above; the fee follows suit.
+  outs.push({ amount: fee.toString(), scriptPublicKey: ORACLE_MB.feeSpk, proprietaries: {} });
   const outJsonHexAscii = bytesToHex(new TextEncoder().encode(JSON.stringify(arr)));
   return bytesToHex(new TextEncoder().encode('PSKB' + outJsonHexAscii));
 }
