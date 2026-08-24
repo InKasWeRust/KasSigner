@@ -501,9 +501,19 @@ fn base58_decode(input: &[u8], out: &mut [u8; 128]) -> usize {
 /// Base58Check decode: verify checksum, return payload bytes.
 /// Returns payload length, or 0 on error.
 fn base58check_decode(input: &[u8], out: &mut [u8; 128]) -> usize {
+    // `raw` is wiped on every return, including the two failure paths.
+    //
+    // Three of the four callers decode a kpub, which is public. The fourth is
+    // `import_xprv`, and there `raw` holds the private key at offset 46. That
+    // caller already wipes its own `payload`, but a caller's `zeroize_buf`
+    // cannot reach this frame: the copy here is a separate one, in a callee
+    // frame nothing else touches.
     let mut raw = [0u8; 128];
     let raw_len = base58_decode(input, &mut raw);
-    if raw_len < 5 { return 0; }
+    if raw_len < 5 {
+        zeroize_buf(&mut raw);
+        return 0;
+    }
 
     let payload_len = raw_len - 4;
     let checksum = sha256d(&raw[..payload_len]);
@@ -513,10 +523,12 @@ fn base58check_decode(input: &[u8], out: &mut [u8; 128]) -> usize {
         || raw[payload_len + 2] != checksum[2]
         || raw[payload_len + 3] != checksum[3]
     {
+        zeroize_buf(&mut raw);
         return 0;
     }
 
     out[..payload_len].copy_from_slice(&raw[..payload_len]);
+    zeroize_buf(&mut raw);
     payload_len
 }
 
@@ -526,17 +538,26 @@ pub fn import_xprv(xprv_str: &[u8]) -> Result<ExtendedPrivKey, Bip32Error> {
     let mut payload = [0u8; 128];
     let plen = base58check_decode(xprv_str, &mut payload);
 
+    // Wiped on the failure paths too, not only on success.
+    //
+    // `base58check_decode` has already verified the checksum by the time any
+    // of these run, so `payload` holds a well-formed body: for an xprv that is
+    // the private key at offset 46 and the chain code at 13. A wrong version
+    // or a non-zero byte at 45 makes the string unusable, not harmless.
     if plen != XPUB_PAYLOAD_LEN {
+        zeroize_buf(&mut payload);
         return Err(Bip32Error::InvalidKey);
     }
 
     if payload[0..4] != KASPA_XPRV_VERSION {
+        zeroize_buf(&mut payload);
         return Err(Bip32Error::InvalidKey);
     }
 
     let depth = payload[4];
 
     if payload[45] != 0x00 {
+        zeroize_buf(&mut payload);
         return Err(Bip32Error::InvalidKey);
     }
 

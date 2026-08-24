@@ -1408,7 +1408,26 @@ pub fn handle_sd_touch(
                                         let fat32 = sdcard::mount_fat32(ct)?;
                                         let (entry, _, _) = sdcard::find_file_in_root(ct, &fat32, &ad.sd_selected_file)?;
                                         let mut file_buf = [0u8; 128];
-                                        let bytes_read = sdcard::read_file(ct, &fat32, &entry, &mut file_buf)?;
+                                        // Zeroized on the error path too. `?` here
+                                        // would abandon the buffer holding a
+                                        // partially read encrypted backup, and the
+                                        // Ok arm's wipe below never runs because
+                                        // `file_buf` is bound by that pattern. The
+                                        // reasoning is the same as the note there:
+                                        // ciphertext is the input to a dictionary
+                                        // attack on the passphrase, and the legacy
+                                        // format shares one salt across every device.
+                                        let bytes_read = match sdcard::read_file(
+                                            ct, &fat32, &entry, &mut file_buf,
+                                        ) {
+                                            Ok(n) => n,
+                                            Err(e) => {
+                                                for b in file_buf.iter_mut() {
+                                                    unsafe { core::ptr::write_volatile(b, 0); }
+                                                }
+                                                return Err(e);
+                                            }
+                                        };
                                         Ok((file_buf, bytes_read))
                                     });
 
@@ -1701,7 +1720,26 @@ pub fn handle_sd_touch(
                                         let fat32 = sdcard::mount_fat32(ct)?;
                                         let (entry, _, _) = sdcard::find_file_in_root(ct, &fat32, &ad.sd_selected_file)?;
                                         let mut file_buf = [0u8; 256];
-                                        let bytes_read = sdcard::read_file(ct, &fat32, &entry, &mut file_buf)?;
+                                        // Zeroized on the error path too. `?` here
+                                        // would abandon the buffer holding a
+                                        // partially read encrypted backup, and the
+                                        // Ok arm's wipe below never runs because
+                                        // `file_buf` is bound by that pattern. The
+                                        // reasoning is the same as the note there:
+                                        // ciphertext is the input to a dictionary
+                                        // attack on the passphrase, and the legacy
+                                        // format shares one salt across every device.
+                                        let bytes_read = match sdcard::read_file(
+                                            ct, &fat32, &entry, &mut file_buf,
+                                        ) {
+                                            Ok(n) => n,
+                                            Err(e) => {
+                                                for b in file_buf.iter_mut() {
+                                                    unsafe { core::ptr::write_volatile(b, 0); }
+                                                }
+                                                return Err(e);
+                                            }
+                                        };
                                         Ok((file_buf, bytes_read))
                                     });
 

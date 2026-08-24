@@ -985,10 +985,15 @@ pub fn fill(out: &mut [u8]) -> Result<(), EntropyError> {
         unsafe { core::ptr::write_volatile(w, 0) };
     }
     if !health.healthy {
-        // Fail closed. `out` is left as the caller gave it rather than filled
-        // with the other sources: SYSTIMER and the eFuse MAC alone are not a
-        // basis for a signing nonce, and returning something plausible is how
-        // a degraded source goes unnoticed.
+        // Fail closed. `out` is ZEROED rather than filled with the other
+        // sources: SYSTIMER and the eFuse MAC alone are not a basis for a
+        // signing nonce, and returning something plausible is how a degraded
+        // source goes unnoticed.
+        //
+        // Zeroed rather than left as the caller gave it, which is what this
+        // comment used to claim: a caller that ignores the `Err` then has an
+        // obvious all-zero buffer instead of whatever stale bytes happened to
+        // be in it, and `constant_time::is_zero` will catch it downstream.
         for b in out.iter_mut() {
             unsafe { core::ptr::write_volatile(b, 0) };
         }
@@ -1227,6 +1232,23 @@ pub const TOUCH_PROBE_MAX: usize = 2048;
 ///
 /// The count is folded at FINALISE rather than first, since it is not known
 /// until collection ends. It binds the length either way.
+//
+// SINGLE-CONTEXT INVARIANT. Every `TP_*` static below is written only from
+// `touch_probe_record`, which has exactly one caller: the touch poll in the
+// main loop on core 0. Nothing here is atomic and nothing takes a critical
+// section, so that invariant is what makes the accesses sound; it is not an
+// oversight.
+//
+// It holds today because core 1 runs only `hw::decode_core::core1_main`, the
+// rqrr decoder, which never calls into this module, and because the firmware
+// registers no interrupt handlers at all. Both were verified, not assumed.
+//
+// If a second caller is ever added, from core 1, from an ISR, or from a
+// future decode worker, these become a data race and must be reworked before
+// that lands. Reach for a lock-free ring buffer rather than a critical
+// section: this is the hottest loop on the device, and the poll timing
+// jitter is precisely the entropy being harvested, so serialising the path
+// would degrade the source it exists to measure.
 static mut TP_HASH: Option<Sha256> = None;
 static mut TP_N: usize = 0;
 

@@ -604,6 +604,64 @@ impl AppData {
         zeroize_buf(&mut self.stego_pp_encrypted);
         self.stego_pp_enc_len = 0;
 
+        // Message-signing buffers, added after this function like the export
+        // ones above and missed for the same reason.
+        //
+        //   jpeg_desc_buf   the message ITSELF, up to 128 bytes of whatever
+        //                   the user typed or read off a .txt on the card
+        //   sign_msg_sig    the signature over it
+        //   sign_msg_hash   the 32-byte digest that was signed
+        //
+        // The message text is the part that matters. A hash and a signature
+        // are public by construction: any verifier needs the message to check
+        // the signature, and the device shows the signature as a QR to be
+        // published. The plaintext is the user's, and nothing else on the
+        // device is holding a copy of it.
+        //
+        // All three go, not just the text: they belong to one operation, and
+        // leaving two of them means someone later has to reason about whether
+        // the pair plus something else is enough.
+        zeroize_buf(&mut self.jpeg_desc_buf);
+        self.jpeg_desc_len = 0;
+        zeroize_buf(&mut self.sign_msg_sig);
+        zeroize_buf(&mut self.sign_msg_hash);
+
+        // Commit-reveal, which holds the same plaintext on the heap.
+        //
+        // `cr_part_a` and `cr_part_b` are `jpeg_desc_buf[..len]` split at a
+        // random point (handlers/tx.rs), so concatenated they ARE the message.
+        // Wiping the stack-side buffer above while leaving two PSRAM copies is
+        // not a wipe.
+        //
+        // Contents first, then `clear`. `clear` alone drops elements, and `u8`
+        // has no destructor, so the bytes stay in the allocation; freeing after
+        // that hands a block still holding the preimage back to the allocator.
+        //
+        // The ciphertext and the commitment hash are both public by design,
+        // one is encrypted to a pubkey and the other is what gets published on
+        // chain, but they go too: they belong to the same operation, and
+        // leaving them means someone later has to reason about whether they
+        // plus something else are enough.
+        zeroize_buf(&mut self.cr_part_a);
+        self.cr_part_a.clear();
+        zeroize_buf(&mut self.cr_part_b);
+        self.cr_part_b.clear();
+        zeroize_buf(&mut self.cr_ciphertext);
+        self.cr_ciphertext.clear();
+        zeroize_buf(&mut self.cr_hash);
+
+        // The last parsed transaction. Not key material and all of it is
+        // public once broadcast, but it is the largest privacy-bearing block
+        // left in AppData: eight inputs of outpoints, amounts and script
+        // public keys, the produced signatures, and a 4 KB redeem pool holding
+        // multisig scripts and cosigner pubkeys. After a duress wipe it links
+        // this device to that transaction.
+        //
+        // `clear` is a single memset over the whole struct, so it reaches the
+        // redeem pool and the inline scripts as well; it then restores
+        // `sig_op_count = 1`, which is the correct default either way.
+        self.demo_tx.clear();
+
         // 3. Input buffers that can hold partial secrets mid-entry.
         self.pp_input.reset();
         self.word_input.reset();
@@ -622,6 +680,8 @@ impl AppData {
         // boot, same sentinel.
         #[cfg(feature = "sentinel-scan")]
         crate::app::stack_probe::scan_sentinel("before wipe");
+        #[cfg(feature = "sentinel-scan")]
+        crate::app::stack_probe::scan_seed_needle("before wipe");
 
         // 5. The stack, which steps 1 through 4 cannot reach (H-01).
         //
@@ -663,6 +723,8 @@ impl AppData {
         // in a frame no wipe reaches, which the byte count cannot reveal.
         #[cfg(feature = "sentinel-scan")]
         crate::app::stack_probe::scan_sentinel("after wipe");
+        #[cfg(feature = "sentinel-scan")]
+        crate::app::stack_probe::scan_seed_needle("after wipe");
     }
 
         /// Create a new AppData with all fields at default/zero state.

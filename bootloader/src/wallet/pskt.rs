@@ -149,6 +149,13 @@ const FORMAT_VERSION_SIGNED_V4: u8 = 0x05;
 /// Maximum signatures in response
 pub const MAX_SIGNATURES: usize = MAX_INPUTS;
 
+/// Total supply in sompi: 29e9 KAS. Mirrors `MAX_SOMPI` in rusty-kaspa 2.0.1
+/// (`consensus/core/src/constants.rs:39`), where
+/// `check_transaction_output_value_ranges` refuses both a single value and a
+/// running total above it. Any payload carrying more describes a transaction
+/// no node would accept, so it is refused here rather than displayed.
+pub const MAX_SOMPI: u64 = 29_000_000_000 * 100_000_000;
+
 /// KSPT parser errors
 #[derive(Debug, Clone, Copy, PartialEq)]
 /// Errors during KSPT parsing, signing, or serialization.
@@ -192,6 +199,19 @@ pub enum PsktError {
     /// type is ever added, and the version byte is the place to handle
     /// that.
     TrailingData,
+    /// An input amount or output value above `MAX_SOMPI`, or a total that is.
+    ///
+    /// Consensus rule, not an invented one: `check_transaction_output_value_ranges`
+    /// in rusty-kaspa 2.0.1 refuses both a single value and a running total
+    /// above `MAX_SOMPI`. A payload carrying more describes a transaction no
+    /// node would accept.
+    ///
+    /// Checked at parse time because the device sums these values for the
+    /// review screen and the release profile traps on overflow: two outputs
+    /// near `u64::MAX` would panic before anything is signed. The array caps
+    /// bound how MANY values there are, never how large, so this is what makes
+    /// those sums provably safe rather than safe by assumption.
+    ValueOutOfRange,
 }
 
 impl PsktError {
@@ -213,6 +233,7 @@ impl PsktError {
             PsktError::NoInputs            => ("No inputs", "Nothing to sign"),
             PsktError::NoOutputs           => ("No outputs", "Nothing to send"),
             PsktError::InvalidCovenantBinding => ("Bad covenant binding", "Malformed or incomplete"),
+            PsktError::ValueOutOfRange     => ("Amount out of range", "Above the total supply"),
             PsktError::TrailingData        => ("Extra data in bundle", "Rescan or resend"),
         }
     }
@@ -435,7 +456,15 @@ pub fn parse_pskt(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
     for i in 0..num_inputs {
         tx.inputs[i].previous_outpoint.transaction_id = r.read_hash256()?;
         tx.inputs[i].previous_outpoint.index = r.read_u32_le()?;
-        tx.inputs[i].utxo_entry.amount = r.read_u64_le()?;
+        // Consensus range check at parse time. The device sums these for the
+        // review screen and the release profile traps on overflow, so an
+        // unbounded value is a panic waiting on a hostile payload; the array
+        // caps bound the count, never the magnitude.
+        let amount = r.read_u64_le()?;
+        if amount > MAX_SOMPI {
+            return Err(PsktError::ValueOutOfRange);
+        }
+        tx.inputs[i].utxo_entry.amount = amount;
         tx.inputs[i].sequence = r.read_u64_le()?;
         tx.inputs[i].sig_op_count = r.read_u8()?;
 
@@ -466,8 +495,22 @@ pub fn parse_pskt(data: &[u8], tx: &mut Transaction) -> Result<(), PsktError> {
     }
 
     // Outputs
+    // Running total across outputs, checked against MAX_SOMPI as each is
+    // read. Mirrors the consensus rule, which rejects the total as well
+    // as any single value.
+    let mut out_total: u64 = 0;
     for i in 0..num_outputs {
-        tx.outputs[i].value = r.read_u64_le()?;
+        // Per-value and running-total range check, matching
+        // `check_transaction_output_value_ranges` in rusty-kaspa.
+        let value = r.read_u64_le()?;
+        if value > MAX_SOMPI {
+            return Err(PsktError::ValueOutOfRange);
+        }
+        out_total = match out_total.checked_add(value) {
+            Some(t) if t <= MAX_SOMPI => t,
+            _ => return Err(PsktError::ValueOutOfRange),
+        };
+        tx.outputs[i].value = value;
 
         let spk_version = r.read_u16_le()?;
         let spk_len = r.read_spk_len()?;
@@ -2129,7 +2172,15 @@ pub fn parse_signed_pskt_v2(data: &[u8], tx: &mut Transaction) -> Result<(), Psk
         let txid = r.read_bytes(32)?;
         tx.inputs[i].previous_outpoint.transaction_id.copy_from_slice(txid);
         tx.inputs[i].previous_outpoint.index = r.read_u32_le()?;
-        tx.inputs[i].utxo_entry.amount = r.read_u64_le()?;
+        // Consensus range check at parse time. The device sums these for the
+        // review screen and the release profile traps on overflow, so an
+        // unbounded value is a panic waiting on a hostile payload; the array
+        // caps bound the count, never the magnitude.
+        let amount = r.read_u64_le()?;
+        if amount > MAX_SOMPI {
+            return Err(PsktError::ValueOutOfRange);
+        }
+        tx.inputs[i].utxo_entry.amount = amount;
         tx.inputs[i].sequence = r.read_u64_le()?;
         tx.inputs[i].sig_op_count = r.read_u8()?;
         tx.inputs[i].utxo_entry.script_public_key.version = r.read_u16_le()?;
@@ -2181,8 +2232,19 @@ pub fn parse_signed_pskt_v2(data: &[u8], tx: &mut Transaction) -> Result<(), Psk
     }
 
     // Outputs
+    let mut out_total: u64 = 0;
     for i in 0..no {
-        tx.outputs[i].value = r.read_u64_le()?;
+        // Per-value and running-total range check, matching
+        // `check_transaction_output_value_ranges` in rusty-kaspa.
+        let value = r.read_u64_le()?;
+        if value > MAX_SOMPI {
+            return Err(PsktError::ValueOutOfRange);
+        }
+        out_total = match out_total.checked_add(value) {
+            Some(t) if t <= MAX_SOMPI => t,
+            _ => return Err(PsktError::ValueOutOfRange),
+        };
+        tx.outputs[i].value = value;
         tx.outputs[i].script_public_key.version = r.read_u16_le()?;
         let sl = r.read_spk_len()?;
         if sl > MAX_SCRIPT_SIZE { return Err(PsktError::ScriptTooLong); }

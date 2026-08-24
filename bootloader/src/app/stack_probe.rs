@@ -255,6 +255,154 @@ const SENTINEL: [u8; 32] = [
     0x3e, 0x38, 0x80, 0xcd, 0x1f, 0x99, 0x4c, 0x94,
 ];
 
+/// First 32 bytes of the last BIP39 seed derived, captured for residue scanning.
+///
+/// The existing `SENTINEL` is a hardcoded account private key, which only works
+/// for the boot test's fixed mnemonic. This one is filled at derivation time, so
+/// the scan works against whatever seed is actually loaded, and it needs no
+/// constant to be kept in step with the test vector.
+///
+/// Feature-gated with the rest of the diagnostics, and a production build is a
+/// compile error while any of them are on. 32 of the 64 bytes is enough: the
+/// question is whether a copy of the seed survives, and a 32-byte match is not
+/// a coincidence.
+#[cfg(feature = "sentinel-scan")]
+static mut SEED_NEEDLE: [u8; 32] = [0u8; 32];
+
+/// Passphrase bytes to look for, and how many are valid.
+///
+/// Separate from the seed needle because the two live in different buffers and
+/// are wiped by different code. Length matters here: a passphrase is whatever
+/// the user typed, and scanning for a short run produces coincidental matches,
+/// so the scan refuses to run below `PP_MIN`.
+#[cfg(feature = "sentinel-scan")]
+static mut PP_NEEDLE: [u8; 64] = [0u8; 64];
+#[cfg(feature = "sentinel-scan")]
+static mut PP_LEN: usize = 0;
+
+/// Shortest passphrase worth scanning for. Below this the odds of a random
+/// stack run matching are high enough that a hit means nothing.
+#[cfg(feature = "sentinel-scan")]
+const PP_MIN: usize = 8;
+
+/// Record the passphrase to look for. Call where it is copied out of the slot.
+#[cfg(feature = "sentinel-scan")]
+pub fn capture_pp_needle(pp: &[u8]) {
+    unsafe {
+        let n = &mut *core::ptr::addr_of_mut!(PP_NEEDLE);
+        let l = pp.len().min(64);
+        n[..l].copy_from_slice(&pp[..l]);
+        PP_LEN = l;
+    }
+}
+
+/// Scan the stack for the captured passphrase and log every hit.
+///
+/// Same range, reporting and wipe-ceiling marker as `scan_seed_needle`, and the
+/// needle is read in place for the same reason: a local copy would be found by
+/// its own scan.
+#[cfg(feature = "sentinel-scan")]
+pub fn scan_pp_needle(label: &str) {
+    let len = unsafe { PP_LEN };
+    if len < PP_MIN {
+        log!("   [pp-scan] {}: skipped, passphrase is {} byte(s), need {}",
+            label, len, PP_MIN);
+        return;
+    }
+    let needle_ptr = core::ptr::addr_of!(PP_NEEDLE) as *const u8;
+    let low = stack_end() & !3;
+    let high = stack_start().saturating_sub(len);
+    let wipe_ceiling = approx_sp();
+    let mut hits = 0u32;
+    let mut addr = low;
+    while addr < high {
+        let mut matched = true;
+        for i in 0..len {
+            let want = unsafe { core::ptr::read_volatile(needle_ptr.add(i)) };
+            let got = unsafe { core::ptr::read_volatile((addr + i) as *const u8) };
+            if got != want {
+                matched = false;
+                break;
+            }
+        }
+        if matched {
+            hits += 1;
+            log!("   [pp-scan] {}: HIT at 0x{:08X}{}",
+                label, addr,
+                if addr >= wipe_ceiling { "  ABOVE WIPE CEILING" } else { "" });
+        }
+        addr += 1;
+    }
+    log!("   [pp-scan] {}: {} hit(s) for {} byte(s), scanned 0x{:08X}..0x{:08X}",
+        label, hits, len, low, high);
+}
+
+/// Record the seed to look for. Call once, right after derivation.
+#[cfg(feature = "sentinel-scan")]
+pub fn capture_seed_needle(seed: &[u8; 64]) {
+    unsafe {
+        let n = &mut *core::ptr::addr_of_mut!(SEED_NEEDLE);
+        n.copy_from_slice(&seed[..32]);
+    }
+}
+
+/// Scan the stack for the captured seed and log every hit.
+///
+/// Same range and reporting as `scan_sentinel`, including the wipe-ceiling
+/// marker, but the needle is the BIP39 seed rather than a derived key. Run it
+/// three times in one session to get an answer that means something: once right
+/// after derivation, where hits are expected and prove the scan works; once
+/// after a signing run, which is the measurement; and once after a wipe, where
+/// none should remain.
+///
+/// A hit after signing is the interesting result. `Seed` zeroizes itself on
+/// drop, so the owner's copy is gone; anything left is residue from the move
+/// out of `derive_seed`, or from HMAC state inside the derivation, in frames no
+/// `Drop` reaches.
+#[cfg(feature = "sentinel-scan")]
+pub fn scan_seed_needle(label: &str) {
+    // The needle is read one byte at a time straight out of the static, and
+    // never copied into a local. An earlier version bound it to a 32-byte
+    // local first, which put a copy of the seed on this function's own stack
+    // frame; the scan then found that copy and reported it as residue, above
+    // the wipe ceiling, at the same address on every run. An instrument that
+    // plants the thing it is looking for measures nothing.
+    let needle_ptr = core::ptr::addr_of!(SEED_NEEDLE) as *const u8;
+    let mut any = 0u8;
+    for i in 0..32 {
+        any |= unsafe { core::ptr::read_volatile(needle_ptr.add(i)) };
+    }
+    if any == 0 {
+        log!("   [seed-scan] {}: no needle captured yet", label);
+        return;
+    }
+    let low = stack_end() & !3;
+    let high = stack_start().saturating_sub(32);
+    let wipe_ceiling = approx_sp();
+    let mut hits = 0u32;
+    let mut addr = low;
+    while addr < high {
+        let mut matched = true;
+        for i in 0..32 {
+            let want = unsafe { core::ptr::read_volatile(needle_ptr.add(i)) };
+            let got = unsafe { core::ptr::read_volatile((addr + i) as *const u8) };
+            if got != want {
+                matched = false;
+                break;
+            }
+        }
+        if matched {
+            hits += 1;
+            log!("   [seed-scan] {}: HIT at 0x{:08X}{}",
+                label, addr,
+                if addr >= wipe_ceiling { "  ABOVE WIPE CEILING" } else { "" });
+        }
+        addr += 1;
+    }
+    log!("   [seed-scan] {}: {} hit(s), scanned 0x{:08X}..0x{:08X}",
+        label, hits, low, high);
+}
+
 /// Scan the whole stack region for the sentinel and log every hit.
 ///
 /// Scans `_stack_end` to `_stack_start`, deliberately wider than the wipe

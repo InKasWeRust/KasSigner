@@ -4862,6 +4862,14 @@ pub fn draw_home_grid(&mut self) {
             .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
             .draw(&mut self.display).ok();
 
+        // The reader takes the first 128 bytes of the file and the preview
+        // shows exactly what will be signed, so a longer file is never signed
+        // silently. Saying so here means the user knows before picking rather
+        // than discovering it at the preview.
+        const PICK_HINT: &str = "First 128 characters are signed";
+        let hw = measure_body(PICK_HINT);
+        draw_lato_body(&mut self.display, PICK_HINT, (320 - hw) / 2, 239, COLOR_TEXT_DIM);
+
         let max_visible: u8 = 4;
         let card_h: i32 = 42;
         let card_gap: i32 = 4;

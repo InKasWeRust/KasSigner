@@ -954,6 +954,23 @@ impl<'a> BitWriter<'a> {
         Self { buf, bit_pos: 0 }
     }
 
+    /// Write `count` low bits of `value`, most significant first.
+    ///
+    /// SIZING IS THE CALLER'S JOB. A bit whose byte falls past the end of the
+    /// buffer is dropped and `bit_pos` still advances, so an undersized buffer
+    /// produces a QR that scans cleanly and carries truncated data rather than
+    /// failing. Sound today because both call sites size against this
+    /// encoder's own ceiling: `select_version` cannot return past V9,
+    /// `BYTE_CAPACITY` ends there and longer input is `Err(DataTooLong)`, V9
+    /// holds 232 data codewords, and both callers declare `[0u8; 240]`.
+    ///
+    /// So: adding a version to the capacity tables means growing those two
+    /// buffers in the same edit. That is the whole of the invariant.
+    ///
+    /// Deliberately not a panic and not a `Result`. A panic is worse than the
+    /// failure it would report on a signer, a halted device against a QR the
+    /// user rescans, and threading a `Result` through every write in the
+    /// encode path buys nothing for a branch that cannot be reached.
     fn write_bits(&mut self, value: u32, count: usize) {
         for i in (0..count).rev() {
             let bit = (value >> i) & 1;

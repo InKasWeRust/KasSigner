@@ -21,7 +21,11 @@ use crate::hw::sdcard;
 /// Run counter. One flash, several captures: the tag advances per successful
 /// write so ENTCAPA, ENTCAPB ... come from one build under different light
 /// conditions. Single-threaded, only touched from the menu handler.
-static mut E12_RUN: u8 = 0;
+/// Atomic rather than `static mut`, matching the other counters converted in
+/// this pass. `fetch_update` keeps the ceiling check and the increment
+/// together: a plain `fetch_add` would keep counting past 26 and wrap at 255,
+/// which would let writes resume onto earlier files.
+static E12_RUN: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
 /// Accumulator for one capture run. Lives in PSRAM.
 pub struct Capture {
@@ -57,13 +61,13 @@ impl Capture {
             return Err("E12: need >= 2 frames for a delta");
         }
         // A..Z then stop, rather than wrapping onto an earlier file.
-        let tag = unsafe {
-            if E12_RUN >= 26 {
-                return Err("E12: 26 runs written, reset the device");
-            }
-            let t = b'A' + E12_RUN;
-            E12_RUN += 1;
-            t
+        let tag = match E12_RUN.fetch_update(
+            core::sync::atomic::Ordering::Relaxed,
+            core::sync::atomic::Ordering::Relaxed,
+            |v| if v >= 26 { None } else { Some(v + 1) },
+        ) {
+            Ok(prev) => b'A' + prev,
+            Err(_) => return Err("E12: 26 runs written, reset the device"),
         };
         let mut name = *b"ENTCAP_ BIN";
         name[6] = tag;

@@ -672,7 +672,23 @@ impl Transaction {
         }
         if inp.redeem_in_pool {
             let off = inp.redeem_script_offset as usize;
-            &self.redeem_pool[off..off + inp.redeem_script_len]
+            // Read-side bounds check. `store_redeem` is the only writer of
+            // these three fields and rejects both `len > MAX_REDEEM_SIZE` and
+            // `off + len > REDEEM_POOL_SIZE`, so this cannot trip on any
+            // payload the parser accepts. It is here for the case that
+            // invariant is ever broken by an edit elsewhere.
+            //
+            // Empty, not clamped to what fits. A short read would be worse
+            // than the panic it replaces: the redeem script is what gets
+            // hashed to the P2SH address and what the signature commits to,
+            // so a truncated one yields a valid-looking signature over the
+            // wrong script. `&[]` is the same thing a zero-length script
+            // returns above, and every caller already refuses on it.
+            let end = off.saturating_add(inp.redeem_script_len);
+            if end > REDEEM_POOL_SIZE {
+                return &[];
+            }
+            &self.redeem_pool[off..end]
         } else {
             &inp.redeem_script[..inp.redeem_script_len]
         }
@@ -1237,12 +1253,29 @@ impl MultisigStore {
         }
     }
 
-    /// Find the first free slot, or None if all full
-    pub fn find_free(&self) -> Option<usize> {
-        for i in 0..MAX_MULTISIG_WALLETS {
-            if !self.configs[i].active { return Some(i); }
-        }
-        None
+    /// The slot the next config goes into. Always slot 0.
+    ///
+    /// One live multisig wallet at a time: the most recent one. `configs` is
+    /// still an array because the readers iterate it and the type is used
+    /// across four files, but slot 1 is never written and stays inactive.
+    ///
+    /// This replaced a `find_free` that returned `None` once both slots were
+    /// taken, which both callers used as `if let Some(i) = ... {}` with no
+    /// `else`: the user finished the whole creation flow and the config was
+    /// silently not registered. Nothing ever set a slot back to inactive, so
+    /// slots only filled, and the third wallet of a session was always the one
+    /// that vanished.
+    ///
+    /// Overwriting is right for what this store is. It lives in RAM, is gone
+    /// at power-off and at every wipe, and holds no secret; the durable
+    /// artefacts are the descriptor and address the user writes to SD. What it
+    /// feeds is per-transaction: `find_forged_change`, which refuses an output
+    /// claiming to be change at a path the descriptor does not produce, and
+    /// the review screen's labelling of multisig inputs. Both look at the
+    /// wallet the transaction belongs to, so the one that must always be
+    /// present is the one just created.
+    pub fn slot_for_next(&self) -> usize {
+        0
     }
 }
 

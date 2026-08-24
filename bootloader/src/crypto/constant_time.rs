@@ -21,18 +21,40 @@
 // The == operator short-circuits on the first different byte,
 // enabling timing attacks that deduce how many bytes match.
 //
-// All functions here iterate over ALL bytes every time,
-// taking the same time regardless of content.
+// All functions here iterate over ALL bytes every time, taking the same time
+// regardless of CONTENT. Not regardless of LENGTH: `eq` returns early when the
+// two slices differ in size, which is a branch. See the note on `eq` for why
+// that is sound for every caller here and what would change it.
 
 
 use core::sync::atomic::{compiler_fence, Ordering};
 
-/// Compares two byte slices in constant time.
-/// Returns true if and only if they are identical byte-by-byte.
-/// Always iterates all bytes — never short-circuits.
+/// Compares two byte slices in constant time with respect to their CONTENT.
+///
+/// Returns true if and only if they are identical byte-by-byte. Once past the
+/// length check it iterates every byte and never short-circuits, so the time
+/// taken does not depend on how many bytes match.
+///
+/// LENGTH IS NOT CONSTANT-TIME. Unequal sizes return immediately, which is
+/// observably faster than a full comparison. That is sound here because of
+/// what the callers pass:
+///
+/// - Eight of the nine call sites compare fixed-size arrays (32-byte hashes,
+///   pubkeys, fingerprints, packed word indices), so the sizes are equal by
+///   type and the early return is unreachable.
+/// - The ninth, `seed_manager::find_matching`, compares a stored passphrase
+///   against a candidate, and those can differ in length. Both are the user's
+///   own passphrases on their own device, with no attacker in the loop and no
+///   remote timing channel, so the timing reveals nothing the user does not
+///   already hold.
+///
+/// A future caller comparing attacker-controlled variable-length input would
+/// need something else. Folding the length into the accumulator does NOT fix
+/// it: iterating `min(a.len(), b.len())` still takes time proportional to the
+/// shorter slice. Real length independence needs a fixed iteration count over
+/// a padded buffer, which means picking a maximum size and changing every
+/// caller, so it is not worth doing pre-emptively.
 #[inline(never)]
-/// Constant-time equality comparison for byte slices.
-/// Returns false if lengths differ. Prevents timing side-channels.
 pub fn eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;

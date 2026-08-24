@@ -103,6 +103,15 @@ pub enum PskError {
     /// Reserved for Step 3 parser — too many unknown byte-range regions
     /// for the preservation slot array.
     TooManyUnknownRegions,
+    /// An input amount or output value above `MAX_SOMPI`, or a total that is.
+    ///
+    /// Same consensus rule the KSPT parser applies (see
+    /// `pskt::PsktError::ValueOutOfRange`): rusty-kaspa 2.0.1 refuses both a
+    /// single value and a running total above 29e9 KAS in sompi. Checked here
+    /// because the review screen sums these and the release profile traps on
+    /// overflow, so an unbounded value is a panic waiting on a hostile
+    /// payload.
+    ValueOutOfRange,
 
     // ─── Semantic validation (Step 3) ─────────────────────────────
     /// `sighashType` was not 1 (SIGHASH_ALL). Other values rejected by
@@ -167,6 +176,7 @@ impl PskError {
             PskError::TooManyOutputs      => ("Too many outputs", "Split the transaction"),
             PskError::TooManyPartialSigs  => ("Too many signatures", "Bundle already full"),
             PskError::TooManyUnknownRegions => ("Too many unknown fields", "Wallet not supported"),
+            PskError::ValueOutOfRange     => ("Amount out of range", "Above the total supply"),
 
             // ─── Structure: the sender built it wrong ───
             PskError::UnexpectedToken     => ("Malformed bundle", "Unexpected JSON token"),
@@ -1390,7 +1400,11 @@ fn parse_utxo_entry(
         match key {
             b"amount" => {
                 if seen_amount { return Err(PskError::DuplicateField); }
-                inp.utxo_entry.amount = expect_u64(tok)?;
+                let amount = expect_u64(tok)?;
+                if amount > crate::wallet::pskt::MAX_SOMPI {
+                    return Err(PskError::ValueOutOfRange);
+                }
+                inp.utxo_entry.amount = amount;
                 seen_amount = true;
             }
             b"scriptPublicKey" => {
@@ -1783,7 +1797,11 @@ fn parse_output(
         match key {
             b"amount" => {
                 if seen_amount { return Err(PskError::DuplicateField); }
-                out.value = expect_u64(tok)?;
+                let value = expect_u64(tok)?;
+                if value > crate::wallet::pskt::MAX_SOMPI {
+                    return Err(PskError::ValueOutOfRange);
+                }
+                out.value = value;
                 seen_amount = true;
             }
             b"scriptPublicKey" => {

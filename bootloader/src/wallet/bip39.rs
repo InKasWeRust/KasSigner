@@ -232,6 +232,19 @@ pub fn index_to_word(index: u16) -> &'static str {
 /// The mnemonic is serialized as a string: space-separated words.
 /// The salt is "mnemonic" + passphrase (passphrase may be empty).
 pub fn seed_from_mnemonic_12(mnemonic: &Mnemonic12, passphrase: &str) -> Seed {
+    let mut seed = Seed { bytes: [0u8; 64] };
+    seed_from_mnemonic_12_into(mnemonic, passphrase, &mut seed);
+    seed
+}
+
+/// As `seed_from_mnemonic_12`, writing into a caller-owned `Seed`.
+///
+/// Preferred at call sites that can take an out-parameter: the seed is then
+/// built once, in the frame that owns it, and no return copy exists at any
+/// optimisation level. The returning version above is kept because most
+/// callers use it in expression position (`match`, `if let`), and converting
+/// those is a separate change.
+pub fn seed_from_mnemonic_12_into(mnemonic: &Mnemonic12, passphrase: &str, out: &mut Seed) {
     // Build the mnemonic phrase as a string (in a stack buffer)
     // 24 words * max 8 chars + 23 spaces = ~215 bytes max for 24 words
     // For 12 words: ~107 bytes max
@@ -242,37 +255,43 @@ pub fn seed_from_mnemonic_12(mnemonic: &Mnemonic12, passphrase: &str) -> Seed {
     let mut salt_buf = [0u8; 256];
     let salt_len = build_salt(passphrase, &mut salt_buf);
 
-    let seed = pbkdf2_hmac_sha512(
+    pbkdf2_hmac_sha512_into(
         &phrase_buf[..phrase_len],
         &salt_buf[..salt_len],
         2048,
+        out,
     );
 
     // Zeroize temporary buffers
     zeroize_buf(&mut phrase_buf);
     zeroize_buf(&mut salt_buf);
-
-    seed
 }
 
 /// Derive a 512-bit seed from a 24-word mnemonic + passphrase.
 pub fn seed_from_mnemonic_24(mnemonic: &Mnemonic24, passphrase: &str) -> Seed {
+    let mut seed = Seed { bytes: [0u8; 64] };
+    seed_from_mnemonic_24_into(mnemonic, passphrase, &mut seed);
+    seed
+}
+
+/// As `seed_from_mnemonic_24`, writing into a caller-owned `Seed`. See
+/// `seed_from_mnemonic_12_into`.
+pub fn seed_from_mnemonic_24_into(mnemonic: &Mnemonic24, passphrase: &str, out: &mut Seed) {
     let mut phrase_buf = [0u8; 512];
     let phrase_len = serialize_mnemonic_24(&mnemonic.indices, &mut phrase_buf);
 
     let mut salt_buf = [0u8; 256];
     let salt_len = build_salt(passphrase, &mut salt_buf);
 
-    let seed = pbkdf2_hmac_sha512(
+    pbkdf2_hmac_sha512_into(
         &phrase_buf[..phrase_len],
         &salt_buf[..salt_len],
         2048,
+        out,
     );
 
     zeroize_buf(&mut phrase_buf);
     zeroize_buf(&mut salt_buf);
-
-    seed
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -474,7 +493,15 @@ fn str_cmp(a: &str, b: &str) -> core::cmp::Ordering {
 /// Ti = U1 ⊕ U2 ⊕ ... ⊕ Uc
 /// U1 = HMAC(password, salt || INT(i))
 /// Uj = HMAC(password, U_{j-1})
-fn pbkdf2_hmac_sha512(password: &[u8], salt: &[u8], iterations: u32) -> Seed {
+/// PBKDF2-HMAC-SHA512 into a caller-owned `Seed`.
+///
+/// Writes into `out` rather than returning a `Seed`. The XOR accumulator IS
+/// the seed, and a function that returns one leaves that accumulator in its
+/// own frame for the ABI to copy out of; `Seed`'s `Drop` runs on the caller's
+/// copy and cannot reach it. This frame is the deepest in the chain and the
+/// most repeated, since a stateless device re-derives on every operation, so
+/// it is the one worth removing rather than wiping.
+fn pbkdf2_hmac_sha512_into(password: &[u8], salt: &[u8], iterations: u32, out: &mut Seed) {
     // For BIP39 we only need 64 bytes = one SHA512 block
     // So we only compute T1 (block_index = 1)
     //
@@ -533,14 +560,13 @@ fn pbkdf2_hmac_sha512(password: &[u8], salt: &[u8], iterations: u32) -> Seed {
     salt_with_index[salt.len()..salt.len() + 4].copy_from_slice(&idx_bytes);
 
     let mut u_prev = hmac_from_mid(&salt_with_index[..salt.len() + 4]);
-    let mut result = [0u8; 64];
-    result.copy_from_slice(&u_prev);
+    out.bytes.copy_from_slice(&u_prev);
 
-    // U2..Uc
+    // U2..Uc, accumulated straight into the caller's buffer.
     for _ in 1..iterations {
         let u_next = hmac_from_mid(&u_prev);
         for j in 0..64 {
-            result[j] ^= u_next[j];
+            out.bytes[j] ^= u_next[j];
         }
         u_prev = u_next;
     }
@@ -548,8 +574,6 @@ fn pbkdf2_hmac_sha512(password: &[u8], salt: &[u8], iterations: u32) -> Seed {
     // Zeroize temporaries
     zeroize_buf(&mut u_prev);
     zeroize_buf(&mut salt_with_index);
-
-    Seed { bytes: result }
 }
 
 // ═══════════════════════════════════════════════════════════════════════

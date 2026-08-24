@@ -124,6 +124,31 @@ unsafe fn reg_write(addr: u32, val: u32) {
     core::ptr::write_volatile(addr as *mut u32, val);
 }
 
+// SINGLE-WRITER INVARIANT for the two helpers below.
+//
+// Both are read-modify-write with no critical section and no atomic. That is
+// sound only while nothing else writes these registers concurrently, and today
+// nothing does:
+//
+//   - `early_lockdown` runs at main.rs:387, before core 1 is started.
+//   - `post_boot_lockdown` runs at main.rs:942, after it, but core 1 runs only
+//     `hw::decode_core::core1_main`, which contains no register access at all:
+//     it spins on an atomic job state and decodes QR out of the heap.
+//   - The firmware registers no interrupt handlers, so there is no ISR or NMI
+//     that could land between the read and the write.
+//
+// Both were checked, not assumed. If a second writer ever appears, note that a
+// `critical_section` here would NOT be the fix: on a dual-core Xtensa it masks
+// interrupts on the calling core and locks among participants, so it does
+// nothing about a core-1 writer that does not also participate. The fix would
+// have to be agreement between the two writers, or moving the write to one
+// core.
+//
+// Related, and already handled the right way: `early_lockdown` zeroes the whole
+// of SYSTEM_WIFI_CLK_EN, which is shared with the WDEV RNG clock. Rather than
+// reasoning about it, the `rng-probe` feature measures entropy either side of
+// the call (M-13, see main.rs:372).
+
 #[inline(always)]
 unsafe fn reg_clear_bits(addr: u32, bits: u32) {
     let v = reg_read(addr);
