@@ -391,9 +391,11 @@ pub fn handle_tx_touch(
                                                     let _ = crate::app::signing::resolve_ms_cosigner_index(ad);
                                                     ad.ms_creating.build_script();
                                                     ad.ms_creating.active = true;
-                                                    if let Some(ms_slot) = ad.ms_store.find_free() {
-                                                        ad.ms_store.configs[ms_slot] = ad.ms_creating.clone();
-                                                    }
+                                                    // Always registered: `slot_for_next` evicts the oldest when both
+                                                    // slots are taken, rather than returning None and dropping the
+                                                    // config the user just finished building.
+                                                    let ms_slot = ad.ms_store.slot_for_next();
+                                                    ad.ms_store.configs[ms_slot] = ad.ms_creating.clone();
                                                     ad.app.state = crate::app::input::AppState::MultisigShowAddress;
                                                 } else {
                                                     ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: next };

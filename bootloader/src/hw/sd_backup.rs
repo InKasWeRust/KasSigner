@@ -427,11 +427,28 @@ fn serialize_indices(indices: &[u16; 24], word_count: u8, out: &mut [u8]) -> usi
 }
 
 /// Deserialize indices from bytes
-fn deserialize_indices(data: &[u8], word_count: u8, out: &mut [u16; 24]) {
+/// Returns false, leaving `out` zeroed, if any index is outside the BIP39
+/// wordlist.
+///
+/// The bytes reaching here have already passed AES-256-GCM authentication, so
+/// they came from something holding the passphrase-derived key, and every
+/// KasSigner writes indices below 2048. The check is for what happens if that
+/// ever stops being true: an out-of-range index reaches `WORDLIST[idx]` on the
+/// word-display path and again inside `seed_from_mnemonic_*`, and indexing a
+/// 2048-entry table past its end is a panic, not a wrong word.
+fn deserialize_indices(data: &[u8], word_count: u8, out: &mut [u16; 24]) -> bool {
     let wc = word_count as usize;
     for i in 0..wc {
-        out[i] = u16::from_le_bytes([data[i * 2], data[i * 2 + 1]]);
+        let idx = u16::from_le_bytes([data[i * 2], data[i * 2 + 1]]);
+        if idx >= 2048 {
+            for w in out.iter_mut() {
+                unsafe { core::ptr::write_volatile(w, 0); }
+            }
+            return false;
+        }
+        out[i] = idx;
     }
+    true
 }
 
 // ─── Export (encrypt seed → file bytes) ──────────────────────────────
@@ -490,7 +507,10 @@ pub fn decrypt_backup_versioned(
             return Err(BackupError::InvalidWordCount);
         }
         let word_count = (len / 2) as u8;
-        deserialize_indices(&plaintext[..len], word_count, out_indices);
+        if !deserialize_indices(&plaintext[..len], word_count, out_indices) {
+            zeroize_buf(&mut plaintext);
+            return Err(BackupError::InvalidWordCount);
+        }
         zeroize_buf(&mut plaintext);
         return Ok((word_count, false));
     }
@@ -563,7 +583,10 @@ fn decrypt_backup_legacy_v1(
 
     match result {
         Ok(()) => {
-            deserialize_indices(&plaintext[..plaintext_len], word_count, out_indices);
+            if !deserialize_indices(&plaintext[..plaintext_len], word_count, out_indices) {
+                zeroize_buf(&mut plaintext);
+                return Err(BackupError::InvalidWordCount);
+            }
             zeroize_buf(&mut plaintext);
             Ok(word_count)
         }
@@ -581,7 +604,10 @@ fn decrypt_backup_legacy_v1(
             match result2 {
                 Ok(()) => {
                     crate::log!("   SD backup: decrypted with legacy 10K iterations");
-                    deserialize_indices(&pt2[..plaintext_len], word_count, out_indices);
+                    if !deserialize_indices(&pt2[..plaintext_len], word_count, out_indices) {
+                        zeroize_buf(&mut pt2);
+                        return Err(BackupError::InvalidWordCount);
+                    }
                     zeroize_buf(&mut pt2);
                     Ok(word_count)
                 }

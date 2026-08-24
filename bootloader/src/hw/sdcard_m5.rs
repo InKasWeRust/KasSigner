@@ -87,7 +87,11 @@ const FSPICLK_OUT_SIGNAL: u32 = 63;
 const FSPID_OUT_SIGNAL: u32   = 64;
 
 /// Whether to use SPI2 hardware for block transfers (set after spi2_sd_init)
-static mut USE_HW_SPI2: bool = false;
+/// Atomic, not `static mut`: written twice at init and read on every block
+/// transfer. A `Relaxed` load is the same instruction as a plain read here,
+/// so the type costs nothing and stays correct if a second context appears.
+static USE_HW_SPI2: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
 
 // GPIO pin numbers
 const PIN_LCD_CS: u8  = 3;   // GPIO3  — LCD chip select
@@ -112,13 +116,14 @@ const ACMD41: u8 = 41;  // SD_SEND_OP_COND
 
 /// Whether to use fast (no-delay) bitbang for block I/O.
 /// Set to true inside with_sd_card after successful init.
-static mut USE_FAST_SPI: bool = false;
+static USE_FAST_SPI: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
 
 /// Internal dispatch: read block using SPI2 hardware, fast bitbang, or slow bitbang
 pub fn sd_read_block(card_type: SdCardType, block: u32, buf: &mut [u8; 512]) -> Result<(), &'static str> {
-    if unsafe { USE_HW_SPI2 } {
+    if USE_HW_SPI2.load(core::sync::atomic::Ordering::Relaxed) {
         spi2_read_block(card_type, block, buf)
-    } else if unsafe { USE_FAST_SPI } {
+    } else if USE_FAST_SPI.load(core::sync::atomic::Ordering::Relaxed) {
         fast_read_block(card_type, block, buf)
     } else {
         bb_read_block(card_type, block, buf)
@@ -127,9 +132,9 @@ pub fn sd_read_block(card_type: SdCardType, block: u32, buf: &mut [u8; 512]) -> 
 
 /// Internal dispatch: write block using SPI2 hardware, fast bitbang, or slow bitbang
 fn sd_write_block(card_type: SdCardType, block: u32, buf: &[u8; 512]) -> Result<(), &'static str> {
-    if unsafe { USE_HW_SPI2 } {
+    if USE_HW_SPI2.load(core::sync::atomic::Ordering::Relaxed) {
         spi2_write_block(card_type, block, buf)
-    } else if unsafe { USE_FAST_SPI } {
+    } else if USE_FAST_SPI.load(core::sync::atomic::Ordering::Relaxed) {
         fast_write_block(card_type, block, buf)
     } else {
         bb_write_block(card_type, block, buf)
@@ -753,6 +758,16 @@ pub fn fast_read_multi_block(
     count: u32,
 ) -> Result<(), &'static str> {
     if count == 0 { return Ok(()); }
+    // Bounds before any slicing. The per-sector `out[offset..offset + 512]`
+    // below panics on an undersized buffer, and a panic is the worst outcome
+    // available here: every caller already handles this `Result`, and the
+    // callers that exist DO size correctly (see `read_file` / `write_file`,
+    // which only take this path when the remaining buffer covers the whole
+    // cluster). This turns an unreachable panic into an error, at one
+    // comparison per call.
+    if out.len() < count as usize * 512 {
+        return Err("buffer too small");
+    }
     if count == 1 {
         let buf: &mut [u8; 512] = (&mut out[..512]).try_into().map_err(|_| "buf align")?;
         return fast_read_block(card_type, block, buf);
@@ -821,6 +836,16 @@ pub fn fast_write_multi_block(
     count: u32,
 ) -> Result<(), &'static str> {
     if count == 0 { return Ok(()); }
+    // Bounds before any slicing. The per-sector `out[offset..offset + 512]`
+    // below panics on an undersized buffer, and a panic is the worst outcome
+    // available here: every caller already handles this `Result`, and the
+    // callers that exist DO size correctly (see `read_file` / `write_file`,
+    // which only take this path when the remaining buffer covers the whole
+    // cluster). This turns an unreachable panic into an error, at one
+    // comparison per call.
+    if data.len() < count as usize * 512 {
+        return Err("buffer too small");
+    }
     if count == 1 {
         let buf: &[u8; 512] = (&data[..512]).try_into().map_err(|_| "buf align")?;
         return fast_write_block(card_type, block, buf);
@@ -892,16 +917,14 @@ pub fn fast_write_multi_block(
 /// Mark SPI2 hardware mode as available. Actual SPI2 register config
 /// happens in pins_to_spi2() right before each data burst.
 fn spi2_sd_init() -> bool {
-    unsafe {
-        USE_HW_SPI2 = true;
-    }
+    USE_HW_SPI2.store(true, core::sync::atomic::Ordering::Relaxed);
     log!("[SD] SPI2 hardware mode enabled (1MHz debug)");
     true
 }
 
 /// Disable SPI2 hardware mode (before restoring display)
 fn spi2_sd_deinit() {
-    unsafe { USE_HW_SPI2 = false; }
+    USE_HW_SPI2.store(false, core::sync::atomic::Ordering::Relaxed);
 }
 
 /// Transfer `len` bytes full-duplex via SPI2 hardware FIFO.
@@ -1205,9 +1228,9 @@ where
 
     // Step 4: Start tick sound, enable fast bitbang, run the closure
     crate::hw::sound::start_ticking();
-    unsafe { USE_FAST_SPI = true; }
+    USE_FAST_SPI.store(true, core::sync::atomic::Ordering::Relaxed);
     let result = f(card_type);
-    unsafe { USE_FAST_SPI = false; }
+    USE_FAST_SPI.store(false, core::sync::atomic::Ordering::Relaxed);
     crate::hw::sound::stop_ticking();
 
     // Step 5: Deselect card and restore SPI2 for display
@@ -1278,13 +1301,28 @@ impl Fat32Info {
 
     /// Convert cluster number to first sector number
     pub fn cluster_to_sector(&self, cluster: u32) -> u32 {
-        self.data_start_sector + (cluster - 2) * self.sectors_per_cluster as u32
+        // Same guard and saturating arithmetic as the Waveshare driver, which
+        // had both while this copy had neither. Clusters 0 and 1 are reserved
+        // and never name data; `cluster - 2` on either is a subtract overflow,
+        // which the release profile traps, so the failure was a panic rather
+        // than a bad sector number. Callers already gate on `2..0x0FFF_FFF8`,
+        // so this is the copy of an invariant, not a new one.
+        if cluster < 2 { return self.data_start_sector; } // guard: cluster 0,1 = invalid
+        self.data_start_sector.saturating_add(
+            (cluster - 2).saturating_mul(self.sectors_per_cluster as u32)
+        )
     }
 
     /// Get FAT sector and byte offset for a cluster entry
     pub fn fat_sector_for_cluster(&self, cluster: u32) -> (u32, usize) {
-        let fat_offset = cluster * 4;
-        let sector = self.fat_start_sector + fat_offset / 512;
+        // Saturating, as the Waveshare copy already was. `cluster * 4` traps
+        // above 2^30 on the release profile and the sector sum can trap too,
+        // so the failure mode was a panic rather than a wrong sector. Not
+        // reachable: FAT32 tops out near 2^28 clusters and callers gate on
+        // `2..0x0FFF_FFF8`. Copied so the two drivers stop diverging on the
+        // same function.
+        let fat_offset = cluster.saturating_mul(4);
+        let sector = self.fat_start_sector.saturating_add(fat_offset / 512);
         let offset = (fat_offset % 512) as usize;
         (sector, offset)
     }

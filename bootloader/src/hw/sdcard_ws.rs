@@ -202,9 +202,23 @@ pub enum SdCardType {
 }
 
 /// Card's RCA (Relative Card Address) assigned during init
-static mut CARD_RCA: u16 = 0;
+/// Atomic for the same reason as the SPI flags on M5: written at init, read
+/// on the command path, and free at `Relaxed`.
+static CARD_RCA: core::sync::atomic::AtomicU16 =
+    core::sync::atomic::AtomicU16::new(0);
 
 /// Card type detected at boot
+/// Stays `static mut`, unlike the primitives above.
+///
+/// `SdCardType` is a plain enum with no `repr`, so an atomic form means
+/// adding `repr(u8)`, a to-byte conversion and a fallible from-byte mapping:
+/// code added to remove an `unsafe`, not code that makes anything safer. A
+/// mutex is worse still, a critical section on the SD path for a value
+/// written twice at init.
+///
+/// Sound for the same checked reasons as the rest of this driver: no
+/// interrupt handlers exist anywhere in the firmware, and core 1 runs only
+/// the rqrr decoder, which never touches SD.
 pub static mut BOOT_CARD_TYPE: SdCardType = SdCardType::None;
 
 /// Sector count read from the CSD during init.
@@ -213,7 +227,8 @@ pub static mut BOOT_CARD_TYPE: SdCardType = SdCardType::None;
 /// means after CMD3 assigns the RCA and before CMD7 selects the card. Asking
 /// later returns RTO, so the value is taken at the one point it is available
 /// and kept for the formatter. Zero means the read did not succeed.
-static mut CARD_SECTORS: u32 = 0;
+static CARD_SECTORS: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
 
 // ═══════════════════════════════════════════════════════════════
 // Low-level register helpers
@@ -644,12 +659,12 @@ fn sdhost_init_card(delay: &mut Delay) -> Result<SdCardType, &'static str> {
     // CMD3: SEND_RELATIVE_ADDR
     let resp3 = sdhost_send_cmd(3, 0, CMD_RESP_EXPECT | CMD_CHECK_RESP_CRC)?;
     let rca = (resp3 >> 16) as u16;
-    unsafe { CARD_RCA = rca; }
+    CARD_RCA.store(rca, core::sync::atomic::Ordering::Relaxed);
 
     // CMD9: SEND_CSD, while the card is still in stand-by. After CMD7 below
     // it is in transfer state and CMD9 is refused, which is where the
     // formatter used to ask and get RTO.
-    unsafe { CARD_SECTORS = 0; }
+    CARD_SECTORS.store(0, core::sync::atomic::Ordering::Relaxed);
     if sdhost_send_cmd(9, (rca as u32) << 16,
         CMD_RESP_EXPECT | CMD_RESP_LONG | CMD_CHECK_RESP_CRC).is_ok()
     {
@@ -681,7 +696,7 @@ fn sdhost_init_card(delay: &mut Delay) -> Result<SdCardType, &'static str> {
         } else {
             log!("[SDHOST] CSD not understood");
         }
-        unsafe { CARD_SECTORS = found; }
+        CARD_SECTORS.store(found, core::sync::atomic::Ordering::Relaxed);
     } else {
         log!("[SDHOST] CMD9 failed");
     }
@@ -856,6 +871,16 @@ pub fn fast_read_multi_block(
     count: u32,
 ) -> Result<(), &'static str> {
     if count == 0 { return Ok(()); }
+    // Bounds before any slicing. The per-sector `out[offset..offset + 512]`
+    // below panics on an undersized buffer, and a panic is the worst outcome
+    // available here: every caller already handles this `Result`, and the
+    // callers that exist DO size correctly (see `read_file` / `write_file`,
+    // which only take this path when the remaining buffer covers the whole
+    // cluster). This turns an unreachable panic into an error, at one
+    // comparison per call.
+    if out.len() < count as usize * 512 {
+        return Err("buffer too small");
+    }
     if count == 1 {
         let buf: &mut [u8; 512] = (&mut out[..512]).try_into().map_err(|_| "buf align")?;
         return sd_read_block(card_type, block, buf);
@@ -945,6 +970,16 @@ pub fn fast_write_multi_block(
     count: u32,
 ) -> Result<(), &'static str> {
     if count == 0 { return Ok(()); }
+    // Bounds before any slicing. The per-sector `out[offset..offset + 512]`
+    // below panics on an undersized buffer, and a panic is the worst outcome
+    // available here: every caller already handles this `Result`, and the
+    // callers that exist DO size correctly (see `read_file` / `write_file`,
+    // which only take this path when the remaining buffer covers the whole
+    // cluster). This turns an unreachable panic into an error, at one
+    // comparison per call.
+    if data.len() < count as usize * 512 {
+        return Err("buffer too small");
+    }
     if count == 1 {
         let buf: &[u8; 512] = (&data[..512]).try_into().map_err(|_| "buf align")?;
         return sd_write_block(card_type, block, buf);
@@ -1053,7 +1088,7 @@ pub fn init_sdhost(delay: &mut Delay) -> Result<SdCardType, &'static str> {
     // Fix: deselect card so it releases D0, disconnect SDHOST D0 input signal.
     if result.is_ok() {
         let _ = sdhost_send_cmd(7, 0, CMD_RESP_EXPECT); // deselect
-        unsafe { CARD_RCA = 0; }
+        CARD_RCA.store(0, core::sync::atomic::Ordering::Relaxed);
         // Disconnect SDHOST data input from GPIO40 so card can't drive it
         unsafe {
             reg_write(func_in_sel_addr(SDHOST_CDATA_IN_10), 0xBC); // constant LOW
@@ -1115,7 +1150,7 @@ where
     delay.delay_millis(5);
 
     // Try fast re-select via CMD13 + CMD7
-    let rca = unsafe { CARD_RCA };
+    let rca = CARD_RCA.load(core::sync::atomic::Ordering::Relaxed);
     let mut reselect_ok = false;
     if rca != 0 && clk_ok.is_ok() {
         // CMD13: SEND_STATUS — check if card is alive
@@ -1155,7 +1190,7 @@ where
 
     // After any SD operation, deselect card and force full re-init next time.
     let _ = sdhost_send_cmd(7, 0, CMD_RESP_EXPECT); // CMD7 with RCA=0 → deselect
-    unsafe { CARD_RCA = 0; }
+    CARD_RCA.store(0, core::sync::atomic::Ordering::Relaxed);
 
     // Disconnect SDHOST D0 input before restoring display
     unsafe {
@@ -2113,7 +2148,7 @@ fn csd_plausible(sectors: u32) -> bool {
 /// card in an error state where writes are acknowledged and discarded.
 fn read_card_sectors(card_type: SdCardType) -> Result<u32, &'static str> {
     let _ = card_type;
-    let sectors = unsafe { CARD_SECTORS };
+    let sectors = CARD_SECTORS.load(core::sync::atomic::Ordering::Relaxed);
     if !csd_plausible(sectors) {
         return Err("Card capacity unknown");
     }

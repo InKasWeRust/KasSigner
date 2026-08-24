@@ -1070,9 +1070,11 @@ fn process_confirmed_qr(
                         let _ = crate::app::signing::resolve_ms_cosigner_index(ad);
                         ad.ms_creating.build_script();
                         ad.ms_creating.active = true;
-                        if let Some(ms_slot) = ad.ms_store.find_free() {
-                            ad.ms_store.configs[ms_slot] = ad.ms_creating.clone();
-                        }
+                        // Always registered: `slot_for_next` evicts the oldest when both
+                        // slots are taken, rather than returning None and dropping the
+                        // config the user just finished building.
+                        let ms_slot = ad.ms_store.slot_for_next();
+                        ad.ms_store.configs[ms_slot] = ad.ms_creating.clone();
                         ad.app.state = crate::app::input::AppState::MultisigShowAddress;
                     } else {
                         ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: next };
@@ -1119,13 +1121,36 @@ fn process_confirmed_qr(
         && (data[7] == b'2' || data[7] == b'9')
     {
         // Hex-encoded COVB/COVI (from single-frame KasSee export QR). Hex-decode.
+        //
+        // `hex_nibble`, like the kpub and sign-msg paths above, rather than the
+        // open-coded `if h >= b'a'` this used to do. Only the first eight
+        // characters are validated by the format sniff; everything after them
+        // went in unchecked, and the arithmetic failed three different ways:
+        // 'A'..'F' and anything above 'f' decoded to garbage silently, and a
+        // character below '0' underflowed `h - b'0'`, which is a panic on the
+        // release profile rather than corruption.
+        //
+        // Garbage mattered here more than elsewhere because of where it ends
+        // up: the bytes are stored, the user is taken to the naming screen,
+        // and a worthless covenant backup is written to SD looking valid. It
+        // would have been discovered at restore, which is the one moment it
+        // must not be.
         let n = len / 2;
-        for i in 0..n {
-            let h = data[i * 2];
-            let l = data[i * 2 + 1];
-            let hi = if h >= b'a' { h - b'a' + 10 } else { h - b'0' };
-            let lo = if l >= b'a' { l - b'a' + 10 } else { l - b'0' };
-            ad.signed_qr_buf[i] = (hi << 4) | lo;
+        let mut hex_ok = len % 2 == 0;
+        if hex_ok {
+            for i in 0..n {
+                let hi = hex_nibble(data[i * 2]);
+                let lo = hex_nibble(data[i * 2 + 1]);
+                if hi == 0xFF || lo == 0xFF { hex_ok = false; break; }
+                ad.signed_qr_buf[i] = (hi << 4) | lo;
+            }
+        }
+        if !hex_ok {
+            boot_display.draw_rejected_screen("Bad hex data");
+            sound::beep_error(delay);
+            delay.delay_millis(1500);
+            ad.needs_redraw = true;
+            return;
         }
         ad.covb_len = n;
         ad.pp_input.reset();
@@ -1568,7 +1593,7 @@ pub fn run_camera_cycle(
                             camera::configure_cam_vsync_eof();
                         }
                         // Only force cam_tune on OV5640 — OV2640 auto exposure works better untouched
-                        if !unsafe { crate::SENSOR_OV2640 } {
+                        if !crate::SENSOR_OV2640.load(core::sync::atomic::Ordering::Relaxed) {
                             ad.cam_tune_dirty = true;
                         }
                     }

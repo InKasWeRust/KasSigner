@@ -55,10 +55,10 @@ pub fn derive_all_pubkeys(
     // panics (observed: index 44263). Callers should use
     // `fill_display_caches`, which dispatches on word_count; this guard
     // is here so that forgetting to is harmless rather than fatal.
-    let seed = match derive_seed(mnemonic_indices, wc, passphrase) {
-        Some(s) => s,
-        None => return, // not a mnemonic slot: caches stay as they were
-    };
+    let mut seed = wallet::bip39::Seed { bytes: [0u8; 64] };
+    if !derive_seed_into(mnemonic_indices, wc, passphrase, &mut seed) {
+        return; // not a mnemonic slot: caches stay as they were
+    }
     if let Ok(acct) = wallet::bip32::derive_account_key(&seed.bytes) {
         *acct_raw = acct.to_raw();
         // Receive addresses: m/44'/111111'/0'/0/{0..19}
@@ -109,10 +109,10 @@ pub fn derive_privkey(
 ) {
     // No mnemonic means no BIP39 seed; leave `privkey` untouched, which
     // is what this function already did when derivation failed.
-    let seed = match derive_seed(mnemonic_indices, wc, passphrase) {
-        Some(s) => s,
-        None => return,
-    };
+    let mut seed = wallet::bip39::Seed { bytes: [0u8; 64] };
+    if !derive_seed_into(mnemonic_indices, wc, passphrase, &mut seed) {
+        return;
+    }
     if let Ok(kaspa_key) = wallet::bip32::derive_path_for_index(&seed.bytes, addr_index) {
         privkey.copy_from_slice(kaspa_key.private_key_bytes());
     }
@@ -139,6 +139,43 @@ pub fn derive_privkey(
 /// guard that returned a zeroed seed would turn a crash into silently
 /// signing with the wrong key, which is far worse. `None` forces every
 /// caller to say what it does for a slot that has no mnemonic.
+/// As `derive_seed`, writing into a caller-owned `Seed`.
+///
+/// Returns false when `wc` is neither 12 nor 24, leaving `out` untouched.
+///
+/// Preferred wherever the call sits in statement position. Returning a `Seed`
+/// by value leaves a second copy in the caller's frame when the value is moved
+/// out, which `Seed`'s `Drop` never sees because `Drop` runs on the owner's
+/// copy only. That copy was measured on hardware at 0x3FCD627C, 64 bytes below
+/// the owner's, surviving an explicit zeroize of `seed.bytes`.
+pub fn derive_seed_into(
+    mnemonic_indices: &[u16; 24],
+    wc: u8,
+    passphrase: &str,
+    out: &mut wallet::bip39::Seed,
+) -> bool {
+    match wc {
+        12 => {
+            let m12 = wallet::bip39::Mnemonic12 {
+                indices: {
+                    let mut arr = [0u16; 12];
+                    arr.copy_from_slice(&mnemonic_indices[..12]);
+                    arr
+                }
+            };
+            wallet::bip39::seed_from_mnemonic_12_into(&m12, passphrase, out);
+        }
+        24 => {
+            let m24 = wallet::bip39::Mnemonic24 { indices: *mnemonic_indices };
+            wallet::bip39::seed_from_mnemonic_24_into(&m24, passphrase, out);
+        }
+        _ => return false,
+    }
+    #[cfg(feature = "sentinel-scan")]
+    crate::app::stack_probe::capture_seed_needle(&out.bytes);
+    true
+}
+
 pub fn derive_seed(
     mnemonic_indices: &[u16; 24],
     wc: u8,
@@ -155,7 +192,10 @@ pub fn derive_seed(
                 arr
             }
         };
-        Some(wallet::bip39::seed_from_mnemonic_12(&m12, passphrase))
+        let s = wallet::bip39::seed_from_mnemonic_12(&m12, passphrase);
+        #[cfg(feature = "sentinel-scan")]
+        crate::app::stack_probe::capture_seed_needle(&s.bytes);
+        Some(s)
     } else {
         let m24 = wallet::bip39::Mnemonic24 {
             indices: {
@@ -164,7 +204,10 @@ pub fn derive_seed(
                 arr
             }
         };
-        Some(wallet::bip39::seed_from_mnemonic_24(&m24, passphrase))
+        let s = wallet::bip39::seed_from_mnemonic_24(&m24, passphrase);
+        #[cfg(feature = "sentinel-scan")]
+        crate::app::stack_probe::capture_seed_needle(&s.bytes);
+        Some(s)
     }
 }
 
@@ -598,6 +641,8 @@ pub fn fill_display_caches(ad: &mut crate::app::data::AppData) -> bool {
                 pp_buf[..pp_len].copy_from_slice(&pp.as_bytes()[..pp_len]);
             }
             let pp = core::str::from_utf8(&pp_buf[..pp_len]).unwrap_or("");
+            #[cfg(feature = "sentinel-scan")]
+            crate::app::stack_probe::capture_pp_needle(&pp_buf[..pp_len]);
             derive_all_pubkeys(
                 &ad.mnemonic_indices,
                 ad.word_count,
@@ -606,6 +651,26 @@ pub fn fill_display_caches(ad: &mut crate::app::data::AppData) -> bool {
                 &mut ad.acct_key_raw,
             );
             derive_change_pubkeys(&ad.acct_key_raw, &mut ad.change_pubkey_cache);
+
+            // Control: `pp_buf` is still live here, so this must hit.
+            #[cfg(feature = "sentinel-scan")]
+            crate::app::stack_probe::scan_pp_needle("caches, pp live");
+
+            // The passphrase is the 25th word: as sensitive as the mnemonic it
+            // extends. `ensure_session_account_key` wipes its own copy on both
+            // the success and failure paths; this arm held one for the whole
+            // of two derive calls and let it go out of scope untouched.
+            //
+            // The whole buffer, not `..pp_len`: nothing is gained by reasoning
+            // about which tail bytes are already zero.
+            for b in pp_buf.iter_mut() {
+                unsafe { core::ptr::write_volatile(b, 0); }
+            }
+            core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+
+            // The measurement.
+            #[cfg(feature = "sentinel-scan")]
+            crate::app::stack_probe::scan_pp_needle("caches, after pp wipe");
             true
         }
         2 => fill_caches_from_acct(
@@ -663,18 +728,64 @@ pub fn ensure_session_account_key(
         None => ([0u8; 64], 0),
     };
     let pp = core::str::from_utf8(&pp_bytes[..pp_len]).unwrap_or("");
-    // Bound to a local first so the match scrutinee holds no borrow of
-    // `pp_bytes`, which the None arm zeroizes before returning.
-    let seed_opt = derive_seed(&ad.mnemonic_indices, ad.word_count, pp);
-    let mut seed = match seed_opt {
-        Some(s) => s,
-        None => {
-            for b in pp_bytes.iter_mut() {
-                unsafe { core::ptr::write_volatile(b, 0); }
-            }
-            return false;
+
+    // Derived straight into a buffer this frame owns, rather than through
+    // `derive_seed`'s return value.
+    //
+    // Measured, not assumed: with `derive_seed` here, a scan taken while the
+    // seed was live found THREE copies, and one at 0x3FCD627C, 64 bytes below
+    // the owner's, survived the zeroize loop below. That is the copy the move
+    // out of `derive_seed` leaves in the caller's frame, which `Seed`'s `Drop`
+    // and the loop below both miss, because both only know about `seed.bytes`.
+    // Writing into `seed` directly means there is no return value to move and
+    // no second copy to leave behind.
+    //
+    // This is the hot path: a stateless device re-derives on every cache miss,
+    // so this one call site accounts for most derivations the device performs.
+    // The other `derive_seed` callers are unchanged until measured.
+    let mut seed = wallet::bip39::Seed { bytes: [0u8; 64] };
+    let derived = match ad.word_count {
+        12 => {
+            let m12 = wallet::bip39::Mnemonic12 {
+                indices: {
+                    let mut arr = [0u16; 12];
+                    arr.copy_from_slice(&ad.mnemonic_indices[..12]);
+                    arr
+                }
+            };
+            wallet::bip39::seed_from_mnemonic_12_into(&m12, pp, &mut seed);
+            true
         }
+        24 => {
+            let m24 = wallet::bip39::Mnemonic24 {
+                indices: ad.mnemonic_indices,
+            };
+            wallet::bip39::seed_from_mnemonic_24_into(&m24, pp, &mut seed);
+            true
+        }
+        _ => false,
     };
+    if !derived {
+        for b in pp_bytes.iter_mut() {
+            unsafe { core::ptr::write_volatile(b, 0); }
+        }
+        return false;
+    }
+    // Re-point the needle at the seed just derived. `derive_seed` captures it
+    // for the paths that still go through it; this path no longer does, and
+    // without this the scan below hunts whatever seed was derived last,
+    // reports zero, and the zero means nothing.
+    #[cfg(feature = "sentinel-scan")]
+    crate::app::stack_probe::capture_seed_needle(&seed.bytes);
+
+    // Positive control, taken while `seed` is still live on this frame: this
+    // MUST hit, and it is the only proof the scan works at this depth. The
+    // `after signing` scan cannot serve as one, because the QR decoder reaches
+    // 0x3FCD2760 while derivation bottoms out at 0x3FCD2970, so by then the
+    // camera path has already overwritten every frame PBKDF2 used.
+    #[cfg(feature = "sentinel-scan")]
+    crate::app::stack_probe::scan_seed_needle("stretch, seed live");
+
     if let Ok(acct) = wallet::bip32::derive_account_key(&seed.bytes) {
         ad.acct_key_raw.copy_from_slice(&acct.to_raw());
     }
@@ -684,6 +795,12 @@ pub fn ensure_session_account_key(
     for b in pp_bytes.iter_mut() {
         unsafe { core::ptr::write_volatile(b, 0); }
     }
+
+    // The measurement. The owner's copy is wiped by the loop above, so a hit
+    // here is a copy left in a deeper frame by PBKDF2 or by the derivation
+    // that follows it, in a frame no `Drop` and no owner-side wipe reaches.
+    #[cfg(feature = "sentinel-scan")]
+    crate::app::stack_probe::scan_seed_needle("after stretch wipe");
     // The fingerprint refresh deliberately does NOT happen here. This is the
     // deepest frame in the firmware: touch handler, load_active_mnemonic,
     // prime_after_seed_load, here, derive_seed, PBKDF2. Adding a SHA-256 at
@@ -1075,13 +1192,19 @@ pub fn sign_and_serialize_multisig(
         // derivation below. Falling through to another slot would sign with a
         // key the user did not select, so this refuses instead.
         if slot.is_empty() || slot.is_raw_key() || slot.word_count == 2 { continue; }
-        active_seed_idx = Some(seed_idx);
         // `as_mnemonic` rather than `slot.indices`: on a raw-key or xprv slot
         // that array holds a packed private key, and feeding it to
         // `seed_from_mnemonic_*` reads key bytes as BIP39 word indices. The
         // guard above already skips those kinds; this makes the guard and the
         // read one operation so a future edit cannot separate them (H-08).
         let Some((indices, wc)) = slot.as_mnemonic() else { continue };
+        // Claimed only once a mnemonic is proven present. Set before the
+        // `else { continue }` above, a slot that passed the kind guard but
+        // failed `as_mnemonic` left the index claimed with no seed stored:
+        // `sign_transaction_multisig` skips it on the `.1` flag, so the
+        // outcome was an unsigned result rather than the explicit refusal
+        // below. Same fused-guard reasoning as the comment above.
+        active_seed_idx = Some(seed_idx);
         let pp = slot.as_passphrase()
             .and_then(|b| core::str::from_utf8(b).ok())
             .unwrap_or("");
@@ -1385,13 +1508,19 @@ pub fn sign_and_serialize_pskt_multisig(
     for s in active_mgr_slot..=active_mgr_slot {
         let slot = &seed_mgr.slots[s];
         if slot.is_empty() || slot.is_raw_key() || slot.word_count == 2 { continue; }
-        active_seed_idx = Some(seed_idx);
         // `as_mnemonic` rather than `slot.indices`: on a raw-key or xprv slot
         // that array holds a packed private key, and feeding it to
         // `seed_from_mnemonic_*` reads key bytes as BIP39 word indices. The
         // guard above already skips those kinds; this makes the guard and the
         // read one operation so a future edit cannot separate them (H-08).
         let Some((indices, wc)) = slot.as_mnemonic() else { continue };
+        // Claimed only once a mnemonic is proven present. Set before the
+        // `else { continue }` above, a slot that passed the kind guard but
+        // failed `as_mnemonic` left the index claimed with no seed stored:
+        // `sign_transaction_multisig` skips it on the `.1` flag, so the
+        // outcome was an unsigned result rather than the explicit refusal
+        // below. Same fused-guard reasoning as the comment above.
+        active_seed_idx = Some(seed_idx);
         let pp = slot.as_passphrase()
             .and_then(|b| core::str::from_utf8(b).ok())
             .unwrap_or("");
@@ -1881,6 +2010,12 @@ pub fn handle_signing_step(
                                 let t2 = esp_hal::xtensa_lx::timer::get_cycle_count();
                                 crate::log!("   [t] acct={}ms sign+ser={}ms",
                                     t1.wrapping_sub(t0) / 240_000, t2.wrapping_sub(t1) / 240_000);
+                                // Residue measurement. `Seed` zeroizes on drop,
+                                // so any hit here is a copy left behind by the
+                                // move out of `derive_seed` or by derivation
+                                // internals, in a frame no `Drop` reaches.
+                                #[cfg(feature = "sentinel-scan")]
+                                crate::app::stack_probe::scan_seed_needle("after signing");
                             }
                         }
                     }

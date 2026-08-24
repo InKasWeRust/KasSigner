@@ -301,7 +301,15 @@ pub static QR_RESET_FLAG: core::sync::atomic::AtomicBool =
 /// Active sensor type on Waveshare (runtime auto-detect).
 /// false = OV5640 (default), true = OV2640.
 #[cfg(feature = "waveshare")]
-pub static mut SENSOR_OV2640: bool = false;
+///
+/// Atomic rather than `static mut`, matching `CORE1_OK` above: written once
+/// during camera init and read from five places, so the atomic keeps that
+/// sound by construction instead of by an invariant a future edit could
+/// break. Free here, a `Relaxed` load is the same instruction as a plain
+/// read on Xtensa and no reader is on a hot path, and it removes five
+/// `unsafe` blocks.
+pub static SENSOR_OV2640: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
 
 // ═══════════════════════════════════════════════════════════════════════
 //  ENTRY POINT
@@ -644,7 +652,7 @@ fn main() -> ! {
                     #[cfg(feature = "cam640")]
                     log!("   WARNING: cam640 build expects 640x640 frames — OV2640 outputs 480x480, scanning will NOT work. Rebuild without cam640 for OV2640 modules.");
                     cam_status = hw::camera::CameraStatus::SensorReady;
-                    unsafe { SENSOR_OV2640 = true; }
+                    SENSOR_OV2640.store(true, core::sync::atomic::Ordering::Relaxed);
                 }
                 Err(e) => log!("   OV2640 init FAILED: {}", e),
             }
@@ -658,7 +666,7 @@ fn main() -> ! {
             unsafe { core::ptr::write_volatile(0x6000_400Cu32 as *mut u32, 1u32 << 17); }
             delay.delay_millis(30);
 
-            let is_ov2640 = unsafe { SENSOR_OV2640 };
+            let is_ov2640 = SENSOR_OV2640.load(core::sync::atomic::Ordering::Relaxed);
             if is_ov2640 {
                 match hw::camera_ov2640::init_480(&mut cam_i2c, &mut delay) {
                     Ok(()) => log!("   OV2640 re-init with XCLK (480x480): OK"),
@@ -981,7 +989,7 @@ fn main() -> ! {
 
     // Override cam_tune defaults for OV2640 — proven QR decode settings
     #[cfg(feature = "waveshare")]
-    if unsafe { SENSOR_OV2640 } {
+    if SENSOR_OV2640.load(core::sync::atomic::Ordering::Relaxed) {
         ad.cam_tune_vals = [0x20, 0x0C, 0x8B, 0x08, 0x70, 0x50];
     }
 
@@ -1733,7 +1741,7 @@ fn main() -> ! {
                 unsafe { core::ptr::write_volatile(0x6000_400Cu32 as *mut u32, 1u32 << 17); }
                 if ad.cam_tune_dirty {
                     ad.cam_tune_dirty = false;
-                    if unsafe { SENSOR_OV2640 } {
+                    if SENSOR_OV2640.load(core::sync::atomic::Ordering::Relaxed) {
                         cam_tune_apply_ov2640(&mut cam_i2c, &ad.cam_tune_vals);
                     } else {
                         cam_tune_apply_all(&mut cam_i2c, &ad.cam_tune_vals);
@@ -2006,6 +2014,12 @@ fn run_signing_pipeline_test(ad: &mut AppData) {
     // Expect hits here: without them the post-wipe scan proves nothing.
     #[cfg(feature = "sentinel-scan")]
     app::stack_probe::scan_sentinel("after signing test");
+    // Same point, needle = the BIP39 seed rather than the account key derived
+    // from it. Hits here are the control: without them the later scans prove
+    // nothing, because a scan that finds nothing everywhere is indistinguishable
+    // from a scanner that cannot find anything at all.
+    #[cfg(feature = "sentinel-scan")]
+    app::stack_probe::scan_seed_needle("after signing test");
 
     ad.seed_mgr.delete(0);
     ad.seed_loaded = false;
@@ -2018,6 +2032,8 @@ fn run_signing_pipeline_test(ad: &mut AppData) {
     // erase.
     #[cfg(feature = "sentinel-scan")]
     app::stack_probe::scan_sentinel("after slot delete");
+    #[cfg(feature = "sentinel-scan")]
+    app::stack_probe::scan_seed_needle("after slot delete");
 }
 
 /// Handle wake-from-sleep on touch. Returns true if main loop should `continue`.

@@ -64,6 +64,31 @@ const BOUNCE_SIZE: usize = 4032;
 struct Desc { dw0: u32, buf_addr: u32, next: u32 }
 
 // ═══ BSS statics (SRAM) ═══
+//
+// SINGLE-CONTEXT INVARIANT, and why there are no atomics here.
+//
+// Every static below is touched only from core 0's main loop, through
+// `poll_done` and the init path. Two things make that so, and both were
+// checked rather than assumed:
+//
+//   - This channel's interrupts are DISABLED. `GDMA_IN_INT_ENA` is written
+//     exactly once, with 0 (see `stop`). `poll_done` reads GDMA_IN_INT_RAW
+//     and clears bits via GDMA_IN_INT_CLR: polling, not a handler. The
+//     firmware registers no interrupt handlers at all, anywhere.
+//   - Core 1 runs only `hw::decode_core::core1_main`, which never calls into
+//     this module.
+//
+// There IS real concurrency here, but not between two software contexts: the
+// GDMA engine writes BOUNCE_A / BOUNCE_B while software reads them. Rust-side
+// atomics would do nothing about that, because the other writer is silicon
+// and does not participate in any lock. What arbitrates it is the descriptor
+// OWNER bit, `(DESCS[idx].dw0 >> 31) & 1`, which `poll_done` checks before
+// touching a buffer and sets back when handing it to the engine. That bit is
+// the synchronisation primitive on this path; treat it as such.
+//
+// If a second software context is ever added, converting these to atomics is
+// not sufficient on its own: the descriptor handover would need re-examining
+// as a whole, and a critical section would still not cover the engine.
 static mut BOUNCE_A: [u8; BOUNCE_SIZE] = [0u8; BOUNCE_SIZE];
 static mut BOUNCE_B: [u8; BOUNCE_SIZE] = [0u8; BOUNCE_SIZE];
 static mut DESCS: [Desc; 2] = [Desc { dw0: 0, buf_addr: 0, next: 0 }; 2];
