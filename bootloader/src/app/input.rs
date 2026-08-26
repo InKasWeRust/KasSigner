@@ -932,6 +932,34 @@ pub enum HandlerGroup {
 }
 
 impl AppState {
+    /// The camera family: every state in which the camera pipeline runs and
+    /// `run_camera_cycle` owns the loop iteration.
+    ///
+    /// ONE definition. Until 1.0.7 this set was spelled out by hand in a
+    /// dozen `matches!` lists across main.rs and camera_loop.rs and they did
+    /// not all agree; the Waveshare scan-exit freeze (STATE.md, 2026-08-24)
+    /// was an exit path that one of those lists did not cover. `CameraSettings`
+    /// is the one genuine board difference: it runs the camera as a live
+    /// preview behind the cam-tune overlay and exists only on Waveshare.
+    pub fn is_camera(self) -> bool {
+        #[cfg(feature = "waveshare")]
+        if self == AppState::CameraSettings {
+            return true;
+        }
+        self.is_scan_camera()
+    }
+
+    /// The scan screens only: the subset of `is_camera` where the screen is
+    /// a viewfinder and the back button is the only live control. Taps
+    /// elsewhere are ignored and silent. `CameraSettings` is deliberately
+    /// NOT here: its taps are sliders and buttons and they click.
+    pub fn is_scan_camera(self) -> bool {
+        matches!(
+            self,
+            AppState::ScanQR | AppState::SignMsgScanQr | AppState::DecryptSecretScan
+        )
+    }
+
     /// Maximum characters the shared keyboard accepts on this screen.
     ///
     /// One place, next to the state definitions, because PassphraseInput is

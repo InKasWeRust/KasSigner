@@ -436,7 +436,7 @@ pub const FIRMWARE_SIGNATURE: [u8; 64] = [
 ];
 
 /// Whether this build was signed with a developer key
-pub const FIRMWARE_SIGNED: bool = true;
+pub const FIRMWARE_SIGNED: bool = {signed};
 
 /// Exact code segment size (from ESP-IDF binary header)
 pub const FIRMWARE_SIZE: usize = {seg_size};

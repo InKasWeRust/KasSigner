@@ -99,6 +99,7 @@ WORKDIR /build/KasSigner
 #  Copy only code folders (no docs, no gh-pages assets)
 # ════════════════════════════════════════════════════
 COPY bootloader/ bootloader/
+COPY core/ core/
 COPY kassee/ kassee/
 COPY rqrr_nostd/ rqrr_nostd/
 COPY tools/ tools/

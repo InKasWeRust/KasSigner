@@ -110,6 +110,17 @@ else
 fi
 echo ""
 
+# Full cargo output goes here. It used to be piped through
+# `grep -E "Compiling|Finished|error"`, which kept the console readable and
+# threw away every warning: deprecations, unused `unsafe`, future-compat
+# notices. On a project where clippy is the gate, the build path should not be
+# the one place warnings go to die. `tee -a` keeps the console showing
+# everything and leaves a file to grep afterwards.
+BUILD_LOG="${BUILD_LOG:-/tmp/kassigner_build.log}"
+: > "$BUILD_LOG"
+echo "  Build log: $BUILD_LOG"
+echo ""
+
 # ── Step 1: First compilation ───────────────────────────────
 echo "[1] Compiling bootloader (first pass)..."
 cd bootloader
@@ -121,7 +132,7 @@ cd bootloader
 # A build script that claims success on a failed compile is worse than one that
 # never runs. Observed 2026-08-02 on `production`, which does not compile.
 set +e
-cargo build --release "${CARGO_ARGS[@]}" 2>&1 | grep -E "Compiling|Finished|error"
+cargo build --release "${CARGO_ARGS[@]}" 2>&1 | tee -a "$BUILD_LOG"
 build_rc=${PIPESTATUS[0]}
 set -e
 if [ "$build_rc" -ne 0 ]; then
@@ -156,7 +167,20 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     else
         HASH_OUTPUT=$(cargo run --manifest-path tools/Cargo.toml --bin gen-hash -- "$BIN" 2>&1)
     fi
-    CURRENT_HASH=$(echo "$HASH_OUTPUT" | grep "SHA256:" | awk '{print $2}')
+    # Read the hash from the file gen-hash generates, not from its console
+    # output. Parsing stdout means a second line containing "SHA256:" (an
+    # error message, a future log line, a dependency's output) silently yields
+    # the wrong hash and the loop converges on it. The generated constant is
+    # the same thing the firmware compiles in, so reading it cannot disagree
+    # with what ships. Same extraction the Dockerfile convergence loop uses.
+    CURRENT_HASH=$(grep FIRMWARE_HASH_HEX bootloader/src/firmware_hash.rs \
+        | sed 's/.*= "//; s/".*//')
+    if [ -z "$CURRENT_HASH" ]; then
+        echo ""
+        echo "  BUILD FAILED: could not read FIRMWARE_HASH_HEX from"
+        echo "  bootloader/src/firmware_hash.rs after running gen-hash."
+        exit 1
+    fi
     SEG_SIZE=$(echo "$HASH_OUTPUT" | grep "Segment size:" | awk '{print $3}')
     SIGNED=$(echo "$HASH_OUTPUT" | grep "Status:" | head -1)
 
@@ -179,7 +203,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     echo "   Recompiling with embedded hash..."
     cd bootloader
     set +e
-    cargo build --release "${CARGO_ARGS[@]}" 2>&1 | grep -E "Compiling|Finished|error"
+    cargo build --release "${CARGO_ARGS[@]}" 2>&1 | tee -a "$BUILD_LOG"
     build_rc=${PIPESTATUS[0]}
     set -e
     if [ "$build_rc" -ne 0 ]; then

@@ -201,7 +201,7 @@ pub async fn create_covenant_timelocked_savings_claim(
             "bip32Derivations": [],
             "proprietaries": [],
             "finalScriptSig": null,
-            "minTime": 0
+            "minTime": tx_locktime
         }));
     }
 
@@ -215,7 +215,7 @@ pub async fn create_covenant_timelocked_savings_claim(
     let pskt = serde_json::json!({
         "global": {
             "txVersion": 0,
-            "fallbackLockTime": tx_locktime,
+            "fallbackLockTime": null,  // lock time travels in minTime (per input) since 1.0.7; see pskt.rs read side
             "covenantBranch": "savings",
             "inputsModifiableFlag": false,
             "outputsModifiableFlag": false,
@@ -310,7 +310,7 @@ pub fn create_covenant_timelocked_savings_claim_selected(
             "bip32Derivations": [],
             "proprietaries": [],
             "finalScriptSig": null,
-            "minTime": 0
+            "minTime": tx_locktime
         }));
     }
 
@@ -330,7 +330,7 @@ pub fn create_covenant_timelocked_savings_claim_selected(
     let pskt = serde_json::json!({
         "global": {
             "txVersion": 0,
-            "fallbackLockTime": tx_locktime,
+            "fallbackLockTime": null,  // lock time travels in minTime (per input) since 1.0.7; see pskt.rs read side
             "covenantBranch": "savings",
             "inputsModifiableFlag": false,
             "outputsModifiableFlag": false,
@@ -537,7 +537,7 @@ pub async fn create_covenant_timeout_refund(
             "bip32Derivations": [],
             "proprietaries": [],
             "finalScriptSig": null,
-            "minTime": 0
+            "minTime": locktime_daa
         });
         inputs.push(input);
     }
@@ -552,7 +552,7 @@ pub async fn create_covenant_timeout_refund(
     let pskt = serde_json::json!({
         "global": {
             "txVersion": 0,
-            "fallbackLockTime": locktime_daa,
+            "fallbackLockTime": null,  // lock time travels in minTime (per input) since 1.0.7; see pskt.rs read side
             "inputsModifiableFlag": false,
             "outputsModifiableFlag": false,
             "inputCount": inputs.len(),
@@ -673,7 +673,7 @@ pub async fn create_covenant_beneficiary_spend(
             "bip32Derivations": [],
             "proprietaries": [],
             "finalScriptSig": null,
-            "minTime": 0
+            "minTime": tx_locktime
         });
         inputs.push(input);
     }
@@ -688,7 +688,7 @@ pub async fn create_covenant_beneficiary_spend(
     let pskt = serde_json::json!({
         "global": {
             "txVersion": 0,
-            "fallbackLockTime": tx_locktime,
+            "fallbackLockTime": null,  // lock time travels in minTime (per input) since 1.0.7; see pskt.rs read side
             "covenantBranch": "beneficiary",
             "inputsModifiableFlag": false,
             "outputsModifiableFlag": false,
@@ -785,7 +785,7 @@ pub fn create_covenant_beneficiary_spend_selected(
             "bip32Derivations": [],
             "proprietaries": [],
             "finalScriptSig": null,
-            "minTime": 0
+            "minTime": tx_locktime
         }));
     }
 
@@ -805,7 +805,7 @@ pub fn create_covenant_beneficiary_spend_selected(
     let pskt = serde_json::json!({
         "global": {
             "txVersion": 0,
-            "fallbackLockTime": tx_locktime,
+            "fallbackLockTime": null,  // lock time travels in minTime (per input) since 1.0.7; see pskt.rs read side
             "covenantBranch": "beneficiary",
             "inputsModifiableFlag": false,
             "outputsModifiableFlag": false,
@@ -895,6 +895,12 @@ pub async fn create_covenant_allowance_withdraw(
     let cltv_locktime = kspt::extract_cltv_locktime(&redeem_bytes);
 
     // Multi-input: use ALL UTXOs at the covenant address
+    let locktime_val: serde_json::Value = if cltv_locktime > 0 {
+        serde_json::json!(cltv_locktime)
+    } else {
+        serde_json::Value::Null
+    };
+
     let inputs: Vec<serde_json::Value> = all_utxos
         .iter()
         .map(|u| {
@@ -917,7 +923,7 @@ pub async fn create_covenant_allowance_withdraw(
                 "bip32Derivations": [],
                 "proprietaries": [],
                 "finalScriptSig": null,
-                "minTime": 0
+                "minTime": locktime_val
             })
         })
         .collect();
@@ -940,17 +946,12 @@ pub async fn create_covenant_allowance_withdraw(
         }),
     ];
 
-    let locktime_val: serde_json::Value = if cltv_locktime > 0 {
-        serde_json::json!(cltv_locktime)
-    } else {
-        serde_json::Value::Null
-    };
 
     // tx_version=1 required for covenant binding outputs on TN10
     let pskt = serde_json::json!({
         "global": {
             "txVersion": 1,
-            "fallbackLockTime": locktime_val,
+            "fallbackLockTime": null,  // lock time travels in minTime (per input) since 1.0.7; see pskt.rs read side
             "covenantBranch": "beneficiary",
             "inputsModifiableFlag": false,
             "outputsModifiableFlag": false,
@@ -1193,39 +1194,6 @@ pub async fn create_covenant_owner_spend(
     let covenant_spk_hex = format!("0000{}", hex::encode(&covenant_spk));
     let dest_spk_hex = format!("0000{}", hex::encode(&dest_spk));
 
-    let mut inputs = Vec::new();
-    for utxo in &utxos {
-        let input = serde_json::json!({
-            "previousOutpoint": {
-                "transactionId": utxo.tx_id,
-                "index": utxo.index
-            },
-            "sequence": 0,
-            "sigOpCount": 1,
-            "utxoEntry": {
-                "amount": utxo.amount,
-                "scriptPublicKey": covenant_spk_hex,
-                "blockDaaScore": 0,
-                "isCoinbase": false
-            },
-            "redeemScript": redeem_hex,
-            "partialSigs": {},
-            "minimumSignatures": 1,
-            "bip32Derivations": [],
-            "proprietaries": [],
-            "finalScriptSig": null,
-            "minTime": 0
-        });
-        inputs.push(input);
-    }
-
-    let outputs = vec![serde_json::json!({
-        "amount": send_amount,
-        "scriptPublicKey": dest_spk_hex,
-        "bip32Derivations": [],
-        "proprietaries": []
-    })];
-
     // CLTV locktime is needed ONLY for the time-locked owner path
     // ("owner-time", e.g. the piggy-bank break-after-deadline branch). The
     // default owner reclaim spends the immediate branch (IF), which carries
@@ -1251,6 +1219,40 @@ pub async fn create_covenant_owner_spend(
         serde_json::Value::Null
     };
 
+    let mut inputs = Vec::new();
+    for utxo in &utxos {
+        let input = serde_json::json!({
+            "previousOutpoint": {
+                "transactionId": utxo.tx_id,
+                "index": utxo.index
+            },
+            "sequence": 0,
+            "sigOpCount": 1,
+            "utxoEntry": {
+                "amount": utxo.amount,
+                "scriptPublicKey": covenant_spk_hex,
+                "blockDaaScore": 0,
+                "isCoinbase": false
+            },
+            "redeemScript": redeem_hex,
+            "partialSigs": {},
+            "minimumSignatures": 1,
+            "bip32Derivations": [],
+            "proprietaries": [],
+            "finalScriptSig": null,
+            "minTime": locktime_val
+        });
+        inputs.push(input);
+    }
+
+    let outputs = vec![serde_json::json!({
+        "amount": send_amount,
+        "scriptPublicKey": dest_spk_hex,
+        "bip32Derivations": [],
+        "proprietaries": []
+    })];
+
+
     let branch_val: serde_json::Value = if covenant_branch.is_empty() {
         serde_json::Value::Null
     } else {
@@ -1260,7 +1262,7 @@ pub async fn create_covenant_owner_spend(
     let pskt = serde_json::json!({
         "global": {
             "txVersion": 0,
-            "fallbackLockTime": locktime_val,
+            "fallbackLockTime": null,  // lock time travels in minTime (per input) since 1.0.7; see pskt.rs read side
             "covenantBranch": branch_val,
             "inputsModifiableFlag": false,
             "outputsModifiableFlag": false,
@@ -1748,6 +1750,12 @@ pub async fn create_global_allowance_withdraw(
     let dest_spk_hex = format!("0000{}", hex::encode(&dest_spk));
 
     // Single thread input (P2SH covenant input: redeem script + CSV sequence).
+    let locktime_val: serde_json::Value = if cltv_locktime > 0 {
+        serde_json::json!(cltv_locktime)
+    } else {
+        serde_json::Value::Null
+    };
+
     let inputs: Vec<serde_json::Value> = use_utxos
         .iter()
         .map(|u| {
@@ -1767,7 +1775,7 @@ pub async fn create_global_allowance_withdraw(
                 "bip32Derivations": [],
                 "proprietaries": [],
                 "finalScriptSig": null,
-                "minTime": 0
+                "minTime": locktime_val
             })
         })
         .collect();
@@ -1796,17 +1804,12 @@ pub async fn create_global_allowance_withdraw(
 
     // Vesting start: if the script gates the beneficiary path with CLTV, the TX
     // locktime must be >= that value. Null if there is no start gate.
-    let locktime_val: serde_json::Value = if cltv_locktime > 0 {
-        serde_json::json!(cltv_locktime)
-    } else {
-        serde_json::Value::Null
-    };
 
     // tx_version=1 required for covenant binding outputs on TN10.
     let pskt = serde_json::json!({
         "global": {
             "txVersion": 1,
-            "fallbackLockTime": locktime_val,
+            "fallbackLockTime": null,  // lock time travels in minTime (per input) since 1.0.7; see pskt.rs read side
             "covenantBranch": "beneficiary",
             "inputsModifiableFlag": false,
             "outputsModifiableFlag": false,
@@ -2041,6 +2044,19 @@ pub fn create_covenant_owner_spend_selected(
     let covenant_spk_hex = format!("0000{}", hex::encode(&covenant_spk));
     let dest_spk_hex = format!("0000{}", hex::encode(&dest_spk));
 
+    // See create_covenant_owner_spend: CLTV is stamped onto the TX only for
+    // the time-locked owner path; the immediate reclaim must stay final.
+    let cltv_locktime = if covenant_branch == "owner-time" {
+        kspt::extract_cltv_locktime(&redeem_bytes)
+    } else {
+        0
+    };
+    let locktime_val: serde_json::Value = if cltv_locktime > 0 {
+        serde_json::json!(cltv_locktime)
+    } else {
+        serde_json::Value::Null
+    };
+
     let mut inputs = Vec::new();
     for u in &utxo_arr {
         let tx_id = u
@@ -2073,7 +2089,7 @@ pub fn create_covenant_owner_spend_selected(
             "bip32Derivations": [],
             "proprietaries": [],
             "finalScriptSig": null,
-            "minTime": 0
+            "minTime": locktime_val
         }));
     }
 
@@ -2089,18 +2105,6 @@ pub fn create_covenant_owner_spend_selected(
         "proprietaries": []
     })];
 
-    // See create_covenant_owner_spend: CLTV is stamped onto the TX only for
-    // the time-locked owner path; the immediate reclaim must stay final.
-    let cltv_locktime = if covenant_branch == "owner-time" {
-        kspt::extract_cltv_locktime(&redeem_bytes)
-    } else {
-        0
-    };
-    let locktime_val: serde_json::Value = if cltv_locktime > 0 {
-        serde_json::json!(cltv_locktime)
-    } else {
-        serde_json::Value::Null
-    };
     let branch_val: serde_json::Value = if covenant_branch.is_empty() {
         serde_json::Value::Null
     } else {
@@ -2110,7 +2114,7 @@ pub fn create_covenant_owner_spend_selected(
     let pskt = serde_json::json!({
         "global": {
             "txVersion": 0,
-            "fallbackLockTime": locktime_val,
+            "fallbackLockTime": null,  // lock time travels in minTime (per input) since 1.0.7; see pskt.rs read side
             "covenantBranch": branch_val,
             "inputsModifiableFlag": false,
             "outputsModifiableFlag": false,

@@ -256,7 +256,7 @@ mod tests {
 
         // Decrypt
         let pt = decrypt(&priv_bytes, &ct).unwrap();
-        assert_eq!(&pt, plaintext);
+        assert_eq!(&pt[..], &plaintext[..]);
     }
 
     #[test]

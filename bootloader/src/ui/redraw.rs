@@ -534,6 +534,8 @@ pub fn redraw_screen(
                         let (st, ms) = wallet::pskt::analyze_input_script(&ad.demo_tx, i);
                         st == wallet::transaction::ScriptType::P2SH && ms.is_none()
                     });
+                    // Fee-row baseline per confirm variant, for the LOCKED badge.
+                    let fee_row_y = if has_multisig { 82 } else { 90 };
                     if has_multisig {
                         let (present, required) = wallet::pskt::signature_status(&ad.demo_tx);
                         boot_display.draw_confirm_send_multisig(&amt_kas, &fee_kas, present, required);
@@ -563,6 +565,10 @@ pub fn redraw_screen(
                     } else {
                         boot_display.draw_confirm_send_screen(&amt_kas, &fee_kas);
                     }
+                    // Lock time, on every confirm variant: the last screen
+                    // before the signature, so a timelocked transaction is
+                    // marked here too, not only on the review page.
+                    boot_display.draw_lock_time_badge(ad.demo_tx.locktime, fee_row_y);
                 }
                 crate::app::input::AppState::Signing { input_idx } => {
                     boot_display.draw_signing_screen(

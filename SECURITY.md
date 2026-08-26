@@ -84,6 +84,19 @@ See [docs/REPRODUCIBLE_BUILD.md](docs/REPRODUCIBLE_BUILD.md) for details.
 
 On every power-on, before anything else is usable, the firmware checks its cryptographic primitives against published answers and refuses to boot if any of them disagree (`app/boot_test.rs`, `run_crypto_kats`). Crypto has no natural failure signal: a wrong derivation still gives a valid-looking key and a wrong sighash still signs cleanly, so this is the check that catches a broken build before it can touch funds. It cannot be compiled out of a shipped image (`main.rs` makes that a build error). The set is one published vector each for BIP39, BIP32 and Schnorr, a 45' multisig address produced by an independent implementation, and 27 transaction sighash vectors taken from the rusty-kaspa 2.0.1 consensus tests, covering all six sighash types and both transaction versions. Measured on M5Stack CoreS3 Lite: 27/27 sighash in 291 ms. Every entropy source, what it feeds, what was measured against SP 800-90B and what is only health-checked at runtime, is recorded in [docs/ENTROPY.md](docs/ENTROPY.md).
 
+### Testing the crypto yourself
+
+Everything above runs on a host as well as on the device. The key derivation,
+the transaction parsers, sighash, Schnorr and the storage encryption are a
+separate crate, `core/`, with no peripheral access and no `esp-hal`, so a
+reviewer needs no ESP hardware and no Xtensa toolchain: `cd core && cargo test`
+on stock stable Rust runs the same boot-time known-answer tests listed above,
+the FAT32 layer against an in-memory card image, and a mutation loop over
+every parser. [core/README.md](core/README.md) explains what is in the crate,
+what deliberately is not, and how to run the coverage-guided fuzzer. A
+reproducer submitted as a failing test in that crate is the most useful form
+a report can take.
+
 ## KasSee Security Boundary
 
 KasSee is the browser-based watch-only companion and the project's test bench: new device features, covenant designs and ideas are tried there first. It is not the product. KasSigner speaks PSKB and QR and works with any watch-only wallet that does the same.

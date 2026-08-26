@@ -199,18 +199,6 @@ pub fn setup_cam_gpio_routing() {
     }
 }
 
-pub fn verify_xclk_running() -> u32 {
-    unsafe {
-        let gpio_in = 0x6000_403Cu32 as *const u32;
-        let mut last = core::ptr::read_volatile(gpio_in) & (1u32 << 8);
-        let mut toggles = 0u32;
-        for _ in 0..200_000u32 {
-            let now = core::ptr::read_volatile(gpio_in) & (1u32 << 8);
-            if now != last { toggles += 1; last = now; }
-        }
-        toggles
-    }
-}
 
 // ═══ OV5640 register table — QVGA 320x240 YUV422 ═══
 

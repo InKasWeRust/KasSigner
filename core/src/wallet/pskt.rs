@@ -1017,7 +1017,7 @@ pub fn sign_transaction_multi_addr(
     tx: &mut Transaction,
     account_key: &super::bip32::ExtendedPrivKey,
     sighash_type: SigHashType,
-    mut ext: Option<crate::app::signing::ExtBanksMut<'_>>,
+    mut ext: Option<crate::ext::ExtBanksMut<'_>>,
 ) -> Result<usize, PsktError> {
     use super::sighash;
     use super::bip32;
@@ -1094,7 +1094,7 @@ pub fn sign_transaction_multi_addr(
                 // by the time the fronts reach capacity, every later
                 // input resolves from RAM.
                 if let Some((er, ern, ec, ecn)) = ext.as_mut() {
-                    found = crate::app::signing::ext_scan_find(
+                    found = crate::ext::ext_scan_find(
                         account_key, &mut **er, &mut **ern, &mut **ec, &mut **ecn,
                         &target_pk);
                 } else {

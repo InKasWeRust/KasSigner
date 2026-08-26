@@ -29,7 +29,6 @@ CODE_OF_CONDUCT.md
 CONTRIBUTING.md
 SECURITY.md
 LICENSE
-Install.sh
 Makefile
 Dockerfile
 Dockerfile.base

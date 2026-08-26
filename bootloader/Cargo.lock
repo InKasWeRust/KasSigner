@@ -1152,7 +1152,7 @@ dependencies = [
 
 [[package]]
 name = "kassigner-bootloader"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "aes-gcm",
  "blake2",
@@ -1169,6 +1169,7 @@ dependencies = [
  "esp32s3 0.30.0",
  "heapless 0.8.0",
  "k256",
+ "kassigner-core",
  "mipidsi",
  "ripemd",
  "rqrr",
@@ -1176,6 +1177,19 @@ dependencies = [
  "static_cell",
  "subtle",
  "tinybmp",
+ "zeroize",
+]
+
+[[package]]
+name = "kassigner-core"
+version = "1.0.7"
+dependencies = [
+ "aes-gcm",
+ "blake2",
+ "k256",
+ "ripemd",
+ "sha2",
+ "subtle",
  "zeroize",
 ]
 

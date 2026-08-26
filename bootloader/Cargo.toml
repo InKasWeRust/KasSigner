@@ -7,7 +7,7 @@
 
 [package]
 name = "kassigner-bootloader"
-version = "1.0.6"
+version = "1.0.7"
 edition = "2021"
 authors = ["KasSigner Team"]
 
@@ -25,8 +25,8 @@ af = []
 ov5640-af = ["waveshare", "af"]
 production = ["silent"]
 silent = []
-verbose-boot = []
-skip-tests = []
+verbose-boot = ["kassigner-core/verbose-boot"]
+skip-tests = ["kassigner-core/skip-tests"]
 # E-13 measurement: capture raw WDEV_RND words to WDEVCPx.BIN on SD for offline
 # SP 800-90B analysis. Nothing in the firmware estimates WDEV min-entropy;
 # probe_wdev and WdevHealth are liveness checks that a counter would pass.
@@ -53,7 +53,7 @@ rng-probe = []
 # the full BIP32 set costs 24,043 ms (31 derivations at ~775 ms each) and the
 # full SCHNORR set 1,969 ms; the minimal set brings both under ~1.2 s combined.
 # Edge-case and consistency coverage belongs in cargo test, where time is free.
-boot-kats-full = []
+boot-kats-full = ["kassigner-core/boot-kats-full"]
 # One-shot SHA accelerator benchmark at boot. Measurement only: compiles
 # in app/sha_bench.rs, which no production path calls. Never enable for a
 # shipped build.
@@ -93,6 +93,9 @@ esp-alloc = "0.7"
 esp-bootloader-esp-idf = { version = "0.2", features = ["esp32s3"] }
 esp32s3 = { version = "0.30", features = ["rt"] }
 rqrr = { path = "../rqrr_nostd", default-features = false }
+# The hardware-free half of the firmware: wallet, sighash, Schnorr, parsers.
+# See core/Cargo.toml. Host-testable with plain `cargo test` from core/.
+kassigner-core = { path = "../core" }
 
 # Display — ST7789 instead of ILI9342C (mipidsi supports both)
 mipidsi = "0.9"

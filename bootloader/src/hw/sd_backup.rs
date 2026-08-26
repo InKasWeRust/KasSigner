@@ -156,29 +156,10 @@ pub const MAX_BACKUP_SIZE: usize = V3_OVERHEAD + 48;
 /// current firmware writes.
 pub const FILE_MAGIC: [u8; 4] = [b'K', b'A', b'S', 0x01];
 
-/// Format an 8.3 name for display — trim trailing spaces, no dot if no extension
-pub fn format_83_display(name: &[u8; 11], out: &mut [u8; 13]) -> usize {
-    let mut pos = 0;
-    // Base name (trim trailing spaces)
-    let mut base_len = 8;
-    while base_len > 0 && name[base_len - 1] == b' ' { base_len -= 1; }
-    for i in 0..base_len {
-        out[pos] = name[i];
-        pos += 1;
-    }
-    // Extension (trim trailing spaces)
-    let mut ext_len = 3;
-    while ext_len > 0 && name[8 + ext_len - 1] == b' ' { ext_len -= 1; }
-    if ext_len > 0 {
-        out[pos] = b'.';
-        pos += 1;
-        for i in 0..ext_len {
-            out[pos] = name[8 + i];
-            pos += 1;
-        }
-    }
-    pos
-}
+/// Format an 8.3 name for display. Lives in kassigner-core::fat32 since
+/// 1.0.7 (the LFN directory listing there uses it); re-exported so the
+/// nine `sd_backup::format_83_display` callers are unchanged.
+pub use kassigner_core::fat32::format_83_display;
 
 // ─── Errors ──────────────────────────────────────────────────────────
 

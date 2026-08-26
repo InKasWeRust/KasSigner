@@ -1230,6 +1230,30 @@ pub fn run_sighash_vectors() -> (u32, u32) {
         ],
         |tx: &mut Transaction| tx.outputs[1].value = 100);
 
+    // Our own sequence IS committed under SINGLE, and this is the only
+    // vector in the whole set that produces this digest: without it, a
+    // change that dropped the sequence of the signing input from the SINGLE
+    // digest would pass everything else here.
+    // (upstream `native-single-0-modify-sequence-0`)
+    case!("native-single-0-modify-sequence-0", vec_build_native(0), 0, SigHashType::Single,
+        [
+          0x83,0x79,0x6d,0x22,0x87,0x97,0x18,0xee,0xe1,0x16,0x5d,0x4a,0xac,0xe6,0x67,0xbb,
+          0x67,0x78,0x07,0x5d,0xab,0x57,0x9c,0x32,0xc5,0x7b,0xe9,0x45,0xf4,0x66,0xa4,0x51,
+        ],
+        |tx: &mut Transaction| tx.inputs[0].sequence = 12345);
+
+    // ...but another input's sequence is NOT, and that is the half a
+    // positive vector cannot show: a digest that started committing the
+    // whole sequence set under SINGLE would still match every "should
+    // change" expectation and only fail here.
+    // (upstream `native-single-0-modify-sequence-1`, "shouldn't change the hash")
+    case!("native-single-0-modify-sequence-1", vec_build_native(0), 0, SigHashType::Single,
+        [
+          0x44,0xa0,0xb4,0x07,0xff,0x7b,0x23,0x9d,0x44,0x77,0x43,0xdd,0x50,0x3f,0x7a,0xd2,
+          0x3d,0xb5,0xb2,0xee,0x4d,0x25,0x27,0x9b,0xd3,0xdf,0xfa,0xf6,0xb4,0x74,0xe0,0x05,
+        ],
+        |tx: &mut Transaction| tx.inputs[1].sequence = 12345);
+
     // Input 2 has no output 2. The outputs sub-hash must be the zero hash,
     // not an out-of-bounds read and not a panic.
     case!("native-single-2-no-corresponding-output", vec_build_native(0), 2, SigHashType::Single,
@@ -1238,6 +1262,17 @@ pub fn run_sighash_vectors() -> (u32, u32) {
           0x4c,0xc7,0xa7,0x97,0x08,0xc5,0xe3,0x64,0x89,0x4d,0x4e,0xff,0x3c,0xec,0xb1,0xb0,
         ],
         nop);
+
+    // The zero-hash branch above must stay zero even when an output the
+    // transaction does have is changed. Pairs with the vector before it:
+    // one shows the branch is taken, this shows it commits nothing.
+    // (upstream `native-single-2-no-corresponding-output-modify-output-1`)
+    case!("native-single-2-no-corresponding-output-modify-output-1", vec_build_native(0), 2, SigHashType::Single,
+        [
+          0x02,0x2a,0xd9,0x67,0x19,0x2f,0x39,0xd8,0xd5,0x89,0x5d,0x24,0x3e,0x02,0x5e,0xc1,
+          0x4c,0xc7,0xa7,0x97,0x08,0xc5,0xe3,0x64,0x89,0x4d,0x4e,0xff,0x3c,0xec,0xb1,0xb0,
+        ],
+        |tx: &mut Transaction| tx.outputs[1].value = 100);
 
     case!("native-single-acp-0", vec_build_native(0), 0, SigHashType::SingleAnyOneCanPay,
         [

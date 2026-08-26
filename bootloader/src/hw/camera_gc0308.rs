@@ -798,39 +798,6 @@ pub fn ensure_lcd_clk_enabled() {
     }
 }
 
-/// Count PCLK edges on GPIO45 in ~10k samples. Non-zero means the sensor is
-/// clocked and driving its pixel clock.
-///
-/// Replaces a version that sampled GPIO2 looking for an XCLK this board does
-/// not have. XCLK is generated on the camera assembly at 20 MHz and never
-/// reaches the SoC (esp-bsp: BSP_CAMERA_GPIO_XCLK = GPIO_NUM_NC), so that
-/// function returned 0 on every boot for the whole life of the project while
-/// the camera worked, and the >100 guard in main.rs was gating a re-init on a
-/// reading that could never be valid.
-///
-/// PCLK is GPIO45 (esp-bsp: BSP_CAMERA_PCLK = GPIO_NUM_45), which is a real
-/// input this SoC can observe. GPIO45 lives in GPIO_IN1_REG, not GPIO_IN_REG:
-/// TRM Register 6.17, "GPIO_IN1_REG  GPIO32 ~ 48 input register  0x0040", so
-/// the bit index is 45 - 32 = 13.
-///
-/// NOTE: PCLK only toggles while the sensor is streaming. Called before
-/// streaming starts this returns 0, which is correct and not a fault.
-/// Not currently called. Provided as the correct primitive to replace the
-/// GPIO2 sampler; wiring it into the streaming path in handlers/camera_loop.rs
-/// is a separate change, and the camera track is deliberately low-churn.
-#[allow(dead_code)]
-pub fn verify_pclk_running() -> u32 {
-    unsafe {
-        let in1 = 0x6000_4040u32 as *const u32; // GPIO_IN1_REG, GPIO32..48
-        let mut tog = 0u32;
-        let mut last = (core::ptr::read_volatile(in1) >> 13) & 1;
-        for _ in 0..10_000u32 {
-            let c = (core::ptr::read_volatile(in1) >> 13) & 1;
-            if c != last { tog += 1; last = c; }
-        }
-        tog
-    }
-}
 
 /// Configure GPIO matrix routing for all DVP camera signals.
 ///

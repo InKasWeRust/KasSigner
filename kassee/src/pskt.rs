@@ -25,9 +25,11 @@
 // Wire format (what the device emits after signing)
 // ═══════════════════════════════════════════════════════════════════
 //
-// 4-byte magic `PSKB` or `PSKT` + lowercase hex of compact UTF-8 JSON.
-// For `PSKB` the JSON body is a single-element array wrapping one
-// PSKT object. For `PSKT` the body is the PSKT object directly.
+// 4-byte magic `PSKB` + lowercase hex of compact UTF-8 JSON. The JSON
+// body is a single-element array wrapping one PSKT object. (A `PSKT`
+// magic with the bare object was accepted here until 1.0.7; nothing ever
+// emitted it, rusty-kaspa has no such wire form, and the device refused
+// it, so it was removed from both sides.)
 //
 // PSKT object shape (exact field names, camelCase):
 //
@@ -102,16 +104,11 @@ use serde_json::Value;
 pub const PSKB_MAGIC: &[u8; 4] = b"PSKB";
 /// Magic prefix for single-PSKT wire payloads.
 // Kept: retained for future use; not currently wired.
-#[allow(dead_code)]
-pub const PSKT_MAGIC: &[u8; 4] = b"PSKT";
-
 /// Detected wire format for a given hex payload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum PsktFormat {
     /// `PSKB` magic — body is `[<PSKT>]`.
     Pskb,
-    /// `PSKT` magic — body is `<PSKT>` directly.
-    PsktSingle,
     /// Not a PSKT-shaped payload.
     Unknown,
 }
@@ -124,13 +121,10 @@ pub fn detect_format_hex(hex_str: &str) -> PsktFormat {
     if hex_str.len() < 8 {
         return PsktFormat::Unknown;
     }
-    // Match case-insensitively on the hex of "PSKB" / "PSKT"
-    //   "PSKB" -> 50534b42
-    //   "PSKT" -> 50534b54
+    // Match case-insensitively on the hex of "PSKB" (50534b42).
     let head = hex_str[..8].to_ascii_lowercase();
     match head.as_str() {
         "50534b42" => PsktFormat::Pskb,
-        "50534b54" => PsktFormat::PsktSingle,
         _ => PsktFormat::Unknown,
     }
 }
@@ -331,7 +325,6 @@ pub fn parse_summary(wire_hex: &str, network_prefix: &str) -> Result<PsktSummary
             }
             arr[0].clone()
         }
-        PsktFormat::PsktSingle => root,
         PsktFormat::Unknown => unreachable!(),
     };
 
@@ -409,7 +402,6 @@ fn parse_pskt_object(
     Ok(PsktSummary {
         format: match format {
             PsktFormat::Pskb => "pskb".into(),
-            PsktFormat::PsktSingle => "pskt".into(),
             PsktFormat::Unknown => "unknown".into(),
         },
         tx_version,
@@ -761,6 +753,45 @@ fn find_pubkey_position_in_redeem(rs: &[u8], pk_hex_66: &str) -> Option<u8> {
 ///
 /// Fails if any multisig input lacks the required M signatures or if
 /// any P2PK input has zero sigs.
+
+/// The transaction lock time of a PSKT object, read the way rusty-kaspa and
+/// the device read it since 1.0.7: the largest `minTime` over the inputs.
+///
+/// `fallbackLockTime` is consulted only when NO input states a `minTime`.
+/// That branch exists for one reason: every bundle KasSee wrote before 1.0.7
+/// carried the lock time there and nowhere else (rusty-kaspa's own extractor
+/// never looks at it once a bundle has inputs, and the device stopped looking
+/// at it in 1.0.7), so an in-flight covenant claim built by the old KasSee
+/// still relays over KSPT and still broadcasts. New bundles never take the
+/// branch: `covenant_api.rs` writes `minTime` on every input and
+/// `fallbackLockTime: null`. When the console line below has not been seen
+/// for a release, the branch and the field can go.
+pub fn pskt_lock_time(obj: &serde_json::Map<String, Value>) -> u64 {
+    let from_inputs = obj
+        .get("inputs")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| {
+            arr.iter()
+                .filter_map(|i| i.get("minTime").and_then(|v| v.as_u64()))
+                .filter(|&t| t != 0)
+                .max()
+        });
+    if let Some(t) = from_inputs {
+        return t;
+    }
+    let legacy = obj
+        .get("global")
+        .and_then(|g| g.get("fallbackLockTime"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    if legacy != 0 {
+        web_sys::console::log_1(
+            &format!("[pskt] legacy bundle: lock time {legacy} read from fallbackLockTime (no input minTime); rebuild it to clear this").into(),
+        );
+    }
+    legacy
+}
+
 pub fn finalize_to_kspt_hex(wire_hex: &str) -> Result<String, String> {
     let format = detect_format_hex(wire_hex);
     if format == PsktFormat::Unknown {
@@ -783,7 +814,6 @@ pub fn finalize_to_kspt_hex(wire_hex: &str) -> Result<String, String> {
             }
             arr[0].clone()
         }
-        PsktFormat::PsktSingle => root,
         PsktFormat::Unknown => unreachable!(),
     };
     let obj = pskt
@@ -885,7 +915,12 @@ fn encode_input_kspt_v2(buf: &mut Vec<u8>, inp: &Value) -> Result<(), String> {
         .and_then(|v| v.as_u64())
         .ok_or_else(|| "missing index".to_string())? as u32;
 
-    let sequence = obj.get("sequence").and_then(|v| v.as_u64()).unwrap_or(0);
+    // An omitted or `null` sequence is the final sequence number, u64::MAX:
+    // that is what rusty-kaspa's signer hashes (`wallet/pskt/src/pskt.rs:146`,
+    // `unwrap_or(u64::MAX)`) and what the device signs since 1.0.7. Until
+    // 1.0.7 this defaulted to 0, so a bundle with the field unset produced a
+    // transaction here that neither of the other two would have signed.
+    let sequence = obj.get("sequence").and_then(|v| v.as_u64()).unwrap_or(u64::MAX);
     let sig_op_count = obj.get("sigOpCount").and_then(|v| v.as_u64()).unwrap_or(1) as u8;
 
     // redeemScript
@@ -1165,7 +1200,6 @@ pub fn relay_pskb_as_kspt_v2_hex(wire_hex: &str) -> Result<String, String> {
             }
             arr[0].clone()
         }
-        PsktFormat::PsktSingle => root,
         PsktFormat::Unknown => unreachable!(),
     };
     let obj = pskt
@@ -1198,10 +1232,7 @@ pub fn relay_pskb_as_kspt_v2_hex(wire_hex: &str) -> Result<String, String> {
         return Err("too many outputs".into());
     }
 
-    let locktime = global
-        .get("fallbackLockTime")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+    let locktime = pskt_lock_time(obj);
 
     // ─── Build KSPT v3 partial buffer ───
     let mut buf: Vec<u8> = Vec::with_capacity(512);
@@ -1477,7 +1508,12 @@ fn encode_input_kspt_v2_relay(buf: &mut Vec<u8>, inp: &Value) -> Result<(), Stri
         .and_then(|v| v.as_u64())
         .ok_or_else(|| "missing index".to_string())? as u32;
 
-    let sequence = obj.get("sequence").and_then(|v| v.as_u64()).unwrap_or(0);
+    // An omitted or `null` sequence is the final sequence number, u64::MAX:
+    // that is what rusty-kaspa's signer hashes (`wallet/pskt/src/pskt.rs:146`,
+    // `unwrap_or(u64::MAX)`) and what the device signs since 1.0.7. Until
+    // 1.0.7 this defaulted to 0, so a bundle with the field unset produced a
+    // transaction here that neither of the other two would have signed.
+    let sequence = obj.get("sequence").and_then(|v| v.as_u64()).unwrap_or(u64::MAX);
     let sig_op_count = obj.get("sigOpCount").and_then(|v| v.as_u64()).unwrap_or(1) as u8;
 
     // redeemScript
@@ -1626,7 +1662,6 @@ pub async fn finalize_and_broadcast(wire_hex: &str, ws_url: &str) -> Result<Stri
             }
             arr[0].clone()
         }
-        PsktFormat::PsktSingle => root,
         PsktFormat::Unknown => unreachable!(),
     };
     let obj = pskt
@@ -1642,10 +1677,7 @@ pub async fn finalize_and_broadcast(wire_hex: &str, ws_url: &str) -> Result<Stri
         .get("txVersion")
         .and_then(|v| v.as_u64())
         .ok_or_else(|| "missing txVersion".to_string())? as u16;
-    let locktime = global
-        .get("fallbackLockTime")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+    let locktime = pskt_lock_time(obj);
     let force_beneficiary = global
         .get("covenantBranch")
         .and_then(|v| v.as_str())
@@ -1846,7 +1878,12 @@ fn build_consensus_input(
         .and_then(|v| v.as_u64())
         .ok_or_else(|| "missing index".to_string())? as u32;
 
-    let sequence = obj.get("sequence").and_then(|v| v.as_u64()).unwrap_or(0);
+    // An omitted or `null` sequence is the final sequence number, u64::MAX:
+    // that is what rusty-kaspa's signer hashes (`wallet/pskt/src/pskt.rs:146`,
+    // `unwrap_or(u64::MAX)`) and what the device signs since 1.0.7. Until
+    // 1.0.7 this defaulted to 0, so a bundle with the field unset produced a
+    // transaction here that neither of the other two would have signed.
+    let sequence = obj.get("sequence").and_then(|v| v.as_u64()).unwrap_or(u64::MAX);
     let sig_op_count = obj.get("sigOpCount").and_then(|v| v.as_u64()).unwrap_or(1) as u8;
 
     // redeemScript
@@ -4029,14 +4066,6 @@ pub fn merge_signed_kspt_v2_into_pskb(
             let pskt = arr[0]
                 .as_object_mut()
                 .ok_or_else(|| "PSKB entry not object".to_string())?;
-            pskt.get_mut("inputs")
-                .and_then(|v| v.as_array_mut())
-                .ok_or_else(|| "missing inputs".to_string())?
-        }
-        PsktFormat::PsktSingle => {
-            let pskt = root
-                .as_object_mut()
-                .ok_or_else(|| "PSKT not object".to_string())?;
             pskt.get_mut("inputs")
                 .and_then(|v| v.as_array_mut())
                 .ok_or_else(|| "missing inputs".to_string())?

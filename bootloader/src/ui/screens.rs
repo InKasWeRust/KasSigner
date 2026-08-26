@@ -458,6 +458,16 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
             let w = measure_body(fee_text.as_str());
             draw_lato_body(&mut self.display, fee_text.as_str(), (320 - w) / 2, 124, COLOR_TEXT);
 
+            // Lock time. The signature commits to it (sighash.rs, locktime
+            // field) and since 1.0.7 the PSKB parser fills it from `minTime`,
+            // so a timelocked transaction reaches this screen and must not
+            // look like an ordinary send. Orange, the colour this page uses
+            // for the other figure a signer has to weigh ("In:"). y=140 is
+            // the one free Lato-15 line between fee (124) and counts (156).
+            // Below LOCK_TIME_THRESHOLD it is a DAA score, above it a UTC
+            // date; kassigner_core::timefmt decides and is host-tested.
+            self.draw_lock_time_line(tx.locktime, 140);
+
             // Inputs/outputs count
             let mut info_text = heapless::String::<48>::new();
             write!(&mut info_text, "{} input(s) -> {} output(s)",
@@ -1993,6 +2003,39 @@ pub fn draw_home_grid(&mut self) {
             .draw(&mut self.display).ok();
         let cw2 = measure_title("CANCEL");
         draw_lato_title(&mut self.display, "CANCEL", 30 + (260 - cw2) / 2, 212, COLOR_TEXT);
+    }
+
+    /// One centred orange line, "Locked until DAA n" or "Locked until
+    /// YYYY-MM-DD HH:MM UTC", at baseline `y`. Draws nothing for a zero
+    /// lock time. Used on the TX REVIEW summary (y=140).
+    pub fn draw_lock_time_line(&mut self, locktime: u64, y: i32) {
+        if locktime == 0 {
+            return;
+        }
+        let mut buf = [0u8; 40];
+        let n = kassigner_core::timefmt::lock_time_label(locktime, &mut buf);
+        if let Ok(s) = core::str::from_utf8(&buf[..n]) {
+            let w = measure_body(s);
+            draw_lato_body(&mut self.display, s, (320 - w) / 2, y, COLOR_ORANGE);
+        }
+    }
+
+    /// The compact form for the CONFIRM SEND screens: "LOCKED", orange,
+    /// right-aligned on the fee row at baseline `y`. The three confirm
+    /// variants have no free line in common (multisig runs 62/82/102 with
+    /// the button at 118), so the badge shares the fee row, whose text
+    /// ends before x=215 in the worst case while the badge starts past
+    /// x=250. The full "until when" was on the review page one tap
+    /// earlier; here the point is that the last screen before the
+    /// signature does not look like an ordinary send. Called from
+    /// redraw.rs after each variant with that variant's fee-row baseline,
+    /// so no confirm-screen signature changes.
+    pub fn draw_lock_time_badge(&mut self, locktime: u64, y: i32) {
+        if locktime == 0 {
+            return;
+        }
+        let w = measure_body("LOCKED");
+        draw_lato_body(&mut self.display, "LOCKED", 320 - w - 10, y, COLOR_ORANGE);
     }
 
     /// Draw confirm send screen with multisig signature status

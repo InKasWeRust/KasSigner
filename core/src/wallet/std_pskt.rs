@@ -43,7 +43,7 @@
 //!
 //! See `docs/pskt/PSKT_MIGRATION_PLAN.md` for the full breakdown.
 
-use crate::app::data::{TxInputFormat, PsktParsed, MAX_PSKT_UNKNOWN_REGIONS};
+use crate::types::{TxInputFormat, PsktParsed, MAX_PSKT_UNKNOWN_REGIONS};
 use crate::wallet::transaction::{
     MAX_INPUTS, MAX_OUTPUTS, MAX_SCRIPT_SIZE, MAX_SIGS_PER_INPUT, Transaction,
 };
@@ -208,10 +208,13 @@ impl PskError {
 // ═══════════════════════════════════════════════════════════════════════
 
 /// Magic prefix for PSKB (bundle of PSKTs) wire payloads.
+///
+/// The only PSKT interchange envelope. rusty-kaspa's `wallet/pskt`
+/// serializes a bundle as `"PSKB" + hex(json array)` and accepts nothing
+/// else; a `PSKT`-prefixed single-object form once declared here had no
+/// emitter anywhere and was rejected by `parse_pskt` (which always expects
+/// the bundle array), so it was removed in 1.0.7.
 pub const PSKB_MAGIC: &[u8; 4] = b"PSKB";
-
-/// Magic prefix for single-PSKT (non-bundle) wire payloads.
-pub const PSKT_MAGIC: &[u8; 4] = b"PSKT";
 
 /// Magic prefix for legacy custom KSPT v1/v2 binary format.
 /// Same bytes as v1 checks use in `camera_loop.rs`; defined here so
@@ -233,8 +236,6 @@ pub enum DetectedFormat {
     KsptV2,
     /// Kaspa-standard PSKT, `PSKB` prefix, hex-wrapped Bundle JSON.
     PsktPskb,
-    /// Kaspa-standard PSKT, `PSKT` prefix, hex-wrapped single-PSKT JSON.
-    PsktSingle,
     /// First bytes match nothing we recognize.
     Unknown,
 }
@@ -248,7 +249,6 @@ impl DetectedFormat {
             Self::KsptV1 => Some(TxInputFormat::KsptV1),
             Self::KsptV2 => Some(TxInputFormat::KsptV2),
             Self::PsktPskb => Some(TxInputFormat::PsktPskb),
-            Self::PsktSingle => Some(TxInputFormat::PsktSingle),
             Self::Unknown => None,
         }
     }
@@ -284,9 +284,6 @@ pub fn detect_tx_format(data: &[u8]) -> DetectedFormat {
     if magic == PSKB_MAGIC {
         return DetectedFormat::PsktPskb;
     }
-    if magic == PSKT_MAGIC {
-        return DetectedFormat::PsktSingle;
-    }
 
     DetectedFormat::Unknown
 }
@@ -296,8 +293,8 @@ pub fn detect_tx_format(data: &[u8]) -> DetectedFormat {
 /// truncated.
 ///
 /// Use when you've already committed to a PSKT branch (e.g. after
-/// `detect_tx_format` returned `PsktPskb` or `PsktSingle`) and want
-/// the remaining hex body to feed into `hex_decode_strict`.
+/// `detect_tx_format` returned `PsktPskb`) and want the remaining hex
+/// body to feed into `hex_decode_strict`.
 ///
 /// An empty body is rejected — a zero-length hex payload can't encode
 /// a valid JSON bundle.
@@ -306,7 +303,7 @@ pub fn strip_pskt_magic(data: &[u8]) -> Result<&[u8], PskError> {
         return Err(PskError::TooShort);
     }
     let magic = &data[..4];
-    if magic != PSKB_MAGIC && magic != PSKT_MAGIC {
+    if magic != PSKB_MAGIC {
         return Err(PskError::BadMagic);
     }
     let body = &data[4..];
@@ -1014,7 +1011,18 @@ fn parse_pskt_object(
     // member order is not fixed, so `global` may legally precede or follow
     // the arrays, and `tx.num_inputs` is only reliable once all three
     // top-level fields have been seen.
-    if declared_input_count != tx.num_inputs || declared_output_count != tx.num_outputs {
+    // A zero count is "unset", not a claim of emptiness. `inputCount` and
+    // `outputCount` are Creator-role bookkeeping upstream and the
+    // Constructor does not maintain them as inputs are added, so a bundle
+    // straight from the reference library carries 0 alongside populated
+    // arrays (their own committed fixture,
+    // `wallet/pskt/src/wasm/bundle.rs:229`, does exactly that). The
+    // signature covers neither field. Rejecting on them refused normal
+    // reference output until 1.0.7; the check still holds whenever a
+    // non-zero count is stated.
+    if (declared_input_count != 0 && declared_input_count != tx.num_inputs)
+        || (declared_output_count != 0 && declared_output_count != tx.num_outputs)
+    {
         return Err(PskError::CountMismatch);
     }
 
@@ -1269,7 +1277,18 @@ fn parse_input(
                 if !mark(&mut seen_opt, S_SEQUENCE) {
                     return Err(PskError::DuplicateField);
                 }
-                inp.sequence = expect_u64(tok)?;
+                // `Option<u64>` upstream: `null` and an omitted field both
+                // mean unset, and unset is the final sequence number
+                // (`wallet/pskt/src/input.rs:25`). Their signer hashes
+                // `sequence.unwrap_or(u64::MAX)` (`pskt.rs:146`), so MAX is
+                // the value the counterparty signed against; filling 0 here,
+                // which is what an omitted field silently did until 1.0.7,
+                // produced a signature their broadcaster rejects. An
+                // explicit value is signed exactly as given, whatever it is.
+                match tok.peek()? {
+                    Tok::Null => { tok.next()?; inp.sequence = u64::MAX; }
+                    _ => inp.sequence = expect_u64(tok)?,
+                }
             }
             b"sighashType" => {
                 if seen_sighash { return Err(PskError::DuplicateField); }
@@ -1338,7 +1357,24 @@ fn parse_input(
                 if !mark(&mut seen_opt, S_MINTIME) {
                     return Err(PskError::DuplicateField);
                 }
-                skip_value(tok)?;
+                // The transaction's lock time is the largest `minTime` over
+                // the inputs, 0 when none states one
+                // (`wallet/pskt/src/pskt.rs:172`, `determine_lock_time`).
+                // `fallbackLockTime` is NOT consulted for a bundle that has
+                // inputs: `.max()` over `Option<u64>` items yields
+                // `Option<Option<u64>>` and the outer `unwrap_or` fires only
+                // on an empty input list, so it is dead for anything
+                // signable. Skipped entirely until 1.0.7, which made the
+                // device sign locktime 0 while their extractor built the
+                // requested value: a signature that could not broadcast, and
+                // a lock time silently dropped from the review screen.
+                match tok.peek()? {
+                    Tok::Null => { tok.next()?; }
+                    _ => {
+                        let t = expect_u64(tok)?;
+                        if t > tx.locktime { tx.locktime = t; }
+                    }
+                }
             }
             b"finalScriptSig" => {
                 if !mark(&mut seen_opt, S_FINALSIG) {
@@ -1380,6 +1416,15 @@ fn parse_input(
 
     if !(seen_utxo && seen_outpoint && seen_sighash) {
         return Err(PskError::MissingField);
+    }
+
+    // An omitted `sequence` is the same "unset" as an explicit `null`, and
+    // means the same thing: the final sequence number. Until 1.0.7 the
+    // omitted spelling silently kept the zero-initialised 0 while the
+    // `null` spelling was refused, so two spellings of one state had two
+    // different outcomes and neither matched the reference.
+    if seen_opt & S_SEQUENCE == 0 {
+        tx.inputs[idx].sequence = u64::MAX;
     }
     Ok(())
 }
@@ -2012,7 +2057,7 @@ fn parse_output(
 ///            still hold the bytes the `parsed.unknowns` offsets refer
 ///            to; caller is responsible for not clobbering it between
 ///            parse and serialize.
-/// `format` — `PsktPskb` or `PsktSingle`; decides magic prefix.
+/// `format` — must be `PsktPskb`; any other format is an error.
 /// `out`    — destination buffer, receives magic + hex(JSON).
 ///
 /// Returns the number of bytes written to `out`.
@@ -2064,7 +2109,6 @@ pub fn serialize_pskt(
     // Magic prefix.
     let magic: &[u8; 4] = match format {
         TxInputFormat::PsktPskb => PSKB_MAGIC,
-        TxInputFormat::PsktSingle => PSKT_MAGIC,
         _ => return Err(PskError::UnexpectedToken),  // not a PSKT format
     };
     if out.len() < 4 {

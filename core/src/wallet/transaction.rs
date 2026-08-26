@@ -1316,6 +1316,16 @@ pub fn test_multisig_45_vector() -> bool {
         b"kpub2HuRXjAmhs3KwQ9WpHVaiHRjBP37TQUiUGFQBTwp7cdbArCo5s2MT6415nd3ZYaELvNbZ4qTJjCGTavExv514tWftaGQzCK8gQz6BQJNySp",
         b"kpub2KCvcuKVgfy1h7PvCw4xFcdLAPoerVZBG4qTo8vRGH2Qe6p5AgLyRek5CEnuCDkduXHqgwtvaVfYYBS7gQBR1J4XowdvqvPXsHZGA5WyRJF",
     ];
+    // The blake2b of the 2-of-5 redeem script these five kpubs produce.
+    // Not ours: this is the Go implementation's answer, reached through
+    // rusty-kaspa's golang multisig import test
+    // (`wallet/core/src/compat/gen1.rs:134`), where the same five keys with
+    // `required_signatures: 2, cosigner_index: 1` give the receive address
+    // `kaspa:pqvgkyjeuxmd8k70egrrzpdz5rqj0acmr6y94mwsltxfp6nc50742295c3998`.
+    // Encoding the hash below as P2SH reproduces that string exactly, which
+    // `reference_vectors_tests::golang_multisig_p2sh_address_validates`
+    // asserts, so this constant is a cross-implementation vector rather than
+    // a value this codebase chose.
     const EXPECT_SCRIPT_HASH: [u8; 32] = [
         0x18, 0x8b, 0x12, 0x59, 0xe1, 0xb6, 0xd3, 0xdb, 0xcf, 0xca, 0x06, 0x31, 0x05, 0xa2, 0xa0, 0xc1,
         0x27, 0xf7, 0x1b, 0x1e, 0x88, 0x5a, 0xed, 0xd0, 0xfa, 0xcc, 0x90, 0xea, 0x78, 0xa3, 0xfd, 0x55,

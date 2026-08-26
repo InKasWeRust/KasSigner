@@ -176,16 +176,6 @@ python3 -m esptool --port /dev/cu.usbmodem* --baud 460800 \
 
 To reflash afterwards, put the board in download mode first: unplug USB, hold the BOOT button (the reset button on M5Stack CoreS3 Lite), plug USB back in, then release. See [docs/BUILD_FLASH_GUIDE.md](docs/BUILD_FLASH_GUIDE.md).
 
-### One-step installer (macOS only)
-
-For macOS users, the install script handles everything. Toolchain installation, build, and flash:
-
-```bash
-bash Install.sh
-```
-
-The script asks permission at every step (Y/N). It detects your environment, installs missing tools (Xcode CLI Tools, Rust, ESP32 toolchain, espflash), builds from source, and flashes the device. Linux and Windows users should follow the manual build steps above.
-
 ### Feature flags
 
 | Flag | Purpose |
@@ -305,6 +295,8 @@ cd web && python3 -m http.server 8080
 
 Eight independent layers: air-gap, volatile keys, hardware Secure Boot, software firmware verification, Rust memory safety, encrypted backup, steganographic hiding and the BIP39 passphrase, plus reproducible builds and cryptographic known-answer tests at every boot. The model, the primitives and what the device does not protect against are in [SECURITY.md](SECURITY.md).
 
+**A kpub is public, and that has a privacy cost worth understanding.** An account-level extended public key is exported precisely so a watch-only wallet can use it, so KasSigner writes it to SD and shows it as a QR without encryption. That is the feature, not an oversight: encrypting it would defeat what it is for. But a kpub derives every receive and change address for that account, so anyone holding it can see your entire balance and transaction history for that wallet, forever. It cannot spend, and it cannot be turned back into a private key. Treat an exported kpub like a bank statement rather than like a password: losing it costs privacy, not funds. If that matters for a particular wallet, export the kpub to a card you keep, not one you leave in a laptop, and use a separate account for anything you want unlinked.
+
 ## Documentation
 
 - [docs/KasSigner_User_Guide.pdf](docs/KasSigner_User_Guide.pdf): complete user guide 
@@ -318,6 +310,7 @@ Eight independent layers: air-gap, volatile keys, hardware Secure Boot, software
 - [docs/REPRODUCIBLE_BUILD.md](docs/REPRODUCIBLE_BUILD.md): verify builds with Docker
 - [docs/BUILD_FLASH_GUIDE.md](docs/BUILD_FLASH_GUIDE.md): build, flash and recover a board
 - [docs/ENTROPY.md](docs/ENTROPY.md): entropy sources, what was measured and what is only checked
+- [core/README.md](core/README.md): the security-critical code as a host-testable crate, `cargo test` with no hardware
 - [SECURITY.md](SECURITY.md): security model, threat analysis, responsible disclosure
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md): community standards
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to contribute, code standards
