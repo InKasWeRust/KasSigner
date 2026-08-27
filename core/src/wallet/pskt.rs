@@ -811,6 +811,12 @@ pub struct SignedResponse {
     pub num_signatures: usize,
 }
 
+impl Default for SignedResponse {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SignedResponse {
     pub fn new() -> Self {
         Self {

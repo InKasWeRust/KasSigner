@@ -525,7 +525,11 @@ impl<'a> Tokenizer<'a> {
     /// Produce the next token. After Eof is returned, subsequent calls
     /// continue to return Eof (not an error) — the parser can treat Eof
     /// as a normal terminator.
-    pub fn next(&mut self) -> Result<Tok<'a>, PskError> {
+    ///
+    /// Not `next`: an inherent method of that name on a `&mut self` type
+    /// reads as `Iterator::next`, which this is not. It yields `Result`
+    /// and returns `Eof` forever rather than `None` once.
+    pub fn next_token(&mut self) -> Result<Tok<'a>, PskError> {
         self.skip_ws();
         if self.pos >= self.data.len() {
             return Ok(Tok::Eof);
@@ -552,7 +556,7 @@ impl<'a> Tokenizer<'a> {
     /// and restores `pos`; cheap since `Tok` is Copy.
     pub fn peek(&mut self) -> Result<Tok<'a>, PskError> {
         let saved = self.pos;
-        let tok = self.next();
+        let tok = self.next_token();
         self.pos = saved;
         tok
     }
@@ -748,7 +752,7 @@ pub fn parse_pskt(
 /// Assert the next token matches `expected`. Consumes the token on
 /// match; errors on mismatch.
 fn expect(tok: &mut Tokenizer<'_>, expected: Tok<'_>) -> Result<(), PskError> {
-    let got = tok.next()?;
+    let got = tok.next_token()?;
     if core::mem::discriminant(&got) != core::mem::discriminant(&expected) {
         return Err(PskError::UnexpectedToken);
     }
@@ -757,7 +761,7 @@ fn expect(tok: &mut Tokenizer<'_>, expected: Tok<'_>) -> Result<(), PskError> {
 
 /// Read a string token, return its bytes.
 fn expect_string<'a>(tok: &mut Tokenizer<'a>) -> Result<&'a [u8], PskError> {
-    match tok.next()? {
+    match tok.next_token()? {
         Tok::Str(s) => Ok(s),
         _ => Err(PskError::UnexpectedToken),
     }
@@ -765,7 +769,7 @@ fn expect_string<'a>(tok: &mut Tokenizer<'a>) -> Result<&'a [u8], PskError> {
 
 /// Read a u64 number token.
 fn expect_u64(tok: &mut Tokenizer<'_>) -> Result<u64, PskError> {
-    match tok.next()? {
+    match tok.next_token()? {
         Tok::Num(n) => parse_u64_num(n),
         _ => Err(PskError::UnexpectedToken),
     }
@@ -789,7 +793,7 @@ fn capture_unknown(parsed: &mut PsktParsed, start: usize, end: usize) -> Result<
 /// Consumes tokens until a complete value has been read. Used for fields
 /// we want to byte-range-capture without interpreting.
 fn skip_value(tok: &mut Tokenizer<'_>) -> Result<(), PskError> {
-    match tok.next()? {
+    match tok.next_token()? {
         Tok::Str(_) | Tok::Num(_) | Tok::True | Tok::False | Tok::Null => Ok(()),
         Tok::LBrace => skip_until_matching(tok, Tok::RBrace),
         Tok::LBracket => skip_until_matching(tok, Tok::RBracket),
@@ -826,7 +830,7 @@ fn skip_until_matching(tok: &mut Tokenizer<'_>, close: Tok<'_>) -> Result<(), Ps
     let mut depth: usize = 1;
 
     loop {
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::LBrace => {
                 if depth >= MAX_DEPTH {
                     return Err(PskError::UnexpectedToken);
@@ -924,7 +928,7 @@ fn parse_bundle_array(
 
     // Closing `]`. Reject multi-element bundles — a comma here would
     // start another PSKT.
-    match tok.next()? {
+    match tok.next_token()? {
         Tok::RBracket => Ok(()),
         Tok::Comma => Err(PskError::BundleMultiElement),
         _ => Err(PskError::UnexpectedToken),
@@ -994,7 +998,7 @@ fn parse_pskt_object(
         }
 
         // Comma or close.
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1147,7 +1151,7 @@ fn parse_global(
                 // canonical vectors; capture only if non-empty.
                 expect(tok, Tok::LBrace)?;
                 match tok.peek()? {
-                    Tok::RBrace => { tok.next()?; }
+                    Tok::RBrace => { tok.next_token()?; }
                     _ => {
                         skip_until_matching(tok, Tok::RBrace)?;
                         capture_unknown(parsed, key_start, tok.position())?;
@@ -1159,7 +1163,7 @@ fn parse_global(
                     return Err(PskError::DuplicateField);
                 }
                 // Either `null` or a hex string. `null` is the default.
-                match tok.next()? {
+                match tok.next_token()? {
                     Tok::Null => { /* default, no capture */ }
                     Tok::Str(_) => {
                         // Non-default id present — capture the whole
@@ -1177,7 +1181,7 @@ fn parse_global(
             }
         }
 
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1205,7 +1209,7 @@ fn parse_inputs_array(
     // signing flow should see at least one input. We accept empty here
     // and let semantic validation in camera_loop.rs reject if needed.
     if let Tok::RBracket = tok.peek()? {
-        tok.next()?; // consume `]`
+        tok.next_token()?; // consume `]`
         tx.num_inputs = 0;
         return Ok(());
     }
@@ -1218,7 +1222,7 @@ fn parse_inputs_array(
         parse_input(tok, tx, parsed, count)?;
         count += 1;
 
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBracket => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1286,7 +1290,7 @@ fn parse_input(
                 // produced a signature their broadcaster rejects. An
                 // explicit value is signed exactly as given, whatever it is.
                 match tok.peek()? {
-                    Tok::Null => { tok.next()?; inp.sequence = u64::MAX; }
+                    Tok::Null => { tok.next_token()?; inp.sequence = u64::MAX; }
                     _ => inp.sequence = expect_u64(tok)?,
                 }
             }
@@ -1304,7 +1308,7 @@ fn parse_input(
                     return Err(PskError::DuplicateField);
                 }
                 // null OR hex string.
-                match tok.next()? {
+                match tok.next_token()? {
                     Tok::Null => { inp.redeem_script_len = 0; }
                     Tok::Str(hex_str) => {
                         if hex_str.len() / 2 > MAX_SCRIPT_SIZE {
@@ -1369,7 +1373,7 @@ fn parse_input(
                 // requested value: a signature that could not broadcast, and
                 // a lock time silently dropped from the review screen.
                 match tok.peek()? {
-                    Tok::Null => { tok.next()?; }
+                    Tok::Null => { tok.next_token()?; }
                     _ => {
                         let t = expect_u64(tok)?;
                         if t > tx.locktime { tx.locktime = t; }
@@ -1392,7 +1396,7 @@ fn parse_input(
                 let val_start = tok.position();
                 expect(tok, Tok::LBrace)?;
                 match tok.peek()? {
-                    Tok::RBrace => { tok.next()?; }  // empty, no capture
+                    Tok::RBrace => { tok.next_token()?; }  // empty, no capture
                     _ => {
                         skip_until_matching(tok, Tok::RBrace)?;
                         capture_unknown(parsed, key_start, tok.position())?;
@@ -1407,7 +1411,7 @@ fn parse_input(
             }
         }
 
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1469,7 +1473,7 @@ fn parse_utxo_entry(
                 // lowercase hex string when it does. Validated as strictly as
                 // the output binding: a value the device cannot decode is a
                 // value it must not display.
-                match tok.next()? {
+                match tok.next_token()? {
                     Tok::Null => {
                         inp.utxo_entry.has_covenant = false;
                     }
@@ -1493,7 +1497,7 @@ fn parse_utxo_entry(
                 skip_value(tok)?;
             }
         }
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1541,7 +1545,7 @@ fn parse_outpoint(
                 skip_value(tok)?;
             }
         }
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1562,7 +1566,7 @@ fn parse_partial_sigs(
 
     // Empty map is fine and common (unsigned PSKT).
     if let Tok::RBrace = tok.peek()? {
-        tok.next()?;
+        tok.next_token()?;
         inp.incoming_partial_sigs_count = 0;
         return Ok(());
     }
@@ -1603,7 +1607,7 @@ fn parse_partial_sigs(
         slot.present = true;
         count += 1;
 
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1739,7 +1743,7 @@ fn parse_bip32_derivations(
 
     let peek = tok.peek()?;
     if let Tok::RBrace = peek {
-        tok.next()?;
+        tok.next_token()?;
         return Ok(());
     }
 
@@ -1760,7 +1764,7 @@ fn parse_bip32_derivations(
             }
         }
 
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1789,7 +1793,7 @@ fn parse_outputs_array(
     expect(tok, Tok::LBracket)?;
 
     if let Tok::RBracket = tok.peek()? {
-        tok.next()?;
+        tok.next_token()?;
         tx.num_outputs = 0;
         return Ok(());
     }
@@ -1802,7 +1806,7 @@ fn parse_outputs_array(
         parse_output(tok, tx, parsed, count)?;
         count += 1;
 
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBracket => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1883,11 +1887,11 @@ fn parse_output(
                 seen_covenant = true;
                 match tok.peek()? {
                     Tok::Null => {
-                        tok.next()?;
+                        tok.next_token()?;
                         out.has_covenant = false;
                     }
                     Tok::LBrace => {
-                        tok.next()?;
+                        tok.next_token()?;
                         // `{}` is a contradiction: a binding is present but
                         // carries nothing. `null` is how absence is spelled.
                         if let Tok::RBrace = tok.peek()? {
@@ -1936,7 +1940,7 @@ fn parse_output(
                                 // round trip.
                                 _ => return Err(PskError::InvalidCovenantBinding),
                             }
-                            match tok.next()? {
+                            match tok.next_token()? {
                                 Tok::Comma => continue,
                                 Tok::RBrace => break,
                                 _ => return Err(PskError::UnexpectedToken),
@@ -1966,7 +1970,7 @@ fn parse_output(
                 expect(tok, Tok::LBrace)?;
                 let val_start = tok.position();
                 match tok.peek()? {
-                    Tok::RBrace => { tok.next()?; }  // empty, no capture
+                    Tok::RBrace => { tok.next_token()?; }  // empty, no capture
                     _ => {
                         skip_until_matching(tok, Tok::RBrace)?;
                         // Pull the derivation path out NOW, as the input side
@@ -1996,7 +2000,7 @@ fn parse_output(
             }
         }
 
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),

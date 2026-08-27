@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-pub const WORDLIST: [&str; 2048] = [
+pub static WORDLIST: [&str; 2048] = [
     "abandon",
     "ability",
     "able",
