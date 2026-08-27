@@ -109,13 +109,13 @@ include!("../firmware_hash.rs");
 /// identical (an unsigned production image still halts at boot) while
 /// denying the compiler the proof, so the whole firmware stays in both
 /// images. It was `core::hint::black_box` until the first 1.0.7 release
-/// build; a third-party review pointed out that `black_box` is documented
-/// as a hint, so an aggressive LTO pass is licensed to see through it.
-/// `read_volatile` is a guarantee: the load must be performed and cannot
-/// be constant-folded. The Docker build asserts the property on every
-/// release (each unsigned app image full-sized and within 64 KiB of its
-/// signed pair), so a compiler that ever defeats this barrier fails the
-/// build instead of shipping a stub.
+/// build. `black_box` is documented as a hint with no guaranteed effect,
+/// so an aggressive LTO pass is licensed to see through it and delete the
+/// wallet again. `read_volatile` is a guarantee: the load must be
+/// performed and cannot be constant-folded. The Docker build asserts the
+/// property on every release (each unsigned app image full-sized and
+/// within 64 KiB of its signed pair), so a compiler that ever defeats
+/// this barrier fails the build instead of shipping a stub.
 ///
 /// The only SOURCE inputs that differ between signed and unsigned are the
 /// signature bytes, this flag, and the embedded hash; the compiled bytes

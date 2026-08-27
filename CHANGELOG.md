@@ -68,7 +68,9 @@ published unsigned hashes meaningless was found and fixed.
   CMD13+CMD7 (measured 0 ms) instead of a full re-init.
 - **Camera lifecycle in one place**: the camera-state sets are defined once,
   the touch debounce lives on `AppData`, and every one of the 28 camera exit
-  paths arms it at the exit through `leave_camera`. The Waveshare scan-exit
+  paths arms it at the exit: 25 through `leave_camera`, and three where
+  `start_review` sets the next state itself and the exit arms the guard
+  directly, each with a comment saying so. The Waveshare scan-exit
   freeze was the path the old per-board cleanup missed.
 - **PSKB compatibility with the reference implementation**: an unset input
   `sequence` (absent or null) now signs as `u64::MAX`, matching what the

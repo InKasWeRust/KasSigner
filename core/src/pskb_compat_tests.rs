@@ -143,3 +143,31 @@ fn reparse_of_our_own_output_agrees() {
     assert_eq!(tx2.outputs[0].value, tx.outputs[0].value);
     assert_eq!(tx2.locktime, tx.locktime);
 }
+
+/// The same roundtrip with a lock time set. `RK_FIXTURE` carries no
+/// `minTime`, so the test above only ever proves locktime 0 survives; a
+/// timelocked bundle is the case that matters, because the device signs
+/// over the lock time and a value lost in serialization would produce a
+/// signature the network rejects. Both spellings of the threshold are
+/// covered: a DAA score below `LOCK_TIME_THRESHOLD` and a millisecond
+/// timestamp above it.
+#[test]
+fn reparse_preserves_a_non_zero_lock_time() {
+    for t in [500_000_000u64, 1_615_462_089_000u64] {
+        let field = alloc::format!(r#""minTime":{t},"#);
+        let wire = wire_with(r#""sequence":0,"#, &field, 1, 1);
+        let (tx, parsed) = parse(&wire).expect("timelocked bundle must parse");
+        assert_eq!(tx.locktime, t, "minTime {t} must reach tx.locktime");
+
+        let mut scratch = alloc::vec![0u8; 8192];
+        let mut out = alloc::vec![0u8; 16384];
+        let n = std_pskt::serialize_pskt(
+            &tx, &parsed, &mut scratch, crate::types::TxInputFormat::PsktPskb, &mut out,
+        ).expect("serialize");
+        let (tx2, _) = parse(&out[..n]).expect("our own timelocked output must parse");
+        assert_eq!(tx2.locktime, t, "lock time {t} must survive the roundtrip");
+        assert_eq!(tx2.num_inputs, tx.num_inputs);
+        assert_eq!(tx2.num_outputs, tx.num_outputs);
+        assert_eq!(tx2.inputs[0].sequence, u64::MAX);
+    }
+}
