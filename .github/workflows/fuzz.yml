@@ -1,0 +1,119 @@
+# KasSigner : Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0
+#
+# Coverage-guided fuzzing of the kassigner-core parsers, on a schedule.
+#
+# This is the second of the two layers described in core/fuzz/README.md. The
+# first, the deterministic 3000-step smoke loop, runs in core CI on every push
+# and takes three seconds. This one is libFuzzer: it needs nightly, it explores
+# rather than replays, and it only earns its time in minutes, not seconds. So
+# it runs nightly on a schedule instead of on every push, and never blocks a
+# merge.
+#
+# Every run is bounded. `-max_total_time` per target caps the fuzzing itself,
+# `timeout-minutes` caps the job if libFuzzer ever fails to honour it, and
+# `-max_len` keeps a single input from growing without limit. Nine targets in
+# parallel, one job each, so one slow target cannot starve the rest and a crash
+# is attributed to its target by the job name alone.
+name: fuzz
+
+on:
+  # Nightly at 03:17 UTC. Not on the hour: GitHub's scheduler queues heavily at
+  # round times and a delayed start is indistinguishable from a hung run.
+  schedule:
+    - cron: "17 3 * * *"
+  # Manual trigger, with the duration as an input so a suspect target can be
+  # given an hour by hand without editing the file.
+  workflow_dispatch:
+    inputs:
+      max_total_time:
+        description: "Seconds per target"
+        required: false
+        default: "300"
+  # On changes to the fuzz harness itself, to catch a target that no longer
+  # builds. Not on core/** : that is core CI's job and it already compiles
+  # these targets on every push.
+  push:
+    paths:
+      - "core/fuzz/**"
+      - "core/src/fuzz_api.rs"
+      - ".github/workflows/fuzz.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    # Ceiling, not the expected duration: 300 s of fuzzing plus toolchain,
+    # build and corpus. If a job reaches this, libFuzzer ignored its own
+    # deadline and the run is a bug in itself.
+    timeout-minutes: 30
+    strategy:
+      # One target's crash must not cancel the other eight.
+      fail-fast: false
+      matrix:
+        target:
+          - kspt_parse
+          - pskt_parse
+          - hex_decode
+          - kpub_import
+          - xprv_import
+          - address_validate
+          - script_parse
+          - payload_classify
+          - mnemonic_validate
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # cargo-fuzz needs nightly for -Z build-std and the sanitizer flags.
+      # Unpinned on purpose, unlike core CI: the point of this workflow is to
+      # meet new compiler behaviour, and a pinned nightly would go stale and
+      # quietly stop being nightly at all.
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      # Seeds minted by the crate's own serializers: valid inputs libFuzzer can
+      # mutate from, rather than starting at the empty string and spending the
+      # budget rediscovering the envelope format.
+      - name: Seed corpus
+        working-directory: core/fuzz
+        run: cargo run --bin seed_corpus
+
+      - name: Fuzz ${{ matrix.target }}
+        working-directory: core
+        env:
+          SECS: ${{ github.event.inputs.max_total_time || '300' }}
+        run: |
+          cargo fuzz run ${{ matrix.target }} -- \
+            -max_total_time=$SECS \
+            -max_len=16384 \
+            -rss_limit_mb=4096 \
+            -print_final_stats=1
+
+      # A crash file is the whole product of a failed run, so keep it even
+      # though the step above has already failed the job.
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: core/fuzz/artifacts/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      # The corpus grows with coverage, so a crash is far easier to reproduce
+      # against the inputs that led to it.
+      - name: Upload corpus
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus-${{ matrix.target }}
+          path: core/fuzz/corpus/${{ matrix.target }}/
+          if-no-files-found: ignore
+          retention-days: 30
