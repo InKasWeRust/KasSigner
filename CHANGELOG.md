@@ -23,7 +23,9 @@ published unsigned hashes meaningless was found and fixed.
 - **`core/`, the `kassigner-core` crate**: key derivation, mnemonics, the
   transaction parsers and serializers, sighash, Schnorr, storage encryption
   and the FAT32 layer, as a `no_std` crate with no peripheral access.
-  `cd core && cargo test` on stock stable Rust, 57 tests. The firmware
+  `cd core && cargo test`, 58 tests; the crate carries its own
+  `rust-toolchain.toml` pinning 1.85.0, the host compiler the release build
+  uses, and rustup fetches it on first run. The firmware
   consumes it as a path dependency and re-exports the old paths, so no call
   site changed. The two things it needs from hardware arrive through
   registration points that fail closed: no logger registered means nothing
@@ -32,17 +34,12 @@ published unsigned hashes meaningless was found and fixed.
   run three ways: a deterministic mutation smoke loop under plain
   `cargo test`, a cargo-fuzz project over the same bodies for coverage-guided
   runs, and CI on every push (`.github/workflows/core.yml`).
-- **Reference vectors from rusty-kaspa 2.0.1**: the boot sighash set grows
-  from 27 to 30 vectors, adding proof that the signing input's own sequence is
-  committed under SINGLE and two negatives that pin what is *not* committed.
-  Both mainnet address rows of their table reproduce exactly; Bitcoin-versioned
-  `xprv`/`xpub` from the BIP32 test vectors are refused by all six import
-  entry points. The 45' multisig KAT was already a cross-implementation
-  vector, reproducing the Go implementation's address, and now says so.
-- **Multisig hint vectors on the host**: the V8 (KSPT v4) and V9 (PSKB) audit
-  vectors decoded from their QR frames and embedded as tests, with a
-  cross-format agreement test asserting every signed-over field and every
-  derivation hint identical between the two encodings.
+- **Vectors from the reference implementation**: the boot sighash set grows
+  from 27 to 30, Bitcoin-versioned `xprv`/`xpub` are refused by all six import
+  entry points, and the 45' multisig KAT reproduces the Go implementation's
+  address. The V8 and V9 multisig hint vectors are now host tests, with a
+  cross-format check that KSPT v4 and PSKB agree on every signed field and
+  hint.
 - **Lock time on the review screens**: a timelocked transaction shows
   "Locked until DAA n" or "Locked until YYYY-MM-DD HH:MM UTC" in orange on
   TX REVIEW, and a LOCKED marker on CONFIRM SEND. Zero lock time draws
@@ -53,70 +50,69 @@ published unsigned hashes meaningless was found and fixed.
   instead of shipping.
 
 ### Changed
-- **One FAT32 layer**: the two per-board copies collapse into `core/fat32.rs`
-  over a `BlockDevice` trait; the stricter guard from each copy survives, so
-  the Waveshare mount now refuses an unsigned MBR as the M5 always did.
-  Host-tested against an in-memory card image, including a corrupt circular
-  chain terminating instead of hanging.
-- **Batched FAT writes**: allocating a chain patches each touched FAT sector
-  once per copy instead of once per cluster (a 7-cluster file costs 2 FAT
-  sector writes, not 26), in an order a power loss cannot corrupt. Deletion
-  is batched the same way and marks the directory entry before freeing the
-  chain, so interruption leaks clusters instead of leaving a live entry over
-  reusable ones.
-- **Waveshare SD reselect**: back-to-back SD sessions reuse the held card via
-  CMD13+CMD7 (measured 0 ms) instead of a full re-init.
+- **One SD layer**: the two per-board FAT32 copies collapse into
+  `core/fat32.rs` over a `BlockDevice` trait, keeping the stricter guard from
+  each, and host-tested against an in-memory card image. FAT writes are
+  batched per sector rather than per cluster (a 7-cluster file costs 2 writes,
+  not 26), ordered so a power loss leaks clusters rather than leaving a live
+  entry over reusable ones. Waveshare reuses a held card via CMD13+CMD7
+  instead of re-initialising.
 - **Camera lifecycle in one place**: the camera-state sets are defined once,
   the touch debounce lives on `AppData`, and every one of the 28 camera exit
   paths arms it at the exit: 25 through `leave_camera`, and three where
   `start_review` sets the next state itself and the exit arms the guard
   directly, each with a comment saying so. The Waveshare scan-exit
   freeze was the path the old per-board cleanup missed.
-- **PSKB compatibility with the reference implementation**: an unset input
-  `sequence` (absent or null) now signs as `u64::MAX`, matching what the
-  rusty-kaspa signer hashes; `minTime` is parsed and the transaction lock
-  time is the largest across the inputs; creator-role zero counts over
-  populated arrays are accepted as unset. rusty-kaspa's own committed PSKB
-  fixture now parses. An explicit sequence value is always signed as given.
-- **KasSee aligned with the same rules**: unset sequence is MAX and the lock
-  time rides `minTime`, so both sides of the QR agree byte for byte. Also:
-  the dead single-PSKT path removed, an "already accepted" broadcast reply
-  treated as the success it is, and the signed-PSKB paste and copy-hex
-  controls made reachable.
+- **PSKB compatibility, on both sides of the QR**: an unset `sequence` signs
+  as `u64::MAX` as the rusty-kaspa signer hashes it, an explicit value is
+  signed as given, the lock time is the largest `minTime` across the inputs,
+  and creator-role zero counts over populated arrays are read as unset.
+  rusty-kaspa's own committed fixture now parses. KasSee follows the same
+  rules, and gains a reachable paste and copy-hex control and an "already
+  accepted" broadcast reply treated as the success it is.
 
 ### Fixed
-- **Published unsigned hashes now stand for the real firmware.** The unsigned
-  release images were stubs: `FIRMWARE_SIGNED` is a `const bool`, and with
-  `false` the compiler could prove boot never reached the wallet and deleted
-  it, leaving 244-271 kB images with no wordlist and no UI against 904-912 kB
-  signed. A verifier rebuilding unsigned reproduced the stub, so the
-  comparison proved nothing about the firmware anyone runs. The constant is
-  now read through `core::ptr::read_volatile` (a guarantee where
-  `core::hint::black_box`, used briefly during 1.0.7 development, is only
-  a hint): still truthful, unsigned production still halts at boot, and
-  both images carry the complete firmware. The release build asserts the
-  property: every unsigned app image must be full-sized and within 64 KiB
-  of its signed pair, so a future compiler that defeats the barrier fails
-  the build. Verification compares unsigned against unsigned.
-- **The device could not sign a timelocked transaction.** PSKB `minTime` was
-  skipped, so the device signed lock time 0 while the sender's extractor
-  built the requested value, and the network rejected the mismatched
-  signature. Fail closed, no funds at risk, but the capability did not exist.
-  Now parsed, signed and shown on screen. The output side had the same gap
-  in mirror: `serialize_pskt` wrote `"minTime":null` on every input, so a
-  bundle the device emitted reconstructed to lock time 0, an extractor
-  reading it rebuilt a transaction the signature does not match, and a
-  second multisig signer saw no lock time on the review screen at all.
-  Found by a roundtrip test written for this release; the emitter now
-  writes the transaction lock time on every input, which reproduces the
-  signed value under the reference's `determine_lock_time` derivation.
-  KSPT was never affected, its binary layout carries lock time as a fixed
-  field.
+- **Published unsigned hashes now stand for the real firmware.**
+  `FIRMWARE_SIGNED` was a `const bool`, so with `false` the compiler could
+  prove boot never reached the wallet and delete it: 244-271 kB stubs against
+  904-912 kB signed, and a verifier rebuilding unsigned reproduced the stub.
+  The flag is now read through `core::ptr::read_volatile`, a guarantee where a
+  hint is not, and the release build refuses to ship an unsigned image that is
+  not full-sized and within 64 KiB of its signed pair. Compare unsigned
+  against unsigned.
+- **The device could not sign a timelocked transaction, in either
+  direction.** `minTime` was skipped on parse, so the device signed lock time
+  0 while the sender's extractor built the requested value. The emitter had
+  the same gap in mirror, writing `"minTime":null` on every input, so a
+  returned bundle reconstructed to lock time 0 and a second multisig signer
+  saw no lock time at all. Fail closed both ways, no funds at risk, but the
+  capability did not exist. Both fixed, with a roundtrip test that pins it.
+  KSPT was never affected.
 - **An absent PSKB sequence signed as 0**, producing signatures reference
   wallets reject. Now `u64::MAX`, per the rules above.
 - **A test in `ecies.rs` had never compiled**; the `cfg(test)` code was
   unbuildable before the crate split made it buildable, and the assertion is
   fixed.
+- **A scanned transaction could halt the device.** Values were never bounded
+  at parse time, so two outputs near `u64::MAX` overflowed the review sums and
+  trapped before anything was signed. Both parsers now check each value and
+  the running total against the consensus `MAX_SOMPI`. (a)
+- **A covenant backup could be written corrupt**: the hex decode validated
+  only the first eight characters, so garbage was saved and the failure would
+  have surfaced at restore. (a)
+- **The formatter declared space the FAT could not address**, 7.5 GiB behind a
+  FAT covering about 4 GiB, and left a previous filesystem's chains live past
+  sector 32. Geometry now comes from the card's CSD, both FATs are cleared,
+  and every format write is read back. Cards formatted by 1.0.6 keep working;
+  formatting a large card takes longer. (a)
+- **Further hardening from the same passes**: a failed delete no longer passes
+  silently before a same-name create; a duplicate derivation hint is refused;
+  a seed backup word index outside the wordlist is refused; a third multisig
+  config in one session is registered rather than dropped; an over-range
+  redeem script is refused rather than truncated; the signing slot is claimed
+  only once a mnemonic is present; the SD helpers bounds-check the caller's
+  buffer; the Waveshare viewfinder repaints on the first back tap; and in
+  KasSee the values that reach a signature are BigInt end to end. (a)
 
 ### Removed
 - **`Install.sh`.** It downloaded the latest release over curl and flashed it
@@ -143,6 +139,14 @@ published unsigned hashes meaningless was found and fixed.
 - The build scripts pass the build configuration through verbatim and print
   which signing key, if any, they found; the embedded hash is read from the
   generated file rather than parsed out of logs.
+- **Scratch buffers are cleared on every path, including the failures.** A
+  caller cannot reach a callee's frame, so `base58check_decode` left a decoded
+  xprv, private key included, in its own scratch; `import_xprv` the same. The
+  session wipe now also covers the message being signed, the commit-reveal
+  buffers that hold it on the heap, and the last parsed transaction. (a)
+
+(a) Reported by [KodinglsFun](https://x.com/KodinglsFun); fixed in PRs #14
+and #15.
 
 ### Known limitations
 - A byte-diff of a signed image against an unsigned one is not confined to

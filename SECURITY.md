@@ -99,7 +99,7 @@ Everything above runs on a host as well as on the device. The key derivation,
 the transaction parsers, sighash, Schnorr and the storage encryption are a
 separate crate, `core/`, with no peripheral access and no `esp-hal`, so a
 reviewer needs no ESP hardware and no Xtensa toolchain: `cd core && cargo test`
-on stock stable Rust runs the same boot-time known-answer tests listed above,
+runs the same boot-time known-answer tests listed above,
 the FAT32 layer against an in-memory card image, and a mutation loop over
 every parser. [core/README.md](core/README.md) explains what is in the crate,
 what deliberately is not, and how to run the coverage-guided fuzzer. A
@@ -142,7 +142,7 @@ The backup KDF is PBKDF2-HMAC-SHA256 at 100,000 rounds by decision, not by defau
 
 ## Reviews and Known Limitations
 
-KasSigner has been through several security reviews since v1.0.5. Every finding was checked against the source; see [CHANGELOG.md](CHANGELOG.md) for the fixes that shipped. Several claims from the reviews were refuted from the code.
+KasSigner has been through several security reviews since v1.0.5, the external ones by [KodinglsFun](https://x.com/KodinglsFun). Every finding was checked against the source; see [CHANGELOG.md](CHANGELOG.md) for the fixes that shipped, credited there against the release they landed in. Several claims from the reviews were refuted from the code, with the reasoning published rather than the finding quietly dropped.
 
 The project has not been reviewed by an independent professional security firm; a formal third-party audit is a goal for a future release. Community review is welcome, and `core/src/wallet/`, `core/src/crypto/`, `bootloader/src/hw/sd_backup.rs` and `bootloader/src/features/stego*.rs` are where it counts most.
 
