@@ -107,7 +107,11 @@ COPY core/ core/
 COPY kassee/ kassee/
 COPY rqrr_nostd/ rqrr_nostd/
 COPY tools/ tools/
-COPY rust-toolchain.toml .
+# No root rust-toolchain.toml: each crate carries its own pin, because the
+# firmware wants the Xtensa toolchain and the host crates want 1.85.0. A
+# single root pin made `cargo` in core/, kassee/ and tools/ resolve `esp`,
+# which is why gen-hash was built by the Xtensa compiler and why
+# `cd core && cargo test` failed on any machine without it.
 
 ENV SOURCE_DATE_EPOCH=0
 
