@@ -89,6 +89,13 @@ jobs:
         working-directory: core
         env:
           SECS: ${{ github.event.inputs.max_total_time || '300' }}
+          # core/rust-toolchain.toml pins 1.85.0 so that `cd core && cargo
+          # test` works on stable, and rustup ranks a directory's toolchain
+          # file above the default the nightly action sets. Run #1 failed on
+          # exactly that: rustc 1.85.0 refusing every -Z flag. The environment
+          # variable outranks the file, so the fuzz build gets nightly while
+          # the crate keeps its pin for everything else.
+          RUSTUP_TOOLCHAIN: nightly
         run: |
           cargo fuzz run ${{ matrix.target }} -- \
             -max_total_time=$SECS \
