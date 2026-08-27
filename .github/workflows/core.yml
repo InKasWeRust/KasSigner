@@ -1,0 +1,45 @@
+# KasSigner : Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0
+#
+# kassigner-core: host build and the boot-time self-test set under cargo test.
+name: core CI
+
+on:
+  push:
+    paths:
+      - "core/**"
+      - ".github/workflows/core.yml"
+  pull_request:
+    paths:
+      - "core/**"
+      - ".github/workflows/core.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Build (release, as the firmware consumes it)
+        run: cargo build --release
+      - name: Self-tests, boot default set
+        run: cargo test
+      - name: Self-tests, full KAT set
+        run: cargo test --features boot-kats-full
+      - name: Self-tests, verbose-boot gated entry points
+        run: cargo test --features verbose-boot
+      - name: Parser fuzz smoke loop (seeds, edge cases, 3000 mutations per target)
+        run: cargo test --features fuzz-api fuzz_smoke
+      - name: cargo-fuzz targets compile
+        run: cargo check --manifest-path fuzz/Cargo.toml --bins
+      - name: Clippy
+        # -A unknown_lints: lib.rs mirrors the firmware allow list, which
+        # names lints the esp toolchain knows; a stable clippy behind it
+        # must not fail on the names alone.
+        run: cargo clippy --all-targets -- -D warnings -A unknown_lints

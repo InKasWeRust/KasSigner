@@ -1047,7 +1047,7 @@ pub fn run_sighash_vectors() -> (u32, u32) {
     // restoring a shared one. A missed restore would make a later case pass or
     // fail for a reason unrelated to what it tests, and these are the tests
     // that are supposed to be trustworthy. Each box is freed at the end of its
-    // case, so peak heap is one transaction, not twenty-seven.
+    // case, so peak heap is one transaction, not thirty.
     macro_rules! case {
         ($name:expr, $build:expr, $idx:expr, $ty:expr, $exp:expr, $mutate:expr) => {{
             total += 1;

@@ -4302,10 +4302,10 @@ pub fn draw_home_grid(&mut self) {
             .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
             .draw(&mut self.display).ok();
 
-        let bw = measure_body("Add a cosigner kpub:");
-        draw_lato_body(&mut self.display, "Add a cosigner kpub:", (320 - bw) / 2, 65, COLOR_TEXT);
-        let hw = measure_hint("Scan a kpub QR or use a loaded seed");
-        draw_lato_hint(&mut self.display, "Scan a kpub QR or use a loaded seed", (320 - hw) / 2, 80, COLOR_TEXT_DIM);
+        let bw = measure_body("Add a cosigner Multisig kpub:");
+        draw_lato_body(&mut self.display, "Add a cosigner Multisig kpub:", (320 - bw) / 2, 65, COLOR_TEXT);
+        let hw = measure_hint("kpub Multisig QR, or a loaded seed");
+        draw_lato_hint(&mut self.display, "kpub Multisig QR, or a loaded seed", (320 - hw) / 2, 80, COLOR_TEXT_DIM);
 
         let btn_corner = CornerRadii::new(Size::new(8, 8));
 
@@ -4317,8 +4317,8 @@ pub fn draw_home_grid(&mut self) {
         RoundedRectangle::new(scan_rect, btn_corner)
             .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
             .draw(&mut self.display).ok();
-        let sw = measure_title("Scan kpub QR");
-        draw_lato_title(&mut self.display, "Scan kpub QR", 30 + (260 - sw) / 2, 120, COLOR_TEXT);
+        let sw = measure_title("Scan Multisig kpub");
+        draw_lato_title(&mut self.display, "Scan Multisig kpub", 30 + (260 - sw) / 2, 120, COLOR_TEXT);
 
         // "Use Loaded Seed" button
         let use_color = if has_loaded { COLOR_CARD } else { COLOR_BG };
@@ -5424,12 +5424,19 @@ pub fn draw_home_grid(&mut self) {
     /// Shared two-button popup layout: header + body lines + left (teal) / right (card) buttons + back.
     /// Used by all Save/Back, Yes/No, and choice popups.
     fn draw_two_button_popup(&mut self, header: &str, body: &[&str], left_label: &str, right_label: &str) {
+        self.draw_two_button_popup_colored(header, body, left_label, right_label, KASPA_TEAL);
+    }
+
+    /// The same popup with the header and rule in a caller-chosen colour.
+    /// Warnings use COLOR_ORANGE; everything else stays teal through the
+    /// wrapper above.
+    fn draw_two_button_popup_colored(&mut self, header: &str, body: &[&str], left_label: &str, right_label: &str, header_color: Rgb565) {
         self.display.clear(COLOR_BG).ok();
 
         let tw = measure_header(header);
-        draw_oswald_header(&mut self.display, header, (320 - tw) / 2, 30, KASPA_TEAL);
+        draw_oswald_header(&mut self.display, header, (320 - tw) / 2, 30, header_color);
         Line::new(Point::new(20, 40), Point::new(300, 40))
-            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .into_styled(PrimitiveStyle::with_stroke(header_color, 1))
             .draw(&mut self.display).ok();
 
         let y_positions: [i32; 3] = [75, 95, 115];
@@ -5461,6 +5468,25 @@ pub fn draw_home_grid(&mut self) {
         draw_lato_title(&mut self.display, right_label, 165 + (125 - rw) / 2, 169, COLOR_TEXT);
 
         self.draw_back_button();
+    }
+
+    /// Warning before scanning a cosigner key during multisig creation.
+    ///
+    /// A 44' watch-only kpub and the 45' multisig kpub are
+    /// byte-indistinguishable on the wire, so this screen is labelling, not
+    /// verification; it is also the only defence that exists (see N-23).
+    /// SCAN (teal, left) continues to the camera, CANCEL (right) and the
+    /// back button return to the add-key screen.
+    pub fn draw_multisig_kpub_warning(&mut self) {
+        self.draw_two_button_popup_colored(
+            "COSIGNER KEY",
+            &["Scan the kpub MULTISIG QR only.",
+              "A watch-only 44' kpub makes a",
+              "wallet no one can ever spend."],
+            "SCAN",
+            "CANCEL",
+            COLOR_ORANGE,
+        );
     }
 
     /// Draw Import / Export choice screen — two big buttons.

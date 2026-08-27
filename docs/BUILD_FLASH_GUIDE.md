@@ -84,10 +84,12 @@ with it. Measured: signed and unsigned dev builds are byte-identical, and the
 signature bytes appear in none of the images.
 
 **A `production` build embeds it, and that changes the code segment.**
-Measured on Waveshare: 552396 bytes signed against 552388 unsigned, and
-different code-segment hashes (`fe280831...` signed, `c87efe56...` unsigned).
-So a verifier compares their unsigned build against the published UNSIGNED
-hashes. Comparing unsigned against signed will never match and means nothing.
+Signed and unsigned production images have different sizes and different
+code-segment hashes, so a verifier compares their unsigned build against the
+published UNSIGNED hashes. Comparing unsigned against signed will never match
+and means nothing. Since 1.0.7 the unsigned image is the complete firmware
+rather than a stub, so the published unsigned hash stands for the code a
+device actually runs.
 
 Every released image is therefore a production build. Development builds are
 for developers, via `cargo run`, and no hashes are published for them.
@@ -98,11 +100,11 @@ The firmware embeds a hash of its own code segment, so writing the hash
 changes the thing being hashed. The build iterates five times and asserts the
 last two passes agree.
 
-Measured: signed settles at pass 2, unsigned at pass 3. Three passes was the
-previous assumption and had never been checked. A configuration needing four
-would have shipped a binary whose embedded hash did not match its own code,
-which in a production build halts at boot. The assertion turns that into a
-failed build.
+Which pass a given configuration settles at varies from release to release
+and does not matter: the assertion is the guarantee. A configuration that
+failed to converge would otherwise ship a binary whose embedded hash did not
+match its own code, which in a production build halts at boot. The assertion
+turns that into a failed build instead.
 
 ### Extract binaries from Docker
 
@@ -397,7 +399,11 @@ enter download mode: unplug USB, hold BOOT, plug USB, release.
 
 ## 6. Build KasSee Web (Companion Wallet)
 
-KasSee ships with pre-built WASM in `kassee/web/pkg/` and works out of the box. Open `kassee/web/index.html` in any modern browser. To rebuild from source, see **Building KasSee from source** in the README.
+KasSee ships with pre-built WASM in `kassee/web/pkg/` and works out of the
+box, but it must be served over HTTP, not opened as a `file://` URL (the WASM
+will not load). Visit [kassigner.org](https://kassigner.org), or serve
+`kassee/web/` locally with any static server. To rebuild from source, see
+**Building KasSee from source** in the README.
 
 
 ---

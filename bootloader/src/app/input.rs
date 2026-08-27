@@ -495,6 +495,14 @@ pub enum AppState {
     MultisigPickSeed { key_idx: u8 },
     /// Multisig: scan/add pubkey (which key index 0..N-1 we're collecting)
     MultisigAddKey { key_idx: u8 },
+    /// Multisig: warning before scanning a cosigner key. A 44' watch-only
+    /// kpub is byte-indistinguishable from the 45' multisig kpub (same
+    /// version bytes, same length, valid checksum), so nothing at the
+    /// scanner can reject the wrong one; a 44' key builds a descriptor that
+    /// parses and an address that funds but that no signer can spend
+    /// (N-23). This screen is the only defence that exists: it puts the
+    /// label in front of the user at the moment of risk.
+    MultisigKpubWarn { key_idx: u8 },
     /// Multisig: show the created multisig address as QR
     MultisigShowAddress,
     /// Multisig: show QR of multisig address
@@ -761,7 +769,8 @@ pub fn new() -> Self {
             | AppState::SdOverwriteWarning | AppState::SdKpubEncryptAsk
             | AppState::ShowQrModeChoice
             | AppState::MultisigChooseMN | AppState::MultisigPickSeed { .. }
-            | AppState::MultisigAddKey { .. } | AppState::MultisigShowAddress
+            | AppState::MultisigAddKey { .. } | AppState::MultisigKpubWarn { .. }
+            | AppState::MultisigShowAddress
             | AppState::MultisigShowAddressQR
             | AppState::MultisigSaveAddrAsk
             | AppState::MultisigDescriptor
@@ -1056,7 +1065,8 @@ pub fn handler_group(&self) -> HandlerGroup {
             // Transaction / multisig / camera / message signing
             ScanQR | ReviewTx { .. } | ConfirmTx | SignTxGuide
             | MultisigChooseMN | MultisigPickSeed { .. }
-            | MultisigAddKey { .. } | MultisigShowAddress | MultisigShowAddressQR
+            | MultisigAddKey { .. } | MultisigKpubWarn { .. }
+            | MultisigShowAddress | MultisigShowAddressQR
             | MultisigSaveAddrAsk | MultisigDescriptor
             | SignMsgChoice | SignMsgType | SignMsgFile | SignMsgPreview | SignMsgScanQr | SignMsgHashPreview | SignMsgResult | SignMsgResultQr
             | CommitRevealType | CommitRevealPreview | CommitRevealResult | CommitRevealResultQr

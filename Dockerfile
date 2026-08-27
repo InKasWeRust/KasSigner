@@ -1,4 +1,4 @@
-# KasSigner — Air-gapped offline signing device for Kaspa
+# KasSigner - Air-gapped offline signing device for Kaspa
 # Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 # License: GPL-3.0
 #
@@ -10,10 +10,10 @@
 #     docker build --platform linux/amd64 -f Dockerfile.base \
 #       -t kassigner-toolchain:v3 .
 #
-#   Verifier (no key) — builds the three UNSIGNED images:
+#   Verifier (no key) - builds the three UNSIGNED images:
 #     docker build --platform linux/amd64 -t kassigner-build .
 #
-#   Maintainer (with key) — builds all six, unsigned then signed:
+#   Maintainer (with key) - builds all six, unsigned then signed:
 #     docker build --platform linux/amd64 \
 #       --secret id=signkey,src=/path/to/dev_signing_key.bin \
 #       -t kassigner-build .
@@ -44,10 +44,14 @@
 #
 # ── Signed and unsigned differ ──────────────────────────────────────
 #
-# The signature changes the code segment (measured: 552396 bytes signed vs
-# 552388 unsigned), so the two have DIFFERENT code-segment hashes. A verifier
-# compares their build against the published UNSIGNED hash for the same
-# target.
+# The two have DIFFERENT code-segment hashes. The unsigned image is the
+# COMPLETE firmware built from the same source; the only inputs that differ
+# are the signature bytes, the signed flag and the embedded hash
+# (features/verify.rs, firmware_signed). Those constants shift the compiler's
+# output, so a byte-diff of signed against unsigned is NOT confined to the
+# signature region; the comparison that matters is unsigned against unsigned.
+# A verifier compares their build against the published UNSIGNED hash for the
+# same target, and that hash stands for the real firmware, not a stub.
 #
 # Unsigned images run in production mode with no valid signature and halt at
 # boot. They exist to be hashed, not flashed.
@@ -59,7 +63,7 @@
 #
 # FIVE passes, with an explicit check that the last two agree. Measured:
 # signed settles at pass 2, unsigned at pass 3. Three passes was the previous
-# assumption and was never verified — a configuration needing four would have
+# assumption and was never verified - a configuration needing four would have
 # shipped a binary whose embedded hash did not match its own code, which in a
 # production build HALTS AT BOOT. The assertion turns that into a failed
 # build instead of a dead device.
@@ -77,7 +81,7 @@
 #
 # The unsigned images are how a third party checks that the published signed
 # binaries were built from this source: they build unsigned and compare
-# against the published UNSIGNED hashes. Do not flash them — an unsigned
+# against the published UNSIGNED hashes. Do not flash them - an unsigned
 # production image has no valid signature and halts at boot.
 #
 # Flash (full image, new devices):
@@ -86,7 +90,7 @@
 #   python3 -m esptool --port <PORT> --baud 460800 write_flash 0x10000 <name>.bin
 #
 # NOTE: production firmware gates the USB Serial/JTAG peripheral a second or
-# two into boot. To reflash, enter download mode first — unplug USB, hold
+# two into boot. To reflash, enter download mode first - unplug USB, hold
 # BOOT, plug USB in, release BOOT. See docs/BUILD_FLASH_GUIDE.md.
 
 FROM --platform=linux/amd64 kassigner-toolchain:v3
@@ -122,6 +126,14 @@ RUN source /root/esp-env.sh && \
     echo "  KasSee WASM build verified" && \
     echo "============================================"
 
+# ════════════════════════════════════════════════════
+#  Core crate host tests (same code the device boots)
+# ════════════════════════════════════════════════════
+# The security-critical half of the firmware tests on the host toolchain the
+# image already carries. Seconds of cost; a failing vector stops the release
+# build here instead of shipping.
+RUN cd core && cargo test --release 2>&1 | tail -5 && cd ..
+
 # Build gen-hash tool (uses host toolchain, not Xtensa)
 RUN cargo build --manifest-path tools/Cargo.toml --bin gen-hash --release 2>&1 | tail -1
 
@@ -154,7 +166,7 @@ cd /build/KasSigner
 if [ "${SIGN}" = "1" ]; then
     if [ ! -f /run/secrets/signkey ]; then
         echo ""
-        echo "  SKIPPED: ${LABEL} (signed) — no signing key mounted"
+        echo "  SKIPPED: ${LABEL} (signed) - no signing key mounted"
         exit 0
     fi
     KEYARG=(/run/secrets/signkey)
@@ -166,7 +178,7 @@ fi
 
 echo ""
 echo "════════════════════════════════════════════════"
-echo "  ${LABEL} (${MODE}) — 5-pass convergence"
+echo "  ${LABEL} (${MODE}) - 5-pass convergence"
 echo "════════════════════════════════════════════════"
 
 PREV=""
@@ -200,7 +212,7 @@ echo "  CONVERGED: ${PREV}"
 ( cd bootloader && cargo build --release "$@" 2>&1 | tail -1 )
 
 # Both images for both modes. The unsigned pair exists so a verifier can
-# reproduce and compare EITHER published artifact — app-only or full-flash —
+# reproduce and compare EITHER published artifact - app-only or full-flash -
 # not just one of them. They are for hashing, not for flashing: an unsigned
 # production image has no valid signature and halts at boot.
 espflash save-image --chip esp32s3 \
@@ -216,7 +228,7 @@ rm -f /build/${OUT}-p*.bin
 SCRIPT
 
 # ════════════════════════════════════════════════════
-#  UNSIGNED — built first, so a keyless run is still complete
+#  UNSIGNED - built first, so a keyless run is still complete
 # ════════════════════════════════════════════════════
 
 RUN --mount=type=secret,id=signkey,required=false \
@@ -237,7 +249,7 @@ RUN --mount=type=secret,id=signkey,required=false \
         --no-default-features --features m5stack,production
 
 # ════════════════════════════════════════════════════
-#  SIGNED — skipped entirely when no key is mounted
+#  SIGNED - skipped entirely when no key is mounted
 # ════════════════════════════════════════════════════
 
 RUN --mount=type=secret,id=signkey,required=false \

@@ -72,7 +72,7 @@ the repository.
 
 ### Note on stale screens
 
-The ST7789 holds the last frame written to it. Every `espefuse` invocation drives
+The display panel holds the last frame written to it. Every `espefuse` invocation drives
 the chip into download mode, where the app never runs, so the panel keeps
 displaying whatever it was showing. A UI frozen mid-boot after a burn is almost
 always a stale frame, not a broken device. Confirm with the boot line rather than
@@ -499,9 +499,9 @@ The ESP32-S3 has 6 key blocks (BLOCK_KEY0 through BLOCK_KEY5). Plan allocation:
 | BLOCK_KEY0 | Secure Boot primary key digest | SECURE_BOOT_DIGEST0 |
 | BLOCK_KEY1 | Secure Boot backup key digest | SECURE_BOOT_DIGEST1 |
 | BLOCK_KEY2 | Flash encryption key (if used) | XTS_AES_128_KEY |
-| BLOCK_KEY3 | Available |. |
-| BLOCK_KEY4 | Available |. |
-| BLOCK_KEY5 | Available |. |
+| BLOCK_KEY3 | Available | - |
+| BLOCK_KEY4 | Available | - |
+| BLOCK_KEY5 | Available | - |
 
 ## KasSigner-Specific Notes
 

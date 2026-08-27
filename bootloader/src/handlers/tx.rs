@@ -207,8 +207,12 @@ pub fn handle_tx_touch(
                             }
                         } else {
                             // "Scan QR": x=30..290, y=90..135
+                            // Through the kpub warning first: a 44' key scanned
+                            // here builds an unspendable wallet and the bytes
+                            // cannot be told apart, so the label is shown at
+                            // the moment of risk instead.
                             if (30..=290).contains(&x) && (90..=135).contains(&y) {
-                                ad.app.state = crate::app::input::AppState::ScanQR;
+                                ad.app.state = crate::app::input::AppState::MultisigKpubWarn { key_idx };
                                 needs_redraw = true;
                             }
                             // "Use Loaded Seed": x=30..290, y=145..190
@@ -222,6 +226,23 @@ pub fn handle_tx_touch(
                                     delay.delay_millis(1500);
                                     needs_redraw = true;
                                 }
+                            }
+                        }
+                    }
+                    crate::app::input::AppState::MultisigKpubWarn { key_idx } => {
+                        if is_back {
+                            ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx };
+                            needs_redraw = true;
+                        } else {
+                            // "SCAN" (teal, left): x=30..155, y=140..185
+                            if (30..=155).contains(&x) && (140..=185).contains(&y) {
+                                ad.app.state = crate::app::input::AppState::ScanQR;
+                                needs_redraw = true;
+                            }
+                            // "CANCEL" (right): x=165..290, y=140..185
+                            else if (165..=290).contains(&x) && (140..=185).contains(&y) {
+                                ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx };
+                                needs_redraw = true;
                             }
                         }
                     }

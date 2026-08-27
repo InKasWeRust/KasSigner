@@ -107,9 +107,13 @@ include!("../firmware_hash.rs");
 ///
 /// `black_box` keeps the value truthful and the runtime behaviour identical
 /// (an unsigned production image still halts at boot) while denying the
-/// compiler the proof, so the whole firmware stays in both images. Signed
-/// and unsigned then differ in the code segment only by the signature bytes,
-/// this flag, and the embedded hash that follows from them.
+/// compiler the proof, so the whole firmware stays in both images. The only
+/// SOURCE inputs that differ between signed and unsigned are the signature
+/// bytes, this flag, and the embedded hash; the compiled bytes differ far
+/// more broadly (measured 2026-08-26: cmp -l counts ~623-630 k differing
+/// bytes, first divergence at byte 289), because those constants shift the
+/// compiler's output. Verification therefore compares unsigned against
+/// unsigned, never a byte-diff of signed against unsigned.
 ///
 /// The design that removes the need for this, hash/signature/flag in a
 /// section the hash excludes, is recorded in STATE.md as a 1.1 item.

@@ -8,7 +8,7 @@ KasSigner is an air-gapped offline signing device that handles cryptographic key
 
 ## Supported Versions
 
-Only the latest release receives security updates. The current release is **1.0.6**.
+Only the latest release receives security updates. The current release is **1.0.7**.
 
 Supported hardware:
 
@@ -58,7 +58,14 @@ Secure Boot is the root of trust; this layer is defense in depth under it, and t
 
 ### Layer 5: Rust memory safety
 
-100% Rust, `no_std`. The compiler rules out buffer overflows, use-after-free, null dereferences, uninitialized reads, double frees and data races before the code runs. `unsafe` is confined to three roles: MMIO register access in the hardware drivers, `write_volatile` in the zeroization routines (a safe write can be optimised away), and building the large transaction struct on the heap so it does not overflow the stack. The signing and hashing code itself contains none. Malicious input triggers a panic and a RAM wipe, never code execution. Integer overflow checks stay enabled in release builds.
+100% Rust, `no_std`. The compiler rules out buffer overflows, use-after-free, null dereferences, uninitialized reads, double frees and data races before the code runs. Malicious input triggers a panic and a RAM wipe, never code execution. Integer overflow checks stay enabled in release builds.
+
+`unsafe` is confined to four roles, and the signing and hashing code itself contains none:
+
+- MMIO register access in the hardware drivers
+- `write_volatile` in the zeroization routines, because a safe write can be optimised away
+- building the large transaction struct on the heap, so it does not overflow the stack
+- the two seams where the firmware hands the hardware-free `core/` crate a logger and an entropy source as function pointers (`core/src/log.rs`, `core/src/entropy.rs`); each carries a SAFETY comment and has a single writer
 
 ### Layer 6: Encrypted backup
 
@@ -80,9 +87,11 @@ Anyone can verify that a binary was built from the published source code. The re
 
 See [docs/REPRODUCIBLE_BUILD.md](docs/REPRODUCIBLE_BUILD.md) for details.
 
+The published unsigned hash stands for the complete firmware. The unsigned image is built from the same source as the signed one; the only inputs that differ are the embedded signature, the signed flag and the hash. Verification always compares unsigned against unsigned (a byte-diff of signed against unsigned is not confined to the signature region, since those constants shift the compiler's output). Before 1.0.7 the unsigned image was not the firmware at all: the compiler could prove an unsigned `production` build never reached the wallet and deleted most of it, so rebuilding it verified a stub rather than the firmware anyone runs.
+
 ### Boot-time known-answer tests
 
-On every power-on, before anything else is usable, the firmware checks its cryptographic primitives against published answers and refuses to boot if any of them disagree (`app/boot_test.rs`, `run_crypto_kats`). Crypto has no natural failure signal: a wrong derivation still gives a valid-looking key and a wrong sighash still signs cleanly, so this is the check that catches a broken build before it can touch funds. It cannot be compiled out of a shipped image (`main.rs` makes that a build error). The set is one published vector each for BIP39, BIP32 and Schnorr, a 45' multisig address produced by an independent implementation, and 27 transaction sighash vectors taken from the rusty-kaspa 2.0.1 consensus tests, covering all six sighash types and both transaction versions. Measured on M5Stack CoreS3 Lite: 27/27 sighash in 291 ms. Every entropy source, what it feeds, what was measured against SP 800-90B and what is only health-checked at runtime, is recorded in [docs/ENTROPY.md](docs/ENTROPY.md).
+On every power-on, before anything else is usable, the firmware checks its cryptographic primitives against published answers and refuses to boot if any of them disagree (`app/boot_test.rs`, `run_crypto_kats`). Crypto has no natural failure signal: a wrong derivation still gives a valid-looking key and a wrong sighash still signs cleanly, so this is the check that catches a broken build before it can touch funds. It cannot be compiled out of a shipped image (`main.rs` makes that a build error). The set: five BIP39 vectors, four storage-encryption vectors, a BIP32 vector, two Schnorr vectors, a 45' multisig address produced by an independent implementation, 30 transaction sighash vectors taken from the rusty-kaspa 2.0.1 consensus tests covering all six sighash types and both transaction versions, and a health-checked draw from the hardware RNG. Measured at boot: 30/30 sighash in 326 ms on M5Stack CoreS3 Lite and 149 ms on Waveshare, full KAT set 2054 ms and 2080 ms respectively. Every entropy source, what it feeds, what was measured against SP 800-90B and what is only health-checked at runtime, is recorded in [docs/ENTROPY.md](docs/ENTROPY.md).
 
 ### Testing the crypto yourself
 
@@ -135,7 +144,7 @@ The backup KDF is PBKDF2-HMAC-SHA256 at 100,000 rounds by decision, not by defau
 
 KasSigner has been through several security reviews since v1.0.5. Every finding was checked against the source; see [CHANGELOG.md](CHANGELOG.md) for the fixes that shipped. Several claims from the reviews were refuted from the code.
 
-The project has not been reviewed by an independent professional security firm; a formal third-party audit is a goal for a future release. Community review is welcome, and `wallet/`, `crypto/`, `hw/sd_backup.rs` and `features/stego*.rs` are where it counts most.
+The project has not been reviewed by an independent professional security firm; a formal third-party audit is a goal for a future release. Community review is welcome, and `core/src/wallet/`, `core/src/crypto/`, `bootloader/src/hw/sd_backup.rs` and `bootloader/src/features/stego*.rs` are where it counts most.
 
 ### What KasSigner does not protect against
 

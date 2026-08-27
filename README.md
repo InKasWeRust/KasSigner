@@ -31,7 +31,7 @@ Published images build with the `production` feature, which compiles out the ser
 - **Multi-seed management**: store and switch between up to 16 seed slots in RAM (never persisted)
 - **Steganographic backup**: hide encrypted seeds inside ordinary JPEG photos
 - **Encrypted SD backup**: seeds, xprvs, raw keys, multisig descriptors and unsigned KSPTs can all be saved to MicroSD as AES-256-GCM containers, one format, purpose-bound key, per-file salt and nonce
-- **Boot verification**: firmware hash + Schnorr signature and cryptographic known-answer tests at every boot, enforced in `production` builds; ROM Secure Boot V2 (RSA-3072) via eFuse
+- **Boot verification**: firmware hash + Schnorr signature and cryptographic known-answer tests at every boot, checked in every build and enforced in `production` builds; ROM Secure Boot V2 (RSA-3072) via eFuse
 - **QR scanner**: built-in camera with rqrr decoder, V1 to V13 (Reed-Solomon verified, single-pass) for PSKBs, SeedQR import, and pubkey exchange
 - **CompactSeedQR**: SeedSigner-compatible compact seed backup with grid view for manual card filling
 - **KRC-20 token detection**: recognizes KRC-20 token transactions during review
@@ -176,6 +176,20 @@ python3 -m esptool --port /dev/cu.usbmodem* --baud 460800 \
 
 To reflash afterwards, put the board in download mode first: unplug USB, hold the BOOT button (the reset button on M5Stack CoreS3 Lite), plug USB back in, then release. See [docs/BUILD_FLASH_GUIDE.md](docs/BUILD_FLASH_GUIDE.md).
 
+### Testing the security-critical code without hardware
+
+Most of the code that handles keys, transactions and parsing lives in `core/`, a
+`no_std` crate with no hardware dependencies. It builds and tests on any host,
+with no Xtensa toolchain and no board:
+
+```bash
+cd core
+cargo test
+```
+
+The firmware re-exports it, so this is the same code the device runs, not a
+copy. See [core/README.md](core/README.md).
+
 ### Feature flags
 
 | Flag | Purpose |
@@ -224,7 +238,7 @@ KasSee connects to a public Kaspa node automatically. To use your own node, open
 - **Dashboard**: live balance, UTXO count, funded addresses
 - **Send**: build unsigned KSPT transactions with fee estimation (low / normal / priority)
 - **Send Max**: sweep all UTXOs to a single destination
-- **UTXO selection**: manually select up to 32 UTXOs when sending, the signer's input limit (8 outputs)
+- **UTXO selection**: manually select up to 32 UTXOs when sending, which is the signer's input limit; the output limit is 8
 - **Receive**: display next unused receive address with QR code (auto-skips funded and used addresses)
 - **Address reuse prevention**: funded addresses show an orange badge, used (spent-empty) addresses a red one; explorer links on every address
 - **Broadcast**: scan signed QR from KasSigner and submit to the network
@@ -324,7 +338,7 @@ KasSigner runs on the Waveshare ESP32-S3-Touch-LCD-2 and M5Stack CoreS3 Lite. Th
 - [ESP32-S3 Datasheet](https://www.espressif.com/sites/default/files/documentation/esp32-s3_datasheet_en.pdf): pinout, electrical characteristics, memory map
 - [Waveshare ESP32-S3-Touch-LCD-2 Wiki](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-2): board schematic, GPIO assignments, setup guide
 - [OV2640 Datasheet](https://www.uctronics.com/download/cam_module/OV2640DS.pdf): camera sensor registers, DVP interface
-- [ST7789 Datasheet](https://www.newhavendisplay.com/appnotes/datasheets/LCDs/ST7789V.pdf): display controller commands, SPI protocol, initialization sequence
+- [ST7789 Datasheet](https://www.alldatasheet.com/datasheet-pdf/pdf/2200467/SITRONIX/ST7789.html): display controller commands, SPI protocol, initialization sequence. The Waveshare board carries the ST7789T3 variant, which Sitronix does not publish separately; the command set and initialization sequence are the same
 
 ## Cryptographic Notice
 
@@ -334,7 +348,7 @@ This software contains cryptographic functionality. Export, import, or use may b
 
 Contributions welcome, especially:
 
-- **Security review** of `wallet/` and `crypto/` modules
+- **Security review** of `core/src/wallet/` and `core/src/crypto/`, which build and test on a host with no hardware
 - **QR scanning** improvements (edge cases with hand-drawn CompactSeedQR)
 - **Hardware ports** to other ESP32-S3 boards
 - **UI/UX** refinements and accessibility

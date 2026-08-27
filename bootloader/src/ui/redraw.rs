@@ -736,6 +736,9 @@ pub fn redraw_screen(
                 crate::app::input::AppState::MultisigAddKey { key_idx } => {
                     boot_display.draw_multisig_add_key(key_idx, ad.ms_creating.n, ad.seed_loaded);
                 }
+                crate::app::input::AppState::MultisigKpubWarn { .. } => {
+                    boot_display.draw_multisig_kpub_warning();
+                }
                 crate::app::input::AppState::MultisigPickSeed { key_idx } => {
                     boot_display.draw_multisig_pick_seed(key_idx, ad.ms_creating.n, &ad.seed_mgr, ad.ms_scroll);
                 }
