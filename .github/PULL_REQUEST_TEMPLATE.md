@@ -27,6 +27,14 @@ Builds, both targets (see CONTRIBUTING.md steps 5-6):
 - [ ] Clippy clean, Waveshare: `ESP_HAL_CONFIG_PSRAM_MODE=octal cargo clippy --release --features ov5640-af`
 - [ ] Clippy clean, M5Stack: `cargo clippy --release --no-default-features --features m5stack`
 
+Host tests, if the change touches `core/`. Clippy on the firmware does NOT
+cover that crate: it is a path dependency, and cargo does not lint
+dependencies, so `core.yml` is the only lint coverage the wallet, crypto and
+QR code gets.
+
+- [ ] `cd core && cargo test`
+- [ ] `cd core && cargo clippy --all-targets -- -D warnings -A unknown_lints`
+
 Boot tests. These are removed by `skip-tests`, so build WITHOUT it for this
 step:
 
@@ -44,7 +52,7 @@ step:
 
 ## Security checklist
 
-- [ ] `unsafe` limited to MMIO, `write_volatile` zeroization, or heap construction of oversized structures; anything else justified in a comment
+- [ ] `unsafe` limited to MMIO, volatile accesses the optimiser must not elide (the `write_volatile` zeroization, the `read_volatile` that keeps unsigned builds whole), heap construction of oversized structures, or the seams where the firmware registers a logger and an entropy source with `core/`; anything else justified in a comment
 - [ ] Key material explicitly cleared after use
 - [ ] No network-capable dependencies added
 - [ ] GPL v3 header on new files
