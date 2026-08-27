@@ -6,6 +6,10 @@
 name: core CI
 
 on:
+  # Manual trigger: an Actions-tab "Run workflow" button for any branch, so
+  # CI can be run on a commit whose paths would not fire it (a release-eve
+  # infra change, a tag candidate).
+  workflow_dispatch:
   push:
     paths:
       - "core/**"

@@ -270,6 +270,31 @@ RUN --mount=type=secret,id=signkey,required=false \
     converge.sh "M5Stack" "kassigner-m5stack" 1 \
         --no-default-features --features m5stack,production
 
+# Stub tripwire. `firmware_signed()` reads FIRMWARE_SIGNED through
+# `read_volatile` so the optimiser cannot prove an unsigned build dead and
+# delete the wallet (the first 1.0.7 build shipped 244-271 kB stubs this
+# way). The guarantee is asserted here on every release: each unsigned app
+# image must be full-sized, and where its signed pair exists the two must
+# be within 64 KiB. A compiler that ever defeats the barrier fails the
+# build instead of publishing a hash that proves nothing.
+RUN set -e; cd /build; \
+    for u in kassigner-*-unsigned.bin; do \
+        [ -f "$u" ] || continue; \
+        us=$(stat -c%s "$u"); \
+        if [ "$us" -lt 800000 ]; then \
+            echo "TRIPWIRE: $u is $us bytes: a stub, not the firmware"; exit 1; \
+        fi; \
+        sgn="${u%-unsigned.bin}.bin"; \
+        if [ -f "$sgn" ]; then \
+            ss=$(stat -c%s "$sgn"); d=$((ss - us)); \
+            [ "$d" -lt 0 ] && d=$((0 - d)); \
+            if [ "$d" -gt 65536 ]; then \
+                echo "TRIPWIRE: $u and $sgn differ by $d bytes"; exit 1; \
+            fi; \
+        fi; \
+    done; \
+    echo "stub tripwire: all unsigned images full-sized"
+
 # ════════════════════════════════════════════════════
 #  Report
 # ════════════════════════════════════════════════════

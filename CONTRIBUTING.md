@@ -36,7 +36,7 @@ full security policy.
 - All code must be `no_std` compatible. Prefer stack buffers with compile-time bounds; the heap is for large structures that would otherwise overflow the stack
 - All comments and strings in English
 - GPL v3 copyright header on every source file
-- Keep `unsafe` to the roles that need it: MMIO register access, `write_volatile` for zeroization (a safe write can be optimised away), heap construction of oversized structures, and the function-pointer seams where the firmware registers a logger and an entropy source with `core/`. Anything else needs justification in a comment
+- Keep `unsafe` to the roles that need it: MMIO register access, volatile reads and writes the optimiser must not elide (`write_volatile` for zeroization, the `read_volatile` that keeps unsigned builds whole), heap construction of oversized structures, and the function-pointer seams where the firmware registers a logger and an entropy source with `core/`. Anything else needs justification in a comment
 - Key material must be explicitly cleared after use
 - No network-capable dependencies in the firmware
 - Zero compiler warnings on both platforms (clippy clean)

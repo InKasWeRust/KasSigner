@@ -89,9 +89,13 @@ published unsigned hashes meaningless was found and fixed.
   it, leaving 244-271 kB images with no wordlist and no UI against 904-912 kB
   signed. A verifier rebuilding unsigned reproduced the stub, so the
   comparison proved nothing about the firmware anyone runs. The constant is
-  now read through `core::hint::black_box`: still truthful, unsigned
-  production still halts at boot, and both images carry the complete
-  firmware. Verification compares unsigned against unsigned.
+  now read through `core::ptr::read_volatile` (a guarantee where
+  `core::hint::black_box`, used briefly during 1.0.7 development, is only
+  a hint): still truthful, unsigned production still halts at boot, and
+  both images carry the complete firmware. The release build asserts the
+  property: every unsigned app image must be full-sized and within 64 KiB
+  of its signed pair, so a future compiler that defeats the barrier fails
+  the build. Verification compares unsigned against unsigned.
 - **The device could not sign a timelocked transaction.** PSKB `minTime` was
   skipped, so the device signed lock time 0 while the sender's extractor
   built the requested value, and the network rejected the mismatched

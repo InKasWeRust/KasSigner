@@ -63,7 +63,7 @@ Secure Boot is the root of trust; this layer is defense in depth under it, and t
 `unsafe` is confined to four roles, and the signing and hashing code itself contains none:
 
 - MMIO register access in the hardware drivers
-- `write_volatile` in the zeroization routines, because a safe write can be optimised away
+- volatile reads and writes where the optimiser must not elide the access: `write_volatile` in the zeroization routines (a safe write can be optimised away), and the `read_volatile` of `FIRMWARE_SIGNED` that keeps the unsigned image whole (a hint like `black_box` licenses LTO to delete the wallet from unsigned builds)
 - building the large transaction struct on the heap, so it does not overflow the stack
 - the two seams where the firmware hands the hardware-free `core/` crate a logger and an entropy source as function pointers (`core/src/log.rs`, `core/src/entropy.rs`); each carries a SAFETY comment and has a single writer
 
