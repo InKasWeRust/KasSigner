@@ -168,6 +168,9 @@ fn reparse_preserves_a_non_zero_lock_time() {
         assert_eq!(tx2.locktime, t, "lock time {t} must survive the roundtrip");
         assert_eq!(tx2.num_inputs, tx.num_inputs);
         assert_eq!(tx2.num_outputs, tx.num_outputs);
-        assert_eq!(tx2.inputs[0].sequence, u64::MAX);
+        // The wire above states `"sequence":0` explicitly, and an explicit
+        // zero is a value, not the unset spelling: it must survive the
+        // roundtrip as 0 and never be promoted to MAX.
+        assert_eq!(tx2.inputs[0].sequence, 0);
     }
 }

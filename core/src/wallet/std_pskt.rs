@@ -2383,7 +2383,23 @@ fn emit_input(
     emit_outpoint(w, inp)?;
     w.lit(b",\"sequence\":")?;
     w.u64(inp.sequence)?;
-    w.lit(b",\"minTime\":null,\"partialSigs\":")?;
+    // The reference derives the transaction lock time as the largest
+    // `minTime` over the inputs (`determine_lock_time`), and the sighash
+    // covers that derived scalar, not the per-input spread, so emitting the
+    // lock time on every input reproduces the value under any re-derivation.
+    // Hardcoded `null` here until 1.0.7: every emitted bundle reconstructed
+    // to lock time 0, so a cosigner or an extractor reading our output
+    // rebuilt a transaction the signature does not match, and a second
+    // multisig signer saw no lock time on the review screen at all. The
+    // output-side twin of the parse-side gap fixed the same release, found
+    // by the roundtrip test in `pskb_compat_tests.rs`.
+    w.lit(b",\"minTime\":")?;
+    if tx.locktime == 0 {
+        w.lit(b"null")?;
+    } else {
+        w.u64(tx.locktime)?;
+    }
+    w.lit(b",\"partialSigs\":")?;
     emit_partial_sigs(w, inp)?;
     w.lit(b",\"sighashType\":")?;
     w.u64(inp.sighash_type as u64)?;

@@ -102,7 +102,16 @@ published unsigned hashes meaningless was found and fixed.
   skipped, so the device signed lock time 0 while the sender's extractor
   built the requested value, and the network rejected the mismatched
   signature. Fail closed, no funds at risk, but the capability did not exist.
-  Now parsed, signed and shown on screen.
+  Now parsed, signed and shown on screen. The output side had the same gap
+  in mirror: `serialize_pskt` wrote `"minTime":null` on every input, so a
+  bundle the device emitted reconstructed to lock time 0, an extractor
+  reading it rebuilt a transaction the signature does not match, and a
+  second multisig signer saw no lock time on the review screen at all.
+  Found by a roundtrip test written for this release; the emitter now
+  writes the transaction lock time on every input, which reproduces the
+  signed value under the reference's `determine_lock_time` derivation.
+  KSPT was never affected, its binary layout carries lock time as a fixed
+  field.
 - **An absent PSKB sequence signed as 0**, producing signatures reference
   wallets reject. Now `u64::MAX`, per the rules above.
 - **A test in `ecies.rs` had never compiled**; the `cfg(test)` code was
