@@ -1325,9 +1325,9 @@ export interface InitOutput {
     readonly zk_crowdfund_setup: () => [number, number, number, number];
     readonly wasm_bindgen__convert__closures_____invoke__h196ac2b234377f4a: (a: number, b: number, c: any) => [number, number];
     readonly wasm_bindgen__convert__closures_____invoke__h451a1072b4ec071e: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h6f42bb3b13a7079a: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h6f42bb3b13a7079a_2: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__hb82728a63eb39624: (a: number, b: number) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h85917b25d56d5f94: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h85917b25d56d5f94_2: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__hda20a7a65e3365bf: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
