@@ -71,9 +71,30 @@ fn main() {
         buf
     };
 
-    // Save private key
+    // Save private key, owner-only.
+    //
+    // Permissions are set BEFORE the key is written, not after: a plain
+    // `File::create` lands at whatever the umask allows, typically 0644, and
+    // between the write and a later chmod the key is world-readable on disk.
+    // This is the root of firmware signing trust, so anyone who can read it
+    // can sign firmware these devices accept.
+    #[cfg(unix)]
+    let mut key_file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&key_path)
+            .expect("Failed to create key file")
+    };
+    #[cfg(not(unix))]
     let mut key_file = fs::File::create(&key_path).expect("Failed to create key file");
     key_file.write_all(&sk_bytes).expect("Failed to write key");
+    #[cfg(unix)]
+    println!("  Private key saved: {} (mode 0600)", key_path.display());
+    #[cfg(not(unix))]
     println!("  Private key saved: {}", key_path.display());
     println!("  !! BACK THIS UP TO MULTIPLE SECURE OFFLINE LOCATIONS !!");
     println!();

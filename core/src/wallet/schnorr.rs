@@ -210,11 +210,11 @@ pub fn schnorr_sign(
     //    challenge input, the even-Y negation, the message load) produces a
     //    signature that fails here, so the faulty value is never emitted and
     //    cannot be differenced against a good one. Costs one point
-    //    multiplication; [sign_t] reports it so the real per-signature cost
-    //    can be measured rather than estimated.
-    let t_v = esp_hal::time::Instant::now();
+    //    multiplication (measured on hardware as the `[sign_t] verify`
+    //    line before this code moved to kassigner-core, where there is no
+    //    clock; time the `schnorr_sign` call site if the number is wanted
+    //    again).
     let vr = schnorr_verify(&px, message, &sig);
-    crate::log!("   [sign_t] verify {} ms", (esp_hal::time::Instant::now() - t_v).as_millis());
     if vr.is_err() {
         return Err(SchnorrError::CurveError);
     }
@@ -367,7 +367,9 @@ fn generate_rfc6979_nonce(
     // silently degrades to the deterministic one, which is the DFA-vulnerable
     // case H-05 exists to remove. Refuse to sign instead.
     let mut aux = [0u8; 32];
-    crate::crypto::entropy::fill(&mut aux)
+    // `crate::entropy::fill` forwards to the hardware source the firmware
+    // registered at boot; with none registered it fails, and so does this.
+    crate::entropy::fill(&mut aux)
         .map_err(|_| SchnorrError::EntropyUnavailable)?;
 
     // tag(32) || message(32) || aux(32). The tag domain-separates this HMAC

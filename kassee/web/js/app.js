@@ -423,6 +423,9 @@ let walletData = null;
 // in this file. It previously sat on `window._currentKsptHex`, advertising
 // the full pending transaction to any script in the page.
 let _currentKsptHex = null;
+// Our own tx id between broadcasting a covenant spend and the balance
+// dropping; see the note at the broadcast site.
+let _covSpendBroadcastTx = null;
 let customNodeUrl = null;
 let lastFeeEstimate = null;
 let covFeeLevel = 'normal';
@@ -6641,6 +6644,7 @@ el('btn-cov-owner-create') && (el('btn-cov-owner-create').onclick = () => handle
     el('btn-scan-next-sig').onclick = () => { pauseQrCycle(); startScanner('Scan signed QR', handleSignedScan); };
     el('btn-qr-scan-signed').onclick = () => { pauseQrCycle(); startScanner('Scan signed QR', handleSignedScan); };
     el('btn-copy-kspt').onclick = () => { if (_currentKsptHex) { navigator.clipboard.writeText(_currentKsptHex); toast('KSPT hex copied — share with next signer', 'ok', 2000); } };
+    el('btn-pskt-copy-hex').onclick = () => { if (_psktReviewHex) { navigator.clipboard.writeText(_psktReviewHex); toast('PSKB hex copied', 'ok', 2000); } };
     el('btn-scanner-cancel').onclick = () => stopScanner();
     el('btn-copy-address').onclick = () => copyAddress();
     el('btn-receive-back').onclick = () => {
@@ -7761,7 +7765,15 @@ function getExtraRecipients() {
         const addr = row.querySelector('.r-addr').value.trim();
         const amountStr = row.querySelector('.r-amount').value.trim();
         if (addr && amountStr) {
-            list.push({ address: addr, amount_kas: parseFloat(amountStr) });
+            // The typed string, not parseFloat. This value becomes a
+            // recipient's amount_sompi in a signed transaction, and a float
+            // round trip (parseFloat here, String() at the call site) is only
+            // lossless while JS can print the shortest representation that
+            // round-trips: it stops being so above ~90M KAS in one output.
+            // Keeping the string means kasToSompi sees exactly what the user
+            // typed. Missed by the earlier exact-value sweep because that
+            // searched for `Number(`, not `parseFloat`.
+            list.push({ address: addr, amount_str: amountStr });
         }
     }
     return list;
@@ -7896,7 +7908,7 @@ async function handleCreateTx() {
         const freshWallet = walletWithFreshIndices();
 
         if (extras.length > 0) {
-            const recipients = [{ address: dest, amount_sompi: kasToSompi(amountStr).toString() }, ...extras.map(e => ({ address: e.address, amount_sompi: kasToSompi(String(e.amount_kas)).toString() }))];
+            const recipients = [{ address: dest, amount_sompi: kasToSompi(amountStr).toString() }, ...extras.map(e => ({ address: e.address, amount_sompi: kasToSompi(e.amount_str).toString() }))];
             pskbHex = await withNodeRetry(wsUrl =>
                 create_compound_pskb(freshWallet, JSON.stringify(recipients), BigInt(fee), wsUrl)
             );
@@ -9013,6 +9025,15 @@ async function handlePsktFinalize() {
         );
         console.log('[KasSee] Node accepted (PSKT path). TX ID:', txId);
         window._lastBroadcastTime = Date.now();
+        // The covenant UTXO is spent from this moment, but it leaves the
+        // node's UTXO index only when the transaction lands in a block, so
+        // the watcher poll keeps reading the old balance for a few seconds
+        // and the card went on offering "claimable" on funds already gone.
+        // Cleared by the poll once the balance drops (which is what shows
+        // "Claimed"), and when the watcher restarts on another covenant.
+        if (_broadcastReturnScreen === 'covenant') {
+            _covSpendBroadcastTx = txId || 'pending';
+        }
         hideLoading();
         _psktReviewHex = null;
 
@@ -9939,6 +9960,7 @@ function covWatcherStart() {
     if (!covWatcherTypes().includes(t)) return;
 
     _covWatcherSpendPath = null;
+    _covSpendBroadcastTx = null;
 
     console.log('[KasSee] Covenant watcher started for ' + t + ': ' + lastCovenantResult.address);
     const st = el('cov-watcher-status');
@@ -10023,6 +10045,7 @@ async function covWatcherPoll() {
             if (total === 0n && _covWatcherLastBalance !== null && _covWatcherLastBalance > 0n) {
                 // Funds swept: one of the two wallets claimed (no owner-reclaim path here).
                 st.innerHTML = '<span style="color:var(--teal)">\u2705 Claimed.</span>';
+                _covSpendBroadcastTx = null;
                 covWatcherStop();
                 if (st) st.style.display = '';
                 return;
@@ -10030,6 +10053,8 @@ async function covWatcherPoll() {
             if (total === 0n) {
                 st.textContent = '\uD83D\uDC41 0 KAS | Not funded';
                 st.style.color = '';
+            } else if (_covSpendBroadcastTx) {
+                st.innerHTML = '<span style="color:var(--warning)">\u23f3 Spend broadcast, confirming...</span>';
             } else if (locktime > 0 && currentDaa > 0 && currentDaa >= locktime + 300) {
                 st.innerHTML = '<span style="color:var(--teal)">\u2705 Unlocked. ' + kas.toFixed(2) + ' KAS claimable.</span>';
             } else if (locktime > 0 && currentDaa > 0 && currentDaa >= locktime) {
@@ -12443,13 +12468,15 @@ async function handleShipEscrowSpend(branch) {
             sequence: 0, sigOpCount: minSig,
             utxoEntry: { amount: inAmt, scriptPublicKey: covSpkHex, blockDaaScore: 0, isCoinbase: false },
             redeemScript: redeemHex, partialSigs: {}, minimumSignatures: minSig,
-            bip32Derivations: [], proprietaries: {}, finalScriptSig: null, minTime: 0
+            // Lock time travels in minTime, per input, since 1.0.7: that is the
+            // field rusty-kaspa and the device read. fallbackLockTime is null.
+            bip32Derivations: [], proprietaries: {}, finalScriptSig: null, minTime: locktime > 0 ? locktime : 0
         }];
 
         const pskt = {
             global: {
                 txVersion: 1,
-                fallbackLockTime: locktime > 0 ? locktime : null,
+                fallbackLockTime: null,
                 inputsModifiableFlag: false, outputsModifiableFlag: false,
                 inputCount: 1, outputCount: outputs.length,
                 bip32Derivations: [],

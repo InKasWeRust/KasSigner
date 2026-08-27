@@ -72,7 +72,7 @@ the repository.
 
 ### Note on stale screens
 
-The ST7789 holds the last frame written to it. Every `espefuse` invocation drives
+The display panel holds the last frame written to it. Every `espefuse` invocation drives
 the chip into download mode, where the app never runs, so the panel keeps
 displaying whatever it was showing. A UI frozen mid-boot after a burn is almost
 always a stale frame, not a broken device. Confirm with the boot line rather than
@@ -273,7 +273,8 @@ python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse DIS_DIRECT_BOOT
 
 # Enable secure download mode (restricts what UART download can do)
-# See the note below before burning this one.
+# NOT RECOMMENDED, and untested on this hardware. Read the note below in full
+# before you consider it. Skipping this line costs you nothing on KasSigner.
 python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
     burn_efuse ENABLE_SECURITY_DOWNLOAD
 ```
@@ -292,6 +293,16 @@ actually worth stealing sits on the SD card, and no eFuse protects that.
 It has also **not been verified on this hardware**. Every other fuse in this
 step has. If you burn it, expect to need `--no-stub` for flashing as well as
 for monitoring, and confirm the update path on a sacrificial board first.
+
+**The recommendation is: do not burn it.** eFuses are one-way. This one buys a
+defence against a readout of a flash whose contents are already published,
+while risking the ability to update the device at all, on a fuse nobody here
+has tested end to end. That trade is not worth making on a board holding your
+keys. It stays documented rather than removed so that anyone who has already
+burned it knows what to expect, and so the reasoning is on the record if it is
+ever tested properly; until someone has confirmed a full flash-and-update cycle
+on a sacrificial board, treat this line as an experiment and not as part of the
+runbook.
 
 **DO NOT burn `DIS_USB_SERIAL_JTAG`.** It is deliberately left unburned. Note the two fuse names differ by one word and do very different things:
 
@@ -488,9 +499,9 @@ The ESP32-S3 has 6 key blocks (BLOCK_KEY0 through BLOCK_KEY5). Plan allocation:
 | BLOCK_KEY0 | Secure Boot primary key digest | SECURE_BOOT_DIGEST0 |
 | BLOCK_KEY1 | Secure Boot backup key digest | SECURE_BOOT_DIGEST1 |
 | BLOCK_KEY2 | Flash encryption key (if used) | XTS_AES_128_KEY |
-| BLOCK_KEY3 | Available |. |
-| BLOCK_KEY4 | Available |. |
-| BLOCK_KEY5 | Available |. |
+| BLOCK_KEY3 | Available | - |
+| BLOCK_KEY4 | Available | - |
+| BLOCK_KEY5 | Available | - |
 
 ## KasSigner-Specific Notes
 

@@ -171,6 +171,9 @@ fn build_get_utxos_payload(addresses: &[String]) -> Result<Vec<u8>, String> {
 // ─── Parse response header ───
 
 struct RpcResponse {
+    /// The request id the node echoed back, when it sent one. The dispatcher
+    /// routes on this; see `install_dispatcher`.
+    id: Option<u64>,
     kind: u8,
     payload: Vec<u8>,
 }
@@ -184,9 +187,11 @@ fn parse_response(data: &[u8]) -> Result<RpcResponse, String> {
 
     // Option<u64> id
     let tag = br_u8(&mut r)?;
-    if tag == 1 {
-        let _ = br_u64(&mut r)?;
-    }
+    let id = if tag == 1 {
+        Some(br_u64(&mut r)?)
+    } else {
+        None
+    };
 
     // u8 kind: 0=Success, 1=Error
     let kind = br_u8(&mut r)?;
@@ -203,6 +208,7 @@ fn parse_response(data: &[u8]) -> Result<RpcResponse, String> {
     };
 
     Ok(RpcResponse {
+        id,
         kind,
         payload: remaining[payload_start..].to_vec(),
     })
@@ -297,6 +303,72 @@ fn parse_utxo_payload(data: &[u8]) -> Result<Vec<UtxoEntry>, String> {
     Ok(entries)
 }
 
+/// A node reply that says the transaction is already in the mempool or a
+/// block, not that it refused it.
+///
+/// The reply text is `Rejected transaction <id>: transaction <id> was
+/// already accepted by the consensus`, and every reject test below matches
+/// on "Reject", so a resubmission used to be reported as a failure while
+/// the transaction was on chain: KasSee then fell back to another node,
+/// resubmitted, got the same answer, and finished with "Broadcast failed"
+/// on a transaction that had confirmed. Seen 2026-08-26 funding a covenant,
+/// where the first submit's reply was lost and the retry hit this.
+///
+/// Returns the transaction id when the text carries one, since callers want
+/// an id rather than a bare success.
+fn already_accepted(text: &str) -> Option<String> {
+    if !text.contains("already accepted by the consensus") {
+        return None;
+    }
+    // "Rejected transaction <64 hex>: transaction <64 hex> was already ..."
+    let id: String = text
+        .split(|c: char| !c.is_ascii_hexdigit())
+        .find(|w| w.len() == 64)
+        .unwrap_or("")
+        .to_string();
+    web_sys::console::log_1(&format!("[KasSee] Node already had this TX (resubmit): {id}").into());
+    Some(id)
+}
+
+/// Human-readable text for an RPC error reply, and the raw hex to the console.
+///
+/// Lifted verbatim out of the old per-call `onmessage` when the dispatcher
+/// replaced it; the parsing and the log line are unchanged.
+fn rpc_error_text(kind: u8, payload: &[u8]) -> String {
+    // RPC errors are typically: version(u16) + Serializable(String).
+    let err_text = if payload.len() > 6 {
+        // Skip version(2) + outer len(4), try to read inner string
+        let inner_start = 6usize;
+        if inner_start + 4 <= payload.len() {
+            let slen = u32::from_le_bytes([
+                payload[inner_start],
+                payload.get(inner_start + 1).copied().unwrap_or(0),
+                payload.get(inner_start + 2).copied().unwrap_or(0),
+                payload.get(inner_start + 3).copied().unwrap_or(0),
+            ]) as usize;
+            let str_start = inner_start + 4;
+            if str_start + slen <= payload.len() {
+                String::from_utf8_lossy(&payload[str_start..str_start + slen]).to_string()
+            } else {
+                String::from_utf8_lossy(payload).to_string()
+            }
+        } else {
+            String::from_utf8_lossy(payload).to_string()
+        }
+    } else {
+        String::from_utf8_lossy(payload).to_string()
+    };
+    let hex_preview: String = payload
+        .iter()
+        .take(200)
+        .map(|b| format!("{:02x}", b))
+        .collect();
+    web_sys::console::log_1(
+        &format!("[KasSee] RPC error kind={kind}: text='{err_text}' raw_hex={hex_preview}").into(),
+    );
+    format!("RPC error kind={kind}: {err_text}")
+}
+
 // ─── WebSocket RPC call ───
 
 // ─── Connection pool ───
@@ -315,48 +387,241 @@ fn parse_utxo_payload(data: &[u8]) -> Result<Vec<UtxoEntry>, String> {
 // no protocol change. A socket is dropped from the pool on any failure and the
 // next call reopens it, which is also how a node going away is handled.
 thread_local! {
-    static WS_POOL: RefCell<Option<(String, WebSocket)>> = const { RefCell::new(None) };
+    /// url, socket, and the generation number of this connection.
+    static WS_POOL: RefCell<Option<(String, WebSocket, u64)>> = const { RefCell::new(None) };
+    /// Connection counter. Every socket the pool opens gets the next value,
+    /// and pending calls and queued sends carry the generation they belong
+    /// to, so a socket closing can only fail the calls that were riding on
+    /// IT. Without that, replacing a socket (a different url, or one that
+    /// went away) fired `onclose` on the old one and killed the calls that
+    /// had just been registered on the new one.
+    static WS_GEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Calls awaiting a reply on the pooled socket, keyed by request id.
+    ///
+    /// Until 1.0.7 each `ws_rpc_call` installed its OWN `onmessage` with
+    /// `set_onmessage`, which replaces the previous one. Two calls in flight
+    /// on the shared socket therefore left the later registrant receiving
+    /// BOTH replies: it resolved on whichever arrived first, whoever it
+    /// belonged to, and the other call's reply then hit a spent
+    /// `Closure::once` and threw `FnOnce called more than once` into the
+    /// console. Observed 2026-08-26: a covenant `get_virtual_daa_score`
+    /// returned another op's 15-byte payload, so the DAA score behind a
+    /// covenant lock time came from the fallback estimate.
+    ///
+    /// One dispatcher per socket, routing on the id the node echoes, is what
+    /// the pool always assumed (see the note above it).
+    static WS_PENDING: RefCell<Vec<(u64, u64, Rc<RefCell<Option<Result<Vec<u8>, String>>>>, js_sys::Function)>> =
+        const { RefCell::new(Vec::new()) };
+    /// Requests built before the socket finished opening, flushed by the
+    /// dispatcher's `onopen`.
+    ///
+    /// Also a per-socket thing rather than a per-call one: `set_onopen`
+    /// replaces like `set_onmessage` does, so two calls racing on a NEW
+    /// socket used to leave only the last one's request sent, and the other
+    /// waited out its 15 s timeout.
+    static WS_OUTBOX: RefCell<Vec<(u64, Vec<u8>)>> = const { RefCell::new(Vec::new()) };
+    /// Request ids, monotonic. Was `Math::random() * 1_000_000`, which two
+    /// calls in flight could collide on; the dispatcher routes on this, so it
+    /// has to be unique among the calls that are actually waiting.
+    static WS_NEXT_ID: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
 }
 
-/// A socket that is OPEN for this url, reusing the pooled one when possible.
-fn pooled_socket(ws_url: &str) -> Result<(WebSocket, bool), String> {
+/// The next request id.
+fn next_request_id() -> u64 {
+    WS_NEXT_ID.with(|c| {
+        let id = c.get();
+        c.set(id.wrapping_add(1).max(1));
+        id
+    })
+}
+
+/// Resolve the waiting call for `id`, if it is still waiting.
+fn dispatch_result(id: Option<u64>, value: Result<Vec<u8>, String>) {
+    let entry = WS_PENDING.with(|p| {
+        let mut b = p.borrow_mut();
+        match id {
+            // Matched reply.
+            Some(want) => {
+                let at = b.iter().position(|(pending, _, _, _)| *pending == want);
+                at.map(|i| b.remove(i))
+            }
+            // No id echoed. Only safe when exactly one call is waiting; with
+            // several there is no way to tell whose reply this is, and giving
+            // it to the wrong one is the bug this dispatcher exists to stop.
+            None if b.len() == 1 => Some(b.remove(0)),
+            None => None,
+        }
+    });
+    if let Some((_, _, slot, resolve)) = entry {
+        *slot.borrow_mut() = Some(value);
+        resolve.call0(&JsValue::NULL).ok();
+    }
+}
+
+/// Fail the calls riding on ONE connection. Used when that socket errors or
+/// closes: those events carry no id, and nothing on that socket is going to
+/// answer. Calls on a newer connection are untouched, which is what makes
+/// replacing a socket safe.
+fn dispatch_failure(generation: u64, msg: &str) {
+    let waiting: Vec<_> = WS_PENDING.with(|p| {
+        let mut b = p.borrow_mut();
+        let mut taken = Vec::new();
+        let mut i = 0;
+        while i < b.len() {
+            if b[i].1 == generation {
+                taken.push(b.remove(i));
+            } else {
+                i += 1;
+            }
+        }
+        taken
+    });
+    WS_OUTBOX.with(|o| o.borrow_mut().retain(|(g, _)| *g != generation));
+    for (_, _, slot, resolve) in waiting {
+        *slot.borrow_mut() = Some(Err(msg.to_string()));
+        resolve.call0(&JsValue::NULL).ok();
+    }
+}
+
+/// Install the single permanent message/error/close handlers on a new socket.
+///
+/// `forget()` is correct here, unlike the per-call closures it replaces:
+/// these three live exactly as long as the socket, and there is one set per
+/// connection rather than one per RPC.
+fn install_dispatcher(ws: &WebSocket, generation: u64) {
+    let ws_open = ws.clone();
+    let on_open = Closure::wrap(Box::new(move |_: JsValue| {
+        let queued: Vec<Vec<u8>> = WS_OUTBOX.with(|o| {
+            let mut b = o.borrow_mut();
+            let mine = b
+                .iter()
+                .filter(|(g, _)| *g == generation)
+                .map(|(_, r)| r.clone())
+                .collect();
+            b.retain(|(g, _)| *g != generation);
+            mine
+        });
+        for req in queued {
+            let arr = js_sys::Uint8Array::from(&req[..]);
+            ws_open.send_with_array_buffer(&arr.buffer()).ok();
+        }
+    }) as Box<dyn FnMut(JsValue)>);
+
+    let on_message = Closure::wrap(Box::new(move |event: MessageEvent| {
+        if let Ok(buf) = event.data().dyn_into::<js_sys::ArrayBuffer>() {
+            let arr = js_sys::Uint8Array::new(&buf);
+            let mut data = vec![0u8; arr.length() as usize];
+            arr.copy_to(&mut data);
+            match parse_response(&data) {
+                Ok(resp) => {
+                    let value = if resp.kind == 0x00 {
+                        Ok(resp.payload)
+                    } else {
+                        Err(rpc_error_text(resp.kind, &resp.payload))
+                    };
+                    dispatch_result(resp.id, value);
+                }
+                Err(e) => {
+                    // Unparseable frame: it carries no id we can trust, so it
+                    // is routed only when a single call is waiting. Otherwise
+                    // it is dropped and the 15 s timeout decides.
+                    dispatch_result(None, Err(format!("Parse: {e}")));
+                }
+            }
+        }
+    }) as Box<dyn FnMut(MessageEvent)>);
+
+    let on_error = Closure::wrap(Box::new(move |_: JsValue| {
+        dispatch_failure(generation, "WebSocket error");
+    }) as Box<dyn FnMut(JsValue)>);
+
+    let on_close = Closure::wrap(Box::new(move |_: JsValue| {
+        dispatch_failure(generation, "WebSocket closed");
+    }) as Box<dyn FnMut(JsValue)>);
+
+    ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
+    ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
+    ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+    ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+    on_open.forget();
+    on_message.forget();
+    on_error.forget();
+    on_close.forget();
+}
+
+/// A socket for this url, reusing the pooled one when possible.
+///
+/// Returns the socket, its generation, and whether it can be written to now.
+/// A socket that is still CONNECTING counts as reusable: the request is
+/// queued and `onopen` flushes it. Treating it as unusable meant a second
+/// call, arriving in the milliseconds before the handshake finished, closed
+/// the socket the first call was waiting on and opened another; with several
+/// calls at page load, which is exactly when they arrive together, the pool
+/// thrashed and every one of them died on the close.
+fn pooled_socket(ws_url: &str) -> Result<(WebSocket, u64, bool), String> {
     let existing = WS_POOL.with(|p| {
         let b = p.borrow();
         match &*b {
-            Some((url, ws)) if url == ws_url && ws.ready_state() == WebSocket::OPEN => {
-                Some(ws.clone())
-            }
+            Some((url, ws, generation)) if url == ws_url => match ws.ready_state() {
+                WebSocket::OPEN => Some((ws.clone(), *generation, true)),
+                WebSocket::CONNECTING => Some((ws.clone(), *generation, false)),
+                _ => None,
+            },
             _ => None,
         }
     });
-    if let Some(ws) = existing {
-        return Ok((ws, true));
+    if let Some(hit) = existing {
+        return Ok(hit);
     }
-    // Replace whatever was there: a different url, or a socket no longer open.
+    // Replace whatever was there: a different url, or a socket that has
+    // closed or is closing. Its own `onclose` fails only the calls of ITS
+    // generation, so anything registered against the new socket is safe.
     WS_POOL.with(|p| {
-        if let Some((_, old)) = p.borrow_mut().take() {
+        if let Some((_, old, _)) = p.borrow_mut().take() {
             old.close().ok();
         }
     });
+    let generation = WS_GEN.with(|g| {
+        let n = g.get().wrapping_add(1);
+        g.set(n);
+        n
+    });
     let ws = WebSocket::new(ws_url).map_err(|e| format!("WS create: {:?}", e))?;
     ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
-    WS_POOL.with(|p| *p.borrow_mut() = Some((ws_url.to_string(), ws.clone())));
-    Ok((ws, false))
+    install_dispatcher(&ws, generation);
+    WS_POOL.with(|p| *p.borrow_mut() = Some((ws_url.to_string(), ws.clone(), generation)));
+    Ok((ws, generation, false))
 }
 
-/// Drop the pooled socket so the next call reconnects.
-fn drop_pooled_socket() {
-    WS_POOL.with(|p| {
-        if let Some((_, ws)) = p.borrow_mut().take() {
-            ws.close().ok();
+/// Drop the pooled socket so the next call reconnects, but only if the pool
+/// still holds the connection the caller was using.
+///
+/// The generation check is the point: a call that timed out on an old socket
+/// must not close the healthy one that replaced it and take every call
+/// riding on THAT down with it.
+fn drop_pooled_socket(generation: u64) {
+    let dropped = WS_POOL.with(|p| {
+        let mut b = p.borrow_mut();
+        let matches = matches!(&*b, Some((_, _, g)) if *g == generation);
+        if matches {
+            if let Some((_, ws, g)) = b.take() {
+                ws.close().ok();
+                return Some(g);
+            }
         }
+        None
     });
+    // Nothing will answer on the socket we just closed, and nothing queued
+    // for it will ever be sent. Only ITS generation.
+    if let Some(g) = dropped {
+        dispatch_failure(g, "WebSocket closed");
+    }
 }
 
 async fn ws_rpc_call(ws_url: &str, op: u8, payload: &[u8]) -> Result<Vec<u8>, String> {
-    let (ws, reused) = pooled_socket(ws_url)?;
+    let (ws, generation, can_send_now) = pooled_socket(ws_url)?;
 
-    let id: u64 = (js_sys::Math::random() * 1_000_000.0) as u64;
+    let id: u64 = next_request_id();
     let request = build_request(id, op, payload);
 
     let result: Rc<RefCell<Option<Result<Vec<u8>, String>>>> = Rc::new(RefCell::new(None));
@@ -366,119 +631,38 @@ async fn ws_rpc_call(ws_url: &str, op: u8, payload: &[u8]) -> Result<Vec<u8>, St
         let request = request.clone();
 
         js_sys::Promise::new(&mut |resolve, _reject| {
-            let res = result.clone();
-            let req = request.clone();
-            let req_now = request.clone();
-            let ws2 = ws.clone();
-
-            // Registered below either way; on a REUSED socket `onopen` will
-            // never fire again, so the send is done directly after the handlers
-            // are in place instead of waiting for an event that has passed.
-            let on_open = Closure::once(move |_: JsValue| {
-                let arr = js_sys::Uint8Array::from(&req[..]);
-                ws2.send_with_array_buffer(&arr.buffer()).ok();
+            // Register BEFORE sending, or a fast reply arrives with nothing
+            // waiting for it and is dropped by the dispatcher.
+            WS_PENDING.with(|p| {
+                p.borrow_mut()
+                    .push((id, generation, result.clone(), resolve.clone()))
             });
 
-            let res2 = res.clone();
-            let resolve2 = resolve.clone();
-            let on_message = Closure::once(move |event: MessageEvent| {
-                if let Ok(buf) = event.data().dyn_into::<js_sys::ArrayBuffer>() {
-                    let arr = js_sys::Uint8Array::new(&buf);
-                    let mut data = vec![0u8; arr.length() as usize];
-                    arr.copy_to(&mut data);
-
-                    match parse_response(&data) {
-                        Ok(resp) => {
-                            if resp.kind == 0x00 {
-                                *res2.borrow_mut() = Some(Ok(resp.payload));
-                            } else {
-                                // Extract error text from Borsh payload
-                                // RPC errors are typically: version(u16) + Serializable(String)
-                                // Try to extract a readable string
-                                let payload = &resp.payload;
-                                let err_text = if payload.len() > 6 {
-                                    // Skip version(2) + outer len(4), try to read inner string
-                                    let inner_start = 6usize;
-                                    if inner_start + 4 <= payload.len() {
-                                        let slen = u32::from_le_bytes([
-                                            payload[inner_start],
-                                            payload.get(inner_start + 1).copied().unwrap_or(0),
-                                            payload.get(inner_start + 2).copied().unwrap_or(0),
-                                            payload.get(inner_start + 3).copied().unwrap_or(0),
-                                        ])
-                                            as usize;
-                                        let str_start = inner_start + 4;
-                                        if str_start + slen <= payload.len() {
-                                            String::from_utf8_lossy(
-                                                &payload[str_start..str_start + slen],
-                                            )
-                                            .to_string()
-                                        } else {
-                                            String::from_utf8_lossy(payload).to_string()
-                                        }
-                                    } else {
-                                        String::from_utf8_lossy(payload).to_string()
-                                    }
-                                } else {
-                                    String::from_utf8_lossy(payload).to_string()
-                                };
-                                // Also log raw hex for debugging
-                                let hex_preview: String = payload
-                                    .iter()
-                                    .take(200)
-                                    .map(|b| format!("{:02x}", b))
-                                    .collect();
-                                web_sys::console::log_1(
-                                    &format!(
-                                        "[KasSee] RPC error kind={}: text='{}' raw_hex={}",
-                                        resp.kind, err_text, hex_preview
-                                    )
-                                    .into(),
-                                );
-                                *res2.borrow_mut() = Some(Err(format!(
-                                    "RPC error kind={}: {}",
-                                    resp.kind, err_text
-                                )));
-                            }
-                        }
-                        Err(e) => {
-                            *res2.borrow_mut() = Some(Err(format!("Parse: {}", e)));
-                        }
-                    }
-                    resolve2.call0(&JsValue::NULL).ok();
-                }
-            });
-
-            let res3 = res.clone();
-            let resolve3 = resolve.clone();
-            let on_error = Closure::once(move |_: JsValue| {
-                *res3.borrow_mut() = Some(Err("WebSocket error".into()));
-                resolve3.call0(&JsValue::NULL).ok();
-            });
-
-            ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
-            ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
-            ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
-            on_open.forget();
-            on_message.forget();
-            on_error.forget();
-
-            // Reused socket: send immediately, since `onopen` already fired for
-            // this connection and will not fire again. Done AFTER onmessage is
-            // registered, or a fast reply could arrive with no handler.
-            if reused {
-                let arr = js_sys::Uint8Array::from(&req_now[..]);
+            if can_send_now {
+                // Already OPEN: `onopen` has fired for this connection and
+                // will not fire again, so send now.
+                let arr = js_sys::Uint8Array::from(&request[..]);
                 ws.send_with_array_buffer(&arr.buffer()).ok();
+            } else {
+                // Still opening: the dispatcher's `onopen` sends everything
+                // queued for this generation, so concurrent calls on a new
+                // socket all go out.
+                WS_OUTBOX.with(|o| o.borrow_mut().push((generation, request.clone())));
             }
 
-            // 15-second timeout: if no response arrives, resolve with timeout error
-            let res4 = res.clone();
-            let resolve4 = resolve.clone();
+            // 15-second timeout: if no reply arrives, take this call out of the
+            // pending list and resolve it with a timeout error. Removing it is
+            // what keeps a late frame from resolving a call that has already
+            // given up.
             let timeout_cb = Closure::once(move || {
-                let mut guard = res4.borrow_mut();
-                if guard.is_none() {
-                    *guard = Some(Err("WebSocket timeout (15s)".into()));
-                    resolve4.call0(&JsValue::NULL).ok();
+                let still_waiting = WS_PENDING.with(|p| {
+                    let mut b = p.borrow_mut();
+                    let at = b.iter().position(|(pending, _, _, _)| *pending == id);
+                    at.map(|i| b.remove(i))
+                });
+                if let Some((_, _, slot, resolve)) = still_waiting {
+                    *slot.borrow_mut() = Some(Err("WebSocket timeout (15s)".into()));
+                    resolve.call0(&JsValue::NULL).ok();
                 }
             });
             // Get setTimeout from the global object (CSP-safe, no eval)
@@ -517,13 +701,13 @@ async fn ws_rpc_call(ws_url: &str, op: u8, payload: &[u8]) -> Result<Vec<u8>, St
             // every refresh sent into the void and waited the full 15 s. Nothing
             // recovered until reload.
             if e.contains("timeout") || e.contains("WebSocket error") {
-                drop_pooled_socket();
+                drop_pooled_socket(generation);
             }
             Err(e)
         }
         None => {
             // No response at all: the socket died mid-flight.
-            drop_pooled_socket();
+            drop_pooled_socket(generation);
             Err("No response".into())
         }
     }
@@ -1046,6 +1230,11 @@ pub async fn broadcast_signed(ws_url: &str, signed_hex: &str) -> Result<String, 
     if response.len() > 4 {
         // Try to detect text error in response
         let text_check = String::from_utf8_lossy(&response);
+        // Already on chain: success, not a rejection. Must precede the
+        // "Reject" tests, whose text this reply contains.
+        if let Some(id) = already_accepted(&text_check) {
+            return Ok(id);
+        }
         if text_check.contains("Reject")
             || text_check.contains("reject")
             || text_check.contains("error")
@@ -1094,6 +1283,9 @@ pub async fn broadcast_signed(ws_url: &str, signed_hex: &str) -> Result<String, 
     if inner.len() >= 34 {
         // Check if this looks like a text error instead of a TX ID
         let text_check = String::from_utf8_lossy(inner);
+        if let Some(id) = already_accepted(&text_check) {
+            return Ok(id);
+        }
         if text_check.contains("Reject") || text_check.contains("error") {
             return Err(format!("Node rejected TX: {}", text_check));
         }
@@ -1102,6 +1294,9 @@ pub async fn broadcast_signed(ws_url: &str, signed_hex: &str) -> Result<String, 
         Ok(tx_id)
     } else if inner.len() >= 2 {
         let text_check = String::from_utf8_lossy(inner);
+        if let Some(id) = already_accepted(&text_check) {
+            return Ok(id);
+        }
         if text_check.contains("Reject") || text_check.contains("error") {
             return Err(format!("Node rejected TX: {}", text_check));
         }
@@ -1298,6 +1493,11 @@ pub async fn submit_consensus_tx(
 
     if response.len() > 4 {
         let text_check = String::from_utf8_lossy(&response);
+        // Already on chain: success, not a rejection. Must precede the
+        // "Reject" tests, whose text this reply contains.
+        if let Some(id) = already_accepted(&text_check) {
+            return Ok(id);
+        }
         if text_check.contains("Reject")
             || text_check.contains("reject")
             || text_check.contains("error")
@@ -1348,6 +1548,9 @@ pub async fn submit_consensus_tx(
 
     if inner.len() >= 34 {
         let text_check = String::from_utf8_lossy(inner);
+        if let Some(id) = already_accepted(&text_check) {
+            return Ok(id);
+        }
         if text_check.contains("Reject") || text_check.contains("error") {
             return Err(format!("Node rejected TX: {}", text_check));
         }
@@ -1356,6 +1559,9 @@ pub async fn submit_consensus_tx(
         Ok(tx_id)
     } else if inner.len() >= 2 {
         let text_check = String::from_utf8_lossy(inner);
+        if let Some(id) = already_accepted(&text_check) {
+            return Ok(id);
+        }
         if text_check.contains("Reject") || text_check.contains("error") {
             return Err(format!("Node rejected TX: {}", text_check));
         }
@@ -1447,6 +1653,11 @@ pub async fn build_and_broadcast_raw(
     // Check for text errors
     if response.len() > 4 {
         let text_check = String::from_utf8_lossy(&response);
+        // Already on chain: success, not a rejection. Must precede the
+        // "Reject" tests, whose text this reply contains.
+        if let Some(id) = already_accepted(&text_check) {
+            return Ok(id);
+        }
         if text_check.contains("Reject")
             || text_check.contains("reject")
             || text_check.contains("error")

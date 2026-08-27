@@ -2087,10 +2087,16 @@
                         <button class="btn btn-primary" id="btn-scan-signed">
                             Scan Signed QR
                         </button>
-                        <div class="divider" id="broadcast-hex-divider" style="display:none">or</div>
+                        <!-- Visible since 1.0.7. These three were display:none in the
+                             markup and nothing ever showed them, so the paste path was
+                             unreachable even though handleBroadcastHex has always
+                             accepted a pasted PSKB as well as a KSPT (it routes a PSKB
+                             to the review screen). Recovering a bundle from another
+                             wallet, or from an older KasSee, needed a debugger. -->
+                        <div class="divider" id="broadcast-hex-divider">or</div>
                         <textarea id="input-signed-hex" class="input-text input-textarea"
-                                  placeholder="Paste signed KSPT hex..." rows="4" style="display:none"></textarea>
-                        <button class="btn btn-secondary" id="btn-broadcast-hex" style="display:none">
+                                  placeholder="Paste signed KSPT or PSKB hex..." rows="4"></textarea>
+                        <button class="btn btn-secondary" id="btn-broadcast-hex">
                             Broadcast
                         </button>
                         <button class="btn btn-link" id="btn-broadcast-back">Back</button>
@@ -2151,6 +2157,10 @@
 
                         <button class="btn btn-primary" id="btn-pskt-finalize">Finalize + broadcast</button>
                         <button class="btn btn-secondary" id="btn-pskt-relay">Relay to next signer</button>
+                        <!-- The KSPT relay screen has had a copy button since 1.0.4;
+                             the PSKB review had none, so the bundle could only leave
+                             this screen as QR frames. -->
+                        <button class="btn btn-link" id="btn-pskt-copy-hex">Copy PSKB hex</button>
                         <button class="btn btn-link" id="btn-pskt-back">Back</button>
                     </div>
                 </div>

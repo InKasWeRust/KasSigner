@@ -43,7 +43,7 @@
 //!
 //! See `docs/pskt/PSKT_MIGRATION_PLAN.md` for the full breakdown.
 
-use crate::app::data::{TxInputFormat, PsktParsed, MAX_PSKT_UNKNOWN_REGIONS};
+use crate::types::{TxInputFormat, PsktParsed, MAX_PSKT_UNKNOWN_REGIONS};
 use crate::wallet::transaction::{
     MAX_INPUTS, MAX_OUTPUTS, MAX_SCRIPT_SIZE, MAX_SIGS_PER_INPUT, Transaction,
 };
@@ -208,10 +208,13 @@ impl PskError {
 // ═══════════════════════════════════════════════════════════════════════
 
 /// Magic prefix for PSKB (bundle of PSKTs) wire payloads.
+///
+/// The only PSKT interchange envelope. rusty-kaspa's `wallet/pskt`
+/// serializes a bundle as `"PSKB" + hex(json array)` and accepts nothing
+/// else; a `PSKT`-prefixed single-object form once declared here had no
+/// emitter anywhere and was rejected by `parse_pskt` (which always expects
+/// the bundle array), so it was removed in 1.0.7.
 pub const PSKB_MAGIC: &[u8; 4] = b"PSKB";
-
-/// Magic prefix for single-PSKT (non-bundle) wire payloads.
-pub const PSKT_MAGIC: &[u8; 4] = b"PSKT";
 
 /// Magic prefix for legacy custom KSPT v1/v2 binary format.
 /// Same bytes as v1 checks use in `camera_loop.rs`; defined here so
@@ -233,8 +236,6 @@ pub enum DetectedFormat {
     KsptV2,
     /// Kaspa-standard PSKT, `PSKB` prefix, hex-wrapped Bundle JSON.
     PsktPskb,
-    /// Kaspa-standard PSKT, `PSKT` prefix, hex-wrapped single-PSKT JSON.
-    PsktSingle,
     /// First bytes match nothing we recognize.
     Unknown,
 }
@@ -248,7 +249,6 @@ impl DetectedFormat {
             Self::KsptV1 => Some(TxInputFormat::KsptV1),
             Self::KsptV2 => Some(TxInputFormat::KsptV2),
             Self::PsktPskb => Some(TxInputFormat::PsktPskb),
-            Self::PsktSingle => Some(TxInputFormat::PsktSingle),
             Self::Unknown => None,
         }
     }
@@ -284,9 +284,6 @@ pub fn detect_tx_format(data: &[u8]) -> DetectedFormat {
     if magic == PSKB_MAGIC {
         return DetectedFormat::PsktPskb;
     }
-    if magic == PSKT_MAGIC {
-        return DetectedFormat::PsktSingle;
-    }
 
     DetectedFormat::Unknown
 }
@@ -296,8 +293,8 @@ pub fn detect_tx_format(data: &[u8]) -> DetectedFormat {
 /// truncated.
 ///
 /// Use when you've already committed to a PSKT branch (e.g. after
-/// `detect_tx_format` returned `PsktPskb` or `PsktSingle`) and want
-/// the remaining hex body to feed into `hex_decode_strict`.
+/// `detect_tx_format` returned `PsktPskb`) and want the remaining hex
+/// body to feed into `hex_decode_strict`.
 ///
 /// An empty body is rejected — a zero-length hex payload can't encode
 /// a valid JSON bundle.
@@ -306,7 +303,7 @@ pub fn strip_pskt_magic(data: &[u8]) -> Result<&[u8], PskError> {
         return Err(PskError::TooShort);
     }
     let magic = &data[..4];
-    if magic != PSKB_MAGIC && magic != PSKT_MAGIC {
+    if magic != PSKB_MAGIC {
         return Err(PskError::BadMagic);
     }
     let body = &data[4..];
@@ -528,7 +525,11 @@ impl<'a> Tokenizer<'a> {
     /// Produce the next token. After Eof is returned, subsequent calls
     /// continue to return Eof (not an error) — the parser can treat Eof
     /// as a normal terminator.
-    pub fn next(&mut self) -> Result<Tok<'a>, PskError> {
+    ///
+    /// Not `next`: an inherent method of that name on a `&mut self` type
+    /// reads as `Iterator::next`, which this is not. It yields `Result`
+    /// and returns `Eof` forever rather than `None` once.
+    pub fn next_token(&mut self) -> Result<Tok<'a>, PskError> {
         self.skip_ws();
         if self.pos >= self.data.len() {
             return Ok(Tok::Eof);
@@ -555,7 +556,7 @@ impl<'a> Tokenizer<'a> {
     /// and restores `pos`; cheap since `Tok` is Copy.
     pub fn peek(&mut self) -> Result<Tok<'a>, PskError> {
         let saved = self.pos;
-        let tok = self.next();
+        let tok = self.next_token();
         self.pos = saved;
         tok
     }
@@ -751,7 +752,7 @@ pub fn parse_pskt(
 /// Assert the next token matches `expected`. Consumes the token on
 /// match; errors on mismatch.
 fn expect(tok: &mut Tokenizer<'_>, expected: Tok<'_>) -> Result<(), PskError> {
-    let got = tok.next()?;
+    let got = tok.next_token()?;
     if core::mem::discriminant(&got) != core::mem::discriminant(&expected) {
         return Err(PskError::UnexpectedToken);
     }
@@ -760,7 +761,7 @@ fn expect(tok: &mut Tokenizer<'_>, expected: Tok<'_>) -> Result<(), PskError> {
 
 /// Read a string token, return its bytes.
 fn expect_string<'a>(tok: &mut Tokenizer<'a>) -> Result<&'a [u8], PskError> {
-    match tok.next()? {
+    match tok.next_token()? {
         Tok::Str(s) => Ok(s),
         _ => Err(PskError::UnexpectedToken),
     }
@@ -768,7 +769,7 @@ fn expect_string<'a>(tok: &mut Tokenizer<'a>) -> Result<&'a [u8], PskError> {
 
 /// Read a u64 number token.
 fn expect_u64(tok: &mut Tokenizer<'_>) -> Result<u64, PskError> {
-    match tok.next()? {
+    match tok.next_token()? {
         Tok::Num(n) => parse_u64_num(n),
         _ => Err(PskError::UnexpectedToken),
     }
@@ -792,7 +793,7 @@ fn capture_unknown(parsed: &mut PsktParsed, start: usize, end: usize) -> Result<
 /// Consumes tokens until a complete value has been read. Used for fields
 /// we want to byte-range-capture without interpreting.
 fn skip_value(tok: &mut Tokenizer<'_>) -> Result<(), PskError> {
-    match tok.next()? {
+    match tok.next_token()? {
         Tok::Str(_) | Tok::Num(_) | Tok::True | Tok::False | Tok::Null => Ok(()),
         Tok::LBrace => skip_until_matching(tok, Tok::RBrace),
         Tok::LBracket => skip_until_matching(tok, Tok::RBracket),
@@ -829,7 +830,7 @@ fn skip_until_matching(tok: &mut Tokenizer<'_>, close: Tok<'_>) -> Result<(), Ps
     let mut depth: usize = 1;
 
     loop {
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::LBrace => {
                 if depth >= MAX_DEPTH {
                     return Err(PskError::UnexpectedToken);
@@ -927,7 +928,7 @@ fn parse_bundle_array(
 
     // Closing `]`. Reject multi-element bundles — a comma here would
     // start another PSKT.
-    match tok.next()? {
+    match tok.next_token()? {
         Tok::RBracket => Ok(()),
         Tok::Comma => Err(PskError::BundleMultiElement),
         _ => Err(PskError::UnexpectedToken),
@@ -997,7 +998,7 @@ fn parse_pskt_object(
         }
 
         // Comma or close.
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1014,7 +1015,18 @@ fn parse_pskt_object(
     // member order is not fixed, so `global` may legally precede or follow
     // the arrays, and `tx.num_inputs` is only reliable once all three
     // top-level fields have been seen.
-    if declared_input_count != tx.num_inputs || declared_output_count != tx.num_outputs {
+    // A zero count is "unset", not a claim of emptiness. `inputCount` and
+    // `outputCount` are Creator-role bookkeeping upstream and the
+    // Constructor does not maintain them as inputs are added, so a bundle
+    // straight from the reference library carries 0 alongside populated
+    // arrays (their own committed fixture,
+    // `wallet/pskt/src/wasm/bundle.rs:229`, does exactly that). The
+    // signature covers neither field. Rejecting on them refused normal
+    // reference output until 1.0.7; the check still holds whenever a
+    // non-zero count is stated.
+    if (declared_input_count != 0 && declared_input_count != tx.num_inputs)
+        || (declared_output_count != 0 && declared_output_count != tx.num_outputs)
+    {
         return Err(PskError::CountMismatch);
     }
 
@@ -1139,7 +1151,7 @@ fn parse_global(
                 // canonical vectors; capture only if non-empty.
                 expect(tok, Tok::LBrace)?;
                 match tok.peek()? {
-                    Tok::RBrace => { tok.next()?; }
+                    Tok::RBrace => { tok.next_token()?; }
                     _ => {
                         skip_until_matching(tok, Tok::RBrace)?;
                         capture_unknown(parsed, key_start, tok.position())?;
@@ -1151,7 +1163,7 @@ fn parse_global(
                     return Err(PskError::DuplicateField);
                 }
                 // Either `null` or a hex string. `null` is the default.
-                match tok.next()? {
+                match tok.next_token()? {
                     Tok::Null => { /* default, no capture */ }
                     Tok::Str(_) => {
                         // Non-default id present — capture the whole
@@ -1169,7 +1181,7 @@ fn parse_global(
             }
         }
 
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1197,7 +1209,7 @@ fn parse_inputs_array(
     // signing flow should see at least one input. We accept empty here
     // and let semantic validation in camera_loop.rs reject if needed.
     if let Tok::RBracket = tok.peek()? {
-        tok.next()?; // consume `]`
+        tok.next_token()?; // consume `]`
         tx.num_inputs = 0;
         return Ok(());
     }
@@ -1210,7 +1222,7 @@ fn parse_inputs_array(
         parse_input(tok, tx, parsed, count)?;
         count += 1;
 
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBracket => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1269,7 +1281,18 @@ fn parse_input(
                 if !mark(&mut seen_opt, S_SEQUENCE) {
                     return Err(PskError::DuplicateField);
                 }
-                inp.sequence = expect_u64(tok)?;
+                // `Option<u64>` upstream: `null` and an omitted field both
+                // mean unset, and unset is the final sequence number
+                // (`wallet/pskt/src/input.rs:25`). Their signer hashes
+                // `sequence.unwrap_or(u64::MAX)` (`pskt.rs:146`), so MAX is
+                // the value the counterparty signed against; filling 0 here,
+                // which is what an omitted field silently did until 1.0.7,
+                // produced a signature their broadcaster rejects. An
+                // explicit value is signed exactly as given, whatever it is.
+                match tok.peek()? {
+                    Tok::Null => { tok.next_token()?; inp.sequence = u64::MAX; }
+                    _ => inp.sequence = expect_u64(tok)?,
+                }
             }
             b"sighashType" => {
                 if seen_sighash { return Err(PskError::DuplicateField); }
@@ -1285,7 +1308,7 @@ fn parse_input(
                     return Err(PskError::DuplicateField);
                 }
                 // null OR hex string.
-                match tok.next()? {
+                match tok.next_token()? {
                     Tok::Null => { inp.redeem_script_len = 0; }
                     Tok::Str(hex_str) => {
                         if hex_str.len() / 2 > MAX_SCRIPT_SIZE {
@@ -1338,7 +1361,24 @@ fn parse_input(
                 if !mark(&mut seen_opt, S_MINTIME) {
                     return Err(PskError::DuplicateField);
                 }
-                skip_value(tok)?;
+                // The transaction's lock time is the largest `minTime` over
+                // the inputs, 0 when none states one
+                // (`wallet/pskt/src/pskt.rs:172`, `determine_lock_time`).
+                // `fallbackLockTime` is NOT consulted for a bundle that has
+                // inputs: `.max()` over `Option<u64>` items yields
+                // `Option<Option<u64>>` and the outer `unwrap_or` fires only
+                // on an empty input list, so it is dead for anything
+                // signable. Skipped entirely until 1.0.7, which made the
+                // device sign locktime 0 while their extractor built the
+                // requested value: a signature that could not broadcast, and
+                // a lock time silently dropped from the review screen.
+                match tok.peek()? {
+                    Tok::Null => { tok.next_token()?; }
+                    _ => {
+                        let t = expect_u64(tok)?;
+                        if t > tx.locktime { tx.locktime = t; }
+                    }
+                }
             }
             b"finalScriptSig" => {
                 if !mark(&mut seen_opt, S_FINALSIG) {
@@ -1356,7 +1396,7 @@ fn parse_input(
                 let val_start = tok.position();
                 expect(tok, Tok::LBrace)?;
                 match tok.peek()? {
-                    Tok::RBrace => { tok.next()?; }  // empty, no capture
+                    Tok::RBrace => { tok.next_token()?; }  // empty, no capture
                     _ => {
                         skip_until_matching(tok, Tok::RBrace)?;
                         capture_unknown(parsed, key_start, tok.position())?;
@@ -1371,7 +1411,7 @@ fn parse_input(
             }
         }
 
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1380,6 +1420,15 @@ fn parse_input(
 
     if !(seen_utxo && seen_outpoint && seen_sighash) {
         return Err(PskError::MissingField);
+    }
+
+    // An omitted `sequence` is the same "unset" as an explicit `null`, and
+    // means the same thing: the final sequence number. Until 1.0.7 the
+    // omitted spelling silently kept the zero-initialised 0 while the
+    // `null` spelling was refused, so two spellings of one state had two
+    // different outcomes and neither matched the reference.
+    if seen_opt & S_SEQUENCE == 0 {
+        tx.inputs[idx].sequence = u64::MAX;
     }
     Ok(())
 }
@@ -1424,7 +1473,7 @@ fn parse_utxo_entry(
                 // lowercase hex string when it does. Validated as strictly as
                 // the output binding: a value the device cannot decode is a
                 // value it must not display.
-                match tok.next()? {
+                match tok.next_token()? {
                     Tok::Null => {
                         inp.utxo_entry.has_covenant = false;
                     }
@@ -1448,7 +1497,7 @@ fn parse_utxo_entry(
                 skip_value(tok)?;
             }
         }
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1496,7 +1545,7 @@ fn parse_outpoint(
                 skip_value(tok)?;
             }
         }
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1517,7 +1566,7 @@ fn parse_partial_sigs(
 
     // Empty map is fine and common (unsigned PSKT).
     if let Tok::RBrace = tok.peek()? {
-        tok.next()?;
+        tok.next_token()?;
         inp.incoming_partial_sigs_count = 0;
         return Ok(());
     }
@@ -1558,7 +1607,7 @@ fn parse_partial_sigs(
         slot.present = true;
         count += 1;
 
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1694,7 +1743,7 @@ fn parse_bip32_derivations(
 
     let peek = tok.peek()?;
     if let Tok::RBrace = peek {
-        tok.next()?;
+        tok.next_token()?;
         return Ok(());
     }
 
@@ -1715,7 +1764,7 @@ fn parse_bip32_derivations(
             }
         }
 
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1744,7 +1793,7 @@ fn parse_outputs_array(
     expect(tok, Tok::LBracket)?;
 
     if let Tok::RBracket = tok.peek()? {
-        tok.next()?;
+        tok.next_token()?;
         tx.num_outputs = 0;
         return Ok(());
     }
@@ -1757,7 +1806,7 @@ fn parse_outputs_array(
         parse_output(tok, tx, parsed, count)?;
         count += 1;
 
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBracket => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -1838,11 +1887,11 @@ fn parse_output(
                 seen_covenant = true;
                 match tok.peek()? {
                     Tok::Null => {
-                        tok.next()?;
+                        tok.next_token()?;
                         out.has_covenant = false;
                     }
                     Tok::LBrace => {
-                        tok.next()?;
+                        tok.next_token()?;
                         // `{}` is a contradiction: a binding is present but
                         // carries nothing. `null` is how absence is spelled.
                         if let Tok::RBrace = tok.peek()? {
@@ -1891,7 +1940,7 @@ fn parse_output(
                                 // round trip.
                                 _ => return Err(PskError::InvalidCovenantBinding),
                             }
-                            match tok.next()? {
+                            match tok.next_token()? {
                                 Tok::Comma => continue,
                                 Tok::RBrace => break,
                                 _ => return Err(PskError::UnexpectedToken),
@@ -1921,7 +1970,7 @@ fn parse_output(
                 expect(tok, Tok::LBrace)?;
                 let val_start = tok.position();
                 match tok.peek()? {
-                    Tok::RBrace => { tok.next()?; }  // empty, no capture
+                    Tok::RBrace => { tok.next_token()?; }  // empty, no capture
                     _ => {
                         skip_until_matching(tok, Tok::RBrace)?;
                         // Pull the derivation path out NOW, as the input side
@@ -1951,7 +2000,7 @@ fn parse_output(
             }
         }
 
-        match tok.next()? {
+        match tok.next_token()? {
             Tok::Comma => continue,
             Tok::RBrace => break,
             _ => return Err(PskError::UnexpectedToken),
@@ -2012,7 +2061,7 @@ fn parse_output(
 ///            still hold the bytes the `parsed.unknowns` offsets refer
 ///            to; caller is responsible for not clobbering it between
 ///            parse and serialize.
-/// `format` — `PsktPskb` or `PsktSingle`; decides magic prefix.
+/// `format` — must be `PsktPskb`; any other format is an error.
 /// `out`    — destination buffer, receives magic + hex(JSON).
 ///
 /// Returns the number of bytes written to `out`.
@@ -2064,7 +2113,6 @@ pub fn serialize_pskt(
     // Magic prefix.
     let magic: &[u8; 4] = match format {
         TxInputFormat::PsktPskb => PSKB_MAGIC,
-        TxInputFormat::PsktSingle => PSKT_MAGIC,
         _ => return Err(PskError::UnexpectedToken),  // not a PSKT format
     };
     if out.len() < 4 {
@@ -2335,7 +2383,23 @@ fn emit_input(
     emit_outpoint(w, inp)?;
     w.lit(b",\"sequence\":")?;
     w.u64(inp.sequence)?;
-    w.lit(b",\"minTime\":null,\"partialSigs\":")?;
+    // The reference derives the transaction lock time as the largest
+    // `minTime` over the inputs (`determine_lock_time`), and the sighash
+    // covers that derived scalar, not the per-input spread, so emitting the
+    // lock time on every input reproduces the value under any re-derivation.
+    // Hardcoded `null` here until 1.0.7: every emitted bundle reconstructed
+    // to lock time 0, so a cosigner or an extractor reading our output
+    // rebuilt a transaction the signature does not match, and a second
+    // multisig signer saw no lock time on the review screen at all. The
+    // output-side twin of the parse-side gap fixed the same release, found
+    // by the roundtrip test in `pskb_compat_tests.rs`.
+    w.lit(b",\"minTime\":")?;
+    if tx.locktime == 0 {
+        w.lit(b"null")?;
+    } else {
+        w.u64(tx.locktime)?;
+    }
+    w.lit(b",\"partialSigs\":")?;
     emit_partial_sigs(w, inp)?;
     w.lit(b",\"sighashType\":")?;
     w.u64(inp.sighash_type as u64)?;

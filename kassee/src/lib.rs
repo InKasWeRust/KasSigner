@@ -640,7 +640,6 @@ pub fn version() -> String {
 pub fn pskt_detect(wire_hex: &str) -> String {
     match pskt::detect_format_hex(wire_hex) {
         pskt::PsktFormat::Pskb => "pskb".into(),
-        pskt::PsktFormat::PsktSingle => "pskt".into(),
         pskt::PsktFormat::Unknown => "unknown".into(),
     }
 }

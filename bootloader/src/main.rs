@@ -111,7 +111,9 @@
 
 // ─── Module tree ─────────────────────────────────────────────
 mod crypto;
-mod wallet;
+// The wallet library is kassigner-core (core/). Re-exported as `crate::wallet`
+// so every path in the firmware is unchanged.
+pub use kassigner_core::wallet;
 mod hw;
 mod qr;
 mod app;
@@ -315,8 +317,24 @@ pub static SENSOR_OV2640: core::sync::atomic::AtomicBool =
 //  ENTRY POINT
 // ═══════════════════════════════════════════════════════════════════════
 
+// The two hooks kassigner-core needs from the hardware, registered first
+// thing in `main`. Nothing in the core crate prints or signs before these.
+#[cfg(not(feature = "silent"))]
+fn core_log(args: core::fmt::Arguments<'_>) {
+    esp_println::println!("{}", args);
+}
+fn core_entropy(out: &mut [u8]) -> Result<(), ()> {
+    crypto::entropy::fill(out).map_err(|_| ())
+}
+
 #[main]
 fn main() -> ! {
+    // kassigner-core hooks. Silent builds register no logger, so the core
+    // crate stays exactly as silent as the firmware macro made it.
+    #[cfg(not(feature = "silent"))]
+    kassigner_core::log::set_logger(core_log);
+    kassigner_core::entropy::set_source(core_entropy);
+
     log!();
     log!("╔════════════════════════════════════╗");
     log!("║      KasSigner Bootloader          ║");
@@ -600,10 +618,23 @@ fn main() -> ! {
         // on a working device is worse than no check, because it teaches you
         // to ignore the log.
         //
-        // XCLK is already verified transitively, and better, a few lines
-        // below: `PCLK(GPIO9) toggles` is measured the same way but PCLK is
-        // DERIVED from XCLK, so a non-zero PCLK proves XCLK runs. In the boot
-        // that read XCLK as 2, PCLK read 133,331.
+        // The PCLK sampler that followed it went the same way on 2026-08-25:
+        // it read 133,331 the day the XCLK one was removed, then 71,430, 12,
+        // 1 and 6 on four consecutive boots of one firmware with the camera
+        // decoding QR codes on all of them. Same loop, same aliasing.
+        //
+        // The VSYNC sampler went with it, for two reasons that each suffice.
+        // Its 500,000-iteration window is a few milliseconds and a frame is
+        // tens of them (HTS 1896 x VTS 984 pixel clocks), so it could only
+        // report an edge when the window happened to straddle one. And it
+        // ran before `setup_cam_gpio_routing()`, so GPIO6 was not yet an
+        // input the matrix would deliver; it read 0 on every boot in every
+        // log, camera working each time.
+        //
+        // XCLK, PCLK and VSYNC are proven by the thing they exist for:
+        // `cam_dma` logging full 230,400-byte frames (a frame cannot be
+        // delivered without VSYNC framing it) and rqrr decoding from them,
+        // both a few lines further down the boot log.
         //
         // The IO_MUX write that used to sit here set bit 9 (input enable) on
         // GPIO8 so the pin could be read at all. It existed only to serve this
@@ -683,31 +714,8 @@ fn main() -> ! {
                 hw::camera::log_diagnostics(&mut cam_i2c);
             }
 
-            // Verify PCLK
-            let mut pclk_tog = 0u32;
-            let mut plast = unsafe {
-                (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 9) & 1
-            };
-            for _ in 0..200_000u32 {
-                let p = unsafe {
-                    (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 9) & 1
-                };
-                if p != plast { pclk_tog += 1; plast = p; }
-            }
-            log!("   PCLK(GPIO9) toggles: {}", pclk_tog);
-
-            // Verify VSYNC
-            let mut vtog = 0u32;
-            let mut vlast = unsafe {
-                (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 6) & 1
-            };
-            for _ in 0..500_000u32 {
-                let v = unsafe {
-                    (core::ptr::read_volatile(0x6000_403Cu32 as *const u32) >> 6) & 1
-                };
-                if v != vlast { vtog += 1; vlast = v; }
-            }
-            log!("   VSYNC(GPIO6) toggles in 500K: {}", vtog);
+            // PCLK and VSYNC samplers REMOVED 2026-08-25; see the XCLK note
+            // above.
         }
 
         // ── GPIO matrix routing (same as before — manual, not via DvpCamera) ──
@@ -1033,14 +1041,12 @@ fn main() -> ! {
     // to the main menu. The serial log proved re-entry happens through a
     // NON-tap path (wake_debounce was active and it re-entered anyway), so
     // this gates the state itself, not the input.
-    #[cfg(feature = "m5stack")]
-    let mut cam_exit_lockout: u32 = 0;
-    #[cfg(feature = "waveshare")]
-    let mut wake_debounce: u32 = 200; // suppress phantom touches at boot
-    #[cfg(feature = "m5stack")]
-    let mut wake_debounce: u32 = 200; // suppress phantom touches at boot: a press
-    // on the blocking logo/verify screens (no touch reads for ~5.5s) otherwise
-    // fires into the menu on the first loop read — the coin sits over Scan QR.
+    // Both counters live in `ad.touch_guard` since 1.0.7 (see `TouchGuard`
+    // in app/data.rs): `debounce` starts at 200 to suppress phantom touches
+    // at boot (a press on the blocking logo/verify screens, no touch reads
+    // for ~5.5s, otherwise fires into the menu on the first loop read; the
+    // coin sits over Scan QR), `exit_lockout` at 0. Moving them into
+    // AppData is what lets a camera exit arm them where it happens.
     let mut dim_active: bool = false;
     // Wake-from-sleep needs N consecutive frames of "finger present" to fire.
     // Single-frame noise from ambient light / EMI on the CST816D would
@@ -1168,15 +1174,9 @@ fn main() -> ! {
         // the non-tap path that has been re-arming the viewfinder).
         #[cfg(feature = "m5stack")]
         {
-            if cam_exit_lockout > 0 {
-                cam_exit_lockout -= 1;
-                let in_cam = matches!(
-                    ad.app.state,
-                    app::input::AppState::ScanQR
-                    | app::input::AppState::SignMsgScanQr
-                    | app::input::AppState::DecryptSecretScan
-                );
-                if in_cam {
+            if ad.touch_guard.exit_lockout > 0 {
+                ad.touch_guard.exit_lockout -= 1;
+                if ad.app.state.is_scan_camera() {
                     ad.app.go_main_menu();
                     ad.needs_redraw = true;
                 }
@@ -1220,7 +1220,7 @@ fn main() -> ! {
                 if wake_confirm_count >= WAKE_CONFIRM_REQUIRED {
                     wake_confirm_count = 0;
                     if handle_wake(ad, &mut i2c, &mut delay, &mut tracker,
-                                   &mut wake_debounce, touch_state, is_touch) {
+                                   touch_state, is_touch) {
                         continue;
                     }
                 }
@@ -1230,7 +1230,7 @@ fn main() -> ! {
             #[cfg(feature = "m5stack")]
             {
                 if handle_wake(ad, &mut i2c, &mut delay, &mut tracker,
-                               &mut wake_debounce, touch_state, is_touch) {
+                               touch_state, is_touch) {
                     continue;
                 }
                 delay.delay_millis(100);
@@ -1248,15 +1248,11 @@ fn main() -> ! {
                 hw::pmu::set_brightness(&mut i2c, ad.brightness);
                 dim_active = false;
                 #[cfg(feature = "m5stack")]
-                if !matches!(ad.app.state,
-                    app::input::AppState::ScanQR
-                    | app::input::AppState::SignMsgScanQr
-                    | app::input::AppState::DecryptSecretScan)
-                {
+                if !ad.app.state.is_scan_camera() {
                     hw::sound::click(&mut delay);
                 }
                 tracker = hw::touch::TouchTracker::new();
-                wake_debounce = 100;
+                ad.touch_guard.debounce = 100;
                 continue;
             }
             #[cfg(feature = "m5stack")]
@@ -1303,7 +1299,7 @@ fn main() -> ! {
         // Finger down in the logo corner on the main menu starts the timer
         // immediately; lifting or drifting before 4 s does nothing at all,
         // with no prompt shown either way.
-        if ad.app.state == app::input::AppState::MainMenu && wake_debounce == 0 {
+        if ad.app.state == app::input::AppState::MainMenu && ad.touch_guard.debounce == 0 {
             if let hw::touch::TouchState::One(pt) = touch_state {
                 if pt.x <= 48 && pt.y <= 48 {
                     try_duress_wipe(ad, &mut boot_display, &mut delay, &mut i2c);
@@ -1314,16 +1310,13 @@ fn main() -> ! {
         }
 
         // ─── Touch dispatch ──────────────────────────────────────
-        if wake_debounce > 0 {
-            wake_debounce -= 1;
+        if ad.touch_guard.debounce > 0 {
+            ad.touch_guard.debounce -= 1;
         } else if let hw::touch::TouchAction::Tap { x, y } = action {
             let is_back = x <= 48 && y <= 48;
             // Camera scan screens are silent: only the back button
             // clicks. All other taps there are ignored, so no sound.
-            let is_scan_cam = matches!(ad.app.state,
-                app::input::AppState::ScanQR
-                | app::input::AppState::SignMsgScanQr
-                | app::input::AppState::DecryptSecretScan);
+            let is_scan_cam = ad.app.state.is_scan_camera();
             if !is_scan_cam || is_back {
                 hw::sound::click(&mut delay);
             }
@@ -1338,8 +1331,7 @@ fn main() -> ! {
             // menu) — the "different menus popping". Navigate and stop.
             #[cfg(feature = "m5stack")]
             if is_scan_cam && is_back {
-                wake_debounce = 150;
-                cam_exit_lockout = 300;
+                ad.touch_guard.arm_camera_exit();
                 if ad.ms_creating.n > 0 && !ad.ms_creating.active {
                     let mut ki: u8 = 0;
                     for i in 0..ad.ms_creating.n {
@@ -1475,13 +1467,8 @@ fn main() -> ! {
             // dispatch and the duress check; it does NOT skip the redraw,
             // which is the whole point.
             #[cfg(feature = "waveshare")]
-            if is_scan_cam && is_back && !matches!(
-                ad.app.state,
-                app::input::AppState::ScanQR
-                | app::input::AppState::SignMsgScanQr
-                | app::input::AppState::DecryptSecretScan
-            ) {
-                wake_debounce = 150;
+            if is_scan_cam && is_back && !ad.app.state.is_scan_camera() {
+                ad.touch_guard.arm_camera_exit();
             }
 
             // Waveshare CST816D: cooldown after tap to suppress ghost double-taps
@@ -1633,14 +1620,7 @@ fn main() -> ! {
         // hit). Reverting before the paint closes the last window: during
         // lockout the menu is repainted, never the viewfinder.
         #[cfg(feature = "m5stack")]
-        if cam_exit_lockout > 0
-            && matches!(
-                ad.app.state,
-                app::input::AppState::ScanQR
-                | app::input::AppState::SignMsgScanQr
-                | app::input::AppState::DecryptSecretScan
-            )
-        {
+        if ad.touch_guard.exit_lockout > 0 && ad.app.state.is_scan_camera() {
             ad.app.go_main_menu();
             ad.needs_redraw = true;
         }
@@ -1696,30 +1676,12 @@ fn main() -> ! {
         // path can start the camera during the lockout window, wherever in
         // the iteration it flipped the state.
         #[cfg(feature = "m5stack")]
-        if cam_exit_lockout > 0
-            && matches!(
-                ad.app.state,
-                app::input::AppState::ScanQR
-                | app::input::AppState::SignMsgScanQr
-                | app::input::AppState::DecryptSecretScan
-            )
-        {
+        if ad.touch_guard.exit_lockout > 0 && ad.app.state.is_scan_camera() {
             ad.app.go_main_menu();
             ad.needs_redraw = true;
         }
 
-        #[cfg(feature = "waveshare")]
-        let camera_active = matches!(
-            ad.app.state,
-            app::input::AppState::ScanQR | app::input::AppState::CameraSettings
-            | app::input::AppState::SignMsgScanQr | app::input::AppState::DecryptSecretScan
-        );
-        #[cfg(feature = "m5stack")]
-        let camera_active = matches!(
-            ad.app.state,
-            app::input::AppState::ScanQR
-            | app::input::AppState::SignMsgScanQr | app::input::AppState::DecryptSecretScan
-        );
+        let camera_active = ad.app.state.is_camera();
 
         // M5Stack: the camera is HARD-GATED during the post-back lockout —
         // the re-entry travels under a state outside the three-state guard
@@ -1728,7 +1690,7 @@ fn main() -> ! {
         // Gating the call itself is state-independent: during lockout the
         // viewfinder cannot restart, period.
         #[cfg(feature = "m5stack")]
-        let camera_allowed = camera_active && cam_exit_lockout == 0;
+        let camera_allowed = camera_active && ad.touch_guard.exit_lockout == 0;
         #[cfg(feature = "waveshare")]
         let camera_allowed = camera_active;
         if camera_allowed
@@ -1754,30 +1716,6 @@ fn main() -> ! {
                 &mut dvp_camera_opt, &mut cam_status,
                 &mut cam_dma_buf_opt, &mut tracker,
             );
-            // M5Stack: if the state left the camera family during this cycle,
-            // a back tap inside the camera loop just fired. The main menu's
-            // "Scan QR" card sits under the back button's position, so the
-            // same press (finger still down, a lift bounce, or the user's
-            // immediate retap at the "same" button) would re-enter the scan
-            // screen — the menu flashes for one frame and the camera resumes,
-            // which reads as "back doesn't work" (log-proven: S3 tap →
-            // main_menu paint → non-menu paint → rqrr resumes). Suppress tap
-            // dispatch briefly using the existing wake_debounce mechanism
-            // (same primitive as boot=200 / dim-wake=100 phantom suppression).
-            #[cfg(feature = "m5stack")]
-            {
-                let still_camera = matches!(
-                    ad.app.state,
-                    app::input::AppState::ScanQR
-                    | app::input::AppState::SignMsgScanQr
-                    | app::input::AppState::DecryptSecretScan
-                );
-                if !still_camera {
-                    wake_debounce = 150;
-                    cam_exit_lockout = 300;
-                }
-            }
-
             // Waveshare: process taps captured during DMA wait
             #[cfg(feature = "waveshare")]
             {
@@ -1809,34 +1747,34 @@ fn main() -> ! {
                     };
                     if let Some(r) = result { ad.needs_redraw = r; }
                     tracker = hw::touch::TouchTracker::new();
+                    // The handlers (tx.rs, settings.rs) set the state directly
+                    // on a back tap; this is the exit point for that path, so
+                    // the guard is armed here rather than inside them.
+                    if !ad.app.state.is_camera() {
+                        ad.touch_guard.arm_camera_exit();
+                    }
                 }
             }
 
-            // Waveshare: if the state left the camera family during this
-            // cycle, the exit came from one of the instant-back paths inside
-            // `run_camera_cycle` (`check_immediate_tap`, or the back poll
-            // during the DMA wait). Those bypass the Tap dispatch above, so
-            // the `wake_debounce = 150` cure at the dispatch site never runs.
-            // The finger is still in the 48x48 logo corner, the state is
-            // already MainMenu, and the duress check `continue`s past the
-            // redraw on every iteration the CST816D keeps reporting the
-            // lingering contact: the menu is live under a frozen viewfinder
-            // until a second tap flushes the controller. Same primitive and
-            // value as the dispatch-site fix and the M5Stack post-cycle
-            // block: outlasts a lingering contact, far shorter than a
-            // deliberate second tap, and it never skips the redraw itself.
-            #[cfg(feature = "waveshare")]
-            {
-                let still_camera = matches!(
-                    ad.app.state,
-                    app::input::AppState::ScanQR
-                    | app::input::AppState::CameraSettings
-                    | app::input::AppState::SignMsgScanQr
-                    | app::input::AppState::DecryptSecretScan
-                );
-                if !still_camera {
-                    wake_debounce = 150;
-                }
+            // Fallback, both boards. Every exit from the camera family is
+            // supposed to arm the touch guard where it happens
+            // (`AppData::leave_camera` inside `run_camera_cycle`, the
+            // dispatch site above, the back-tap sites at the loop top). Why
+            // it matters: the main menu's "Scan QR" card sits under the back
+            // button, so a lingering back-tap finger (still down, a lift
+            // bounce, an immediate retap) re-enters the scan screen, and on
+            // Waveshare the duress check `continue`s past the redraw while
+            // the CST816D keeps reporting the contact, leaving the menu live
+            // under a frozen viewfinder. Until 1.0.7 this block, written once
+            // per board with lists that did not agree, was the ONLY place
+            // that armed the guard for exits inside the cycle, and the
+            // instant-back paths were the exits it missed. Now it arms only
+            // when nothing else did, and says so on the serial log, so a new
+            // exit path that forgets is loud rather than a frozen screen.
+            if !ad.app.state.is_camera() && ad.touch_guard.debounce == 0 {
+                log!("   [touch] camera exit to {:?} without leave_camera: arming the guard late",
+                    ad.app.state);
+                ad.touch_guard.arm_camera_exit();
             }
         }
         // Waveshare: camera PWDN management when not scanning
@@ -2042,7 +1980,6 @@ fn handle_wake(
     i2c: &mut I2c<'_, esp_hal::Blocking>,
     delay: &mut Delay,
     tracker: &mut hw::touch::TouchTracker,
-    wake_debounce: &mut u32,
     touch_state: hw::touch::TouchState,
     is_touch: bool,
 ) -> bool {
@@ -2087,7 +2024,7 @@ fn handle_wake(
     *tracker = hw::touch::TouchTracker::new();
     let _ = hw::touch::read_touch(i2c);
     let _ = hw::touch::read_touch(i2c);
-    *wake_debounce = 200;
+    ad.touch_guard.debounce = 200;
     true
 }
 

@@ -111,73 +111,47 @@ pub const SIGNED_QR_BUF_LEN: usize = 14_528;
 /// frame. Boxed, the three cost 24 bytes of stack and 3KB of PSRAM.
 pub const SD_FILE_LIST_MAX: usize = 32;
 
-/// Envelope format of the transaction payload currently loaded in AppData.
-/// Determines which serializer to use for the signed-response QR.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TxInputFormat {
-    /// Legacy KSPT v1 (our custom compact binary, unsigned).
-    KsptV1,
-    /// Legacy KSPT v2 (our custom compact binary, partially signed).
-    KsptV2,
-    /// Kaspa-standard PSKT, hex-wrapped bundle JSON, `PSKB` magic prefix.
-    PsktPskb,
-    /// Kaspa-standard single PSKT (non-bundle), `PSKT` magic prefix.
-    PsktSingle,
-}
-
-impl TxInputFormat {
-    /// Returns true if this format is a Kaspa-standard PSKT variant.
-    pub fn is_pskt(self) -> bool {
-        matches!(self, Self::PsktPskb | Self::PsktSingle)
-    }
-}
-
-/// Maximum byte-range regions the PSKT parser can capture from an
-/// incoming JSON for verbatim pass-through on re-emission.
-///
-/// Used for opaque fields the signer doesn't interpret but must round-trip
-/// (`xpubs`, `proprietaries`, `bip32Derivations` values carrying unknown
-/// KeySource shapes, per-input/output unknown fields). Each region is a
-/// `(start, end)` offset pair into the original JSON bytes.
-///
-/// 16 slots covers: globals (3) + per-input (5 × 2 inputs = 10) +
-/// per-output (2 × 2 outputs = 4) with headroom. Kept small since each
-/// pair is 4 bytes.
-pub const MAX_PSKT_UNKNOWN_REGIONS: usize = 16;
-
-/// Byte-range capture state populated by the PSKT parser, consumed by the
-/// PSKT serializer on re-emission. Empty/zeroed for KSPT flows.
-#[derive(Debug, Clone, Copy)]
-pub struct PsktParsed {
-    /// `(start, end)` offsets into the original JSON bytes for regions
-    /// the parser didn't interpret. `start == end` means unused slot.
-    pub unknowns: [(u16, u16); MAX_PSKT_UNKNOWN_REGIONS],
-    pub unknowns_count: u8,
-    /// Start/end offsets of the raw JSON fragment inside the original
-    /// wire payload (after the magic prefix, after hex-decode). Used by
-    /// the serializer to slice unknown regions out of the scratch buffer.
-    pub json_start: u16,
-    pub json_len: u16,
-}
-
-impl PsktParsed {
-    pub const fn empty() -> Self {
-        Self {
-            unknowns: [(0u16, 0u16); MAX_PSKT_UNKNOWN_REGIONS],
-            unknowns_count: 0,
-            json_start: 0,
-            json_len: 0,
-        }
-    }
-}
+// `TxInputFormat`, `MAX_PSKT_UNKNOWN_REGIONS` and `PsktParsed` moved to
+// kassigner-core (core/src/types.rs), verbatim. Re-exported here so every
+// `crate::app::data::` path in the firmware still resolves.
+pub use kassigner_core::types::{TxInputFormat, PsktParsed, MAX_PSKT_UNKNOWN_REGIONS};
 
 /// All mutable application state that handlers read/write.
 /// Hardware peripherals (display, i2c, delay, camera) are NOT included —
 /// they have peripheral lifetimes tied to fn main() scope.
+/// Touch suppression counters, decremented once per main-loop iteration.
+///
+/// Until 1.0.7 these were two locals of `main` (`wake_debounce`,
+/// `cam_exit_lockout`), so nothing inside `run_camera_cycle` could arm them
+/// at the moment it left the camera; `main.rs` had to notice the exit after
+/// the fact, in a post-cycle block written once per board, and the exit
+/// path that block missed was the Waveshare scan-exit freeze. As state they
+/// can be armed where the exit happens (`AppData::leave_camera`).
+///
+/// Values and semantics unchanged: `debounce` is the tap-suppression window
+/// (200 at boot and after wake, 100 after a dim-wake, 150 on any camera
+/// exit); `exit_lockout` is the M5Stack post-back window during which the
+/// camera is hard-gated (300 on camera exit; never read on Waveshare).
+#[derive(Debug, Clone, Copy)]
+pub struct TouchGuard {
+    pub debounce: u32,
+    pub exit_lockout: u32,
+}
+
+impl TouchGuard {
+    /// Arm both windows as every camera exit has always done.
+    pub fn arm_camera_exit(&mut self) {
+        self.debounce = 150;
+        self.exit_lockout = 300;
+    }
+}
+
 pub struct AppData {
     // ─── Core app state ───
     pub app: crate::app::input::WalletApp,
     pub needs_redraw: bool,
+    /// Tap suppression, see `TouchGuard`.
+    pub touch_guard: TouchGuard,
     pub idle_ticks: u32,
     pub display_asleep: bool,
 
@@ -732,6 +706,9 @@ pub fn new() -> Self {
         Self {
             app: crate::app::input::WalletApp::new(),
             needs_redraw: true,
+            // 200: suppress phantom touches at boot (the initial value
+            // `wake_debounce` had in main.rs on both boards).
+            touch_guard: TouchGuard { debounce: 200, exit_lockout: 0 },
             idle_ticks: 0,
             display_asleep: false,
 
@@ -989,5 +966,32 @@ pub fn new() -> Self {
             #[cfg(feature = "m5stack")]
             volume: 18,
         }
+    }
+}
+
+impl AppData {
+    /// Leave the camera family for `to`, arming the touch guard at the
+    /// point of exit.
+    ///
+    /// Every state assignment out of the camera inside `run_camera_cycle`
+    /// goes through here (or `leave_camera_to_main`), so the debounce that
+    /// keeps a lingering back-tap from re-entering the viewfinder or landing
+    /// on the menu underneath is set by the code that knows it is exiting,
+    /// not by a check in `main.rs` after the cycle. The post-cycle check in
+    /// `main.rs` remains as a logged fallback.
+    ///
+    /// Deliberately does NOT touch `needs_redraw`: the exit sites decide that
+    /// themselves and they do not agree (some have already drawn the next
+    /// screen, some want a redraw, some leave it alone), exactly as before.
+    pub fn leave_camera(&mut self, to: crate::app::input::AppState) {
+        self.app.state = to;
+        self.touch_guard.arm_camera_exit();
+    }
+
+    /// `leave_camera` for the main menu, via `go_main_menu` so the menu
+    /// selection is reset as it always was.
+    pub fn leave_camera_to_main(&mut self) {
+        self.app.go_main_menu();
+        self.touch_guard.arm_camera_exit();
     }
 }

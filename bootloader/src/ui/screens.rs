@@ -458,6 +458,16 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
             let w = measure_body(fee_text.as_str());
             draw_lato_body(&mut self.display, fee_text.as_str(), (320 - w) / 2, 124, COLOR_TEXT);
 
+            // Lock time. The signature commits to it (sighash.rs, locktime
+            // field) and since 1.0.7 the PSKB parser fills it from `minTime`,
+            // so a timelocked transaction reaches this screen and must not
+            // look like an ordinary send. Orange, the colour this page uses
+            // for the other figure a signer has to weigh ("In:"). y=140 is
+            // the one free Lato-15 line between fee (124) and counts (156).
+            // Below LOCK_TIME_THRESHOLD it is a DAA score, above it a UTC
+            // date; kassigner_core::timefmt decides and is host-tested.
+            self.draw_lock_time_line(tx.locktime, 140);
+
             // Inputs/outputs count
             let mut info_text = heapless::String::<48>::new();
             write!(&mut info_text, "{} input(s) -> {} output(s)",
@@ -1993,6 +2003,39 @@ pub fn draw_home_grid(&mut self) {
             .draw(&mut self.display).ok();
         let cw2 = measure_title("CANCEL");
         draw_lato_title(&mut self.display, "CANCEL", 30 + (260 - cw2) / 2, 212, COLOR_TEXT);
+    }
+
+    /// One centred orange line, "Locked until DAA n" or "Locked until
+    /// YYYY-MM-DD HH:MM UTC", at baseline `y`. Draws nothing for a zero
+    /// lock time. Used on the TX REVIEW summary (y=140).
+    pub fn draw_lock_time_line(&mut self, locktime: u64, y: i32) {
+        if locktime == 0 {
+            return;
+        }
+        let mut buf = [0u8; 40];
+        let n = kassigner_core::timefmt::lock_time_label(locktime, &mut buf);
+        if let Ok(s) = core::str::from_utf8(&buf[..n]) {
+            let w = measure_body(s);
+            draw_lato_body(&mut self.display, s, (320 - w) / 2, y, COLOR_ORANGE);
+        }
+    }
+
+    /// The compact form for the CONFIRM SEND screens: "LOCKED", orange,
+    /// right-aligned on the fee row at baseline `y`. The three confirm
+    /// variants have no free line in common (multisig runs 62/82/102 with
+    /// the button at 118), so the badge shares the fee row, whose text
+    /// ends before x=215 in the worst case while the badge starts past
+    /// x=250. The full "until when" was on the review page one tap
+    /// earlier; here the point is that the last screen before the
+    /// signature does not look like an ordinary send. Called from
+    /// redraw.rs after each variant with that variant's fee-row baseline,
+    /// so no confirm-screen signature changes.
+    pub fn draw_lock_time_badge(&mut self, locktime: u64, y: i32) {
+        if locktime == 0 {
+            return;
+        }
+        let w = measure_body("LOCKED");
+        draw_lato_body(&mut self.display, "LOCKED", 320 - w - 10, y, COLOR_ORANGE);
     }
 
     /// Draw confirm send screen with multisig signature status
@@ -4259,10 +4302,10 @@ pub fn draw_home_grid(&mut self) {
             .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
             .draw(&mut self.display).ok();
 
-        let bw = measure_body("Add a cosigner kpub:");
-        draw_lato_body(&mut self.display, "Add a cosigner kpub:", (320 - bw) / 2, 65, COLOR_TEXT);
-        let hw = measure_hint("Scan a kpub QR or use a loaded seed");
-        draw_lato_hint(&mut self.display, "Scan a kpub QR or use a loaded seed", (320 - hw) / 2, 80, COLOR_TEXT_DIM);
+        let bw = measure_body("Add a cosigner Multisig kpub:");
+        draw_lato_body(&mut self.display, "Add a cosigner Multisig kpub:", (320 - bw) / 2, 65, COLOR_TEXT);
+        let hw = measure_hint("kpub Multisig QR, or a loaded seed");
+        draw_lato_hint(&mut self.display, "kpub Multisig QR, or a loaded seed", (320 - hw) / 2, 80, COLOR_TEXT_DIM);
 
         let btn_corner = CornerRadii::new(Size::new(8, 8));
 
@@ -4274,8 +4317,8 @@ pub fn draw_home_grid(&mut self) {
         RoundedRectangle::new(scan_rect, btn_corner)
             .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
             .draw(&mut self.display).ok();
-        let sw = measure_title("Scan kpub QR");
-        draw_lato_title(&mut self.display, "Scan kpub QR", 30 + (260 - sw) / 2, 120, COLOR_TEXT);
+        let sw = measure_title("Scan Multisig kpub");
+        draw_lato_title(&mut self.display, "Scan Multisig kpub", 30 + (260 - sw) / 2, 120, COLOR_TEXT);
 
         // "Use Loaded Seed" button
         let use_color = if has_loaded { COLOR_CARD } else { COLOR_BG };
@@ -5381,12 +5424,19 @@ pub fn draw_home_grid(&mut self) {
     /// Shared two-button popup layout: header + body lines + left (teal) / right (card) buttons + back.
     /// Used by all Save/Back, Yes/No, and choice popups.
     fn draw_two_button_popup(&mut self, header: &str, body: &[&str], left_label: &str, right_label: &str) {
+        self.draw_two_button_popup_colored(header, body, left_label, right_label, KASPA_TEAL);
+    }
+
+    /// The same popup with the header and rule in a caller-chosen colour.
+    /// Warnings use COLOR_ORANGE; everything else stays teal through the
+    /// wrapper above.
+    fn draw_two_button_popup_colored(&mut self, header: &str, body: &[&str], left_label: &str, right_label: &str, header_color: Rgb565) {
         self.display.clear(COLOR_BG).ok();
 
         let tw = measure_header(header);
-        draw_oswald_header(&mut self.display, header, (320 - tw) / 2, 30, KASPA_TEAL);
+        draw_oswald_header(&mut self.display, header, (320 - tw) / 2, 30, header_color);
         Line::new(Point::new(20, 40), Point::new(300, 40))
-            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .into_styled(PrimitiveStyle::with_stroke(header_color, 1))
             .draw(&mut self.display).ok();
 
         let y_positions: [i32; 3] = [75, 95, 115];
@@ -5418,6 +5468,25 @@ pub fn draw_home_grid(&mut self) {
         draw_lato_title(&mut self.display, right_label, 165 + (125 - rw) / 2, 169, COLOR_TEXT);
 
         self.draw_back_button();
+    }
+
+    /// Warning before scanning a cosigner key during multisig creation.
+    ///
+    /// A 44' watch-only kpub and the 45' multisig kpub are
+    /// byte-indistinguishable on the wire, so this screen is labelling, not
+    /// verification; it is also the only defence that exists (see N-23).
+    /// SCAN (teal, left) continues to the camera, CANCEL (right) and the
+    /// back button return to the add-key screen.
+    pub fn draw_multisig_kpub_warning(&mut self) {
+        self.draw_two_button_popup_colored(
+            "COSIGNER KEY",
+            &["Scan the kpub MULTISIG QR only.",
+              "A watch-only 44' kpub makes a",
+              "wallet no one can ever spend."],
+            "SCAN",
+            "CANCEL",
+            COLOR_ORANGE,
+        );
     }
 
     /// Draw Import / Export choice screen — two big buttons.

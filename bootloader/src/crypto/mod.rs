@@ -17,10 +17,13 @@
 // crypto/mod.rs — Security cryptographic primitives
 //
 // This module provides security primitives for the entire project:
-//   - Constant-time comparison (constant_time)
-//   - Flow integrity counters (flow)
-//   - Hardware entropy collection (entropy)
+//   - Constant-time comparison (constant_time)   in kassigner-core
+//   - Flow integrity counters (flow)              in kassigner-core
+//   - Hardware entropy collection (entropy)       here: it reads peripherals
+//
+// The two hardware-free modules moved to core/src/crypto/ and are
+// re-exported so `crate::crypto::constant_time` and `crate::crypto::flow`
+// still resolve.
 
-pub mod constant_time;
+pub use kassigner_core::crypto::{constant_time, flow};
 pub mod entropy;
-pub mod flow;

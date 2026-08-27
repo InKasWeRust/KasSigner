@@ -340,7 +340,7 @@ pub fn run_crypto_kats() {
     // this block at boot, not a wrong answer.
     kat!("BIP32",   wallet::bip32::run_bip32_tests());
     kat!("SCHNORR", wallet::schnorr::run_schnorr_tests());
-    // Consensus sighash vectors from rusty-kaspa 2.0.1: 27 known answers over
+    // Consensus sighash vectors from rusty-kaspa 2.0.1: 30 known answers over
     // all six sighash types, both transaction versions, native and subnetwork.
     //
     // This is the KAT that most directly protects funds. Every other primitive

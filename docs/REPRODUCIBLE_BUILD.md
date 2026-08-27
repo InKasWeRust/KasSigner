@@ -23,7 +23,7 @@ them against the published unsigned hashes.
 ```bash
 git clone https://github.com/InKasWeRust/KasSigner.git
 cd KasSigner
-git checkout v1.0.6      # the tag you are verifying
+git checkout v1.0.7      # the tag you are verifying
 ```
 
 ## 2. Build the toolchain image
@@ -87,6 +87,11 @@ The `sha256sum` of each `.bin`. Compare your unsigned outputs against the
 developer signature is embedded in the firmware and changes the code segment,
 so an unsigned build will never match a signed hash. That mismatch means
 nothing. Compare unsigned against unsigned.
+
+Since 1.0.7 the unsigned image is the complete firmware, so its hash stands
+for the code a device actually runs. Earlier releases built unsigned stubs
+(the compiler deleted most of the firmware from them), so running this
+procedure against a pre-1.0.7 tag verifies less than it appears to.
 
 ### The code-segment hash
 
@@ -154,14 +159,17 @@ resolves it by iterating: compile, hash the image, write the hash into
 `firmware_hash.rs`, recompile, hash again. It converges when the embedded
 value equals the hash of the image containing it.
 
-**Five passes, with the last two asserted equal.** Measured: signed settles at
-pass 2, unsigned at pass 3. Three passes was the previous assumption and had
-never been verified. A configuration needing four would have shipped a binary
-whose embedded hash did not match its own code, which in a production build
-halts at boot. The assertion turns that into a failed build.
+**Five passes, with the last two asserted equal.** Which pass a given
+configuration settles at varies from release to release and does not matter:
+the assertion is the guarantee. A configuration that failed to converge would
+otherwise ship a binary whose embedded hash did not match its own code, which
+in a production build halts at boot. The assertion turns that into a failed
+build instead.
 
-The same build also compile-verifies the KasSee WASM as a project-integrity
-check. That confirms the WASM compiles from source, but is **not** a
+The same build also runs the 57 host tests of the `core/` crate before
+producing any image, so a failing known-answer vector fails the release build,
+and compile-verifies the KasSee WASM as a project-integrity check. That
+confirms the WASM compiles from source, but is **not** a
 hash-reproducibility check: KasSee's `web/pkg/` bundle is served via
 gh-pages and is not hash-pinned here.
 

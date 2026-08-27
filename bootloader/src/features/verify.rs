@@ -91,6 +91,51 @@ const EXPECTED_FLOW: u32 = flow::expect(&[
 // the strict verification that `production` exists to enable could not compile.
 include!("../firmware_hash.rs");
 
+/// `FIRMWARE_SIGNED`, read in a way the optimiser cannot see through.
+///
+/// The constant is a `const bool` and it is read in two `if` conditions
+/// below. In an UNSIGNED production build it is `false`, which makes the
+/// production branch of `verify_firmware` provably return
+/// `InvalidSignature` every time; the caller in `app/signing.rs` matches that
+/// into an arm ending in `halt_forever`, which is `-> !`, and LTO then proves
+/// the boot never reaches the wallet and deletes it. Measured 2026-08-26 on
+/// the first 1.0.7 Docker build: every unsigned image collapsed to 244-271 kB
+/// against 904-912 kB signed, with no BIP39 wordlist, no UI text and 47 kB
+/// of code. The unsigned artifact exists so a verifier can rebuild it and
+/// compare against the published hash; a stub makes that comparison prove
+/// nothing about the firmware anyone runs.
+///
+/// A volatile read keeps the value truthful and the runtime behaviour
+/// identical (an unsigned production image still halts at boot) while
+/// denying the compiler the proof, so the whole firmware stays in both
+/// images. It was `core::hint::black_box` until the first 1.0.7 release
+/// build. `black_box` is documented as a hint with no guaranteed effect,
+/// so an aggressive LTO pass is licensed to see through it and delete the
+/// wallet again. `read_volatile` is a guarantee: the load must be
+/// performed and cannot be constant-folded. The Docker build asserts the
+/// property on every release (each unsigned app image full-sized and
+/// within 64 KiB of its signed pair), so a compiler that ever defeats
+/// this barrier fails the build instead of shipping a stub.
+///
+/// The only SOURCE inputs that differ between signed and unsigned are the
+/// signature bytes, this flag, and the embedded hash; the compiled bytes
+/// differ far more broadly (measured 2026-08-26: cmp -l counts ~623-630 k
+/// differing bytes, first divergence at byte 289), because those constants
+/// shift the compiler's output. Verification therefore compares unsigned
+/// against unsigned, never a byte-diff of signed against unsigned.
+///
+/// The design that removes the need for this, hash/signature/flag in a
+/// section the hash excludes, is recorded in STATE.md as a 1.1 item.
+#[inline(always)]
+fn firmware_signed() -> bool {
+    // A `static` bound to the constant gives the read a stable address.
+    static SIGNED: bool = FIRMWARE_SIGNED;
+    // SAFETY: `&SIGNED` is a valid, aligned, initialised `bool` that lives
+    // for the whole program and is never written. The volatile read exists
+    // to deny the optimiser, not because the memory is special.
+    unsafe { core::ptr::read_volatile(&SIGNED) }
+}
+
 // ─── ESP32-S3 memory map ─────────────────────────────────────
 //
 // The ESP32-S3 has SEPARATE buses for instructions and data:
@@ -248,7 +293,7 @@ pub fn verify_firmware(
             // - Schnorr verify uses k256 point multiplication (~16KB stack)
             // - Combined with hardware init, this overflows the bare-metal stack
             // - Production builds run signature verification with stricter flow
-            if FIRMWARE_SIGNED {
+            if firmware_signed() {
                 log!("   [DEV] Signature present — skipped (dev mode, verified in production)");
             } else {
                 log!("   [DEV] Build not signed");
@@ -319,7 +364,7 @@ pub fn verify_firmware(
             log!("   Verified: double pass + anti-glitch OK");
 
             // Verify developer signature (MANDATORY in production)
-            if !FIRMWARE_SIGNED {
+            if !firmware_signed() {
                 log!("   CRITICAL: Unsigned build in production mode!");
                 return VerificationResult::InvalidSignature;
             }

@@ -379,7 +379,7 @@ fn check_immediate_tap(
                                     break;
                                 }
                             }
-                            ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx };
+                            ad.leave_camera(crate::app::input::AppState::MultisigAddKey { key_idx });
                         } else if ad.app.state
                             == crate::app::input::AppState::CameraSettings
                         {
@@ -391,7 +391,7 @@ fn check_immediate_tap(
                             ad.app.state =
                                 crate::app::input::AppState::SingleSigMenu;
                         } else {
-                            ad.app.go_main_menu();
+                            ad.leave_camera_to_main();
                         }
                         ad.needs_redraw = true;
                         return true;
@@ -494,7 +494,7 @@ fn process_confirmed_qr(
         };
         if ok {
             ad.sign_msg_hash = hash;
-            ad.app.state = crate::app::input::AppState::SignMsgHashPreview;
+            ad.leave_camera(crate::app::input::AppState::SignMsgHashPreview);
             ad.needs_redraw = true;
         } else {
             boot_display.draw_rejected_screen("Not a 32-byte hash");
@@ -563,7 +563,7 @@ fn process_confirmed_qr(
                 ad.jpeg_desc_buf[..copy_len].copy_from_slice(&plaintext[..copy_len]);
                 ad.jpeg_desc_len = copy_len;
                 sound::success(delay);
-                ad.app.state = crate::app::input::AppState::DecryptSecretResult;
+                ad.leave_camera(crate::app::input::AppState::DecryptSecretResult);
                 ad.needs_redraw = true;
             }
             Err(e) => {
@@ -606,7 +606,7 @@ fn process_confirmed_qr(
             log!("   → Kaspa address (invalid checksum)");
             sound::beep_error(delay);
         }
-        ad.app.state = crate::app::input::AppState::ShowAddress;
+        ad.leave_camera(crate::app::input::AppState::ShowAddress);
         ad.needs_redraw = true;
     } else if len >= 4 && &data[..4] == b"KSPT" {
         // KSPT transaction — check version
@@ -627,6 +627,9 @@ fn process_confirmed_qr(
                     ad.app.start_review(
                         ad.demo_tx.num_outputs as u8,
                         ad.demo_tx.num_inputs as u8);
+                    // `start_review` sets ReviewTx itself; this is a camera exit and
+                    // arms the guard like every other one (found by the fallback log).
+                    ad.touch_guard.arm_camera_exit();
                     ad.needs_redraw = true;
                 }
                 Err(e) => {
@@ -636,7 +639,7 @@ fn process_confirmed_qr(
                     let (l1, l2) = e.screen_text();
                     boot_display.draw_tx_error_screen(l1, l2);
                     sound::beep_error(delay);
-                    ad.app.state = crate::app::input::AppState::Rejected;
+                    ad.leave_camera(crate::app::input::AppState::Rejected);
                     ad.needs_redraw = false; // already drawn
                 }
             }
@@ -660,6 +663,9 @@ fn process_confirmed_qr(
                     ad.app.start_review(
                         ad.demo_tx.num_outputs as u8,
                         ad.demo_tx.num_inputs as u8);
+                    // `start_review` sets ReviewTx itself; this is a camera exit and
+                    // arms the guard like every other one (found by the fallback log).
+                    ad.touch_guard.arm_camera_exit();
                     ad.needs_redraw = true;
                 }
                 Err(e) => {
@@ -667,7 +673,7 @@ fn process_confirmed_qr(
                     let (l1, l2) = e.screen_text();
                     boot_display.draw_tx_error_screen(l1, l2);
                     sound::beep_error(delay);
-                    ad.app.state = crate::app::input::AppState::Rejected;
+                    ad.leave_camera(crate::app::input::AppState::Rejected);
                     ad.needs_redraw = false;
                 }
             }
@@ -693,17 +699,9 @@ fn process_confirmed_qr(
             &mut ad.pskt_parsed,
         ) {
             Ok(()) => {
-                // detect_tx_format distinguishes PSKB vs PSKT-single.
-                ad.tx_input_format = match wallet::std_pskt::detect_tx_format(data) {
-                    wallet::std_pskt::DetectedFormat::PsktPskb =>
-                        crate::app::data::TxInputFormat::PsktPskb,
-                    wallet::std_pskt::DetectedFormat::PsktSingle =>
-                        crate::app::data::TxInputFormat::PsktSingle,
-                    // Unreachable: we already matched the magic above,
-                    // but the match must be exhaustive. Fall back to
-                    // PsktPskb so serializer still emits a valid format.
-                    _ => crate::app::data::TxInputFormat::PsktPskb,
-                };
+                // PSKB is the only PSKT envelope the parser accepts, so a
+                // successful parse means this format.
+                ad.tx_input_format = crate::app::data::TxInputFormat::PsktPskb;
                 // PSKT-aware sig counter (counts incoming_partial_sigs).
                 let (present, required) =
                     wallet::std_pskt::pskt_signature_status(&ad.demo_tx);
@@ -716,6 +714,9 @@ fn process_confirmed_qr(
                 ad.app.start_review(
                     ad.demo_tx.num_outputs as u8,
                     ad.demo_tx.num_inputs as u8);
+                // `start_review` sets ReviewTx itself; this is a camera exit and
+                // arms the guard like every other one (found by the fallback log).
+                ad.touch_guard.arm_camera_exit();
                 ad.needs_redraw = true;
             }
             Err(e) => {
@@ -723,7 +724,7 @@ fn process_confirmed_qr(
                 let (l1, l2) = e.screen_text();
                 boot_display.draw_tx_error_screen(l1, l2);
                 sound::beep_error(delay);
-                ad.app.state = crate::app::input::AppState::Rejected;
+                ad.leave_camera(crate::app::input::AppState::Rejected);
                 ad.needs_redraw = false;
             }
         }
@@ -744,7 +745,7 @@ fn process_confirmed_qr(
             // The words are in `AppData` now; the decode buffers still hold the
             // scanned payload (M-10).
             wipe_qr_buffers();
-            ad.app.state = crate::app::input::AppState::PassphraseEntry;
+            ad.leave_camera(crate::app::input::AppState::PassphraseEntry);
             ad.needs_redraw = true;
         } else {
             log!("   → SeedQR: invalid checksum");
@@ -765,7 +766,7 @@ fn process_confirmed_qr(
             // The words are in `AppData` now; the decode buffers still hold the
             // scanned payload (M-10).
             wipe_qr_buffers();
-            ad.app.state = crate::app::input::AppState::PassphraseEntry;
+            ad.leave_camera(crate::app::input::AppState::PassphraseEntry);
             ad.needs_redraw = true;
         } else {
             log!("   → CompactSeedQR: invalid checksum");
@@ -948,7 +949,7 @@ fn process_confirmed_qr(
             if response_len <= 134 {
                 boot_display.draw_qr_fullscreen(&response[..response_len], "STEALTH SCAN");
                 delay.delay_millis(300);
-                ad.app.state = crate::app::input::AppState::MainMenu;
+                ad.leave_camera(crate::app::input::AppState::MainMenu);
                 ad.needs_redraw = false; // QR is on screen, next touch redraws
             } else {
                 // Halt the busy tick from draw_loading_screen; the single-frame
@@ -1001,7 +1002,7 @@ fn process_confirmed_qr(
                 }
                 sound::stop_ticking();
                 boot_display.clear_screen();
-                ad.app.state = crate::app::input::AppState::MainMenu;
+                ad.leave_camera(crate::app::input::AppState::MainMenu);
                 ad.needs_redraw = true;
             }
         }
@@ -1075,9 +1076,9 @@ fn process_confirmed_qr(
                         // config the user just finished building.
                         let ms_slot = ad.ms_store.slot_for_next();
                         ad.ms_store.configs[ms_slot] = ad.ms_creating.clone();
-                        ad.app.state = crate::app::input::AppState::MultisigShowAddress;
+                        ad.leave_camera(crate::app::input::AppState::MultisigShowAddress);
                     } else {
-                        ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: next };
+                        ad.leave_camera(crate::app::input::AppState::MultisigAddKey { key_idx: next });
                     }
                     ad.needs_redraw = true;
                 }
@@ -1096,7 +1097,7 @@ fn process_confirmed_qr(
                 ad.kpub_user_nframes = 0;
                 log!("   → kpub scanned ({} bytes), showing options", len);
                 sound::qr_decoded(delay);
-                ad.app.state = crate::app::input::AppState::KpubScannedPopup;
+                ad.leave_camera(crate::app::input::AppState::KpubScannedPopup);
                 ad.needs_redraw = true;
             } else {
                 log!("   → kpub too long ({} bytes)", len);
@@ -1112,7 +1113,7 @@ fn process_confirmed_qr(
         ad.covb_len = n;
         ad.pp_input.reset();
         boot_display.clear_screen();
-        ad.app.state = crate::app::input::AppState::CovBackupName;
+        ad.leave_camera(crate::app::input::AppState::CovBackupName);
         ad.needs_redraw = true;
         log!("   → COVB raw: {} bytes", n);
     } else if len >= 10 && len <= 1024
@@ -1155,7 +1156,7 @@ fn process_confirmed_qr(
         ad.covb_len = n;
         ad.pp_input.reset();
         boot_display.clear_screen();
-        ad.app.state = crate::app::input::AppState::CovBackupName;
+        ad.leave_camera(crate::app::input::AppState::CovBackupName);
         ad.needs_redraw = true;
         log!("   → COVB: {} hex → {} bytes", len, n);
     } else {
@@ -1176,7 +1177,7 @@ fn process_confirmed_qr(
         log!("   → Unknown QR format ({} bytes)", len);
         boot_display.draw_tx_error_screen("Unrecognised QR", "Not a KasSigner code");
         sound::beep_error(delay);
-        ad.app.state = crate::app::input::AppState::Rejected;
+        ad.leave_camera(crate::app::input::AppState::Rejected);
         ad.needs_redraw = false; // already drawn
     }
 }
@@ -1633,9 +1634,7 @@ pub fn run_camera_cycle(
                             touch::TouchAction::Tap { x, y } => {
                                 // On ScanQR: only process back-button taps (top-left).
                                 // Ignore all other taps to prevent phantom fires.
-                                let is_scan = matches!(ad.app.state,
-                                    crate::app::input::AppState::ScanQR
-                                    | crate::app::input::AppState::SignMsgScanQr | crate::app::input::AppState::DecryptSecretScan);
+                                let is_scan = ad.app.state.is_scan_camera();
                                 if !is_scan || (x <= 48 && y <= 48) {
                                     ad.cam_tap_x = x;
                                     ad.cam_tap_y = y;
@@ -1715,7 +1714,7 @@ pub fn run_camera_cycle(
                                     ad.app.state =
                                         crate::app::input::AppState::SingleSigMenu;
                                 } else {
-                                    ad.app.go_main_menu();
+                                    ad.leave_camera_to_main();
                                 }
                                 ad.needs_redraw = true;
                                 return;
@@ -2112,9 +2111,7 @@ pub fn run_camera_cycle(
                             let act = tracker.update(ts, gest);
                             match act {
                                 touch::TouchAction::Tap { x, y } => {
-                                    let is_scan = matches!(ad.app.state,
-                                        crate::app::input::AppState::ScanQR
-                                        | crate::app::input::AppState::SignMsgScanQr | crate::app::input::AppState::DecryptSecretScan);
+                                    let is_scan = ad.app.state.is_scan_camera();
                                     if !is_scan || (x <= 48 && y <= 48) {
                                         ad.cam_tap_x = x;
                                         ad.cam_tap_y = y;
@@ -2147,11 +2144,11 @@ pub fn run_camera_cycle(
                                         for i in 0..ad.ms_creating.n {
                                             if ad.ms_creating.slot_empty(i as usize) { ki = i; break; }
                                         }
-                                        ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: ki };
+                                        ad.leave_camera(crate::app::input::AppState::MultisigAddKey { key_idx: ki });
                                     } else if ad.app.state == crate::app::input::AppState::DecryptSecretScan {
-                                        ad.app.state = crate::app::input::AppState::SingleSigMenu;
+                                        ad.leave_camera(crate::app::input::AppState::SingleSigMenu);
                                     } else {
-                                        ad.app.go_main_menu();
+                                        ad.leave_camera_to_main();
                                     }
                                     ad.needs_redraw = true;
                                     return;
@@ -2204,9 +2201,7 @@ pub fn run_camera_cycle(
                                     let act = tracker.update(ts, gest);
                                     match act {
                                         touch::TouchAction::Tap { x, y } => {
-                                            let is_scan = matches!(ad.app.state,
-                                                crate::app::input::AppState::ScanQR
-                                                | crate::app::input::AppState::SignMsgScanQr | crate::app::input::AppState::DecryptSecretScan);
+                                            let is_scan = ad.app.state.is_scan_camera();
                                             if !is_scan || (x <= 48 && y <= 48) {
                                                 ad.cam_tap_x = x;
                                                 ad.cam_tap_y = y;
@@ -2236,9 +2231,9 @@ pub fn run_camera_cycle(
                                                 for i in 0..ad.ms_creating.n {
                                                     if ad.ms_creating.slot_empty(i as usize) { ki = i; break; }
                                                 }
-                                                ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: ki };
+                                                ad.leave_camera(crate::app::input::AppState::MultisigAddKey { key_idx: ki });
                                             } else {
-                                                if ad.app.state == crate::app::input::AppState::DecryptSecretScan { ad.app.state = crate::app::input::AppState::SingleSigMenu; } else { ad.app.go_main_menu(); }
+                                                if ad.app.state == crate::app::input::AppState::DecryptSecretScan { ad.leave_camera(crate::app::input::AppState::SingleSigMenu); } else { ad.leave_camera_to_main(); }
                                             }
                                             ad.needs_redraw = true;
                                             return;
@@ -2391,9 +2386,7 @@ pub fn run_camera_cycle(
                                     let act = tracker.update(ts, gest);
                                     match act {
                                         touch::TouchAction::Tap { x, y } => {
-                                            let is_scan = matches!(ad.app.state,
-                                                crate::app::input::AppState::ScanQR
-                                                | crate::app::input::AppState::SignMsgScanQr | crate::app::input::AppState::DecryptSecretScan);
+                                            let is_scan = ad.app.state.is_scan_camera();
                                             if !is_scan || (x <= 48 && y <= 48) {
                                                 ad.cam_tap_x = x;
                                                 ad.cam_tap_y = y;
@@ -2421,9 +2414,9 @@ pub fn run_camera_cycle(
                                                 for i in 0..ad.ms_creating.n {
                                                     if ad.ms_creating.slot_empty(i as usize) { ki = i; break; }
                                                 }
-                                                ad.app.state = crate::app::input::AppState::MultisigAddKey { key_idx: ki };
+                                                ad.leave_camera(crate::app::input::AppState::MultisigAddKey { key_idx: ki });
                                             } else {
-                                                if ad.app.state == crate::app::input::AppState::DecryptSecretScan { ad.app.state = crate::app::input::AppState::SingleSigMenu; } else { ad.app.go_main_menu(); }
+                                                if ad.app.state == crate::app::input::AppState::DecryptSecretScan { ad.leave_camera(crate::app::input::AppState::SingleSigMenu); } else { ad.leave_camera_to_main(); }
                                             }
                                             ad.needs_redraw = true;
                                             return;

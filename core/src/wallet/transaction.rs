@@ -140,6 +140,12 @@ pub struct ScriptPublicKey {
     pub script_len: usize,
 }
 
+impl Default for ScriptPublicKey {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ScriptPublicKey {
     pub fn new() -> Self {
         Self {
@@ -215,6 +221,12 @@ pub struct MultisigInfo {
     pub m: u8,  // required signatures
     pub n: u8,  // total pubkeys
     pub pubkeys: [[u8; 32]; MAX_MULTISIG_KEYS],
+}
+
+impl Default for MultisigInfo {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MultisigInfo {
@@ -550,6 +562,15 @@ pub fn find_forged_change(
 /// smaller scripts. Total RAM cost: 2048 bytes (in Box on heap).
 pub const REDEEM_POOL_SIZE: usize = 4096; // 32 inputs x 128-byte redeems
 
+/// `store_redeem` refused the script: it exceeds `MAX_REDEEM_SIZE`, or the
+/// shared redeem pool has no room left for it.
+///
+/// A named type rather than `()`: the two call sites in `pskt.rs` map it to
+/// `PsktError::ScriptTooLong`, and a bare `Err(())` says nothing about why
+/// a signing input was rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RedeemTooLong;
+
 /// Complete Kaspa transaction (for signing)
 #[derive(Debug)]
 /// A complete Kaspa transaction with inputs, outputs, and metadata.
@@ -575,6 +596,12 @@ pub struct Transaction {
     pub redeem_pool: [u8; REDEEM_POOL_SIZE],
     /// Next free byte in redeem_pool.
     pub redeem_pool_used: usize,
+}
+
+impl Default for Transaction {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Transaction {
@@ -696,8 +723,9 @@ impl Transaction {
 
     /// Store a redeem script for input `idx`. Scripts <= MAX_SCRIPT_SIZE
     /// go inline; larger ones go into the shared pool.
-    /// Returns Ok(()) or Err(()) if the pool is full.
-    pub fn store_redeem(&mut self, idx: usize, data: &[u8]) -> Result<(), ()> {
+    /// Returns `Err(RedeemTooLong)` if the script exceeds `MAX_REDEEM_SIZE`
+    /// or the shared pool has no room left.
+    pub fn store_redeem(&mut self, idx: usize, data: &[u8]) -> Result<(), RedeemTooLong> {
         let len = data.len();
         if len == 0 {
             self.inputs[idx].redeem_script_len = 0;
@@ -710,11 +738,11 @@ impl Transaction {
             self.inputs[idx].redeem_in_pool = false;
         } else {
             if len > MAX_REDEEM_SIZE {
-                return Err(());
+                return Err(RedeemTooLong);
             }
             let off = self.redeem_pool_used;
             if off + len > REDEEM_POOL_SIZE {
-                return Err(());
+                return Err(RedeemTooLong);
             }
             self.redeem_pool[off..off + len].copy_from_slice(data);
             self.inputs[idx].redeem_script_offset = off as u16;
@@ -903,6 +931,12 @@ pub struct MultisigConfig {
     pub script_len: usize,
     /// Whether this config has been fully set up
     pub active: bool,
+}
+
+impl Default for MultisigConfig {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MultisigConfig {
@@ -1246,6 +1280,12 @@ pub struct MultisigStore {
     pub configs: [MultisigConfig; MAX_MULTISIG_WALLETS],
 }
 
+impl Default for MultisigStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MultisigStore {
     pub const fn new() -> Self {
         Self {
@@ -1316,6 +1356,16 @@ pub fn test_multisig_45_vector() -> bool {
         b"kpub2HuRXjAmhs3KwQ9WpHVaiHRjBP37TQUiUGFQBTwp7cdbArCo5s2MT6415nd3ZYaELvNbZ4qTJjCGTavExv514tWftaGQzCK8gQz6BQJNySp",
         b"kpub2KCvcuKVgfy1h7PvCw4xFcdLAPoerVZBG4qTo8vRGH2Qe6p5AgLyRek5CEnuCDkduXHqgwtvaVfYYBS7gQBR1J4XowdvqvPXsHZGA5WyRJF",
     ];
+    // The blake2b of the 2-of-5 redeem script these five kpubs produce.
+    // Not ours: this is the Go implementation's answer, reached through
+    // rusty-kaspa's golang multisig import test
+    // (`wallet/core/src/compat/gen1.rs:134`), where the same five keys with
+    // `required_signatures: 2, cosigner_index: 1` give the receive address
+    // `kaspa:pqvgkyjeuxmd8k70egrrzpdz5rqj0acmr6y94mwsltxfp6nc50742295c3998`.
+    // Encoding the hash below as P2SH reproduces that string exactly, which
+    // `reference_vectors_tests::golang_multisig_p2sh_address_validates`
+    // asserts, so this constant is a cross-implementation vector rather than
+    // a value this codebase chose.
     const EXPECT_SCRIPT_HASH: [u8; 32] = [
         0x18, 0x8b, 0x12, 0x59, 0xe1, 0xb6, 0xd3, 0xdb, 0xcf, 0xca, 0x06, 0x31, 0x05, 0xa2, 0xa0, 0xc1,
         0x27, 0xf7, 0x1b, 0x1e, 0x88, 0x5a, 0xed, 0xd0, 0xfa, 0xcc, 0x90, 0xea, 0x78, 0xa3, 0xfd, 0x55,

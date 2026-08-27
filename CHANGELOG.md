@@ -9,6 +9,149 @@ All notable changes to KasSigner will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.7]: 2026-08-27
+
+An **auditability** release. The security-critical half of the firmware moves
+into a separate crate that builds and tests on any host, so a reviewer needs no
+hardware and no Xtensa toolchain to run the same known-answer tests the device
+runs at boot. The parsers were then held against the rusty-kaspa 2.0.1
+reference implementation and its own fixtures, which surfaced and closed a
+real signing gap, and a defect in the release pipeline that had made the
+published unsigned hashes meaningless was found and fixed.
+
+### Added
+- **`core/`, the `kassigner-core` crate**: key derivation, mnemonics, the
+  transaction parsers and serializers, sighash, Schnorr, storage encryption
+  and the FAT32 layer, as a `no_std` crate with no peripheral access.
+  `cd core && cargo test` on stock stable Rust, 57 tests. The firmware
+  consumes it as a path dependency and re-exports the old paths, so no call
+  site changed. The two things it needs from hardware arrive through
+  registration points that fail closed: no logger registered means nothing
+  prints, and no entropy source registered means **no signature is produced**.
+- **Fuzzing**: nine parser fuzz targets with one total function per parser,
+  run three ways: a deterministic mutation smoke loop under plain
+  `cargo test`, a cargo-fuzz project over the same bodies for coverage-guided
+  runs, and CI on every push (`.github/workflows/core.yml`).
+- **Reference vectors from rusty-kaspa 2.0.1**: the boot sighash set grows
+  from 27 to 30 vectors, adding proof that the signing input's own sequence is
+  committed under SINGLE and two negatives that pin what is *not* committed.
+  Both mainnet address rows of their table reproduce exactly; Bitcoin-versioned
+  `xprv`/`xpub` from the BIP32 test vectors are refused by all six import
+  entry points. The 45' multisig KAT was already a cross-implementation
+  vector, reproducing the Go implementation's address, and now says so.
+- **Multisig hint vectors on the host**: the V8 (KSPT v4) and V9 (PSKB) audit
+  vectors decoded from their QR frames and embedded as tests, with a
+  cross-format agreement test asserting every signed-over field and every
+  derivation hint identical between the two encodings.
+- **Lock time on the review screens**: a timelocked transaction shows
+  "Locked until DAA n" or "Locked until YYYY-MM-DD HH:MM UTC" in orange on
+  TX REVIEW, and a LOCKED marker on CONFIRM SEND. Zero lock time draws
+  nothing, so existing screens are pixel-identical. The device discloses; it
+  does not refuse.
+- **The release build tests itself**: the Docker build now runs the core host
+  tests before building any image, so a failing vector stops the release
+  instead of shipping.
+
+### Changed
+- **One FAT32 layer**: the two per-board copies collapse into `core/fat32.rs`
+  over a `BlockDevice` trait; the stricter guard from each copy survives, so
+  the Waveshare mount now refuses an unsigned MBR as the M5 always did.
+  Host-tested against an in-memory card image, including a corrupt circular
+  chain terminating instead of hanging.
+- **Batched FAT writes**: allocating a chain patches each touched FAT sector
+  once per copy instead of once per cluster (a 7-cluster file costs 2 FAT
+  sector writes, not 26), in an order a power loss cannot corrupt. Deletion
+  is batched the same way and marks the directory entry before freeing the
+  chain, so interruption leaks clusters instead of leaving a live entry over
+  reusable ones.
+- **Waveshare SD reselect**: back-to-back SD sessions reuse the held card via
+  CMD13+CMD7 (measured 0 ms) instead of a full re-init.
+- **Camera lifecycle in one place**: the camera-state sets are defined once,
+  the touch debounce lives on `AppData`, and every one of the 28 camera exit
+  paths arms it at the exit: 25 through `leave_camera`, and three where
+  `start_review` sets the next state itself and the exit arms the guard
+  directly, each with a comment saying so. The Waveshare scan-exit
+  freeze was the path the old per-board cleanup missed.
+- **PSKB compatibility with the reference implementation**: an unset input
+  `sequence` (absent or null) now signs as `u64::MAX`, matching what the
+  rusty-kaspa signer hashes; `minTime` is parsed and the transaction lock
+  time is the largest across the inputs; creator-role zero counts over
+  populated arrays are accepted as unset. rusty-kaspa's own committed PSKB
+  fixture now parses. An explicit sequence value is always signed as given.
+- **KasSee aligned with the same rules**: unset sequence is MAX and the lock
+  time rides `minTime`, so both sides of the QR agree byte for byte. Also:
+  the dead single-PSKT path removed, an "already accepted" broadcast reply
+  treated as the success it is, and the signed-PSKB paste and copy-hex
+  controls made reachable.
+
+### Fixed
+- **Published unsigned hashes now stand for the real firmware.** The unsigned
+  release images were stubs: `FIRMWARE_SIGNED` is a `const bool`, and with
+  `false` the compiler could prove boot never reached the wallet and deleted
+  it, leaving 244-271 kB images with no wordlist and no UI against 904-912 kB
+  signed. A verifier rebuilding unsigned reproduced the stub, so the
+  comparison proved nothing about the firmware anyone runs. The constant is
+  now read through `core::ptr::read_volatile` (a guarantee where
+  `core::hint::black_box`, used briefly during 1.0.7 development, is only
+  a hint): still truthful, unsigned production still halts at boot, and
+  both images carry the complete firmware. The release build asserts the
+  property: every unsigned app image must be full-sized and within 64 KiB
+  of its signed pair, so a future compiler that defeats the barrier fails
+  the build. Verification compares unsigned against unsigned.
+- **The device could not sign a timelocked transaction.** PSKB `minTime` was
+  skipped, so the device signed lock time 0 while the sender's extractor
+  built the requested value, and the network rejected the mismatched
+  signature. Fail closed, no funds at risk, but the capability did not exist.
+  Now parsed, signed and shown on screen. The output side had the same gap
+  in mirror: `serialize_pskt` wrote `"minTime":null` on every input, so a
+  bundle the device emitted reconstructed to lock time 0, an extractor
+  reading it rebuilt a transaction the signature does not match, and a
+  second multisig signer saw no lock time on the review screen at all.
+  Found by a roundtrip test written for this release; the emitter now
+  writes the transaction lock time on every input, which reproduces the
+  signed value under the reference's `determine_lock_time` derivation.
+  KSPT was never affected, its binary layout carries lock time as a fixed
+  field.
+- **An absent PSKB sequence signed as 0**, producing signatures reference
+  wallets reject. Now `u64::MAX`, per the rules above.
+- **A test in `ecies.rs` had never compiled**; the `cfg(test)` code was
+  unbuildable before the crate split made it buildable, and the assertion is
+  fixed.
+
+### Removed
+- **`Install.sh`.** It downloaded the latest release over curl and flashed it
+  with no checksum, no signature and no tag pin, on devices that at that
+  point have no Secure Boot burned. That contradicted everything the
+  reproducible-build design stands for. Build from source or flash a release
+  binary whose hash you verified.
+- **The single-PSKT envelope**, dead on both ends: nothing anywhere emits it
+  and rusty-kaspa's own branch for it is `unimplemented!`.
+- **Every GPIO edge-counting camera probe.** They aliased: a working camera
+  read as a dead clock and vice versa. The real proof of a live camera is a
+  full DMA frame and a decode, and the code now says so where the probes
+  were.
+- **The dead M5 SPI2 debug stub**, a 1 MHz path that was never wired in. The
+  schematic shows the M5 socket is 1-bit SPI on the shared display bus, so
+  the imagined fast path does not exist on this hardware.
+
+### Security
+- **Signing fails closed without entropy**: with no hardware source
+  registered, `schnorr_sign` returns an error and produces no signature,
+  pinned by a host test, rather than ever signing with a predictable nonce.
+- **The signing keypair is written `0600`** by `gen-keypair` instead of the
+  platform default.
+- The build scripts pass the build configuration through verbatim and print
+  which signing key, if any, they found; the embedded hash is read from the
+  generated file rather than parsed out of logs.
+
+### Known limitations
+- A byte-diff of a signed image against an unsigned one is not confined to
+  the signature region: the differing constants shift the compiler's output
+  broadly. This is why verification compares unsigned against unsigned; a
+  build where the code segments are byte-identical is on the roadmap.
+- The lock-time screens disclose; they do not gate. A signer who ignores the
+  orange text signs the lock time as given.
+
 ## [1.0.6]: 2026-08-18
 
 A **multisig and hardening** release. Multisig moves to the Kaspa 45' scheme,

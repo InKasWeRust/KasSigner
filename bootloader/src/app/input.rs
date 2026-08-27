@@ -495,6 +495,14 @@ pub enum AppState {
     MultisigPickSeed { key_idx: u8 },
     /// Multisig: scan/add pubkey (which key index 0..N-1 we're collecting)
     MultisigAddKey { key_idx: u8 },
+    /// Multisig: warning before scanning a cosigner key. A 44' watch-only
+    /// kpub is byte-indistinguishable from the 45' multisig kpub (same
+    /// version bytes, same length, valid checksum), so nothing at the
+    /// scanner can reject the wrong one; a 44' key builds a descriptor that
+    /// parses and an address that funds but that no signer can spend
+    /// (N-23). This screen is the only defence that exists: it puts the
+    /// label in front of the user at the moment of risk.
+    MultisigKpubWarn { key_idx: u8 },
     /// Multisig: show the created multisig address as QR
     MultisigShowAddress,
     /// Multisig: show QR of multisig address
@@ -761,7 +769,8 @@ pub fn new() -> Self {
             | AppState::SdOverwriteWarning | AppState::SdKpubEncryptAsk
             | AppState::ShowQrModeChoice
             | AppState::MultisigChooseMN | AppState::MultisigPickSeed { .. }
-            | AppState::MultisigAddKey { .. } | AppState::MultisigShowAddress
+            | AppState::MultisigAddKey { .. } | AppState::MultisigKpubWarn { .. }
+            | AppState::MultisigShowAddress
             | AppState::MultisigShowAddressQR
             | AppState::MultisigSaveAddrAsk
             | AppState::MultisigDescriptor
@@ -932,6 +941,34 @@ pub enum HandlerGroup {
 }
 
 impl AppState {
+    /// The camera family: every state in which the camera pipeline runs and
+    /// `run_camera_cycle` owns the loop iteration.
+    ///
+    /// ONE definition. Until 1.0.7 this set was spelled out by hand in a
+    /// dozen `matches!` lists across main.rs and camera_loop.rs and they did
+    /// not all agree; the Waveshare scan-exit freeze (STATE.md, 2026-08-24)
+    /// was an exit path that one of those lists did not cover. `CameraSettings`
+    /// is the one genuine board difference: it runs the camera as a live
+    /// preview behind the cam-tune overlay and exists only on Waveshare.
+    pub fn is_camera(self) -> bool {
+        #[cfg(feature = "waveshare")]
+        if self == AppState::CameraSettings {
+            return true;
+        }
+        self.is_scan_camera()
+    }
+
+    /// The scan screens only: the subset of `is_camera` where the screen is
+    /// a viewfinder and the back button is the only live control. Taps
+    /// elsewhere are ignored and silent. `CameraSettings` is deliberately
+    /// NOT here: its taps are sliders and buttons and they click.
+    pub fn is_scan_camera(self) -> bool {
+        matches!(
+            self,
+            AppState::ScanQR | AppState::SignMsgScanQr | AppState::DecryptSecretScan
+        )
+    }
+
     /// Maximum characters the shared keyboard accepts on this screen.
     ///
     /// One place, next to the state definitions, because PassphraseInput is
@@ -1028,7 +1065,8 @@ pub fn handler_group(&self) -> HandlerGroup {
             // Transaction / multisig / camera / message signing
             ScanQR | ReviewTx { .. } | ConfirmTx | SignTxGuide
             | MultisigChooseMN | MultisigPickSeed { .. }
-            | MultisigAddKey { .. } | MultisigShowAddress | MultisigShowAddressQR
+            | MultisigAddKey { .. } | MultisigKpubWarn { .. }
+            | MultisigShowAddress | MultisigShowAddressQR
             | MultisigSaveAddrAsk | MultisigDescriptor
             | SignMsgChoice | SignMsgType | SignMsgFile | SignMsgPreview | SignMsgScanQr | SignMsgHashPreview | SignMsgResult | SignMsgResultQr
             | CommitRevealType | CommitRevealPreview | CommitRevealResult | CommitRevealResultQr

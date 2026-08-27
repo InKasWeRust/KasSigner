@@ -18,4 +18,6 @@
 // qr/ — QR code encoding and decoding
 
 pub mod encoder;
-pub mod payload;
+// The payload classifier moved to kassigner-core (core/src/qr/payload.rs);
+// re-exported so `crate::qr::payload` still resolves.
+pub use kassigner_core::qr::payload;
