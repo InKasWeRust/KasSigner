@@ -572,7 +572,7 @@ fn generate_rfc6979_nonce(privkey: &[u8; 32], message: &[u8; 32]) -> Result<Scal
 ///
 /// The tag prefix was missing until 2026-08-02. This function computed a plain
 /// `SHA256(R.x || P.x || m)`, while the device verifier in
-/// `bootloader/src/wallet/schnorr.rs:241` computes the BIP-340 tagged hash,
+/// `core/src/wallet/schnorr.rs:241` computes the BIP-340 tagged hash,
 /// `SHA256(SHA256(tag) || SHA256(tag) || R.x || P.x || m)`.
 ///
 /// The two therefore disagreed on the challenge, so every signature this tool

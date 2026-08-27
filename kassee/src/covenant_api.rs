@@ -9,7 +9,7 @@ use crate::{hex_to_pubkey32, network_to_prefix};
 use wasm_bindgen::prelude::*;
 
 /// Maximum transaction inputs the KasSigner firmware accepts
-/// (`bootloader/src/wallet/transaction.rs`, `MAX_INPUTS = 32`). Every spend
+/// (`core/src/wallet/transaction.rs`, `MAX_INPUTS = 32`). Every spend
 /// path that gathers covenant UTXOs caps at this before building the wire
 /// payload, so the device is never handed a transaction it must refuse; the
 /// remainder stays at the covenant address and is drained by repeating the
@@ -946,7 +946,6 @@ pub async fn create_covenant_allowance_withdraw(
         }),
     ];
 
-
     // tx_version=1 required for covenant binding outputs on TN10
     let pskt = serde_json::json!({
         "global": {
@@ -1251,7 +1250,6 @@ pub async fn create_covenant_owner_spend(
         "bip32Derivations": [],
         "proprietaries": []
     })];
-
 
     let branch_val: serde_json::Value = if covenant_branch.is_empty() {
         serde_json::Value::Null

@@ -187,7 +187,11 @@ fn parse_response(data: &[u8]) -> Result<RpcResponse, String> {
 
     // Option<u64> id
     let tag = br_u8(&mut r)?;
-    let id = if tag == 1 { Some(br_u64(&mut r)?) } else { None };
+    let id = if tag == 1 {
+        Some(br_u64(&mut r)?)
+    } else {
+        None
+    };
 
     // u8 kind: 0=Success, 1=Error
     let kind = br_u8(&mut r)?;
@@ -322,9 +326,7 @@ fn already_accepted(text: &str) -> Option<String> {
         .find(|w| w.len() == 64)
         .unwrap_or("")
         .to_string();
-    web_sys::console::log_1(
-        &format!("[KasSee] Node already had this TX (resubmit): {id}").into(),
-    );
+    web_sys::console::log_1(&format!("[KasSee] Node already had this TX (resubmit): {id}").into());
     Some(id)
 }
 
@@ -356,7 +358,11 @@ fn rpc_error_text(kind: u8, payload: &[u8]) -> String {
     } else {
         String::from_utf8_lossy(payload).to_string()
     };
-    let hex_preview: String = payload.iter().take(200).map(|b| format!("{:02x}", b)).collect();
+    let hex_preview: String = payload
+        .iter()
+        .take(200)
+        .map(|b| format!("{:02x}", b))
+        .collect();
     web_sys::console::log_1(
         &format!("[KasSee] RPC error kind={kind}: text='{err_text}' raw_hex={hex_preview}").into(),
     );
@@ -487,7 +493,11 @@ fn install_dispatcher(ws: &WebSocket, generation: u64) {
     let on_open = Closure::wrap(Box::new(move |_: JsValue| {
         let queued: Vec<Vec<u8>> = WS_OUTBOX.with(|o| {
             let mut b = o.borrow_mut();
-            let mine = b.iter().filter(|(g, _)| *g == generation).map(|(_, r)| r.clone()).collect();
+            let mine = b
+                .iter()
+                .filter(|(g, _)| *g == generation)
+                .map(|(_, r)| r.clone())
+                .collect();
             b.retain(|(g, _)| *g != generation);
             mine
         });
@@ -624,7 +634,8 @@ async fn ws_rpc_call(ws_url: &str, op: u8, payload: &[u8]) -> Result<Vec<u8>, St
             // Register BEFORE sending, or a fast reply arrives with nothing
             // waiting for it and is dropped by the dispatcher.
             WS_PENDING.with(|p| {
-                p.borrow_mut().push((id, generation, result.clone(), resolve.clone()))
+                p.borrow_mut()
+                    .push((id, generation, result.clone(), resolve.clone()))
             });
 
             if can_send_now {

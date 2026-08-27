@@ -23,7 +23,10 @@ jobs:
         working-directory: core
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # 1.85.0, not stable: core/rust-toolchain.toml pins it and it is the
+      # host compiler in Dockerfile.base, so CI, the release build and a
+      # reviewer's own run all use the same compiler.
+      - uses: dtolnay/rust-toolchain@1.85.0
         with:
           components: clippy
       - name: Build (release, as the firmware consumes it)

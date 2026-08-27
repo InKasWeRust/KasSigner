@@ -5,7 +5,7 @@
 // pskt.rs — Kaspa-standard PSKT / PSKB wire-format support for KasSee.
 //
 // Mirrors the on-wire format produced by `kaspa-wallet-pskt` and by
-// KasSigner's own `bootloader/src/wallet/std_pskt.rs`. This is Lane B
+// KasSigner's own `core/src/wallet/std_pskt.rs`. This is Lane B
 // of the migration roadmap: hand-rolled, zero-new-deps, byte-compatible
 // with the device. When full interop with Keystone / KasWare is
 // required, Lane A (importing `kaspa-wasm` PSKT bindings) takes over.
@@ -722,7 +722,7 @@ fn find_pubkey_position_in_redeem(rs: &[u8], pk_hex_66: &str) -> Option<u8> {
 // it verbatim: this finalizer emits KSPT v2 signed so no new
 // broadcast code is needed.
 //
-// KSPT v2 signed layout (from bootloader/src/wallet/pskt.rs + rpc.rs):
+// KSPT v2 signed layout (from core/src/wallet/pskt.rs + rpc.rs):
 //
 //   Header:
 //     "KSPT" | 0x02 (version) | 0x01 (flags: signed)
@@ -747,12 +747,6 @@ fn find_pubkey_position_in_redeem(rs: &[u8], pk_hex_66: &str) -> Option<u8> {
 // For P2PK: emit `redeem_script_len = 0` and a single
 // `(pubkey_pos=0, sighash, sig)` triple. rpc.rs P2PK fallback at
 // lines 565-582 takes sig[0] and emits the P2PK sig_script.
-
-/// Finalize a fully-signed PSKT into a signed KSPT v2 hex blob the
-/// existing `broadcast_signed` RPC path can consume directly.
-///
-/// Fails if any multisig input lacks the required M signatures or if
-/// any P2PK input has zero sigs.
 
 /// The transaction lock time of a PSKT object, read the way rusty-kaspa and
 /// the device read it since 1.0.7: the largest `minTime` over the inputs.
@@ -792,6 +786,11 @@ pub fn pskt_lock_time(obj: &serde_json::Map<String, Value>) -> u64 {
     legacy
 }
 
+/// Finalize a fully-signed PSKT into a signed KSPT v2 hex blob the
+/// existing `broadcast_signed` RPC path can consume directly.
+///
+/// Fails if any multisig input lacks the required M signatures or if
+/// any P2PK input has zero sigs.
 pub fn finalize_to_kspt_hex(wire_hex: &str) -> Result<String, String> {
     let format = detect_format_hex(wire_hex);
     if format == PsktFormat::Unknown {
@@ -920,7 +919,10 @@ fn encode_input_kspt_v2(buf: &mut Vec<u8>, inp: &Value) -> Result<(), String> {
     // `unwrap_or(u64::MAX)`) and what the device signs since 1.0.7. Until
     // 1.0.7 this defaulted to 0, so a bundle with the field unset produced a
     // transaction here that neither of the other two would have signed.
-    let sequence = obj.get("sequence").and_then(|v| v.as_u64()).unwrap_or(u64::MAX);
+    let sequence = obj
+        .get("sequence")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(u64::MAX);
     let sig_op_count = obj.get("sigOpCount").and_then(|v| v.as_u64()).unwrap_or(1) as u8;
 
     // redeemScript
@@ -1120,7 +1122,7 @@ fn encode_output_kspt(buf: &mut Vec<u8>, out: &Value) -> Result<(), String> {
 //
 //   1. Header `flags` byte = 0x00 (partial) instead of 0x01 (fully
 //      signed). The device's `parse_signed_pskt_v2` already accepts
-//      both values (bootloader/src/wallet/pskt.rs line 1076 discards
+//      both values (core/src/wallet/pskt.rs line 1076 discards
 //      the flag byte after reading it).
 //
 //   2. The multisig sig-count gate is removed: relay may carry 0..=N
@@ -1513,7 +1515,10 @@ fn encode_input_kspt_v2_relay(buf: &mut Vec<u8>, inp: &Value) -> Result<(), Stri
     // `unwrap_or(u64::MAX)`) and what the device signs since 1.0.7. Until
     // 1.0.7 this defaulted to 0, so a bundle with the field unset produced a
     // transaction here that neither of the other two would have signed.
-    let sequence = obj.get("sequence").and_then(|v| v.as_u64()).unwrap_or(u64::MAX);
+    let sequence = obj
+        .get("sequence")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(u64::MAX);
     let sig_op_count = obj.get("sigOpCount").and_then(|v| v.as_u64()).unwrap_or(1) as u8;
 
     // redeemScript
@@ -1883,7 +1888,10 @@ fn build_consensus_input(
     // `unwrap_or(u64::MAX)`) and what the device signs since 1.0.7. Until
     // 1.0.7 this defaulted to 0, so a bundle with the field unset produced a
     // transaction here that neither of the other two would have signed.
-    let sequence = obj.get("sequence").and_then(|v| v.as_u64()).unwrap_or(u64::MAX);
+    let sequence = obj
+        .get("sequence")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(u64::MAX);
     let sig_op_count = obj.get("sigOpCount").and_then(|v| v.as_u64()).unwrap_or(1) as u8;
 
     // redeemScript
@@ -3956,7 +3964,7 @@ fn build_p2pk_sig_script(partial_map: &serde_json::Map<String, Value>) -> Result
 // redeem script at that position. The 33-byte SEC1 form is recovered
 // as `02 || xonly` — this is the Kaspa Schnorr multisig convention
 // (BIP340 "lift_x" with even-Y assumption), matching the device's
-// own `lift_x` in bootloader/src/wallet/schnorr.rs line 307.
+// own `lift_x` in core/src/wallet/schnorr.rs line 307.
 //
 // Merge semantics:
 //   - Pubkeys already in `partialSigs` are LEFT ALONE (no clobber).
@@ -4228,7 +4236,7 @@ struct KsptSigRecord {
 /// `(pubkey_pos, sighash_type, sig)` records present. Does not
 /// validate sigs; that's the device/consensus job.
 ///
-/// Layout (from bootloader/src/wallet/pskt.rs `serialize_signed_pskt_v2`
+/// Layout (from core/src/wallet/pskt.rs `serialize_signed_pskt_v2`
 /// and the matching emitter here in `encode_input_kspt_v2`):
 ///
 ///   Header:  "KSPT"(4) | version=0x02(1) | flags(1)
@@ -4351,7 +4359,7 @@ struct KsptV1SigRecord {
 /// handle the case where a single-sig P2PK transaction comes back from
 /// KasSigner in v1 format after compact relay.
 ///
-/// Layout (from bootloader/src/wallet/pskt.rs `serialize_signed_pskt`):
+/// Layout (from core/src/wallet/pskt.rs `serialize_signed_pskt`):
 ///   Header: "KSPT"(4) | version=0x01(1) | flags=0x01(1)
 ///   Global: tx_version(2) num_in(1) num_out(1)
 ///           locktime(8) subnetwork_id(20) gas(8)

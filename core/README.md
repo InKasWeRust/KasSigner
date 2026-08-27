@@ -21,8 +21,11 @@ cd core
 cargo test
 ```
 
-Stock stable Rust. No ESP-IDF, no Xtensa toolchain, no espflash, no hardware.
-If you are auditing KasSigner, this is where to start.
+No ESP-IDF, no Xtensa toolchain, no espflash, no hardware. The crate carries
+its own `rust-toolchain.toml` pinning Rust 1.85.0, the same host compiler the
+release build uses, and rustup fetches it on first run; the repo root pins the
+Xtensa toolchain for the firmware, which is why this file exists. If you are
+auditing KasSigner, this is where to start.
 
 ## What it contains
 
