@@ -1070,24 +1070,36 @@ pub fn sign_and_serialize_multisig(
     let mut seed_idx = 0usize;
     let mut active_seed_idx: Option<usize> = None;
     let active_mgr_slot = seed_mgr.active as usize;
-    for s in active_mgr_slot..=active_mgr_slot {
-        let slot = &seed_mgr.slots[s];
-        // An xprv or raw-key slot cannot be reached through the mnemonic
-        // derivation below. Falling through to another slot would sign with a
-        // key the user did not select, so this refuses instead.
-        if slot.is_empty() || slot.is_raw_key() || slot.word_count == 2 { continue; }
-        // `as_mnemonic` rather than `slot.indices`: on a raw-key or xprv slot
-        // that array holds a packed private key, and feeding it to
-        // `seed_from_mnemonic_*` reads key bytes as BIP39 word indices. The
-        // guard above already skips those kinds; this makes the guard and the
-        // read one operation so a future edit cannot separate them (H-08).
-        let Some((indices, wc)) = slot.as_mnemonic() else { continue };
-        // Claimed only once a mnemonic is proven present. Set before the
-        // `else { continue }` above, a slot that passed the kind guard but
-        // failed `as_mnemonic` left the index claimed with no seed stored:
-        // `sign_transaction_multisig` skips it on the `.1` flag, so the
-        // outcome was an unsigned result rather than the explicit refusal
-        // below. Same fused-guard reasoning as the comment above.
+    // [S6]. Was `for s in active_mgr_slot..=active_mgr_slot`, a range that runs
+    // exactly once, left behind when MAX_SIGN_SLOTS went to 1. A reader meets a
+    // loop and assumes multi-slot, which is the opposite of the property this
+    // code exists to enforce: ONE slot, the one the user selected.
+    //
+    // The two escapes were `continue`, and they worked only because the refusal
+    // sits AFTER the loop. Straight-line, both become "no usable mnemonic", the
+    // block is skipped, `active_seed_idx` stays None, and the same refusal
+    // fires. That equivalence is the whole of this change; nothing else moves.
+    let slot = &seed_mgr.slots[active_mgr_slot];
+    // An xprv or raw-key slot cannot be reached through the mnemonic
+    // derivation below. Falling through to another slot would sign with a key
+    // the user did not select, so this refuses instead.
+    //
+    // `as_mnemonic` rather than `slot.indices`: on a raw-key or xprv slot that
+    // array holds a packed private key, and feeding it to
+    // `seed_from_mnemonic_*` reads key bytes as BIP39 word indices. The kind
+    // guard and the read are one expression so a future edit cannot separate
+    // them (H-08).
+    let usable = if slot.is_empty() || slot.is_raw_key() || slot.word_count == 2 {
+        None
+    } else {
+        slot.as_mnemonic()
+    };
+    if let Some((indices, wc)) = usable {
+        // Claimed only once a mnemonic is proven present. Claimed earlier, a
+        // slot that passed the kind guard but failed `as_mnemonic` left the
+        // index claimed with no seed stored: `sign_transaction_multisig` skips
+        // it on the `.1` flag, so the outcome was an unsigned result rather
+        // than the explicit refusal below.
         active_seed_idx = Some(seed_idx);
         let pp = slot.as_passphrase()
             .and_then(|b| core::str::from_utf8(b).ok())
@@ -1389,21 +1401,36 @@ pub fn sign_and_serialize_pskt_multisig(
     let mut seed_idx = 0usize;
     let mut active_seed_idx: Option<usize> = None;
     let active_mgr_slot = seed_mgr.active as usize;
-    for s in active_mgr_slot..=active_mgr_slot {
-        let slot = &seed_mgr.slots[s];
-        if slot.is_empty() || slot.is_raw_key() || slot.word_count == 2 { continue; }
-        // `as_mnemonic` rather than `slot.indices`: on a raw-key or xprv slot
-        // that array holds a packed private key, and feeding it to
-        // `seed_from_mnemonic_*` reads key bytes as BIP39 word indices. The
-        // guard above already skips those kinds; this makes the guard and the
-        // read one operation so a future edit cannot separate them (H-08).
-        let Some((indices, wc)) = slot.as_mnemonic() else { continue };
-        // Claimed only once a mnemonic is proven present. Set before the
-        // `else { continue }` above, a slot that passed the kind guard but
-        // failed `as_mnemonic` left the index claimed with no seed stored:
-        // `sign_transaction_multisig` skips it on the `.1` flag, so the
-        // outcome was an unsigned result rather than the explicit refusal
-        // below. Same fused-guard reasoning as the comment above.
+    // [S6]. Was `for s in active_mgr_slot..=active_mgr_slot`, a range that runs
+    // exactly once, left behind when MAX_SIGN_SLOTS went to 1. A reader meets a
+    // loop and assumes multi-slot, which is the opposite of the property this
+    // code exists to enforce: ONE slot, the one the user selected.
+    //
+    // The two escapes were `continue`, and they worked only because the refusal
+    // sits AFTER the loop. Straight-line, both become "no usable mnemonic", the
+    // block is skipped, `active_seed_idx` stays None, and the same refusal
+    // fires. That equivalence is the whole of this change; nothing else moves.
+    let slot = &seed_mgr.slots[active_mgr_slot];
+    // An xprv or raw-key slot cannot be reached through the mnemonic
+    // derivation below. Falling through to another slot would sign with a key
+    // the user did not select, so this refuses instead.
+    //
+    // `as_mnemonic` rather than `slot.indices`: on a raw-key or xprv slot that
+    // array holds a packed private key, and feeding it to
+    // `seed_from_mnemonic_*` reads key bytes as BIP39 word indices. The kind
+    // guard and the read are one expression so a future edit cannot separate
+    // them (H-08).
+    let usable = if slot.is_empty() || slot.is_raw_key() || slot.word_count == 2 {
+        None
+    } else {
+        slot.as_mnemonic()
+    };
+    if let Some((indices, wc)) = usable {
+        // Claimed only once a mnemonic is proven present. Claimed earlier, a
+        // slot that passed the kind guard but failed `as_mnemonic` left the
+        // index claimed with no seed stored: `sign_transaction_multisig` skips
+        // it on the `.1` flag, so the outcome was an unsigned result rather
+        // than the explicit refusal below.
         active_seed_idx = Some(seed_idx);
         let pp = slot.as_passphrase()
             .and_then(|b| core::str::from_utf8(b).ok())
@@ -1708,6 +1735,20 @@ pub fn handle_signing_step(
                     ad.signed_qr_frame = 0;
                     ad.signed_qr_large = false;
                     ad.qr_manual_frames = false;
+                    // The LENGTH was missing from this list, and the refusal
+                    // below reads it. Every other field here was cleared per
+                    // signing run and this one persisted for the whole
+                    // session, so after any successful signing the check
+                    // downstream passed on the PREVIOUS transaction's value
+                    // and stopped testing anything. That is the M3 case the
+                    // check exists for, quietly reopened for every
+                    // transaction after the first successful one.
+                    //
+                    // Here rather than at the top of the function: this is the
+                    // only place a signing run begins, so re-entering the
+                    // review of an earlier input cannot wipe a result that has
+                    // already been produced.
+                    ad.signed_qr_len = 0;
 
                     boot_display.draw_saving_screen("Signing TX...");
                     // Step 6: branch on tx envelope format. For incoming
@@ -1933,6 +1974,66 @@ pub fn handle_signing_step(
                             log!("{}", s);
                             log!("   KSPT_HEX_END");
                         }
+                    }
+                    // Nothing was signed. Say so, and do NOT walk to the QR
+                    // screens.
+                    //
+                    // INSIDE the last-input block, which is the whole point.
+                    // It used to sit outside it, immediately after the closing
+                    // brace, at the same depth as the `if` itself. On input 1
+                    // of a MULTI-INPUT transaction the signing block is
+                    // correctly skipped, because signing runs once on the last
+                    // input, so the length was correctly still zero and this
+                    // refused a transaction that had not been given its chance
+                    // yet. It returned before `advance_signing()`, so input 2
+                    // never happened and no multi-input transaction could be
+                    // signed at all unless a previous run had left a stale
+                    // non-zero length behind.
+                    //
+                    // Found on hardware 2026-09-01 with a 2-in 1-out bundle
+                    // the device owned at m/44'/111111'/0'/0/0: cold boot
+                    // refused it, and it signed only after an unrelated
+                    // single-input vector had signed first. The serial ended
+                    // at "Input 1/2 reviewed" with nothing after it, because
+                    // every line that follows lives in the block being
+                    // skipped.
+                    //
+                    // `advance_signing()` moved to ShowQrFrameChoice regardless of
+                    // the result, and `ShowQR` draws its payload under
+                    // `if ad.signed_qr_len > 0`, so a zero-signature attempt ended
+                    // on an EMPTY screen. The refusal existed only in the log,
+                    // which a production build does not print, so the user saw a
+                    // signing attempt produce a blank page and nothing else.
+                    //
+                    // Not hypothetical: vector M3 on 2026-08-15, a 45' hint aimed
+                    // at the wrong cosigner index, emitted 9 frames with 0 of 2
+                    // signatures and no error. Returning 0 fixed the fake signed
+                    // payload; this fixes what the user is told about it.
+                    //
+                    // Three causes land here and are indistinguishable at this
+                    // point, so the message names none of them: the payload has no
+                    // `bip32_derivations`, the hint points at a path this wallet
+                    // does not own, or the transaction is not ours to sign. The log
+                    // above already separates them for anyone with a serial cable.
+                    if ad.signed_qr_len == 0 {
+                        boot_display.draw_rejected_screen("Nothing signed");
+                        {
+                            use crate::hw::display::*;
+                            let msg = "No key matched this bundle";
+                            let mw = measure_body(msg);
+                            draw_lato_body(&mut boot_display.display, msg, (320 - mw) / 2, 155, COLOR_TEXT_DIM);
+                        }
+                        sound::beep_error(delay);
+                        // Same shape as the "No seed loaded" refusal above: a local
+                        // Delay to hold the message, rather than borrowing the one
+                        // passed in.
+                        {
+                            let d = esp_hal::delay::Delay::new();
+                            d.delay_millis(3000);
+                        }
+                        ad.app.state = crate::app::input::AppState::Rejected;
+                        ad.needs_redraw = true;
+                        return;
                     }
                 }
 

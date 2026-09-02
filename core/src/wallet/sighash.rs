@@ -173,6 +173,27 @@ pub struct KaspaBlake2b {
 impl KaspaBlake2b {
     /// Create a new keyed Blake2b-256 hasher.
     /// The key can be 1..=64 bytes. Kaspa domain keys are ~20-22 ASCII bytes.
+    /// KEY LENGTH IS AN UNCHECKED INVARIANT: at most 64 bytes.
+    ///
+    /// Every caller passes the 22-byte `KEY_SIGNING_HASH` constant, so this
+    /// holds by construction rather than by a check. It was NOT always so:
+    /// `blake2b_keyed` forwarded a caller-supplied key here and was deleted
+    /// on 2026-09-01 ([S7]) precisely because it was the only variable-key
+    /// path and had no callers of its own. `#![allow(dead_code)]` in
+    /// `core/src/lib.rs` is why nothing had pointed that out.
+    ///
+    /// Two distinct failure points if the invariant is ever broken, and the
+    /// nearer one is the quieter:
+    /// - above 64, blake2b's own maximum, the parameter block's key-length
+    ///   byte is out of spec, so the digest is silently non-standard and
+    ///   deterministic. No panic, no error, a wrong hash;
+    /// - above 128, `buf[..key_len]` indexes past a `[u8; 128]` and panics,
+    ///   which on this device is key wipe and halt.
+    ///
+    /// So a new variable-key caller needs a bound BEFORE this call, or this
+    /// function needs to start returning a `Result`. Adding one is nine call
+    /// sites today, which is why it was not done for a condition no caller
+    /// can currently produce.
     pub fn new(key: &[u8]) -> Self {
         let key_len = key.len();
 
@@ -277,13 +298,6 @@ pub fn blake2b_hash(data: &[u8]) -> Hash256 {
     let mut hash = [0u8; 32];
     hash.copy_from_slice(&result);
     hash
-}
-
-/// Hash Blake2b-256 with a Kaspa domain key (one-shot convenience)
-fn blake2b_keyed(key: &[u8], data: &[u8]) -> Hash256 {
-    let mut h = KaspaBlake2b::new(key);
-    h.update(data);
-    h.finalize()
 }
 
 /// Incremental keyed Blake2b-256 hasher for the final sighash digest.
@@ -1002,6 +1016,44 @@ fn vec_set_payload(tx: &mut Transaction) {
     tx.payload_len = VEC_MOD_PAYLOAD.len();
 }
 
+/// Bind output 0 to authorizing input 0 with a distinguishable covenant id.
+///
+/// `00 01 02 .. 1f` rather than a realistic id: every byte differs from its
+/// neighbours, so a serializer that drops, repeats or reorders bytes inside the
+/// id changes the digest, which an all-one-value id would hide.
+#[cfg(any(test, not(feature = "skip-tests")))]
+fn vec_bind_out0(tx: &mut Transaction) {
+    tx.outputs[0].has_covenant = true;
+    tx.outputs[0].covenant_auth_input = 0;
+    for (i, b) in tx.outputs[0].covenant_id.iter_mut().enumerate() {
+        *b = i as u8;
+    }
+}
+
+/// Same binding, authorizing input 2 instead of 0.
+#[cfg(any(test, not(feature = "skip-tests")))]
+fn vec_bind_out0_auth2(tx: &mut Transaction) {
+    vec_bind_out0(tx);
+    tx.outputs[0].covenant_auth_input = 2;
+}
+
+/// Same binding, a different covenant id.
+#[cfg(any(test, not(feature = "skip-tests")))]
+fn vec_bind_out0_id_aa(tx: &mut Transaction) {
+    vec_bind_out0(tx);
+    tx.outputs[0].covenant_id = [0xAA; 32];
+}
+
+/// The binding on output 1 instead of output 0.
+#[cfg(any(test, not(feature = "skip-tests")))]
+fn vec_bind_out1(tx: &mut Transaction) {
+    tx.outputs[1].has_covenant = true;
+    tx.outputs[1].covenant_auth_input = 0;
+    for (i, b) in tx.outputs[1].covenant_id.iter_mut().enumerate() {
+        *b = i as u8;
+    }
+}
+
 /// Append `[1, 2, 3]` to the script being spent by input 0.
 #[cfg(any(test, not(feature = "skip-tests")))]
 fn vec_extend_spk0(tx: &mut Transaction) {
@@ -1123,6 +1175,72 @@ pub fn run_sighash_vectors() -> (u32, u32) {
           0x92,0xb4,0x53,0xd7,0x8a,0xe5,0xe6,0xe5,0xc0,0x7f,0x02,0x9a,0x69,0xf5,0xf0,0x75,
         ],
         |tx: &mut Transaction| tx.inputs[1].sig_op_count = 123);
+
+    // ── Version 1 WITH a covenant binding ───────────────────────
+    //
+    // The gap these close: every version-1 case above has `has_covenant`
+    // false on every output, so `hash_output`'s covenant branch at :430 was
+    // exercised only on its `write_bool(false)` side. The branch that
+    // actually commits a binding, which is the whole of what cov++ signing
+    // rests on, had no known-answer coverage at all. Found 2026-09-01 while
+    // chasing a signing failure that turned out to be [K11].
+    //
+    // The expected digests were computed by an independent reimplementation
+    // of the sighash, which was first required to reproduce `native-all-0`,
+    // `native-v1-all-0`, `native-v1-all-0-modify-sigopcount-1` and
+    // `native-all-0-modify-payload` byte for byte before any new value was
+    // taken from it. Serialisation cross-checked against rusty-kaspa 2.0.1,
+    // `consensus/core/src/hashing/sighash.rs:228-238`, which writes the bool,
+    // then `write_u16(authorizing_input)` and the 32-byte id.
+    case!("native-v1-all-0-covenant-out0", vec_build_native(1), 0, SigHashType::All,
+        [
+          0x74,0xd7,0xbc,0xb8,0x3b,0xad,0x4d,0x99,0xb7,0x92,0xc2,0x74,0xbe,0x40,0x25,0x60,
+          0xb6,0x74,0xce,0x71,0xa0,0xc7,0xb9,0x6b,0x0c,0xf8,0x4d,0x3e,0xcc,0xc2,0x36,0x0f,
+        ],
+        vec_bind_out0);
+
+    // The authorizing input index must reach the digest. A hasher that wrote
+    // the id but skipped the u16 would pass the case above and fail here.
+    case!("native-v1-all-0-covenant-auth2", vec_build_native(1), 0, SigHashType::All,
+        [
+          0x8b,0x6d,0x27,0x79,0x89,0xba,0x87,0x21,0x11,0xbc,0x96,0x70,0x94,0xbd,0x27,0xa0,
+          0x39,0xa3,0x5e,0x44,0xb6,0xe8,0xac,0xaf,0x5a,0x72,0xf1,0x04,0x8f,0xcc,0x25,0x91,
+        ],
+        vec_bind_out0_auth2);
+
+    // And so must the id itself.
+    case!("native-v1-all-0-covenant-id", vec_build_native(1), 0, SigHashType::All,
+        [
+          0x8b,0x02,0x67,0x06,0x76,0x38,0x06,0x6b,0x0e,0x0e,0x94,0x8a,0x93,0x12,0xeb,0x04,
+          0x39,0xb0,0x12,0xd5,0x2e,0xbe,0x05,0xe9,0x71,0x54,0x41,0xcd,0x4a,0xbb,0x84,0x40,
+        ],
+        vec_bind_out0_id_aa);
+
+    // WHICH output carries the binding must reach the digest. The commitment
+    // is per output, not per transaction, and a hasher that folded the
+    // binding in once outside the output loop would pass all three cases
+    // above and fail this one.
+    case!("native-v1-all-0-covenant-out1", vec_build_native(1), 0, SigHashType::All,
+        [
+          0x64,0x9b,0x77,0x37,0xee,0x35,0xda,0xfa,0xae,0xbc,0xe1,0x1f,0xa3,0x35,0x27,0x2d,
+          0x44,0x1f,0x07,0x36,0xde,0xef,0xcb,0xfb,0x59,0x37,0x34,0x48,0x12,0xa3,0x33,0xa5,
+        ],
+        vec_bind_out1);
+
+    // The other direction, and the one a version gate gets wrong: at version
+    // 0 a binding is NOT hashed at all, so this must equal `native-all-0`
+    // exactly. The digest below is that one, byte for byte, on purpose.
+    //
+    // This is a real shape rather than a contrivance: a binding at
+    // tx_version 0 is displayed and never enters the digest, which is what
+    // `J0f_control_kspt_cov` carries and what cost four fixture errors
+    // during the E19 work.
+    case!("native-v0-covenant-not-hashed", vec_build_native(0), 0, SigHashType::All,
+        [
+          0x03,0xb7,0xac,0x69,0x27,0xb2,0xb6,0x71,0x00,0x73,0x4c,0x3c,0xc3,0x13,0xff,0x8c,
+          0x2e,0x8b,0x3c,0xe3,0xe7,0x46,0xd4,0x6d,0xd6,0x60,0xb7,0x06,0xa9,0x16,0xb1,0xf5,
+        ],
+        vec_bind_out0);
 
     // ── ALL | ANYONECANPAY ──────────────────────────────────────
     case!("native-all-acp-0", vec_build_native(0), 0, SigHashType::AllAnyOneCanPay,

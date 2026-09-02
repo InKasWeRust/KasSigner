@@ -97,6 +97,16 @@ impl Fat32Info {
         }
         let fat_size_32 = u32::from_le_bytes([sector[36], sector[37], sector[38], sector[39]]);
         let root_cluster = u32::from_le_bytes([sector[44], sector[45], sector[46], sector[47]]);
+        // Clusters 0 and 1 are reserved and never name data. `root_cluster` was
+        // the one BPB field taken straight from the card with no check, and the
+        // four root-directory walkers all seed their chain from it, so a hostile
+        // 0 or 1 reached `cluster_to_sector`, hit its `< 2` guard, and got
+        // `data_start_sector` back: the walk then read cluster 2's directory as
+        // though it were the root. Refused at the mount instead of guarded four
+        // times downstream. `do_format_fat32` writes 2 here (:1231).
+        if root_cluster < 2 {
+            return Err("Invalid root cluster");
+        }
         let total_sectors_16 = u16::from_le_bytes([sector[19], sector[20]]);
         let total_sectors_32 = u32::from_le_bytes([sector[32], sector[33], sector[34], sector[35]]);
         let total_sectors = if total_sectors_16 != 0 { total_sectors_16 as u32 } else { total_sectors_32 };
@@ -236,6 +246,57 @@ pub fn read_fat_entry<D: BlockDevice>(dev: D, fat32: &Fat32Info, cluster: u32) -
     if offset + 3 >= 512 { return Err("FAT offset out of range"); }
     let entry = u32::from_le_bytes([buf[offset], buf[offset+1], buf[offset+2], buf[offset+3]]);
     Ok(entry & 0x0FFF_FFFF) // mask upper 4 bits (reserved)
+}
+
+/// Sectors any one root-directory walk may read before it gives up.
+///
+/// 8,192 sectors is 131,072 directory entries, which no card a person uses
+/// comes near, and it bounds the cost uniformly regardless of cluster size.
+/// A cluster cap would not: at one sector per cluster it is 16 entries and at
+/// 64 it is 1,024, so the same number would be both too tight and far too
+/// slow depending on the card.
+pub const MAX_DIR_SECTORS: u32 = 8192;
+
+/// Advance a root-directory chain by one cluster, with the two bounds every
+/// such walk in this file needs and none of them had.
+///
+/// `Ok(None)` is end of chain. `Err` is a chain that must not be walked.
+///
+/// FOUR CALLERS, all previously identical and all previously unbounded:
+/// `find_file_in_root`, `write_dir_entry_to_root`, `list_root_dir` and
+/// `list_root_dir_lfn`. Each seeded from `root_cluster` and looped with
+/// `next >= 0x0FFF_FFF8` as its only exit, so a FAT with A to B to A never
+/// terminated. `write_dir_entry_to_root` was the worst of them: its only exit
+/// is finding a free slot, so a cycle with no free slot never ends, and on a
+/// genuine end-of-chain it allocates and extends rather than stopping.
+///
+/// This is a HARD bound, not the partial cycle check at `read_file_progress`.
+/// That one compares against the current and first clusters and says so: it
+/// catches a self-loop and a jump back to the start, and a cycle closing
+/// mid-chain still passes it. Counting sectors catches every cycle, needs no
+/// visited set and no second FAT read, and costs one counter.
+///
+/// Rejecting `next < 2` also closes the residual in `cluster_to_sector`, whose
+/// guard returns `data_start_sector` for a reserved cluster rather than
+/// failing, so a chain pointing at 0 or 1 silently re-read cluster 2.
+fn next_dir_cluster<D: BlockDevice>(
+    dev: D,
+    fat32: &Fat32Info,
+    cluster: u32,
+    sectors_walked: &mut u32,
+) -> Result<Option<u32>, &'static str> {
+    let next = read_fat_entry(dev, fat32, cluster)?;
+    if next >= 0x0FFF_FFF8 {
+        return Ok(None); // end of chain
+    }
+    if next < 2 {
+        return Err("Bad FAT chain");
+    }
+    *sectors_walked = sectors_walked.saturating_add(fat32.sectors_per_cluster as u32);
+    if *sectors_walked > MAX_DIR_SECTORS {
+        return Err("Circular FAT chain");
+    }
+    Ok(Some(next))
 }
 
 /// Write a FAT entry. Writes to both FAT1 and FAT2.
@@ -454,6 +515,7 @@ pub fn find_file_in_root<D: BlockDevice>(
 ) -> Result<(DirEntry, u32, usize), &'static str> {
     let mut cluster = fat32.root_cluster;
     let mut buf = [0u8; 512];
+    let mut sectors_walked = 0u32;
 
     loop {
         let base_sector = fat32.cluster_to_sector(cluster);
@@ -470,9 +532,10 @@ pub fn find_file_in_root<D: BlockDevice>(
             }
         }
         // Follow cluster chain
-        let next = read_fat_entry(dev, fat32, cluster)?;
-        if next >= 0x0FFF_FFF8 { break; } // EOC
-        cluster = next;
+        match next_dir_cluster(dev, fat32, cluster, &mut sectors_walked)? {
+            Some(next) => cluster = next,
+            None => break, // EOC
+        }
     }
     Err("File not found")
 }
@@ -702,6 +765,7 @@ fn write_dir_entry_to_root<D: BlockDevice>(
 ) -> Result<(), &'static str> {
     let mut cluster = fat32.root_cluster;
     let mut buf = [0u8; 512];
+    let mut sectors_walked = 0u32;
 
     loop {
         let base_sector = fat32.cluster_to_sector(cluster);
@@ -736,20 +800,28 @@ fn write_dir_entry_to_root<D: BlockDevice>(
             }
         }
         // Follow cluster chain; allocate new cluster if needed
-        let next = read_fat_entry(dev, fat32, cluster)?;
-        if next >= 0x0FFF_FFF8 {
-            // Allocate new cluster for directory
-            let new_cl = allocate_cluster(dev, fat32, cluster + 1)?;
-            write_fat_entry(dev, fat32, cluster, new_cl)?;
-            // Zero out the new cluster
-            let zeros = [0u8; 512];
-            let new_base = fat32.cluster_to_sector(new_cl);
-            for s in 0..fat32.sectors_per_cluster as u32 {
-                dev.write_block(new_base + s, &zeros)?;
+        match next_dir_cluster(dev, fat32, cluster, &mut sectors_walked)? {
+            Some(next) => cluster = next,
+            None => {
+                // Genuine end of chain: extend the directory.
+                let new_cl = allocate_cluster(dev, fat32, cluster + 1)?;
+                write_fat_entry(dev, fat32, cluster, new_cl)?;
+                // Zero out the new cluster
+                let zeros = [0u8; 512];
+                let new_base = fat32.cluster_to_sector(new_cl);
+                for s in 0..fat32.sectors_per_cluster as u32 {
+                    dev.write_block(new_base + s, &zeros)?;
+                }
+                // The extension is a cluster this walk will now read, so it is
+                // charged against the same budget. Without this an appending
+                // caller on a full directory could extend without limit.
+                sectors_walked =
+                    sectors_walked.saturating_add(fat32.sectors_per_cluster as u32);
+                if sectors_walked > MAX_DIR_SECTORS {
+                    return Err("Directory too large");
+                }
+                cluster = new_cl;
             }
-            cluster = new_cl;
-        } else {
-            cluster = next;
         }
     }
 }
@@ -863,6 +935,7 @@ where
 {
     let mut cluster = fat32.root_cluster;
     let mut buf = [0u8; 512];
+    let mut sectors_walked = 0u32;
 
     loop {
         let base_sector = fat32.cluster_to_sector(cluster);
@@ -878,9 +951,10 @@ where
                 }
             }
         }
-        let next = read_fat_entry(dev, fat32, cluster)?;
-        if next >= 0x0FFF_FFF8 { break; }
-        cluster = next;
+        match next_dir_cluster(dev, fat32, cluster, &mut sectors_walked)? {
+            Some(next) => cluster = next,
+            None => break,
+        }
     }
     Ok(())
 }
@@ -904,6 +978,7 @@ where
     let mut lfn_len: usize = 0;
     let mut lfn_parts: [([u8; 26], u8); 4] = [([0; 26], 0); 4]; // (utf16_bytes, seq_num)
     let mut lfn_part_count: usize = 0;
+    let mut sectors_walked = 0u32;
 
     loop {
         let base_sector = fat32.cluster_to_sector(cluster);
@@ -1007,9 +1082,10 @@ where
                 }
             }
         }
-        let next = read_fat_entry(dev, fat32, cluster)?;
-        if next >= 0x0FFF_FFF8 { break; }
-        cluster = next;
+        match next_dir_cluster(dev, fat32, cluster, &mut sectors_walked)? {
+            Some(next) => cluster = next,
+            None => break,
+        }
     }
     Ok(())
 }

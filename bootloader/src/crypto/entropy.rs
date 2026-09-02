@@ -1491,9 +1491,28 @@ pub fn touch_probe_zeroize() {
         TP_HASH = None;
         #[cfg(feature = "rng-probe")]
         {
-            for v in TP_TICKS.iter_mut() { core::ptr::write_volatile(v, 0); }
-            for v in TP_X.iter_mut() { core::ptr::write_volatile(v, 0); }
-            for v in TP_Y.iter_mut() { core::ptr::write_volatile(v, 0); }
+            // Through pointers, not `iter_mut()`.
+            //
+            // `iter_mut` builds a `&mut` to each static, which is what
+            // `static_mut_refs` objects to, and it sits oddly beside the
+            // `write_volatile` it feeds: the volatile write says another agent
+            // may be looking at this memory, the mutable reference says none
+            // may. Unlike `cam_dma`, nothing here is shared with an interrupt,
+            // `touch_probe_record` is called from the poll loop, so this was
+            // never a race. It was a claim stronger than the code makes.
+            //
+            // Volatile is kept for the reason it was there: this is the seed
+            // preimage and the compiler must not elide stores to memory it can
+            // see is never read again. Same shape as `wipe_qr_buffers` in
+            // `handlers/camera_loop.rs`.
+            let ticks = core::ptr::addr_of_mut!(TP_TICKS) as *mut u32;
+            let xs = core::ptr::addr_of_mut!(TP_X) as *mut u16;
+            let ys = core::ptr::addr_of_mut!(TP_Y) as *mut u16;
+            for i in 0..TOUCH_PROBE_MAX {
+                core::ptr::write_volatile(ticks.add(i), 0);
+                core::ptr::write_volatile(xs.add(i), 0);
+                core::ptr::write_volatile(ys.add(i), 0);
+            }
         }
         TP_N = 0;
         TP_POLLS = 0;

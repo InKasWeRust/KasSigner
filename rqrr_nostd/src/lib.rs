@@ -7,6 +7,30 @@
 //! Requires `alloc` (Vec, Box, String).
 
 #![no_std]
+// Clippy allows, all three load-bearing. Added 2026-09-02 with the clippy step
+// in .github/workflows/rqrr.yml, which until then ran build and test only.
+//
+// `suspicious_arithmetic_impl` / `suspicious_op_assign_impl`, four sites in
+// galois.rs. THE OPERATOR IS THE MATHEMATICS. In GF(2^8) and GF(2^4) addition
+// IS exclusive-or: there is no carry, and a + a = 0. The lint looks for someone
+// who typed `^` where they meant `+`, which is a real mistake in ordinary code
+// and is exactly backwards here. "Correcting" these to `+` or `|` breaks
+// Reed-Solomon error correction silently: every QR still scans until one is
+// damaged, and then it decodes to the wrong bytes rather than failing.
+//
+// `needless_lifetimes`, two sites, `into_grid_image` and `detect_grids`. Both
+// are upstream rqrr 0.10.1 signatures, elidable but unchanged from the source
+// this is forked from. This crate tracks upstream, so gratuitous divergence
+// costs more at the next merge than the elision saves.
+//
+// `result_unit_err`, on the `Write` trait below. `Result<(), ()>` is the whole
+// point of the no_std port: the file header says "replaced std::io::Write with
+// minimal trait", and there is exactly one failure here, the writer ran out of
+// room. A custom error type would be a type with one variant carrying nothing.
+#![allow(clippy::suspicious_arithmetic_impl)]
+#![allow(clippy::suspicious_op_assign_impl)]
+#![allow(clippy::needless_lifetimes)]
+#![allow(clippy::result_unit_err)]
 
 extern crate alloc;
 

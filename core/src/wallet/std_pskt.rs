@@ -43,7 +43,10 @@
 //!
 //! See `docs/pskt/PSKT_MIGRATION_PLAN.md` for the full breakdown.
 
-use crate::types::{TxInputFormat, PsktParsed, MAX_PSKT_UNKNOWN_REGIONS};
+use crate::types::{
+    TxInputFormat, PsktParsed, MAX_PSKT_UNKNOWN_REGIONS,
+    SCOPE_GLOBAL, SCOPE_INPUT_BASE, SCOPE_OUTPUT_BASE,
+};
 use crate::wallet::transaction::{
     MAX_INPUTS, MAX_OUTPUTS, MAX_SCRIPT_SIZE, MAX_SIGS_PER_INPUT, Transaction,
 };
@@ -779,12 +782,18 @@ fn expect_u64(tok: &mut Tokenizer<'_>) -> Result<u64, PskError> {
 /// field's `"key"` token began; `end` is the position after the value's
 /// last byte. Fails with `TooManyUnknownRegions` if the slot array is
 /// full.
-fn capture_unknown(parsed: &mut PsktParsed, start: usize, end: usize) -> Result<(), PskError> {
+fn capture_unknown(
+    parsed: &mut PsktParsed,
+    start: usize,
+    end: usize,
+    scope: u8,
+) -> Result<(), PskError> {
     let idx = parsed.unknowns_count as usize;
     if idx >= MAX_PSKT_UNKNOWN_REGIONS {
         return Err(PskError::TooManyUnknownRegions);
     }
     parsed.unknowns[idx] = (start as u16, end as u16);
+    parsed.unknown_scopes[idx] = scope;
     parsed.unknowns_count += 1;
     Ok(())
 }
@@ -993,7 +1002,7 @@ fn parse_pskt_object(
             _ => {
                 // Unknown top-level field — capture and move on.
                 skip_value(tok)?;
-                capture_unknown(parsed, key_start, tok.position())?;
+                capture_unknown(parsed, key_start, tok.position(), SCOPE_GLOBAL)?;
             }
         }
 
@@ -1154,7 +1163,7 @@ fn parse_global(
                     Tok::RBrace => { tok.next_token()?; }
                     _ => {
                         skip_until_matching(tok, Tok::RBrace)?;
-                        capture_unknown(parsed, key_start, tok.position())?;
+                        capture_unknown(parsed, key_start, tok.position(), SCOPE_GLOBAL)?;
                     }
                 }
             }
@@ -1168,7 +1177,7 @@ fn parse_global(
                     Tok::Str(_) => {
                         // Non-default id present — capture the whole
                         // `"id":"..."` region.
-                        capture_unknown(parsed, key_start, tok.position())?;
+                        capture_unknown(parsed, key_start, tok.position(), SCOPE_GLOBAL)?;
                     }
                     _ => return Err(PskError::UnexpectedToken),
                 }
@@ -1177,7 +1186,7 @@ fn parse_global(
                 // Truly unknown field (e.g. future kaspa-wallet-pskt
                 // addition). Capture for round-trip.
                 skip_value(tok)?;
-                capture_unknown(parsed, key_start, tok.position())?;
+                capture_unknown(parsed, key_start, tok.position(), SCOPE_GLOBAL)?;
             }
         }
 
@@ -1239,6 +1248,12 @@ fn parse_input(
     idx: usize,
 ) -> Result<(), PskError> {
     expect(tok, Tok::LBrace)?;
+
+    // Scope tag for anything captured out of THIS input. `idx` is bounded by
+    // MAX_INPUTS (32) at the call site in `parse_inputs_array`, and
+    // SCOPE_OUTPUT_BASE is 64, so an input tag can never collide with an
+    // output one.
+    let scope = SCOPE_INPUT_BASE + idx as u8;
 
     let inp = &mut tx.inputs[idx];
     let mut seen_utxo = false;
@@ -1349,7 +1364,7 @@ fn parse_input(
                 }
                 // Capture so non-empty maps round-trip, AND pull the 45'
                 // derivation path out of the first KeySource that has one.
-                parse_bip32_derivations(tok, parsed, key_start, inp)?;
+                parse_bip32_derivations(tok, parsed, key_start, inp, scope)?;
             }
             // Always-present structural fields (null by default). The
             // serializer reconstructs them from known state.
@@ -1399,7 +1414,7 @@ fn parse_input(
                     Tok::RBrace => { tok.next_token()?; }  // empty, no capture
                     _ => {
                         skip_until_matching(tok, Tok::RBrace)?;
-                        capture_unknown(parsed, key_start, tok.position())?;
+                        capture_unknown(parsed, key_start, tok.position(), scope)?;
                     }
                 }
                 let _ = val_start;
@@ -1407,7 +1422,7 @@ fn parse_input(
             _ => {
                 // Unknown future field.
                 skip_value(tok)?;
-                capture_unknown(parsed, key_start, tok.position())?;
+                capture_unknown(parsed, key_start, tok.position(), scope)?;
             }
         }
 
@@ -1738,6 +1753,7 @@ fn parse_bip32_derivations(
     parsed: &mut PsktParsed,
     field_start: usize,
     inp: &mut crate::wallet::transaction::TransactionInput,
+    scope: u8,
 ) -> Result<(), PskError> {
     expect(tok, Tok::LBrace)?;
 
@@ -1771,13 +1787,11 @@ fn parse_bip32_derivations(
         }
     }
 
-    // Capture the entire `"bip32Derivations": {...}` region, and remember WHICH
-    // region it is so the serializer can re-emit exactly this input's map.
-    // `unknowns_count` before the call is the index it will occupy; stored +1 so
-    // that zero, the value a zeroed Transaction starts with, means "no map".
-    let region_idx = parsed.unknowns_count;
-    capture_unknown(parsed, field_start, tok.position())?;
-    inp.bip32_region = region_idx.saturating_add(1);
+    // Capture the entire `"bip32Derivations": {...}` region. The scope tag says
+    // which input it belongs to, which is all the serializer needs; it used to
+    // also store the region INDEX on the input, and that is gone. See the note
+    // at the emitter.
+    capture_unknown(parsed, field_start, tok.position(), scope)?;
     Ok(())
 }
 
@@ -1824,6 +1838,10 @@ fn parse_output(
 ) -> Result<(), PskError> {
     expect(tok, Tok::LBrace)?;
 
+    // Scope tag for anything captured out of THIS output. `idx` is bounded by
+    // MAX_OUTPUTS (8) at the call site in `parse_outputs_array`.
+    let scope = SCOPE_OUTPUT_BASE + idx as u8;
+
     let out = &mut tx.outputs[idx];
     let mut seen_amount = false;
     let mut seen_spk = false;
@@ -1868,10 +1886,27 @@ fn parse_output(
                 if !mark(&mut seen_opt, S_REDEEM) {
                     return Err(PskError::DuplicateField);
                 }
-                // Structural — null or hex. Serializer emits from known
-                // state or passes through the parsed hex (outputs don't
-                // carry signer-relevant redeem scripts in our flow).
-                skip_value(tok)?;
+                // [S5]. This was `skip_value` with a comment saying the
+                // serializer "passes through the parsed hex". It did not:
+                // nothing was captured and the emitter wrote a hardcoded
+                // `null`, so an output's redeem script was silently dropped on
+                // the way out.
+                //
+                // `null` is the default and needs no capture, because the
+                // emitter's fallback writes it. Anything else is captured.
+                //
+                // Peek rather than matching the token strictly: `skip_value`
+                // accepts what it always accepted, so nothing that parsed
+                // before stops parsing now. The global `id` field takes the
+                // stricter Null-or-Str form, and copying that here would have
+                // been a tightening this finding did not ask for.
+                match tok.peek()? {
+                    Tok::Null => { tok.next_token()?; }
+                    _ => {
+                        skip_value(tok)?;
+                        capture_unknown(parsed, key_start, tok.position(), scope)?;
+                    }
+                }
             }
             b"covenantBinding" => {
                 // KIP-20 covenant binding: `null`, or an object carrying
@@ -1986,17 +2021,13 @@ fn parse_output(
                                 out.ms45_hint = h;
                             }
                         }
-                        let region_idx = parsed.unknowns_count;
-                        capture_unknown(parsed, key_start, tok.position())?;
-                        if key == b"bip32Derivations" {
-                            out.bip32_region = region_idx.saturating_add(1);
-                        }
+                        capture_unknown(parsed, key_start, tok.position(), scope)?;
                     }
                 }
             }
             _ => {
                 skip_value(tok)?;
-                capture_unknown(parsed, key_start, tok.position())?;
+                capture_unknown(parsed, key_start, tok.position(), scope)?;
             }
         }
 
@@ -2280,7 +2311,7 @@ fn emit_global(
 
     // xpubs
     w.lit(b",\"xpubs\":")?;
-    if let Some(range) = find_captured_value(parsed, w.scratch, b"xpubs") {
+    if let Some(range) = find_captured_value(parsed, w.scratch, b"xpubs", SCOPE_GLOBAL) {
         w.scratch_range(range.0, range.1)?;
     } else {
         w.lit(b"{}")?;
@@ -2288,7 +2319,7 @@ fn emit_global(
 
     // id
     w.lit(b",\"id\":")?;
-    if let Some(range) = find_captured_value(parsed, w.scratch, b"id") {
+    if let Some(range) = find_captured_value(parsed, w.scratch, b"id", SCOPE_GLOBAL) {
         w.scratch_range(range.0, range.1)?;
     } else {
         w.lit(b"null")?;
@@ -2296,7 +2327,7 @@ fn emit_global(
 
     // proprietaries
     w.lit(b",\"proprietaries\":")?;
-    if let Some(range) = find_captured_value(parsed, w.scratch, b"proprietaries") {
+    if let Some(range) = find_captured_value(parsed, w.scratch, b"proprietaries", SCOPE_GLOBAL) {
         w.scratch_range(range.0, range.1)?;
     } else {
         w.lit(b"{}")?;
@@ -2317,8 +2348,18 @@ fn find_captured_value(
     parsed: &PsktParsed,
     scratch: &[u8],
     name: &[u8],
+    scope: u8,
 ) -> Option<(u16, u16)> {
     for i in 0..(parsed.unknowns_count as usize) {
+        // Scope first, and it is the whole of this fix. The table is flat and
+        // the match below is on the key NAME, so without this an input's
+        // `proprietaries` is returned to the global emitter whenever the
+        // global one was empty and therefore never captured. `proprietaries`
+        // is the only name that occurs at all three levels, which is why the
+        // defect had exactly one shape.
+        if parsed.unknown_scopes[i] != scope {
+            continue;
+        }
         let (start, end) = parsed.unknowns[i];
         let s = start as usize;
         let e = end as usize;
@@ -2429,29 +2470,52 @@ fn emit_input(
     // preserves the kaspa-wallet-pskt invariant that every `partialSigs` pubkey
     // also appears here.
     //
-    // The region is recorded per input, not looked up by field name: a
-    // multi-input transaction has one such region per input and a name search
-    // would return the first one every time.
+    // Looked up by name, scoped to THIS input.
+    //
+    // The map is re-emitted VERBATIM, not regenerated, and that is the whole
+    // point of capturing it. It is how the NEXT cosigner finds their key: it
+    // carries one KeySource per cosigner, including the ones who have not
+    // signed yet. Rebuilding it from `partialSigs` keeps only signers and
+    // nulls their KeySource, so a 45' bundle would survive exactly one hop and
+    // the second signer would refuse on a payload this device gutted. N-20.
+    // This note used to live on `TransactionInput::bip32_region`; the field is
+    // gone and the reasoning is not.
+    //
+    // It used to be a stored index, `inp.bip32_region`, and the comment here
+    // gave the reason: "a multi-input transaction has one such region per
+    // input and a name search would return the first one every time". True
+    // before [S4]. The capture table is scoped now, so the scoped question can
+    // be asked, and the index was a workaround for not being able to ask it.
+    // Removed 2026-09-01.
+    //
+    // `find_captured_value` also returns the VALUE, key and colon already
+    // skipped, which retires the hand-rolled `skip` arithmetic that used to
+    // live here and again below in `emit_output`.
+    let scope = SCOPE_INPUT_BASE + idx as u8;
     w.lit(b",\"bip32Derivations\":")?;
-    let mut emitted = false;
-    if inp.bip32_region > 0 {
-        let idx = (inp.bip32_region - 1) as usize;
-        if idx < parsed.unknowns_count as usize {
-            let (start, end): (u16, u16) = parsed.unknowns[idx];
-            // The captured region is `"bip32Derivations":{...}`; skip the key
-            // and colon so only the value is spliced.
-            let skip: u16 = b"\"bip32Derivations\":".len() as u16;
-            if start.saturating_add(skip) < end {
-                w.scratch_range(start + skip, end)?;
-                emitted = true;
-            }
-        }
-    }
-    if !emitted {
+    if let Some(range) = find_captured_value(parsed, w.scratch, b"bip32Derivations", scope) {
+        w.scratch_range(range.0, range.1)?;
+    } else {
         emit_bip32_derivations_for_input(w, inp)?;
     }
 
-    w.lit(b",\"finalScriptSig\":null,\"proprietaries\":{}")?;
+    // Re-emit this input's map VERBATIM when there was one.
+    //
+    // [S3]. This was a hardcoded `{}`, so a non-empty `proprietaries` was
+    // parsed, captured, and then thrown away on the way out: the first signer
+    // stripped it and the next signer never saw it. Same defect and same fix
+    // as the `bip32Derivations` case immediately above.
+    //
+    // The lookup is scoped to THIS input, which is what [S4] made possible.
+    // Before that the table was flat and matched on the key name alone, so a
+    // scoped question could not be asked at all; that is why this could not
+    // simply have been written earlier.
+    w.lit(b",\"finalScriptSig\":null,\"proprietaries\":")?;
+    if let Some(range) = find_captured_value(parsed, w.scratch, b"proprietaries", scope) {
+        w.scratch_range(range.0, range.1)?;
+    } else {
+        w.lit(b"{}")?;
+    }
     w.lit(b"}")?;
     Ok(())
 }
@@ -2625,23 +2689,35 @@ fn emit_output(
     // output's derivation claim and the next signer had nothing to verify. Same
     // defect as N-20 on the input side, and the same fix: the parser already
     // captured the region, nothing consumed it.
-    w.lit(b",\"redeemScript\":null,\"bip32Derivations\":")?;
-    let mut emitted = false;
-    if out.bip32_region > 0 {
-        let idx = (out.bip32_region - 1) as usize;
-        if idx < parsed.unknowns_count as usize {
-            let (start, end) = parsed.unknowns[idx];
-            let skip: u16 = b"\"bip32Derivations\":".len() as u16;
-            if start.saturating_add(skip) < end {
-                w.scratch_range(start + skip, end)?;
-                emitted = true;
-            }
-        }
+    // [S5]. Re-emit this output's redeem script when it had one. This was a
+    // hardcoded `null`, the same shape of defect as [S3] one field along.
+    //
+    // `scope` is bound here rather than at each use because the block below
+    // shadows the function's `idx` parameter with a region index, and an
+    // expression reading `idx` inside it would silently mean the wrong thing.
+    let scope = SCOPE_OUTPUT_BASE + idx as u8;
+    w.lit(b",\"redeemScript\":")?;
+    if let Some(range) = find_captured_value(parsed, w.scratch, b"redeemScript", scope) {
+        w.scratch_range(range.0, range.1)?;
+    } else {
+        w.lit(b"null")?;
     }
-    if !emitted {
+
+    // Same as the input side: looked up by name, scoped to THIS output.
+    w.lit(b",\"bip32Derivations\":")?;
+    if let Some(range) = find_captured_value(parsed, w.scratch, b"bip32Derivations", scope) {
+        w.scratch_range(range.0, range.1)?;
+    } else {
         w.lit(b"{}")?;
     }
-    w.lit(b",\"proprietaries\":{}}")?;
+    // [S3], output side. Same as the input above, scoped to THIS output.
+    w.lit(b",\"proprietaries\":")?;
+    if let Some(range) = find_captured_value(parsed, w.scratch, b"proprietaries", scope) {
+        w.scratch_range(range.0, range.1)?;
+    } else {
+        w.lit(b"{}")?;
+    }
+    w.lit(b"}")?;
     Ok(())
 }
 

@@ -26,6 +26,31 @@ pub struct CapStone {
     pub c: Perspective,
 }
 
+/// Ceiling on how many capstones one frame may yield.
+///
+/// This Vec was unbounded, and everything downstream is priced off its length.
+/// `PreparedImage::find_groupings` walks every capstone and calls
+/// `find_and_rank_possible_neighbors` for each, which is O(n) to build its two
+/// candidate lists and then O(|hlist| * |vlist|) over their product. On a
+/// crafted frame both lists are O(n), so the whole detection is O(n^3) with a
+/// sort of an O(n^2) Vec inside it. `NeighborSet` is 16 bytes, so that Vec is
+/// the second problem: megabytes of allocation before any time is spent.
+///
+/// Nothing else bounded n. The 251-entry LRU in `PreparedImage::get_region` is
+/// a cache with eviction, not a limit, and `create_capstone` paints its region
+/// `PixelColor::CapStone`, so each capstone permanently consumes one.
+///
+/// 256 is far above anything real. A QR has exactly three capstones, several
+/// codes in one frame give a handful, and the K-F fuzz case that motivated the
+/// sibling bound in `identify/grid.rs` reached five. Each capstone needs its
+/// own flood-filled 1:1:3:1:1 ring, so 256 of them in the 240x240 frame
+/// `camera_loop` feeds is not a picture this device could decode anyway.
+///
+/// Stopping the scan rather than the push: once the ceiling is hit there is
+/// nothing useful left to find, and continuing costs a flood fill per
+/// candidate.
+pub const MAX_CAPSTONES: usize = 256;
+
 /// Find all 'capstones' in a given image.
 ///
 /// A Capstones is the locator pattern of a QR code. Every QR code has 3 of
@@ -58,6 +83,9 @@ where
             };
 
             res.push(cap);
+            if res.len() >= MAX_CAPSTONES {
+                return res;
+            }
         }
 
         // Insert a virtual white pixel at the end to trigger a re-check. Necessary when
@@ -73,6 +101,9 @@ where
             };
 
             res.push(cap);
+            if res.len() >= MAX_CAPSTONES {
+                return res;
+            }
         }
     }
     res

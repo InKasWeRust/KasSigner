@@ -249,6 +249,42 @@ pub enum ScriptType {
     Unknown,
 }
 
+/// Can the review screen render this OUTPUT script as an address?
+///
+/// E21. `draw_tx_page` decodes an output to an address only for these two
+/// shapes; anything else fell through to a `Script: ` line showing the first
+/// EIGHT bytes and `...`, while SigHashAll committed all of it, up to
+/// MAX_SCRIPT_SIZE of 512. The user approved a destination having seen eight
+/// bytes of it, and script prefixes are shared, so the visible part can look
+/// ordinary while everything that matters sits past it.
+///
+/// Both parsers refuse an output that fails this, so such a transaction never
+/// reaches review. Refusing what cannot be described is the defensible default
+/// for a signer, and every Kaspa address is one of these two forms, so any
+/// output an ordinary wallet produces passes.
+///
+/// Deliberately NOT `detect_script_type(..) != Unknown`. That also accepts bare
+/// multisig, which the screen cannot render either: `encode_address_str` takes a
+/// 32-byte key or hash and a bare multisig script is neither, so it landed in
+/// the same eight-byte fallback. The rule has to match the display, not the
+/// parser.
+///
+/// INPUTS ARE NOT SUBJECT TO THIS. A P2SH input's scriptPublicKey is P2SH, but
+/// what matters there is the redeem script behind it, which is how every
+/// covenant and every multisig is spent. Restricting inputs would break the
+/// product.
+pub fn is_displayable_output_script(script: &[u8], len: usize) -> bool {
+    // P2PK: OP_DATA_32 <pubkey> OP_CHECKSIG
+    if len == 34 && script[0] == OP_DATA_32 && script[33] == OP_CHECKSIG {
+        return true;
+    }
+    // P2SH: OP_BLAKE2B OP_DATA_32 <hash> OP_EQUAL
+    if len == 35 && script[0] == OP_BLAKE2B && script[1] == OP_DATA_32 && script[34] == OP_EQUAL {
+        return true;
+    }
+    false
+}
+
 /// Parse a scriptPublicKey and detect its type
 pub fn detect_script_type(script: &[u8], len: usize) -> ScriptType {
     if len == 34 && script[0] == OP_DATA_32 && script[33] == OP_CHECKSIG {
@@ -259,7 +295,13 @@ pub fn detect_script_type(script: &[u8], len: usize) -> ScriptType {
         return ScriptType::P2SH;
     }
     // Multisig: OP_m [OP_DATA_32 <32 bytes>]xN OP_n OP_CHECKMULTISIG
-    if len >= 37 && script[len - 1] == OP_CHECKMULTISIG {
+    //
+    // The bound is the N=1 length: 1 + 1*33 + 1 + 1. It exists only to make the
+    // two trailing indexes below safe; `len == expected_len` further down is
+    // what actually validates the length, per N. It read 37 until v1.0.8, which
+    // matched neither the N=1 minimum of 36 nor the N=2 minimum of 69, and its
+    // only effect was to reject a 1-of-1 by one byte.
+    if len >= 36 && script[len - 1] == OP_CHECKMULTISIG {
         let n_byte = script[len - 2];
         let m_byte = script[0];
         if (OP_1..=OP_5).contains(&m_byte) && (OP_1..=OP_5).contains(&n_byte) {
@@ -405,24 +447,6 @@ pub struct TransactionInput {
     /// what the user approved on screen. Signing on the strength of the hint
     /// alone would let a crafted PSKB walk the device down any path it likes.
     pub ms45_hint: Ms45Hint,
-    /// Index+1 into `PsktParsed::unknowns` of this input's captured
-    /// `"bip32Derivations":{...}` region. ZERO MEANS NONE.
-    ///
-    /// Index+1 rather than the index, because `Transaction` is built with
-    /// `mem::zeroed()` and `alloc_zeroed`, so a plain index would make region 0
-    /// the default for every input that never had a map.
-    ///
-    /// The map must be re-emitted VERBATIM, not regenerated. It is how the NEXT
-    /// cosigner finds their key: it carries one KeySource per cosigner,
-    /// including the ones who have not signed yet. Rebuilding it from
-    /// `partialSigs` keeps only signers, and nulls their KeySource, so a 45'
-    /// bundle would survive exactly one hop and the second signer would refuse
-    /// on a payload this device gutted. See N-20.
-    ///
-    /// Recorded per input rather than looked up by field name, because a
-    /// multi-input transaction has one such region per input and searching by
-    /// name would return the first every time.
-    pub bip32_region: u8,
 }
 
 /// A 45' derivation hint for one input.
@@ -467,16 +491,6 @@ pub struct TransactionOutput {
     /// shown as outgoing, with the user told why - the device cannot save you
     /// from a payload it cannot check, but it can refuse to pretend.
     pub ms45_hint: Ms45Hint,
-    /// Index+1 into `PsktParsed::unknowns` of this output's captured
-    /// `"bip32Derivations":{...}` region. ZERO MEANS NONE.
-    ///
-    /// The output-side twin of `TransactionInput::bip32_region`, and needed for
-    /// the same reason: the map must be re-emitted VERBATIM. The serializer
-    /// wrote a hardcoded `"bip32Derivations":{}` for every output, so the FIRST
-    /// signer stripped the change claim and the second signer received a
-    /// transaction where no output claimed anything - not "unverified", but
-    /// nothing to verify. Observed on hardware with vector V6.
-    pub bip32_region: u8,
 }
 
 // ─── Transaction ──────────────────────────────────────────────────────
@@ -982,6 +996,34 @@ impl MultisigConfig {
         true
     }
 
+    /// Is this cosigner already in a filled slot?
+    ///
+    /// E1-fw, creation side. The QR flow fills the next empty slot with no
+    /// comparison against what is already stored, so scanning the same kpub
+    /// twice builds a 2-of-2 with one key in both slots. That is not a hostile
+    /// descriptor, it is a slip during a key ceremony, and it produces a P2SH
+    /// address that looks entirely ordinary and needs one signature.
+    ///
+    /// Compares the pubkey and chain code, the two fields derivation actually
+    /// uses. Depth, parent fingerprint and child number are deliberately NOT
+    /// compared: `derive_child` ignores them, so two kpubs differing only there
+    /// derive to identical children and must still be caught. That is the same
+    /// gap K1 describes on the KasSee side, where the 45' dedup compares whole
+    /// kpub strings and misses exactly this pair.
+    ///
+    /// Only filled slots count, so an empty slot never matches an empty probe.
+    pub fn has_cosigner(&self, pubkey: &[u8; 33], chain_code: &[u8; 32]) -> bool {
+        for i in 0..MAX_MULTISIG_KEYS {
+            if !self.slot_empty(i)
+                && self.cosigner_pubkeys[i] == *pubkey
+                && self.cosigner_chain_codes[i] == *chain_code
+            {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Is the cosigner slot `i` empty (no pubkey collected yet)?
     /// Used during creation to find the next empty slot.
     pub fn slot_empty(&self, i: usize) -> bool {
@@ -1055,6 +1097,43 @@ impl MultisigConfig {
                 Err(_) => return 0,
             };
             child_xonly[i] = addr_xpub.x_only();
+        }
+
+        // ── Step 1b: reject a keyset with a repeated cosigner ──
+        //
+        // E1-fw. The descriptor parsers in KasSee do not catch this: the 44'
+        // and legacy `multi(` branches never dedup, and the 45' branch dedups
+        // by comparing parent kpub STRINGS while `from_raw_payload` discards
+        // the parent fingerprint and child number, so two kpubs differing only
+        // in those eight bytes are distinct strings that derive to identical
+        // children (K1). Both paths converge here, on the DERIVED children,
+        // which is the only place the question can be settled: it is these
+        // bytes that go into the script.
+        //
+        // Why it matters, verified against `op_check_multisig_schnorr_or_ecdsa`
+        // in rusty-kaspa: the pubkey iterator advances monotonically and each
+        // check consumes a key, so a redeem script of [A, A, B] with M=2 is
+        // satisfied by one participant supplying sig_A twice. A purported
+        // two-party threshold that one party clears alone.
+        //
+        // This device is the trust root for a multisig wallet, because the
+        // security argument is that you compare the P2SH address on this
+        // screen against what the coordinator claims. Without this check the
+        // device reproduces and displays the address for a weakened keyset,
+        // so the step meant to catch a bad descriptor confirms it instead.
+        //
+        // Before the 44' sort deliberately, so it applies to both schemes: 45'
+        // skips that sort to preserve descriptor order. n is at most
+        // MAX_MULTISIG_KEYS, so the pairwise scan is ten comparisons at worst.
+        //
+        // Returns 0, the same failure this function already uses for an
+        // out-of-range m/n and for a derivation error.
+        for i in 0..self.n as usize {
+            for j in (i + 1)..self.n as usize {
+                if child_xonly[i] == child_xonly[j] {
+                    return 0;
+                }
+            }
         }
 
         // ── Step 2: 44' ONLY — lex-sort the x-only children so both devices

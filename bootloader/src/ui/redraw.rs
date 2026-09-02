@@ -425,11 +425,21 @@ pub fn redraw_screen(
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "MESSAGE");
                 }
                 crate::app::input::AppState::SignMsgFile => {
-                    boot_display.draw_stego_txt_pick(&ad.txt_display_names, &ad.txt_display_lens, ad.txt_file_count, ad.txt_file_scroll);
+                    // Any extension, and the whole file is hashed, so neither the
+                    // old "SELECT TXT" header nor the 128-character hint is
+                    // true here any more.
+                    boot_display.draw_stego_txt_pick(&ad.txt_display_names, &ad.txt_display_lens,
+                        ad.txt_file_count, ad.txt_file_scroll, "SELECT FILE", "Whole file is signed");
                 }
                 crate::app::input::AppState::SignMsgPreview => {
-                    let msg = core::str::from_utf8(&ad.jpeg_desc_buf[..ad.jpeg_desc_len]).unwrap_or("");
-                    boot_display.draw_sign_msg_preview(msg);
+                    // Bytes, not a &str. The from_utf8(..).unwrap_or("") that
+                    // used to be here turned a file that was not valid UTF-8
+                    // into an empty string, so the screen went blank and said
+                    // nothing about why. The preview decides for itself now.
+                    boot_display.draw_sign_msg_preview(
+                        &ad.jpeg_desc_buf[..ad.jpeg_desc_len],
+                        ad.sign_msg_text_ext,
+                    );
                 }
                 crate::app::input::AppState::SignMsgScanQr => {
                     boot_display.draw_loading_screen("Point at hash QR...");
@@ -491,6 +501,24 @@ pub fn redraw_screen(
                     boot_display.draw_tx_page(&ad.demo_tx, page,
                         &ad.pubkey_cache, &ad.change_pubkey_cache,
                         &ad.ms_store.configs);
+                }
+                crate::app::input::AppState::ReviewCovenant => {
+                    // Collected here rather than stored: the bindings live on
+                    // the outputs and MAX_OUTPUTS is 8, so this is 8 ids at
+                    // most and costs nothing to walk.
+                    let mut ids = [[0u8; 32]; 8];
+                    let mut auths = [0u16; 8];
+                    let mut oidx = [0u8; 8];
+                    let mut n = 0usize;
+                    for i in 0..ad.demo_tx.num_outputs {
+                        if n < 8 && ad.demo_tx.outputs[i].has_covenant {
+                            ids[n] = ad.demo_tx.outputs[i].covenant_id;
+                            auths[n] = ad.demo_tx.outputs[i].covenant_auth_input;
+                            oidx[n] = i as u8;
+                            n += 1;
+                        }
+                    }
+                    boot_display.draw_covenant_bindings(&ids, &auths, &oidx, n);
                 }
                 crate::app::input::AppState::ConfirmTx => {
                     // TOTAL across all outputs, not outputs[0].
@@ -832,7 +860,10 @@ pub fn redraw_screen(
                     boot_display.draw_stego_desc_choice(false);
                 }
                 crate::app::input::AppState::StegoJpegDescFile => {
-                    boot_display.draw_stego_txt_pick(&ad.txt_display_names, &ad.txt_display_lens, ad.txt_file_count, ad.txt_file_scroll);
+                    // Stego still reads (avail - start).min(128) in handlers/stego.rs,
+                    // so both strings remain correct for this screen.
+                    boot_display.draw_stego_txt_pick(&ad.txt_display_names, &ad.txt_display_lens,
+                        ad.txt_file_count, ad.txt_file_scroll, "SELECT TXT", "First 128 characters are signed");
                 }
                 crate::app::input::AppState::StegoJpegDesc => {
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "IMAGE DESCRIPTOR");
@@ -865,7 +896,9 @@ pub fn redraw_screen(
                     boot_display.draw_stego_desc_choice(true);
                 }
                 crate::app::input::AppState::StegoImportDescFile => {
-                    boot_display.draw_stego_txt_pick(&ad.txt_display_names, &ad.txt_display_lens, ad.txt_file_count, ad.txt_file_scroll);
+                    // Same as the description picker above: 128-byte reader, .TXT only.
+                    boot_display.draw_stego_txt_pick(&ad.txt_display_names, &ad.txt_display_lens,
+                        ad.txt_file_count, ad.txt_file_scroll, "SELECT TXT", "First 128 characters are signed");
                 }
                 crate::app::input::AppState::StegoImportPass => {
                     boot_display.draw_keyboard_screen_full(&ad.pp_input, "IMAGE DESCRIPTOR");

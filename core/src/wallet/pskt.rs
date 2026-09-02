@@ -132,6 +132,32 @@ const TRAILER_MS45_IN: u8 = 0x44;
 const TRAILER_MS45_OUT: u8 = 0x45;
 /// `index(u8) + cosigner(u32 LE) + chain(u32 LE) + addr_index(u32 LE)`.
 const MS45_HINT_BODY: usize = 1 + 4 + 4 + 4;
+
+/// Address depth searched for a 45' multisig input that arrives with NO
+/// derivation hint.
+///
+/// S10. The hint carries `(cosigner, chain, index)`, the path of the address
+/// being spent below the 45' account key. Without it there is nothing to
+/// derive from, and the 44' address table cannot help: a 45' key lives at
+/// `m/45'/111111'/0'/{cos}/{chain}/{idx}`, a different subtree with an extra
+/// level, so it can never appear there. The device refused.
+///
+/// The search derives OUR OWN key at each candidate path and asks whether it
+/// appears anywhere in the redeem script's pubkey list. One derivation serves
+/// every cosigner position, so the cost is `families * 2 * depth` per seed and
+/// not `n` times that. `families` is bounded by `n` from the redeem script
+/// itself, which is why this needs nothing from `ms_store`.
+///
+/// COST, measured rather than modelled. Each index costs a derivation AND a
+/// `public_key_x_only()`, which the notes below call about the cost of a
+/// derivation, so roughly 80 ms per index and not 47. Vector MS44, 2-of-3, one
+/// seed: 29138 ms when the search ran on every input. A hintless 2-of-2 at
+/// depth 60 is `2*2*60` indices, near 19 s per loaded seed slot. The search
+/// stops at the first match, so that is a CEILING, not a typical cost.
+///
+/// Raise it only with a measurement: this runs inside the loop whose earlier
+/// per-position search produced the 45-second signing time recorded below.
+pub const SIGN_MATCH_DEPTH_45: u32 = 60;
 /// SIGNED KSPT carrying the same hint trailer.
 ///
 /// A separate byte from the unsigned `0x04` for two reasons. The camera routes
@@ -1530,167 +1556,248 @@ pub fn sign_transaction_multisig(
                             hint_cache_key = Some(key);
                         }
                     }
-                    let hint_key = &hint_cache;
-
-                    for pos in 0..ms.n as usize {
-                        // Already have a sig for this position? skip
-                        let already = (0..tx.inputs[i].sig_count as usize)
-                            .any(|s| tx.inputs[i].sigs[s].present && tx.inputs[i].sigs[s].pubkey_pos == pos as u8);
-                        if already { continue; }
-
-                        let target_pk = &ms.pubkeys[pos];
-
-                        for s in 0..num_seeds {
-                            if let Some(ref acct) = acct_keys[s] {
-                                // Fast path: account-level match.
-                                // Zero derivations.
-                                if seed_pos_match[s] == Some(pos as u8) {
-                                    let privkey = acct.private_key_bytes();
-                                    if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
-                                        let sc = tx.inputs[i].sig_count as usize;
-                                        if sc < MAX_SIGS_PER_INPUT {
-                                            tx.inputs[i].sigs[sc].signature = sig.bytes;
-                                            tx.inputs[i].sigs[sc].sighash_type = sighash_type.to_byte();
-                                            tx.inputs[i].sigs[sc].pubkey_pos = pos as u8;
-                                            tx.inputs[i].sigs[sc].present = true;
-                                            // Stash compressed pubkey for PSKT
-                                            // emission (ignored by KSPT).
-                                            if let Some(pk_c) = acct_compressed_cache[s] {
-                                                tx.inputs[i].sigs[sc].pubkey_compressed = pk_c;
-                                            }
-                                            tx.inputs[i].sig_count += 1;
-                                            total_new_sigs += 1;
-                                        }
-                                        break;
-                                    }
-                                }
-
-                                // Address-level fallback using the cached
-                                // pubkey table. Built ONCE per seed on
-                                // first use — subsequent lookups are O(40)
-                                // array scans with zero derivations.
-                                //
-                                // This is the "multisig built from
-                                // per-address pubkeys" path. It used to
-                                // run find_address_index_for_pubkey per
-                                // (input, position, seed) which did up
-                                // to 200 derivations each — that's the
-                                // 45 s signing time we saw. The table
-                                // caps derivations at 40 per seed for
-                                // the entire tx regardless of input count.
-                                // 45' hint path, tried BEFORE the address table.
-                                //
-                                // The hint carries the derivation path of the
-                                // ADDRESS BEING SPENT, so every cosigner of this
-                                // input derives at the same
-                                // /cosigner/chain/index and this device's own
-                                // cosigner index is irrelevant here.
-                                //
-                                // UNTRUSTED INPUT. It arrives in the same PSKB an
-                                // attacker could craft, so it says where to LOOK
-                                // and never what to trust: the derived pubkey is
-                                // compared against `target_pk`, which came out of
-                                // this input's redeem script, which is what the
-                                // P2SH address hashes to and what the user
-                                // approved on the review screen. A crafted hint
-                                // can only make us derive a key that then fails
-                                // to match, costing three derivations.
-                                //
-                                // Three derivations, not a table build, and only
-                                // when a hint is present.
-                                if seed_pos_match[s].is_none() && tx.inputs[i].ms45_hint.present {
-                                    if let Some((addr_key, pk)) = hint_key[s].as_ref() {
-                                        {
-                                            {
-                                                if *pk == *target_pk {
-                                                    let privkey = addr_key.private_key_bytes();
-                                                    if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
-                                                        let sc = tx.inputs[i].sig_count as usize;
-                                                        if sc < MAX_SIGS_PER_INPUT {
-                                                            tx.inputs[i].sigs[sc].signature = sig.bytes;
-                                                            tx.inputs[i].sigs[sc].sighash_type = sighash_type.to_byte();
-                                                            tx.inputs[i].sigs[sc].pubkey_pos = pos as u8;
-                                                            tx.inputs[i].sigs[sc].present = true;
-                                                            if let Ok(pk_c) = addr_key.public_key_compressed() {
-                                                                tx.inputs[i].sigs[sc].pubkey_compressed = pk_c;
-                                                            }
-                                                            tx.inputs[i].sig_count += 1;
-                                                            total_new_sigs += 1;
-                                                        }
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Skip the 44' address table when a 45' hint
-                                // was present and did not match.
-                                //
-                                // The table scans m/44'/111111'/0'/{0,1}/0..N.
-                                // A 45' key lives at
-                                // m/45'/111111'/0'/{cos}/{chain}/{idx} - a
-                                // different subtree with an extra level - so it
-                                // CANNOT appear in that table. Building it is 40
-                                // derivations spent proving something already
-                                // known.
-                                //
-                                // Measured before this guard, vector M1 (2-of-2,
-                                // one input, hint present): `multisig sign` was
-                                // 2476 ms. The hint itself is three derivations.
-                                // The cost was the table being built for the
-                                // cosigner position that is NOT ours, where the
-                                // hint correctly fails to match and the old code
-                                // fell straight through to the scan.
-                                //
-                                // Only skipped when a hint was actually present.
-                                // A 44' multisig input carries no hint and still
-                                // needs the table, which is how legacy wallets
-                                // keep signing.
-                                let hint_tried = tx.inputs[i].ms45_hint.present;
-                                if seed_pos_match[s].is_none() && !hint_tried {
-                                    // Lazy build
-                                    if addr_tables[s].is_none() {
-                                        addr_tables[s] =
-                                            Some(bip32::AddrPubkeyTable::build(acct));
-                                    }
-                                    let tbl = match addr_tables[s].as_ref() {
-                                        Some(t) => t,
-                                        // Built immediately above by the
-                                        // is_none() branch, so this is
-                                        // unreachable today. Matched rather
-                                        // than unwrapped because the invariant
-                                        // is non-local: it holds only as long
-                                        // as that branch stays directly above
-                                        // this line, and a panic here is on
-                                        // the signing path.
-                                        None => continue,
-                                    };
-                                    if let Some((idx, is_chg)) = tbl.find_by_pubkey(target_pk) {
-                                        let key_result = if is_chg {
-                                            bip32::derive_change_key(acct, idx)
-                                        } else {
-                                            bip32::derive_address_key(acct, idx)
+                    // Two attempts at most, not two copies of the loop.
+                    //
+                    // Attempt 0 uses whatever the hint produced, which for a 44' input is
+                    // nothing, so it reaches the 44' address table exactly as before. Only if
+                    // this input gained no signature does attempt 1 run the hintless 45'
+                    // search and repeat.
+                    //
+                    // `hint_key` is re-borrowed each attempt because the search mutates
+                    // `hint_cache` between them.
+                    let sigs_before = tx.inputs[i].sig_count;
+                    for attempt in 0..2 {
+                        if attempt == 1 {
+                            if tx.inputs[i].sig_count != sigs_before {
+                                break;
+                            }
+                            // S10: no hint. Search for our own key instead of refusing.
+                            //
+                            // Runs on the SECOND attempt only, so a 44' input never pays for it.
+                            // A 44' multisig is hintless by design, and the two subtrees diverge at
+                            // the first hardened level, so a 45' derivation can never produce a 44'
+                            // key: the search was pure waste there. Measured on MS44, 2-of-3, one
+                            // seed, with the search running first: 29138 ms.
+                            //
+                            // Fills the SAME cache the hint path fills, so the loop below is
+                            // unchanged and a found key is indistinguishable from a hinted one.
+                            // One derivation covers all `n` positions, and `families` is bounded by
+                            // `n` from the redeem script, so nothing is needed from a descriptor.
+                            //
+                            // The only case this ordering makes slower is a transaction that matches
+                            // nothing: it now builds the table, fails, then searches and fails again.
+                            if !tx.inputs[i].ms45_hint.present && ms45_keys.iter().any(|k| k.is_some()) {
+                                let ck = (u32::MAX, u32::MAX, i as u32);
+                                if hint_cache_key != Some(ck) {
+                                    hint_cache = [None, None, None, None, None, None, None, None];
+                                    'seed: for s in 0..num_seeds {
+                                        let mk = match ms45_keys[s].as_ref() {
+                                            Some(k) => k,
+                                            None => continue,
                                         };
-                                        if let Ok(addr_key) = key_result {
-                                            let privkey = addr_key.private_key_bytes();
-                                            if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
-                                                let sc = tx.inputs[i].sig_count as usize;
-                                                if sc < MAX_SIGS_PER_INPUT {
-                                                    tx.inputs[i].sigs[sc].signature = sig.bytes;
-                                                    tx.inputs[i].sigs[sc].sighash_type = sighash_type.to_byte();
-                                                    tx.inputs[i].sigs[sc].pubkey_pos = pos as u8;
-                                                    tx.inputs[i].sigs[sc].present = true;
-                                                    // Stash compressed pubkey for PSKT
-                                                    // emission (ignored by KSPT).
-                                                    if let Ok(pk_c) = addr_key.public_key_compressed() {
-                                                        tx.inputs[i].sigs[sc].pubkey_compressed = pk_c;
+                                        for fam in 0..ms.n as u32 {
+                                            let famk = match bip32::derive_child(mk, fam) {
+                                                Ok(k) => k,
+                                                Err(_) => continue,
+                                            };
+                                            for chain in 0..2u32 {
+                                                let chk = match bip32::derive_child(&famk, chain) {
+                                                    Ok(k) => k,
+                                                    Err(_) => continue,
+                                                };
+                                                for idx in 0..SIGN_MATCH_DEPTH_45 {
+                                                    let k = match bip32::derive_child(&chk, idx) {
+                                                        Ok(k) => k,
+                                                        Err(_) => continue,
+                                                    };
+                                                    let pk = match k.public_key_x_only() {
+                                                        Ok(p) => p,
+                                                        Err(_) => continue,
+                                                    };
+                                                    if (0..ms.n as usize).any(|p| ms.pubkeys[p] == pk) {
+                                                        hint_cache[s] = Some((k, pk));
+                                                        continue 'seed;
                                                     }
-                                                    tx.inputs[i].sig_count += 1;
-                                                    total_new_sigs += 1;
                                                 }
-                                                break;
+                                            }
+                                        }
+                                    }
+                                    hint_cache_key = Some(ck);
+                                }
+                            }
+                                }
+                        let hint_key = &hint_cache;
+                        for pos in 0..ms.n as usize {
+                            // Already have a sig for this position? skip
+                            let already = (0..tx.inputs[i].sig_count as usize)
+                                .any(|s| tx.inputs[i].sigs[s].present && tx.inputs[i].sigs[s].pubkey_pos == pos as u8);
+                            if already { continue; }
+    
+                            let target_pk = &ms.pubkeys[pos];
+    
+                            for s in 0..num_seeds {
+                                if let Some(ref acct) = acct_keys[s] {
+                                    // Fast path: account-level match.
+                                    // Zero derivations.
+                                    if seed_pos_match[s] == Some(pos as u8) {
+                                        let privkey = acct.private_key_bytes();
+                                        if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
+                                            let sc = tx.inputs[i].sig_count as usize;
+                                            if sc < MAX_SIGS_PER_INPUT {
+                                                tx.inputs[i].sigs[sc].signature = sig.bytes;
+                                                tx.inputs[i].sigs[sc].sighash_type = sighash_type.to_byte();
+                                                tx.inputs[i].sigs[sc].pubkey_pos = pos as u8;
+                                                tx.inputs[i].sigs[sc].present = true;
+                                                // Stash compressed pubkey for PSKT
+                                                // emission (ignored by KSPT).
+                                                if let Some(pk_c) = acct_compressed_cache[s] {
+                                                    tx.inputs[i].sigs[sc].pubkey_compressed = pk_c;
+                                                }
+                                                tx.inputs[i].sig_count += 1;
+                                                total_new_sigs += 1;
+                                            }
+                                            break;
+                                        }
+                                    }
+    
+                                    // Address-level fallback using the cached
+                                    // pubkey table. Built ONCE per seed on
+                                    // first use — subsequent lookups are O(40)
+                                    // array scans with zero derivations.
+                                    //
+                                    // This is the "multisig built from
+                                    // per-address pubkeys" path. It used to
+                                    // run find_address_index_for_pubkey per
+                                    // (input, position, seed) which did up
+                                    // to 200 derivations each — that's the
+                                    // 45 s signing time we saw. The table
+                                    // caps derivations at 40 per seed for
+                                    // the entire tx regardless of input count.
+                                    // 45' hint path, tried BEFORE the address table.
+                                    //
+                                    // The hint carries the derivation path of the
+                                    // ADDRESS BEING SPENT, so every cosigner of this
+                                    // input derives at the same
+                                    // /cosigner/chain/index and this device's own
+                                    // cosigner index is irrelevant here.
+                                    //
+                                    // UNTRUSTED INPUT. It arrives in the same PSKB an
+                                    // attacker could craft, so it says where to LOOK
+                                    // and never what to trust: the derived pubkey is
+                                    // compared against `target_pk`, which came out of
+                                    // this input's redeem script, which is what the
+                                    // P2SH address hashes to and what the user
+                                    // approved on the review screen. A crafted hint
+                                    // can only make us derive a key that then fails
+                                    // to match, costing three derivations.
+                                    //
+                                    // Three derivations, not a table build.
+                                    //
+                                    // Gated on the CACHE, not on hint presence.
+                                    // S10 fills the same cache from a search when
+                                    // no hint arrived, and testing
+                                    // `ms45_hint.present` here meant a searched key
+                                    // was found, stored, and then never read.
+                                    if seed_pos_match[s].is_none() && hint_key[s].is_some() {
+                                        if let Some((addr_key, pk)) = hint_key[s].as_ref() {
+                                            {
+                                                {
+                                                    if *pk == *target_pk {
+                                                        let privkey = addr_key.private_key_bytes();
+                                                        if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
+                                                            let sc = tx.inputs[i].sig_count as usize;
+                                                            if sc < MAX_SIGS_PER_INPUT {
+                                                                tx.inputs[i].sigs[sc].signature = sig.bytes;
+                                                                tx.inputs[i].sigs[sc].sighash_type = sighash_type.to_byte();
+                                                                tx.inputs[i].sigs[sc].pubkey_pos = pos as u8;
+                                                                tx.inputs[i].sigs[sc].present = true;
+                                                                if let Ok(pk_c) = addr_key.public_key_compressed() {
+                                                                    tx.inputs[i].sigs[sc].pubkey_compressed = pk_c;
+                                                                }
+                                                                tx.inputs[i].sig_count += 1;
+                                                                total_new_sigs += 1;
+                                                            }
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+    
+                                    // Skip the 44' address table when a 45' hint
+                                    // was present and did not match.
+                                    //
+                                    // The table scans m/44'/111111'/0'/{0,1}/0..N.
+                                    // A 45' key lives at
+                                    // m/45'/111111'/0'/{cos}/{chain}/{idx} - a
+                                    // different subtree with an extra level - so it
+                                    // CANNOT appear in that table. Building it is 40
+                                    // derivations spent proving something already
+                                    // known.
+                                    //
+                                    // Measured before this guard, vector M1 (2-of-2,
+                                    // one input, hint present): `multisig sign` was
+                                    // 2476 ms. The hint itself is three derivations.
+                                    // The cost was the table being built for the
+                                    // cosigner position that is NOT ours, where the
+                                    // hint correctly fails to match and the old code
+                                    // fell straight through to the scan.
+                                    //
+                                    // Only skipped when a hint was actually present.
+                                    // A 44' multisig input carries no hint and still
+                                    // needs the table, which is how legacy wallets
+                                    // keep signing.
+                                    // "Was a 45' key already attempted for this
+                                    // input?", not "was there a hint". A searched
+                                    // key that failed leaves the same conclusion as
+                                    // a hinted one that failed: the 44' table
+                                    // cannot contain a 45' key.
+                                    let hint_tried = tx.inputs[i].ms45_hint.present
+                                        || hint_key[s].is_some();
+                                    if seed_pos_match[s].is_none() && !hint_tried {
+                                        // Lazy build
+                                        if addr_tables[s].is_none() {
+                                            addr_tables[s] =
+                                                Some(bip32::AddrPubkeyTable::build(acct));
+                                        }
+                                        let tbl = match addr_tables[s].as_ref() {
+                                            Some(t) => t,
+                                            // Built immediately above by the
+                                            // is_none() branch, so this is
+                                            // unreachable today. Matched rather
+                                            // than unwrapped because the invariant
+                                            // is non-local: it holds only as long
+                                            // as that branch stays directly above
+                                            // this line, and a panic here is on
+                                            // the signing path.
+                                            None => continue,
+                                        };
+                                        if let Some((idx, is_chg)) = tbl.find_by_pubkey(target_pk) {
+                                            let key_result = if is_chg {
+                                                bip32::derive_change_key(acct, idx)
+                                            } else {
+                                                bip32::derive_address_key(acct, idx)
+                                            };
+                                            if let Ok(addr_key) = key_result {
+                                                let privkey = addr_key.private_key_bytes();
+                                                if let Ok(sig) = sighash::sign_input(tx, i, privkey, sighash_type) {
+                                                    let sc = tx.inputs[i].sig_count as usize;
+                                                    if sc < MAX_SIGS_PER_INPUT {
+                                                        tx.inputs[i].sigs[sc].signature = sig.bytes;
+                                                        tx.inputs[i].sigs[sc].sighash_type = sighash_type.to_byte();
+                                                        tx.inputs[i].sigs[sc].pubkey_pos = pos as u8;
+                                                        tx.inputs[i].sigs[sc].present = true;
+                                                        // Stash compressed pubkey for PSKT
+                                                        // emission (ignored by KSPT).
+                                                        if let Ok(pk_c) = addr_key.public_key_compressed() {
+                                                            tx.inputs[i].sigs[sc].pubkey_compressed = pk_c;
+                                                        }
+                                                        tx.inputs[i].sig_count += 1;
+                                                        total_new_sigs += 1;
+                                                    }
+                                                    break;
+                                                }
                                             }
                                         }
                                     }

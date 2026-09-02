@@ -28,11 +28,33 @@ use crate::wallet::transaction::Transaction;
 const RK_FIXTURE: &[u8] = b"PSKB5b7b22676c6f62616c223a7b2276657273696f6e223a302c22747856657273696f6e223a302c2266616c6c6261636b4c6f636b54696d65223a6e756c6c2c22696e707574734d6f6469666961626c65223a66616c73652c226f7574707574734d6f6469666961626c65223a66616c73652c22696e707574436f756e74223a302c226f7574707574436f756e74223a302c227870756273223a7b7d2c226964223a6e756c6c2c2270726f70726965746172696573223a7b7d2c227061796c6f6164223a22227d2c22696e70757473223a5b7b227574786f456e747279223a7b22616d6f756e74223a3436383932383838372c227363726970745075626c69634b6579223a22303030303230326438613134313465363265303831666236626366363434653634386331383036316332383535353735636163373232663836333234636164393164643066616163222c22626c6f636b44616153636f7265223a38343938313138362c226973436f696e62617365223a66616c73657d2c2270726576696f75734f7574706f696e74223a7b227472616e73616374696f6e4964223a2236393135356430653333383065383831366466666532363731323934616431303466306233373736663335626365316132326630633231623166393038353030222c22696e646578223a307d2c2273657175656e6365223a6e756c6c2c226d696e54696d65223a6e756c6c2c227061727469616c53696773223a7b7d2c227369676861736854797065223a312c2272656465656d536372697074223a6e756c6c2c227369674f70436f756e74223a312c22626970333244657269766174696f6e73223a7b7d2c2266696e616c536372697074536967223a6e756c6c2c2270726f70726965746172696573223a7b7d7d5d2c226f757470757473223a5b7b22616d6f756e74223a313530303030303030302c227363726970745075626c69634b6579223a2230303030222c2272656465656d536372697074223a6e756c6c2c22626970333244657269766174696f6e73223a7b7d2c2270726f70726965746172696573223a7b7d7d5d7d5d";
 
 fn parse(wire: &[u8]) -> Result<(alloc::boxed::Box<Transaction>, PsktParsed), std_pskt::PskError> {
+    let (tx, parsed, _) = parse_keep_scratch(wire)?;
+    Ok((tx, parsed))
+}
+
+/// Parse, and hand back the scratch buffer the JSON was decoded into.
+///
+/// `PsktParsed.unknowns` are byte offsets INTO THAT BUFFER, and
+/// `find_captured_value` reads the captured bytes out of it at emit time. The
+/// firmware passes one buffer to both halves (`signed_qr_buf`, see
+/// `app/signing.rs`), so a test that gives the serializer a fresh zeroed vec is
+/// not exercising the capture path at all: every lookup misses and every
+/// emitter falls back to its default.
+///
+/// That is not hypothetical. The first cut of
+/// `a_captured_region_is_emitted_in_its_own_object` did exactly that, and its
+/// "the global object must not contain the input's map" assertion held because
+/// NOTHING was found, not because the scope tag worked. Any test here that
+/// asserts on captured content must use this.
+#[allow(clippy::type_complexity)]
+fn parse_keep_scratch(
+    wire: &[u8],
+) -> Result<(alloc::boxed::Box<Transaction>, PsktParsed, Vec<u8>), std_pskt::PskError> {
     let mut tx = Transaction::new_boxed().expect("alloc");
     let mut scratch = alloc::vec![0u8; 8192];
     let mut parsed = PsktParsed::empty();
     std_pskt::parse_pskt(wire, &mut scratch, &mut tx, &mut parsed)?;
-    Ok((tx, parsed))
+    Ok((tx, parsed, scratch))
 }
 
 /// Rebuild a bundle from parts so a single field can be varied.
@@ -60,6 +82,31 @@ fn wire_with(sequence: &str, min_time: &str, in_count: u32, out_count: u32) -> V
         wire.extend_from_slice(alloc::format!("{b:02x}").as_bytes());
     }
     wire
+}
+
+/// Does the captured region at `(a, b)` begin with `"name":`?
+///
+/// The ranges index the decoded JSON, which is the hex body of `wire` after
+/// the four-byte magic, so the offsets are halved into the wire.
+fn scratch_has_key(wire: &[u8], a: u16, b: u16, name: &[u8]) -> bool {
+    let (a, b) = (a as usize, b as usize);
+    if b <= a || name.len() + 3 > b - a {
+        return false;
+    }
+    let mut bytes = Vec::new();
+    for i in a..b {
+        let off = 4 + i * 2;
+        if off + 1 >= wire.len() {
+            return false;
+        }
+        let hi = (wire[off] as char).to_digit(16).unwrap_or(16) as u8;
+        let lo = (wire[off + 1] as char).to_digit(16).unwrap_or(16) as u8;
+        if hi > 15 || lo > 15 {
+            return false;
+        }
+        bytes.push((hi << 4) | lo);
+    }
+    bytes.starts_with(b"\"") && bytes[1..].starts_with(name)
 }
 
 #[test]
@@ -130,10 +177,10 @@ fn counts_zero_is_unset_but_wrong_counts_still_refused() {
 #[test]
 fn reparse_of_our_own_output_agrees() {
     let (tx, parsed) = parse(RK_FIXTURE).unwrap();
-    let mut scratch = alloc::vec![0u8; 8192];
+    let scratch = alloc::vec![0u8; 8192];
     let mut out = alloc::vec![0u8; 16384];
     let n = std_pskt::serialize_pskt(
-        &tx, &parsed, &mut scratch, crate::types::TxInputFormat::PsktPskb, &mut out,
+        &tx, &parsed, &scratch, crate::types::TxInputFormat::PsktPskb, &mut out,
     ).expect("serialize");
     let (tx2, _) = parse(&out[..n]).expect("our own output must parse");
     assert_eq!(tx2.num_inputs, tx.num_inputs);
@@ -159,10 +206,10 @@ fn reparse_preserves_a_non_zero_lock_time() {
         let (tx, parsed) = parse(&wire).expect("timelocked bundle must parse");
         assert_eq!(tx.locktime, t, "minTime {t} must reach tx.locktime");
 
-        let mut scratch = alloc::vec![0u8; 8192];
+        let scratch = alloc::vec![0u8; 8192];
         let mut out = alloc::vec![0u8; 16384];
         let n = std_pskt::serialize_pskt(
-            &tx, &parsed, &mut scratch, crate::types::TxInputFormat::PsktPskb, &mut out,
+            &tx, &parsed, &scratch, crate::types::TxInputFormat::PsktPskb, &mut out,
         ).expect("serialize");
         let (tx2, _) = parse(&out[..n]).expect("our own timelocked output must parse");
         assert_eq!(tx2.locktime, t, "lock time {t} must survive the roundtrip");
@@ -173,4 +220,248 @@ fn reparse_preserves_a_non_zero_lock_time() {
         // roundtrip as 0 and never be promoted to MAX.
         assert_eq!(tx2.inputs[0].sequence, 0);
     }
+}
+
+/// A captured region must be emitted in the object it came from.
+///
+/// [S4]. The capture table is flat and `find_captured_value` matched on the
+/// KEY NAME alone, taking the first hit. `proprietaries` is the only name that
+/// occurs at all three levels, so an INPUT's map was handed to the GLOBAL
+/// emitter whenever the global one was empty and therefore never captured.
+/// The parser stored it correctly; the serializer put it in the wrong object.
+///
+/// Content relocation rather than loss, and the sighash never covers PSKT
+/// metadata, so nothing signed was ever wrong. What it corrupts is the bundle
+/// handed to the next signer.
+///
+/// This is written to fail on the flat lookup: the global map is empty and the
+/// input's is not, which is precisely the shape that mis-resolved.
+#[test]
+fn a_captured_region_is_emitted_in_its_own_object() {
+    // Input-level proprietaries non-empty, global-level empty.
+    let json = concat!(
+        r#"[{"global":{"version":0,"txVersion":0,"fallbackLockTime":null,"#,
+        r#""inputsModifiable":false,"outputsModifiable":false,"#,
+        r#""inputCount":1,"outputCount":1,"xpubs":{},"id":null,"#,
+        r#""proprietaries":{},"payload":""},"inputs":[{"#,
+        r#""utxoEntry":{"amount":468928887,"scriptPublicKey":"#,
+        r#""0000202d8a1414e62e081fb6bcf644e648c18061c2855575cac722f86324cad91dd0faac","#,
+        r#""blockDaaScore":84981186,"isCoinbase":false},"previousOutpoint":{"#,
+        r#""transactionId":"69155d0e3380e8816dffe2671294ad104f0b3776f35bce1a22f0c21b1f908500","#,
+        r#""index":0},"sequence":0,"minTime":null,"partialSigs":{},"sighashType":1,"#,
+        r#""redeemScript":null,"sigOpCount":1,"bip32Derivations":{},"finalScriptSig":null,"#,
+        r#""proprietaries":{"aa":"bb"}}],"outputs":[{"amount":1500000000,"#,
+        r#""scriptPublicKey":"0000202d8a1414e62e081fb6bcf644e648c18061c2855575cac722f86324cad91dd0faac","#,
+        r#""redeemScript":null,"bip32Derivations":{},"proprietaries":{}}]}]"#,
+    );
+    let mut wire = Vec::from(&b"PSKB"[..]);
+    for b in json.as_bytes() {
+        wire.extend_from_slice(alloc::format!("{b:02x}").as_bytes());
+    }
+
+    let (tx, parsed, scratch) = parse_keep_scratch(&wire).expect("bundle must parse");
+
+    // Assert on the SCOPES, not on the count. The bundle also carries
+    // `"payload":""` in the global object, which is not in the global parser's
+    // known-field list and so is captured by its `_ =>` arm. That is correct
+    // and is the reason this table exists; pinning the total here would be
+    // testing the capture budget instead of the fix.
+    let input_caps = (0..parsed.unknowns_count as usize)
+        .filter(|&i| parsed.unknown_scopes[i] == crate::types::SCOPE_INPUT_BASE)
+        .count();
+    assert_eq!(input_caps, 1, "input 0's proprietaries must be captured, tagged to input 0");
+    // The empty global proprietaries is not captured at all, which is what
+    // made the flat lookup reach past it into the input's.
+    let global_prop = (0..parsed.unknowns_count as usize).any(|i| {
+        let (a, b) = parsed.unknowns[i];
+        parsed.unknown_scopes[i] == crate::types::SCOPE_GLOBAL
+            && scratch_has_key(&wire, a, b, b"proprietaries")
+    });
+    assert!(!global_prop, "an empty global proprietaries must not be captured");
+
+    let mut out = alloc::vec![0u8; 16384];
+    let n = std_pskt::serialize_pskt(
+        &tx, &parsed, &scratch, crate::types::TxInputFormat::PsktPskb, &mut out,
+    ).expect("serialize");
+
+    // The emitted global object must carry an EMPTY proprietaries. Before the
+    // scope tag it carried `{"aa":"bb"}`, lifted out of the input.
+    let emitted = &out[4..n]; // past the PSKB magic
+    let mut json_out = Vec::new();
+    for pair in emitted.chunks_exact(2) {
+        let hi = (pair[0] as char).to_digit(16).expect("lowercase hex") as u8;
+        let lo = (pair[1] as char).to_digit(16).expect("lowercase hex") as u8;
+        json_out.push((hi << 4) | lo);
+    }
+    let text = std::str::from_utf8(&json_out).expect("utf8");
+    let global_end = text.find(r#","inputs":"#).expect("global object ends before inputs");
+    let global = &text[..global_end];
+    assert!(
+        global.contains(r#""proprietaries":{}"#),
+        "global proprietaries must be empty, got: {global}"
+    );
+    assert!(
+        !global.contains("aa"),
+        "the input's proprietaries leaked into the global object: {global}"
+    );
+}
+
+/// A non-empty `proprietaries` must survive the round trip, in its own object.
+///
+/// [S3]. Both emitters wrote a hardcoded `{}`, so a map that the parser had
+/// captured correctly was dropped on the way out: the first signer stripped it
+/// and the next signer never saw it. Same defect as N-20 was for
+/// `bip32Derivations`, and the same fix.
+///
+/// Input AND output are populated here, and differently, which is the case
+/// that discriminates. With one map present a scoped lookup and a flat one can
+/// agree by luck; with two, a flat lookup hands the same first hit to both
+/// emitters and the output gets the input's map.
+#[test]
+fn proprietaries_survive_the_round_trip_in_their_own_object() {
+    let json = concat!(
+        r#"[{"global":{"version":0,"txVersion":0,"fallbackLockTime":null,"#,
+        r#""inputsModifiable":false,"outputsModifiable":false,"#,
+        r#""inputCount":1,"outputCount":1,"xpubs":{},"id":null,"#,
+        r#""proprietaries":{},"payload":""},"inputs":[{"#,
+        r#""utxoEntry":{"amount":468928887,"scriptPublicKey":"#,
+        r#""0000202d8a1414e62e081fb6bcf644e648c18061c2855575cac722f86324cad91dd0faac","#,
+        r#""blockDaaScore":84981186,"isCoinbase":false},"previousOutpoint":{"#,
+        r#""transactionId":"69155d0e3380e8816dffe2671294ad104f0b3776f35bce1a22f0c21b1f908500","#,
+        r#""index":0},"sequence":0,"minTime":null,"partialSigs":{},"sighashType":1,"#,
+        r#""redeemScript":null,"sigOpCount":1,"bip32Derivations":{},"finalScriptSig":null,"#,
+        r#""proprietaries":{"in":"AAA"}}],"outputs":[{"amount":1500000000,"#,
+        r#""scriptPublicKey":"0000202d8a1414e62e081fb6bcf644e648c18061c2855575cac722f86324cad91dd0faac","#,
+        r#""redeemScript":null,"bip32Derivations":{},"proprietaries":{"out":"BBB"}}]}]"#,
+    );
+    let mut wire = Vec::from(&b"PSKB"[..]);
+    for b in json.as_bytes() {
+        wire.extend_from_slice(alloc::format!("{b:02x}").as_bytes());
+    }
+
+    let (tx, parsed, scratch) = parse_keep_scratch(&wire).expect("bundle must parse");
+    let mut out = alloc::vec![0u8; 16384];
+    let n = std_pskt::serialize_pskt(
+        &tx, &parsed, &scratch, crate::types::TxInputFormat::PsktPskb, &mut out,
+    ).expect("serialize");
+
+    let mut json_out = Vec::new();
+    for pair in out[4..n].chunks_exact(2) {
+        let hi = (pair[0] as char).to_digit(16).expect("lowercase hex") as u8;
+        let lo = (pair[1] as char).to_digit(16).expect("lowercase hex") as u8;
+        json_out.push((hi << 4) | lo);
+    }
+    let text = std::str::from_utf8(&json_out).expect("utf8");
+
+    // Split the three objects so each assertion is about one of them and a map
+    // landing in the wrong place cannot pass.
+    let in_at = text.find(r#","inputs":"#).expect("inputs");
+    let out_at = text.find(r#","outputs":"#).expect("outputs");
+    let (global, inputs, outputs) = (&text[..in_at], &text[in_at..out_at], &text[out_at..]);
+
+    assert!(inputs.contains(r#""proprietaries":{"in":"AAA"}"#),
+        "the input's map was dropped or altered: {inputs}");
+    assert!(outputs.contains(r#""proprietaries":{"out":"BBB"}"#),
+        "the output's map was dropped or altered: {outputs}");
+    // Neither may appear anywhere else.
+    assert!(global.contains(r#""proprietaries":{}"#) && !global.contains("AAA")
+        && !global.contains("BBB"), "global object is not clean: {global}");
+    assert!(!inputs.contains("BBB"), "the output's map leaked into the input");
+    assert!(!outputs.contains("AAA"), "the input's map leaked into the output");
+
+    // And the result must still be readable by us.
+    let (tx2, _) = parse(&out[..n]).expect("our own output must parse");
+    assert_eq!(tx2.num_inputs, tx.num_inputs);
+    assert_eq!(tx2.num_outputs, tx.num_outputs);
+    assert_eq!(tx2.inputs[0].utxo_entry.amount, tx.inputs[0].utxo_entry.amount);
+    assert_eq!(tx2.outputs[0].value, tx.outputs[0].value);
+}
+
+/// An output's `redeemScript` must survive the round trip.
+///
+/// [S5]. The output parser called `skip_value` and the emitter wrote a
+/// hardcoded `null`, so a redeem script on an output was parsed, discarded and
+/// replaced with nothing. The comment on the parser arm claimed the serializer
+/// "passes through the parsed hex"; it did not.
+///
+/// The INPUT side is deliberately populated too, and by a different route: an
+/// input's redeem script is a parsed VALUE (`inp.redeem_script_len` and
+/// `tx.redeem_bytes`), not a captured region. So this also proves the new
+/// capture path did not disturb the one that already worked.
+#[test]
+fn output_redeem_script_survives_the_round_trip() {
+    let json = concat!(
+        r#"[{"global":{"version":0,"txVersion":0,"fallbackLockTime":null,"#,
+        r#""inputsModifiable":false,"outputsModifiable":false,"#,
+        r#""inputCount":1,"outputCount":1,"xpubs":{},"id":null,"#,
+        r#""proprietaries":{},"payload":""},"inputs":[{"#,
+        r#""utxoEntry":{"amount":468928887,"scriptPublicKey":"#,
+        r#""0000202d8a1414e62e081fb6bcf644e648c18061c2855575cac722f86324cad91dd0faac","#,
+        r#""blockDaaScore":84981186,"isCoinbase":false},"previousOutpoint":{"#,
+        r#""transactionId":"69155d0e3380e8816dffe2671294ad104f0b3776f35bce1a22f0c21b1f908500","#,
+        r#""index":0},"sequence":0,"minTime":null,"partialSigs":{},"sighashType":1,"#,
+        r#""redeemScript":"51ae","sigOpCount":1,"bip32Derivations":{},"finalScriptSig":null,"#,
+        r#""proprietaries":{}}],"outputs":[{"amount":1500000000,"#,
+        r#""scriptPublicKey":"0000202d8a1414e62e081fb6bcf644e648c18061c2855575cac722f86324cad91dd0faac","#,
+        r#""redeemScript":"aabbccdd","bip32Derivations":{},"proprietaries":{}}]}]"#,
+    );
+    let mut wire = Vec::from(&b"PSKB"[..]);
+    for b in json.as_bytes() {
+        wire.extend_from_slice(alloc::format!("{b:02x}").as_bytes());
+    }
+
+    let (tx, parsed, scratch) = parse_keep_scratch(&wire).expect("bundle must parse");
+    let mut out = alloc::vec![0u8; 16384];
+    let n = std_pskt::serialize_pskt(
+        &tx, &parsed, &scratch, crate::types::TxInputFormat::PsktPskb, &mut out,
+    ).expect("serialize");
+
+    let mut json_out = Vec::new();
+    for pair in out[4..n].chunks_exact(2) {
+        let hi = (pair[0] as char).to_digit(16).expect("lowercase hex") as u8;
+        let lo = (pair[1] as char).to_digit(16).expect("lowercase hex") as u8;
+        json_out.push((hi << 4) | lo);
+    }
+    let text = std::str::from_utf8(&json_out).expect("utf8");
+
+    let in_at = text.find(r#","inputs":"#).expect("inputs");
+    let out_at = text.find(r#","outputs":"#).expect("outputs");
+    let (inputs, outputs) = (&text[in_at..out_at], &text[out_at..]);
+
+    assert!(outputs.contains(r#""redeemScript":"aabbccdd""#),
+        "the output's redeem script was dropped: {outputs}");
+    // The input's, by the other mechanism, must be untouched.
+    assert!(inputs.contains(r#""redeemScript":"51ae""#),
+        "the input's redeem script changed: {inputs}");
+    // Neither may appear in the other object.
+    assert!(!inputs.contains("aabbccdd"), "the output's redeem script leaked into the input");
+    assert!(!outputs.contains("51ae"), "the input's redeem script leaked into the output");
+
+    let (tx2, _) = parse(&out[..n]).expect("our own output must parse");
+    assert_eq!(tx2.num_outputs, tx.num_outputs);
+    assert_eq!(tx2.outputs[0].value, tx.outputs[0].value);
+}
+
+/// An output with no redeem script must still emit `null`.
+///
+/// The fallback half of [S5]. A lookup-based emitter that forgot its default
+/// would drop the field entirely and produce a bundle the reference
+/// implementation cannot read.
+#[test]
+fn output_without_a_redeem_script_still_emits_null() {
+    let (tx, parsed, scratch) = parse_keep_scratch(RK_FIXTURE).expect("fixture parses");
+    let mut out = alloc::vec![0u8; 16384];
+    let n = std_pskt::serialize_pskt(
+        &tx, &parsed, &scratch, crate::types::TxInputFormat::PsktPskb, &mut out,
+    ).expect("serialize");
+    let mut json_out = Vec::new();
+    for pair in out[4..n].chunks_exact(2) {
+        let hi = (pair[0] as char).to_digit(16).expect("lowercase hex") as u8;
+        let lo = (pair[1] as char).to_digit(16).expect("lowercase hex") as u8;
+        json_out.push((hi << 4) | lo);
+    }
+    let text = std::str::from_utf8(&json_out).expect("utf8");
+    let out_at = text.find(r#","outputs":"#).expect("outputs");
+    assert!(text[out_at..].contains(r#""redeemScript":null"#),
+        "an output without a redeem script must emit null: {}", &text[out_at..]);
 }

@@ -356,6 +356,19 @@ pub enum AppState {
     About,
     /// Reviewing a transaction (page by page)
     ReviewTx { page: u8 },
+    /// Covenant bindings, shown between the last review page and ConfirmTx.
+    ///
+    /// A mandatory step, not a tap-optional detail view, for the same reason
+    /// the review pages are mandatory: the comment on the paging transition
+    /// records that skipping pages "while SigHashAll still committed them" was
+    /// removed so the must-view-all-outputs property is enforced structurally.
+    /// Bindings are committed by the same sighash and were not covered by that
+    /// property. An optional screen is available and undelivered; most people
+    /// never tap.
+    ///
+    /// Only entered when the transaction actually carries a binding, so a plain
+    /// send costs nothing.
+    ReviewCovenant,
     /// Confirm page with OK/Cancel selection
     ConfirmTx,
     /// Sign TX guide — step-by-step instructions before scanning KSPT
@@ -615,6 +628,12 @@ pub struct WalletApp {
     pub review_pages: u8,
     /// Total inputs to sign
     pub total_inputs: u8,
+    /// Does this transaction carry any covenant binding on an output?
+    ///
+    /// Decided at `start_review`, because the paging transition below has no
+    /// access to the transaction. False for a plain send, which then goes
+    /// straight from the last review page to ConfirmTx as before.
+    pub has_covenant: bool,
 }
 
 impl WalletApp {
@@ -625,6 +644,7 @@ pub fn new() -> Self {
             menu: Menu::from_items(MAIN_MENU_ITEMS),
             review_pages: 0,
             total_inputs: 0,
+            has_covenant: false,
         }
     }
 
@@ -673,10 +693,28 @@ pub fn new() -> Self {
                         let next = page + 1;
                         if next < self.review_pages {
                             self.state = AppState::ReviewTx { page: next };
+                        } else if self.has_covenant {
+                            // One more mandatory screen before the menu is
+                            // built, so the bindings cannot be passed over.
+                            self.state = AppState::ReviewCovenant;
                         } else {
                             self.menu = Menu::from_items(CONFIRM_MENU_ITEMS);
                             self.state = AppState::ConfirmTx;
                         }
+                        Action::Redraw
+                    }
+                    _ => Action::None,
+                }
+            }
+
+            AppState::ReviewCovenant => {
+                // Any press advances. There is nothing to choose here: the
+                // screen exists to be read, and CONFIRM/CANCEL are one step
+                // further on, where they always were.
+                match event {
+                    ButtonEvent::ShortPress | ButtonEvent::LongPress => {
+                        self.menu = Menu::from_items(CONFIRM_MENU_ITEMS);
+                        self.state = AppState::ConfirmTx;
                         Action::Redraw
                     }
                     _ => Action::None,
@@ -792,11 +830,43 @@ pub fn new() -> Self {
         }
     }
     /// Start reviewing a transaction
-    pub fn start_review(&mut self, num_outputs: u8, num_inputs: u8) {
+    /// Enter transaction review. Returns false and changes NOTHING if the
+    /// transaction cannot be reviewed.
+    ///
+    /// E21. `outputs_displayable` must be true, meaning every output's
+    /// scriptPublicKey is a shape `draw_tx_page` can render as an address,
+    /// P2PK or P2SH. See `wallet::transaction::is_displayable_output_script`.
+    /// Anything else fell through to a `Script: ` line showing the first eight
+    /// bytes while SigHashAll committed up to 512, so the user approved a
+    /// destination they had not seen.
+    ///
+    /// The gate lives HERE, on the one door into the review flow, rather than
+    /// in the parsers. The parsers must keep accepting what rusty-kaspa emits:
+    /// its own reference bundle in `pskb_compat_tests` carries an output with
+    /// `"scriptPublicKey": "0000"`, a version and no script, which is a valid
+    /// PSKB template and would be refused by a parser-level rule. Parsing a
+    /// bundle and agreeing to sign it are different questions. This also leaves
+    /// the SD `.KSP` relay path alone, which only forwards a signed bundle as
+    /// QR and has no business being refused.
+    ///
+    /// The flag is a REQUIRED parameter, not an internal check, because this
+    /// module has no wallet imports and coupling the state machine to the
+    /// transaction type to compute it would be worse. A future signing entry
+    /// point cannot compile without supplying it, and if it supplies false the
+    /// state is left untouched, so a caller that ignores the return value fails
+    /// closed: review never starts rather than starting unguarded.
+    #[must_use]
+    pub fn start_review(&mut self, num_outputs: u8, num_inputs: u8,
+                        has_covenant: bool, outputs_displayable: bool) -> bool {
+        if !outputs_displayable {
+            return false;
+        }
         // review_pages = 1 summary + num_outputs (confirm is separate state)
         self.review_pages = 1 + num_outputs;
         self.total_inputs = num_inputs;
+        self.has_covenant = has_covenant;
         self.state = AppState::ReviewTx { page: 0 };
+        true
     }
 
     /// Advance signing progress
@@ -892,7 +962,7 @@ pub fn run_tests() -> (u32, u32) {
 
         // Go back to main menu, then test review flow
         app.go_main_menu();
-        app.start_review(2, 1);
+        assert!(app.start_review(2, 1, false, true));
         let ok1 = app.state == AppState::ReviewTx { page: 0 };
 
         // Navigate pages: summary(0) → out0(1) → out1(2)
@@ -1002,6 +1072,25 @@ impl AppState {
             // (8-byte salt + 33 secret). Capping here stops the user typing
             // characters that rejection would only discard.
             AppState::CommitRevealType    => 33,
+            // SD backup passwords. Write 64, read 128.
+            //
+            // These two screens only ever precede a write, so capping them
+            // stops a password longer than the import side can hold from ever
+            // being created. Their read counterparts, SdRestorePassphrase and
+            // SdXprvImportPassphrase, deliberately stay at 128 so a file
+            // already written with a longer password can still be opened.
+            //
+            // Same shape as H-09, and the reason for the asymmetry is the
+            // difference from it: there the cap changed which wallet a
+            // passphrase produced, so input and storage had to agree exactly.
+            // Here PBKDF2 accepts any length, and the only constraint is that
+            // the reader can hold whatever some writer already emitted.
+            //
+            // SdKsptEncryptPass is the third write path and is not here: one
+            // screen serves both directions, so its cap is resolved in main.rs
+            // from AppData::kspt_is_saving().
+            AppState::SdBackupPassphrase      => 64,
+            AppState::SdXprvExportPassphrase  => 64,
             _ => 128,
         }
     }
@@ -1063,7 +1152,7 @@ pub fn handler_group(&self) -> HandlerGroup {
             #[cfg(feature = "waveshare")]
             CameraSettings => HandlerGroup::Settings,
             // Transaction / multisig / camera / message signing
-            ScanQR | ReviewTx { .. } | ConfirmTx | SignTxGuide
+            ScanQR | ReviewTx { .. } | ReviewCovenant | ConfirmTx | SignTxGuide
             | MultisigChooseMN | MultisigPickSeed { .. }
             | MultisigAddKey { .. } | MultisigKpubWarn { .. }
             | MultisigShowAddress | MultisigShowAddressQR

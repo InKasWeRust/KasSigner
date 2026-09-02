@@ -4,8 +4,24 @@
 
 #![allow(dead_code)]
 #![allow(unused_imports)]
-#![allow(static_mut_refs)]
+// [S1] `#![allow(static_mut_refs)]` removed 2026-09-01. It had been silencing
+// 17 sites across four files, and the lint was right about all of them.
+//
+// The six in `hw/cam_dma.rs` were the ones that mattered: `as_ptr()` on a
+// `static mut` array forms a shared reference, which asserts the memory is not
+// mutated while it lives, and the GDMA engine writes those bounce buffers. The
+// rest were claims stronger than the code needed. Two whole groups turned out
+// to be dead state from removed filters and were deleted rather than fixed
+// ([K13]).
+//
+// Do not put this back to quieten a new site. Each one is either a false claim
+// about memory something else writes, or a `&mut` where a pointer would do.
+// The file-local `#[allow]` exists if a single site ever genuinely needs it.
 // Clippy Phase A+B cleanup — remaining allows are architectural or intentional
+#![allow(clippy::manual_range_contains)]        // explicit range checks in SD filename parsing
+#![allow(clippy::collapsible_else_if)]          // else { if } with trailing statements
+#![allow(clippy::needless_lifetimes)]           // explicit lifetimes for documentation
+#![allow(clippy::unnecessary_mut_passed)]       // mutable ref to DMA methods
 #![allow(clippy::needless_range_loop)]          // index-based loops intentional in no_std crypto/DMA
 #![allow(clippy::too_many_arguments)]           // handler functions need many params
 #![allow(clippy::identity_op)]                  // 0 | HARDENED_BIT for BIP32 path clarity
@@ -19,56 +35,44 @@
 #![allow(clippy::if_same_then_else)]            // platform-specific cfg blocks
 #![allow(clippy::manual_memcpy)]                // manual slice copy in unsafe DMA blocks
 #![allow(clippy::manual_saturating_arithmetic)] // explicit saturating in crypto
-#![allow(clippy::bool_comparison)]              // explicit == true/false in some contexts
+// [S2] 45 allows removed 2026-09-01, and the reason is that they never did
+// anything. There is no `#![warn(clippy::pedantic)]`, no nursery, and no
+// clippy.toml anywhere in the tree, and CI runs
+// `cargo clippy --all-targets -- -D warnings`. So every allow naming a lint
+// outside clippy's default groups suppressed a warning that could not fire.
+//
+// That is worse than harmless. `cast_possible_truncation` sat here with a
+// comment reading "ubiquitous u32->u8, usize->u8 in byte manipulation", which
+// reads as a considered decision about casts. Nobody had ever seen the
+// warnings: turning the lint on with `--force-warn` produced 120, of which 29
+// are in key-derivation or consensus code. Those 29 were audited on 2026-09-01
+// and every one is sound, but the audit happened because the allow was
+// questioned, not because it was there.
+//
+// The ones below are load-bearing: each suppresses a lint in a default group,
+// so deleting one turns CI red. Kept verbatim identical between this file and
+// its twin so the shared sources compile under the same lints in both crates.
+//
+// To revisit the removed set, add `#![warn(clippy::pedantic)]` rather than
+// re-adding allows: that makes the suppressions mean something.
+//
+// FOUR of the removals were WRONG and clippy said so on 2026-09-01:
+// `needless_lifetimes`, `unnecessary_mut_passed`, `manual_range_contains`
+// and `collapsible_else_if` are default-group lints, not pedantic, so
+// their allows were load-bearing. Restored below. The classification
+// behind this cleanup was recalled rather than measured, which is why it
+// was run against all four configurations before it was trusted.
+//
+// LIMIT OF THIS METHOD, worth knowing before trusting the survivors: a
+// clippy run only exposes an allow whose lint has a violation somewhere
+// in the code. An allow for a default-group lint that nothing currently
+// violates was removed silently here and will only surface the day
+// someone writes code that trips it.
 #![allow(clippy::manual_range_patterns)]        // manual range patterns for touch zones
 #![allow(clippy::implicit_saturating_sub)]      // manual arithmetic for saturating subtract
 #![allow(clippy::manual_pattern_char_comparison)] // explicit case comparison
-#![allow(clippy::manual_ignore_case_cmp)]       // manual ASCII comparison
-#![allow(clippy::unnecessary_mut_passed)]       // mutable ref to DMA methods
-#![allow(clippy::bool_to_int_with_if)]          // if x { 1 } else { 0 } patterns
-#![allow(clippy::collapsible_else_if)]          // else { if } with trailing statements
-#![allow(clippy::manual_range_contains)]        // explicit range checks in SD filename parsing
 #![allow(clippy::doc_lazy_continuation)]        // doc comment formatting
 // Clippy pedantic — suppressed (intentional in no_std embedded)
-#![allow(clippy::cast_possible_truncation)]     // ubiquitous u32→u8, usize→u8 in byte manipulation
-#![allow(clippy::cast_possible_wrap)]           // u32→i32 in display coordinates
-#![allow(clippy::cast_sign_loss)]               // i32→u32 in display/touch coordinates
-#![allow(clippy::cast_lossless)]                // u8 as u32 — explicit for clarity in packed structs
-#![allow(clippy::items_after_statements)]       // local structs/consts near point of use in handlers
-#![allow(clippy::doc_markdown)]                 // technical terms without backticks
-#![allow(clippy::wildcard_imports)]             // embedded-graphics prelude pattern
-#![allow(clippy::used_underscore_binding)]      // _var used intentionally then read
-#![allow(clippy::ptr_as_ptr)]                   // raw pointer casts in DMA/register code
-#![allow(clippy::similar_names)]                // pos/prev, bw/bh, x0/x1 etc
-#![allow(clippy::unreadable_literal)]           // hex/binary constants (0x6a09e667f3bcc908, 0b01110)
-#![allow(clippy::map_unwrap_or)]                // .map().unwrap_or() clearer than map_or in some contexts
-#![allow(clippy::explicit_iter_loop)]           // .iter() explicit for clarity in no_std
-#![allow(clippy::match_same_arms)]              // platform-specific cfg blocks with identical arms
-#![allow(clippy::unnecessary_wraps)]            // consistent Result return in handler chains
-#![allow(clippy::ref_option)]                   // &Option<T> in existing function signatures
-#![allow(clippy::inline_always)]                // intentional for register read/write hot paths
-#![allow(clippy::trivially_copy_pass_by_ref)]   // &u8 in trait-matching signatures
-#![allow(clippy::single_char_lifetime_names)]   // standard Rust lifetime naming
-#![allow(clippy::struct_excessive_bools)]        // hardware state structs
-#![allow(clippy::manual_let_else)]              // explicit if/return pattern
-#![allow(clippy::redundant_else)]               // explicit else after return for clarity
-#![allow(clippy::if_not_else)]                   // !flag reads fine
-#![allow(clippy::single_match_else)]            // match with else arm for clarity
-#![allow(clippy::many_single_char_names)]       // x, y, w, h, r in geometry code
-#![allow(clippy::borrow_as_ptr)]                // &mut x as *mut in DMA code
-#![allow(clippy::manual_midpoint)]              // (a + b) / 2 — .midpoint() not stable in no_std
-#![allow(clippy::ref_as_ptr)]                   // &x as *const in register/DMA code
-#![allow(clippy::ptr_cast_constness)]           // *mut as *const in DMA
-#![allow(clippy::unnecessary_operation)]        // explicit ops for clarity
-#![allow(clippy::match_wildcard_for_single_variants)] // _ arm for future-proofing enums
-#![allow(clippy::too_many_lines)]               // large embedded handler functions
-#![allow(clippy::needless_lifetimes)]           // explicit lifetimes for documentation
-#![allow(clippy::unused_self)]                  // trait conformance
-#![allow(clippy::enum_glob_use)]                // use Enum::* for variant-heavy matches
-#![allow(clippy::doc_link_with_quotes)]         // doc comment formatting
-#![allow(clippy::verbose_bit_mask)]             // explicit bit mask for clarity in register code
-#![allow(clippy::redundant_closure_for_method_calls)] // .map(|s| s.method()) in handler chains
-#![allow(clippy::needless_continue)]            // explicit continue in match arms for clarity
 #![no_std]
 #![no_main]
 
@@ -1634,7 +1638,18 @@ fn main() -> ! {
         // enters a keyboard screen drew the header with the PREVIOUS screen's
         // cap. Since the header is only painted on a full redraw, it then
         // never corrected: PASSPHRASE showed 0/128 instead of 0/64.
-        ad.pp_input.max_len = ad.app.state.keyboard_max_len();
+        // SdKsptEncryptPass is the one screen whose cap is not a property of
+        // the state alone: it serves both save and load, and the direction
+        // lives in kspt_filename. Capping it at 64 unconditionally would make
+        // a file written with a longer password unopenable; leaving it at 128
+        // unconditionally would let a new one be written.
+        let cap = match ad.app.state {
+            crate::app::input::AppState::SdKsptEncryptPass => {
+                if ad.kspt_is_saving() { 64 } else { 128 }
+            }
+            _ => ad.app.state.keyboard_max_len(),
+        };
+        ad.pp_input.max_len = cap;
 
         if ad.needs_redraw {
             ad.idle_ticks = 0;

@@ -408,3 +408,189 @@ fn name_helpers() {
     assert!(csd_plausible(SECTORS as u32));
     assert!(!csd_plausible(0));
 }
+
+// ─── E31: bounded root-directory chains ─────────────────────────────
+//
+// The four root-directory walkers, `find_file_in_root`,
+// `write_dir_entry_to_root`, `list_root_dir` and `list_root_dir_lfn`, each
+// followed the chain with `next >= 0x0FFF_FFF8` as their only exit, so a FAT
+// with A to B to A never terminated. These build that FAT and require every
+// walker to come back.
+
+/// Fill the root cluster with deleted entries so no walker stops on an
+/// end-of-directory marker, then close the chain into a cycle of `n` clusters.
+///
+/// `0xE5` rather than a real entry: `DirEntry::from_bytes` returns `None` for
+/// it and `list_root_dir_lfn` resets its accumulator, so the entries are inert
+/// and the only thing under test is the chain walk.
+fn cyclic_root(im: &Image, fat: &Fat32Info, n: u32) {
+    let spc = fat.sectors_per_cluster as u32;
+    for c in 0..n {
+        let base = fat.cluster_to_sector(2 + c);
+        let mut buf = [0u8; 512];
+        for i in 0..16 { buf[i * 32] = 0xE5; }
+        for s in 0..spc {
+            im.dev().write_block(base + s, &buf).unwrap();
+        }
+    }
+    // 2 -> 3 -> ... -> (2+n-1) -> 2
+    for c in 0..n {
+        let next = if c + 1 == n { 2 } else { 2 + c + 1 };
+        write_fat_entry(im.dev(), fat, 2 + c, next).unwrap();
+    }
+}
+
+#[test]
+fn find_terminates_on_circular_root_chain() {
+    // The finding as written. Two clusters pointing at each other.
+    let im = formatted();
+    let fat = mount_fat32(im.dev()).unwrap();
+    cyclic_root(&im, &fat, 2);
+    // `.err()` rather than `expect_err`: the Ok type here is
+    // `(DirEntry, u32, usize)` and `DirEntry` is deliberately not `Debug`,
+    // which `expect_err` would require. Deriving it to suit a test would put
+    // formatting code in a shipped firmware type.
+    assert_eq!(
+        find_file_in_root(im.dev(), &fat, &to_83_name(b"NOPE.BIN")).err(),
+        Some("Circular FAT chain"));
+}
+
+#[test]
+fn find_terminates_on_mid_chain_root_cycle() {
+    // A cycle that closes in the middle rather than at the start. The partial
+    // check at `read_file_progress` compares against the current and first
+    // clusters only and says in its own comment that this case passes it, so
+    // it is the one that proves the bound is a real bound.
+    let im = formatted();
+    let fat = mount_fat32(im.dev()).unwrap();
+    let spc = fat.sectors_per_cluster as u32;
+    for c in 0..6u32 {
+        let base = fat.cluster_to_sector(2 + c);
+        let mut buf = [0u8; 512];
+        for i in 0..16 { buf[i * 32] = 0xE5; }
+        for s in 0..spc { im.dev().write_block(base + s, &buf).unwrap(); }
+    }
+    for c in 0..5u32 { write_fat_entry(im.dev(), &fat, 2 + c, 3 + c).unwrap(); }
+    write_fat_entry(im.dev(), &fat, 7, 4).unwrap(); // 7 -> 4, closes mid-chain
+    assert_eq!(
+        find_file_in_root(im.dev(), &fat, &to_83_name(b"NOPE.BIN")).err(),
+        Some("Circular FAT chain"));
+}
+
+#[test]
+fn listers_terminate_on_circular_root_chain() {
+    // `list_root_dir_lfn` is the one the SD picker calls, and it is not the
+    // function the finding named.
+    let im = formatted();
+    let fat = mount_fat32(im.dev()).unwrap();
+    cyclic_root(&im, &fat, 2);
+    assert_eq!(list_root_dir(im.dev(), &fat, |_| true).err(),
+        Some("Circular FAT chain"));
+    assert_eq!(list_root_dir_lfn(im.dev(), &fat, |_, _, _| true).err(),
+        Some("Circular FAT chain"));
+}
+
+#[test]
+fn create_terminates_on_circular_root_chain() {
+    // `write_dir_entry_to_root` has no end-of-directory exit: its only exit is
+    // a free slot. A cycle with none never ended, and on a genuine end of
+    // chain it allocates and extends rather than stopping. Every slot here is
+    // 0xE5, which IS free, so the cycle is closed with real entries instead.
+    let im = formatted();
+    let fat = mount_fat32(im.dev()).unwrap();
+    let spc = fat.sectors_per_cluster as u32;
+    for c in 0..2u32 {
+        let base = fat.cluster_to_sector(2 + c);
+        let mut buf = [0u8; 512];
+        for i in 0..16 {
+            buf[i * 32..i * 32 + 11].copy_from_slice(b"FULL    BIN");
+            buf[i * 32 + 11] = 0x20; // archive, not a free slot, not LFN
+        }
+        for s in 0..spc { im.dev().write_block(base + s, &buf).unwrap(); }
+    }
+    write_fat_entry(im.dev(), &fat, 2, 3).unwrap();
+    write_fat_entry(im.dev(), &fat, 3, 2).unwrap();
+    // `create_file` returns `Result<DirEntry, _>`, same reason as above.
+    assert_eq!(create_file(im.dev(), &fat, &to_83_name(b"NEW.BIN"), b"x").err(),
+        Some("Circular FAT chain"));
+}
+
+#[test]
+fn reserved_cluster_in_root_chain_is_refused() {
+    // `cluster_to_sector` guards `< 2` by returning `data_start_sector`, so a
+    // chain into cluster 0 or 1 did not fault: it silently re-read cluster 2.
+    // This is E28's residual, closed by the same helper.
+    for bad in [0u32, 1u32] {
+        let im = formatted();
+        let fat = mount_fat32(im.dev()).unwrap();
+        let spc = fat.sectors_per_cluster as u32;
+        let base = fat.cluster_to_sector(2);
+        let mut buf = [0u8; 512];
+        for i in 0..16 { buf[i * 32] = 0xE5; }
+        for s in 0..spc { im.dev().write_block(base + s, &buf).unwrap(); }
+        write_fat_entry(im.dev(), &fat, 2, bad).unwrap();
+        assert_eq!(
+            find_file_in_root(im.dev(), &fat, &to_83_name(b"NOPE.BIN")).err(),
+            Some("Bad FAT chain"), "cluster {}", bad);
+    }
+}
+
+#[test]
+fn mount_refuses_reserved_root_cluster() {
+    // `root_cluster` was the one BPB field taken from the card unchecked.
+    // Refused at the mount rather than guarded in four walkers.
+    for bad in [0u32, 1u32] {
+        let im = formatted();
+        let mut boot = [0u8; 512];
+        im.dev().read_block(0, &mut boot).unwrap();
+        boot[44..48].copy_from_slice(&bad.to_le_bytes());
+        im.dev().write_block(0, &boot).unwrap();
+        // The property, not the mechanism: `mount_fat32` has MBR and probe
+        // fallbacks, so what must hold is that no walker is ever handed a
+        // reserved root cluster, whichever path produced the mount.
+        if let Ok(fat) = mount_fat32(im.dev()) {
+            assert!(fat.root_cluster >= 2,
+                "mounted with root_cluster {}", fat.root_cluster);
+        }
+    }
+    // And the untouched image still mounts, so the check is not refusing
+    // everything.
+    let im = formatted();
+    assert!(mount_fat32(im.dev()).is_ok());
+}
+
+#[test]
+fn honest_multi_cluster_root_dir_still_walks() {
+    // The half that matters: a bound is only correct if it refuses nothing
+    // real. Fill the root cluster with genuine entries so the next create has
+    // to extend the directory, then find a file that lives past the extension.
+    let im = formatted();
+    let fat = mount_fat32(im.dev()).unwrap();
+    let spc = fat.sectors_per_cluster as u32;
+    let base = fat.cluster_to_sector(2);
+    let mut buf = [0u8; 512];
+    for i in 0..16 {
+        buf[i * 32..i * 32 + 11].copy_from_slice(b"FILLER  BIN");
+        buf[i * 32 + 11] = 0x20;
+    }
+    for s in 0..spc { im.dev().write_block(base + s, &buf).unwrap(); }
+
+    let name = to_83_name(b"PAST.BIN");
+    let data = pattern(300, 0x5A);
+    create_file(im.dev(), &fat, &name, &data).expect("create must extend the root");
+    // The root really did grow past one cluster.
+    assert!(read_fat_entry(im.dev(), &fat, 2).unwrap() < 0x0FFF_FFF8,
+        "root did not extend");
+    // And all three readers reach it across the chain.
+    let (entry, _, _) = find_file_in_root(im.dev(), &fat, &name).expect("find across chain");
+    assert_eq!(entry.file_size as usize, data.len());
+    let mut seen = 0u32;
+    list_root_dir(im.dev(), &fat, |e| { if e.matches(&name) { seen += 1; } true }).unwrap();
+    assert_eq!(seen, 1, "list_root_dir did not see it once");
+    let mut seen_lfn = 0u32;
+    list_root_dir_lfn(im.dev(), &fat, |e, _, _| { if e.matches(&name) { seen_lfn += 1; } true }).unwrap();
+    assert_eq!(seen_lfn, 1, "list_root_dir_lfn did not see it once");
+    let mut back = alloc::vec![0u8; data.len()];
+    let n = read_file(im.dev(), &fat, &entry, &mut back).unwrap();
+    assert_eq!(&back[..n], &data[..]);
+}

@@ -2247,6 +2247,40 @@ function msStripHeader(text) {
     return t;
 }
 
+/// Decode one scanned frame into descriptor text, framed or not.
+///
+/// The device does not always frame a descriptor QR. `ui/redraw.rs:645` draws a
+/// single raw QR whenever the payload is 230 bytes or fewer, and a 1-of-1 45'
+/// descriptor is 125 bytes: 11 for `multi_hd45(`, one for M, 112 per kpub, one
+/// for the closing paren. N=2 is 237 and every larger N stays framed, so the
+/// 1-of-1 is the only shape that ever arrives unframed. Both descriptor
+/// scanners used to push every frame through `decode_qr_frame` alone, which on
+/// an unframed payload throws or returns empty, and the scanner then sat there
+/// with the camera running and nothing visible happening.
+///
+/// Framed first, unchanged. The raw fallback runs only where the framed path
+/// yielded nothing, and it is gated on the descriptor prefix, so a partial
+/// frame of a genuine multi-frame scan returns null and collection continues:
+/// those frames open with the frame header, never with `multi`.
+///
+/// Returns the descriptor text, or null when this frame is not one.
+function msDescriptorFromFrame(data) {
+    const raw = new Uint8Array(data);
+    const hexStr = Array.from(raw).map(b => b.toString(16).padStart(2, '0')).join('');
+    try {
+        const result = decode_qr_frame(hexStr);
+        if (result && result.length > 0) {
+            const out = [];
+            for (let i = 0; i < result.length; i += 2) out.push(parseInt(result.substr(i, 2), 16));
+            return new TextDecoder().decode(new Uint8Array(out)).trim();
+        }
+    } catch (_) { /* more frames needed, or this payload was never framed */ }
+    const text = new TextDecoder().decode(raw).trim();
+    const body = msStripHeader(text);
+    return (body.startsWith('multi(') || body.startsWith('multi_hd(')
+        || body.startsWith('multi_hd45(')) ? text : null;
+}
+
 /// Is a 45' branch loaded?
 ///
 /// The spend screen used to ask `msActive`, a flag set at load and cleared when
@@ -3077,29 +3111,23 @@ function bindEvents() {
         msActive = false;   // leaving the multisig flow: tabs revert to single-sig
         showScreen(walletData ? 'dashboard' : 'welcome');
     };
-    // Descriptors arrive as MULTI-FRAME BINARY, same protocol as KSPT: the
-    // scanner hands over a Uint8Array per frame and `decode_qr_frame`
-    // reassembles them, returning hex that decodes to the text. Treating the
-    // frame as text or as a hex string both fail silently.
+    // A descriptor arrives multi-frame when it needs more than one frame and
+    // raw when it does not, so `msDescriptorFromFrame` handles both. Treating
+    // the frame as text or as a hex string unconditionally both fail silently.
     el('btn-scan-msl-descriptor').onclick = () => startScanner('Scan descriptor QR', (data) => {
-        const hexStr = Array.from(new Uint8Array(data))
-            .map(b => b.toString(16).padStart(2, '0')).join('');
         try {
-            const result = decode_qr_frame(hexStr);
-            if (result && result.length > 0) {
-                const bytes = [];
-                for (let i = 0; i < result.length; i += 2) bytes.push(parseInt(result.substr(i, 2), 16));
-                const text = msStripHeader(new TextDecoder().decode(new Uint8Array(bytes)).trim());
-                if (text.startsWith('multi(') || text.startsWith('multi_hd(')
-                    || text.startsWith('multi_hd45(')) {
-                    stopScanner();
-                    el('input-msl-descriptor').value = text;
-                    showScreen('ms-load');
-                    toast('Descriptor scanned', 'ok', 1500);
-                } else {
-                    stopScanner();
-                    toast('Not a valid descriptor', 'error');
-                }
+            const full = msDescriptorFromFrame(data);
+            if (full === null) return;   // more frames needed, or not a descriptor
+            const text = msStripHeader(full);
+            if (text.startsWith('multi(') || text.startsWith('multi_hd(')
+                || text.startsWith('multi_hd45(')) {
+                stopScanner();
+                el('input-msl-descriptor').value = text;
+                showScreen('ms-load');
+                toast('Descriptor scanned', 'ok', 1500);
+            } else {
+                stopScanner();
+                toast('Not a valid descriptor', 'error');
             }
         } catch (_) { /* more frames needed */ }
     });
@@ -7465,7 +7493,13 @@ async function openSendScreen() {
         const resultJson = await get_fee_estimate(wsUrl);
         lastFeeEstimate = JSON.parse(resultJson);
         const isCov = (_broadcastReturnScreen === 'covenant');
-        el('input-fee').value = isCov ? Math.max(400000, lastFeeEstimate.suggested_fee) : lastFeeEstimate.suggested_fee;
+        // `suggested_fee` is a single number from the node with no idea how many
+        // inputs this send has. It lands in the field on load and survives if the
+        // user never touches a fee card, so it gets the same relay floor the
+        // cards use.
+        el('input-fee').value = isCov
+            ? Math.max(400000, lastFeeEstimate.suggested_fee)
+            : Math.max(Math.ceil(sendMassGrams() * 115), lastFeeEstimate.suggested_fee);
         updateFeeCardAmounts();
         // Reset to Normal active
         document.querySelectorAll('.fee-card').forEach(c => c.classList.remove('fee-card-active'));
@@ -7559,15 +7593,50 @@ function toggleSendUtxos() {
                 item.style.borderColor = 'var(--teal)';
             }
             syncThreadDepositAmount(); // thread deposit: amount = selected UTXO total
+            // The cards price by input count now, so they go stale the moment
+            // the selection changes.
+            updateFeeCardAmounts();
         };
     });
     list.classList.remove('hidden');
 }
 
+// Inputs the send will use. Exact when the user picked them. An estimate
+// otherwise, since auto-selection happens on the Rust side and this file cannot
+// see its order: largest first against the amount on screen, which is the usual
+// order, and 2 before an amount is entered.
+function sendInputCount() {
+    if (selectedUtxoIndices && selectedUtxoIndices.length > 0) return selectedUtxoIndices.length;
+    const amtEl = el('input-amount');
+    const amt = amtEl ? parseFloat(amtEl.value) : NaN;
+    if (!cachedUtxos || !cachedUtxos.length || !(amt > 0)) return 2;
+    const need = amt * 1e8;
+    const desc = cachedUtxos.map(u => u.amount).sort((a, b) => b - a);
+    let sum = 0, n = 0;
+    while (n < desc.length && sum < need) { sum += desc[n]; n++; }
+    return Math.min(32, Math.max(1, n));
+}
+
+// Grams for the transaction the send screen is about to build.
+//
+// Both fee cards used a flat 2300 regardless of input count, and `setFeeLevel`
+// writes its result straight into the fee field, so this was never cosmetic:
+// with 32 UTXOs selected every card priced a two-input transaction and the send
+// left at the 300,000 floor against 3,628,200 required.
+//
+// Consensus, mainnet `params.rs:695`: `mass_per_tx_byte` 1,
+// `mass_per_script_pub_key_byte` 10, `mass_per_sig_op` 1000. A P2PK input costs
+// 1000 for its sigop plus roughly 119 serialized bytes, about 1119 apiece, on a
+// base near 886 for the header, two outputs and their script mass.
+// `consolidateFee` models the same shape for the one-output case.
+function sendMassGrams() {
+    return 886 + 1119 * sendInputCount();
+}
+
 function setFeeLevel(level) {
     if (!lastFeeEstimate) return;
     const isCovDeposit = (_broadcastReturnScreen === 'covenant');
-    const mass = isCovDeposit ? 3500 : 2300;
+    const mass = isCovDeposit ? 3500 : sendMassGrams();
     let feerate, minFee;
     if (level === 'low') {
         feerate = lastFeeEstimate.low_sompi_per_gram;
@@ -7579,7 +7648,12 @@ function setFeeLevel(level) {
         feerate = lastFeeEstimate.normal_sompi_per_gram;
         minFee = isCovDeposit ? 400000 : 5000;
     }
-    el('input-fee').value = Math.max(minFee, Math.round(feerate * mass));
+    // Correct mass is not enough on its own. The relay minimum is 100 sompi a
+    // gram and scales with mass, while `feerate` from the node can be 1: a
+    // 32-input send would offer 36,694 against 3.6M required. Floor at the
+    // relay minimum with the same 1.15 margin `consolidateFee` uses.
+    const relayFloor = Math.ceil(mass * 115);
+    el('input-fee').value = Math.max(minFee, relayFloor, Math.round(feerate * mass));
 
     // Update active card visual
     document.querySelectorAll('.fee-card').forEach(c => c.classList.remove('fee-card-active'));
@@ -7589,10 +7663,11 @@ function setFeeLevel(level) {
 function updateFeeCardAmounts() {
     if (!lastFeeEstimate) return;
     const isCovDeposit = (_broadcastReturnScreen === 'covenant');
-    const mass = isCovDeposit ? 3500 : 2300;
-    const low = Math.max(isCovDeposit ? 400000 : 2500, Math.round(lastFeeEstimate.low_sompi_per_gram * mass));
-    const normal = Math.max(isCovDeposit ? 400000 : 5000, Math.round(lastFeeEstimate.normal_sompi_per_gram * mass));
-    const priority = Math.max(isCovDeposit ? 500000 : 300000, Math.round(lastFeeEstimate.priority_sompi_per_gram * mass));
+    const mass = isCovDeposit ? 3500 : sendMassGrams();
+    const relayFloor = Math.ceil(mass * 115);   // see setFeeLevel
+    const low = Math.max(isCovDeposit ? 400000 : 2500, relayFloor, Math.round(lastFeeEstimate.low_sompi_per_gram * mass));
+    const normal = Math.max(isCovDeposit ? 400000 : 5000, relayFloor, Math.round(lastFeeEstimate.normal_sompi_per_gram * mass));
+    const priority = Math.max(isCovDeposit ? 500000 : 300000, relayFloor, Math.round(lastFeeEstimate.priority_sompi_per_gram * mass));
     el('fee-low-amount').textContent = low.toLocaleString();
     el('fee-normal-amount').textContent = normal.toLocaleString();
     el('fee-priority-amount').textContent = priority.toLocaleString();
@@ -7638,9 +7713,25 @@ function handleSendMax() {
         // Since amount < sum(inputs), inv_out < inv_in, so storage_mass = 0 for send-all.
         // But with change output (2 outputs), both small change and big send can add mass.
         // For Max, assume send-all with no change (1 output). Storage mass is 0 or very low.
-        const computeMass = 800 * numInputs + 2000;
-        // 110% safety margin matching WASM
-        const massFee = Math.max(Math.ceil(computeMass * 110), 300000);
+        // Send-max is n inputs and one output with no change, which is the exact
+        // shape `consolidateFee` already models, so it is used rather than a
+        // second copy of the arithmetic.
+        //
+        // The model this replaces was `800 * numInputs + 2000` at 110%. Consensus
+        // charges 1000 for the sigop alone plus roughly 119 bytes of serialized
+        // input, about 1119 a piece, on a base near 474 for the header, the one
+        // output and its script mass (`mass_per_tx_byte` 1,
+        // `mass_per_script_pub_key_byte` 10, `mass_per_sig_op` 1000, mainnet
+        // params). The fixed 2000 hid the per-input shortfall while n was small,
+        // the two curves crossed at n = 4.8, and the 10% margin ran out at n = 8.
+        // A 32-input sweep paid 3,036,000 against 3,628,200 required and was
+        // refused at relay after the user had signed it on the device.
+        // `sendMassGrams` rather than `consolidateFee` so this agrees with the
+        // floor the send path applies. A sweep really has one output, so the
+        // two-output base overpays by about 47,000 sompi, but reserving less
+        // than the floor would put amount plus fee over the selected total and
+        // the send would fail for insufficient funds.
+        const massFee = Math.max(Math.ceil(sendMassGrams() * 115), 300000);
         const maxAmount = selectedTotal - massFee;
         const maxKas = Math.max(0, maxAmount / 1e8);
         el('input-amount').value = maxKas.toFixed(8);
@@ -7889,7 +7980,12 @@ async function handleCreateTx() {
     }
 
     const amount = parseFloat(amountStr);
-    const baseFee = Math.max(300000, parseInt(feeStr) || 300000);
+    // Last line of defence, and the only one a hand-typed fee passes through.
+    // The flat 300,000 could not see input count: a 32-input send needs
+    // 3,628,200 at the relay minimum of 100 sompi a gram. Same model and margin
+    // as the fee cards, so a card value is never raised above what it displayed.
+    const relayFloor = Math.max(300000, Math.ceil(sendMassGrams() * 115));
+    const baseFee = Math.max(relayFloor, parseInt(feeStr) || relayFloor);
     const fee = baseFee;
     if (fee !== parseInt(feeStr)) {
         el('input-fee').value = fee;
@@ -9097,19 +9193,12 @@ function shortenHex(hex) {
 // ─── Multisig Spend ───
 
 function handleDescriptorScan(data) {
-    // Descriptor comes as multi-frame binary (same protocol as KSPT)
-    const hexStr = Array.from(new Uint8Array(data))
-        .map(b => b.toString(16).padStart(2, '0')).join('');
+    // Multi-frame when the payload needs it, raw when it does not. Both go
+    // through the one reader.
     try {
-        const result = decode_qr_frame(hexStr);
-        if (result && result.length > 0) {
+        const text = msDescriptorFromFrame(data);
+        if (text !== null) {
             stopScanner();
-            // Convert hex back to ASCII text
-            const bytes = [];
-            for (let i = 0; i < result.length; i += 2) {
-                bytes.push(parseInt(result.substr(i, 2), 16));
-            }
-            const text = new TextDecoder().decode(new Uint8Array(bytes)).trim();
             // `multi_hd45(` starts with `multi_hd` but NOT with `multi_hd(`,
             // so the two-prefix test rejected every 45' descriptor.
             if (text.startsWith('multi(') || text.startsWith('multi_hd(')
