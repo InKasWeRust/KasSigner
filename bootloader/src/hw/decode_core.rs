@@ -86,7 +86,14 @@ pub struct DecodeOutcome {
     pub kind: u8,
     pub denom: usize,
     pub grids: usize,
-    pub results: Vec<(u8, Vec<u8>)>,
+    /// Decoded payloads. `Zeroizing` (K14): a decoded QR can be a SeedQR, and
+    /// this is the CROSS-CORE path, so the bytes sit in `RESULTS`, a
+    /// `static mut`, until the next job replaces them. The allocation is PSRAM
+    /// and `esp-alloc` does not clear freed blocks, so a plain `Vec` left the
+    /// seed in external RAM after the drop. Same reasoning as M-09 applied to
+    /// the multi-frame buffer; this path and the single-core one both missed
+    /// it.
+    pub results: Vec<(u8, zeroize::Zeroizing<Vec<u8>>)>,
     pub prep_ms: u32,
     pub det_ms: u32,
     pub w: usize,
@@ -172,7 +179,23 @@ pub fn take_results() -> Option<DecodeOutcome> {
     if JOB_STATE.load(Ordering::Acquire) != DONE {
         return None;
     }
-    let out = unsafe { RESULTS.take() };
+    // `RESULTS.take()` needed `&mut RESULTS`, which is a stronger claim than
+    // this code makes and the one `static_mut_refs` objects to: a `&mut` to a
+    // static asserts that no other pointer to it is used for the whole of its
+    // life, and the compiler may optimise on that. The protocol above already
+    // gives exclusivity, through JOB_STATE rather than through the type
+    // system, so the reference was never needed to be sound; it was just the
+    // only way `Option::take` can be spelled.
+    //
+    // `ptr::replace` is `take` through a pointer: it reads the old value out,
+    // writes `None` in, and returns the old, creating no reference at all.
+    // `addr_of_mut!` rather than `&raw mut` to match the idiom already used at
+    // `:133` and `:213` in this file.
+    //
+    // Reachable only with JOB_STATE == DONE, which core 1 stores with Release
+    // after the write at `:236` and this side loads with Acquire above, so the
+    // read is ordered after that write and core 1 has finished with the slot.
+    let out = unsafe { core::ptr::replace(core::ptr::addr_of_mut!(RESULTS), None) };
     JOB_STATE.store(IDLE, Ordering::Release);
     out
 }
@@ -228,7 +251,7 @@ pub fn core1_main() -> ! {
         for grid in grids {
             let mut out = Vec::new();
             if let Ok(meta) = grid.decode_to(&mut out) {
-                results.push((meta.version.0 as u8, out));
+                results.push((meta.version.0 as u8, zeroize::Zeroizing::new(out)));
             }
         }
 

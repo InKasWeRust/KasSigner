@@ -414,6 +414,19 @@ pub struct AppData {
     pub jpeg_display_lens: [u8; SD_FILE_LIST_MAX],
     pub jpeg_file_count: u8,
     pub jpeg_selected: u8,
+    /// True when the sign-message flow was entered from an SD file rather
+    /// than the keyboard or a scanned hash. Decides where `SignMsgHashPreview`
+    /// goes on Back: to the text preview for a file, to the choice screen
+    /// otherwise, which is what the QR path has always wanted.
+    pub sign_msg_from_file: bool,
+    /// True when the chosen file's extension says a text preview is worth
+    /// attempting. Content can still refuse it: a `.txt` holding invalid UTF-8
+    /// shows "No preview available" as well. Extension decides whether to try,
+    /// content decides what comes out.
+    pub sign_msg_text_ext: bool,
+    /// Preview only. Holds the first 128 bytes of the message for the screen.
+    /// It is NOT what gets hashed: the signature covers the whole file, read
+    /// separately into the heap, so this buffer no longer bounds anything.
     pub jpeg_desc_buf: [u8; 128],
     pub jpeg_desc_len: usize,
     pub txt_file_names: [[u8; 11]; SD_FILE_LIST_MAX],
@@ -439,6 +452,14 @@ pub struct AppData {
     /// hint container (156) = 293. Was 256, exact for the v1 sizes.
     pub import_exif_b64: [u8; 384],
     pub import_exif_b64_len: usize,
+    /// Second stego payload. A photo can carry BOTH carriers at once, by
+    /// design: the coefficient one survives metadata stripping, the descriptor
+    /// one survives recompression, and nothing in an export removes the other.
+    /// The import used to read only whichever a coin picked first, so this
+    /// holds the descriptor payload while `import_exif_b64` holds the
+    /// coefficient one and the decrypt tries both.
+    pub import_alt_b64: [u8; 384],
+    pub import_alt_b64_len: usize,
     pub recovered_hint: [u8; sd_backup::MAX_RAW_PAYLOAD],
     pub recovered_hint_len: usize,
 
@@ -877,6 +898,8 @@ pub fn new() -> Self {
             jpeg_display_lens: [0u8; SD_FILE_LIST_MAX],
             jpeg_file_count: 0,
             jpeg_selected: 0,
+            sign_msg_from_file: false,
+            sign_msg_text_ext: false,
             jpeg_desc_buf: [0u8; 128],
             jpeg_desc_len: 0,
             txt_file_names: [[0u8; 11]; SD_FILE_LIST_MAX],
@@ -896,6 +919,8 @@ pub fn new() -> Self {
             import_jpeg_selected: 0,
             import_exif_b64: [0u8; 384],
             import_exif_b64_len: 0,
+            import_alt_b64: [0u8; 384],
+            import_alt_b64_len: 0,
             recovered_hint: [0u8; sd_backup::MAX_RAW_PAYLOAD],
             recovered_hint_len: 0,
 
@@ -970,6 +995,32 @@ pub fn new() -> Self {
 }
 
 impl AppData {
+    /// Is `SdKsptEncryptPass` about to encrypt rather than decrypt?
+    ///
+    /// That screen serves both directions from seven entry points and tells
+    /// them apart by the extension left in `kspt_filename`: `.KSP` or `.TXT`
+    /// there means a save is in flight, and the load paths clear the field for
+    /// exactly this purpose ("Clear so SdKsptEncryptPass detects LOAD" in
+    /// `handlers/sd.rs`).
+    ///
+    /// Mirrors the `is_ksp`/`is_txt` pair in `handlers/sd.rs`, which stays as
+    /// two separate flags there because the TXT case is tested again on its
+    /// own further down that function. The two must agree; change together.
+    ///
+    /// Used by `main.rs` to pick the keyboard cap, which cannot come from
+    /// `AppState::keyboard_max_len()` because the state alone does not say
+    /// which direction this is.
+    ///
+    /// Returns false while the field holds its initial spaces, so an
+    /// indeterminate state counts as a load and accepts the wider password.
+    /// That is the safe direction: it can never let a long password be
+    /// written, only let an existing one be read.
+    pub fn kspt_is_saving(&self) -> bool {
+        let f = &self.kspt_filename;
+        (f[8] == b'K' && f[9] == b'S' && f[10] == b'P')
+            || (f[8] == b'T' && f[9] == b'X' && f[10] == b'T')
+    }
+
     /// Leave the camera family for `to`, arming the touch guard at the
     /// point of exit.
     ///

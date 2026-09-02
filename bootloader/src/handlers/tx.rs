@@ -21,6 +21,19 @@
 
 use crate::{app::data::AppData, hw::display, hw::sdcard, hw::sound, hw::touch, wallet};
 use crate::ui::helpers::pp_keyboard_hit;
+/// Largest file the sign-message flow will read, hash and sign.
+///
+/// A policy number, not a hardware limit. SHA-256 is not the constraint:
+/// PBKDF2 already pushes roughly 13 MB through the same compression function
+/// on every backup. PSRAM is 8 MB on both boards and the read is the slow
+/// part, which is why it carries a progress bar.
+///
+/// 256 KB is far beyond any statement or contract signed by hand, and well
+/// inside PSRAM even alongside the framebuffer and the decode buffers. Above
+/// it the file does not appear in the list and a direct read is refused,
+/// rather than being truncated as it was before.
+pub const SIGN_MSG_MAX_BYTES: usize = 256 * 1024;
+
 #[allow(unused_variables, unused_assignments, unused_mut)]
 /// Handle touch events for transaction review, signing, message signing, and multisig screens.
 #[inline(never)]
@@ -92,6 +105,18 @@ pub fn handle_tx_touch(
                             needs_redraw = true;
                         } else {
                             // Next page
+                            let evt = crate::app::input::ButtonEvent::ShortPress;
+                            ad.app.handle_boot(evt);
+                            needs_redraw = true;
+                        }
+                    }
+                    crate::app::input::AppState::ReviewCovenant => {
+                        if is_back {
+                            ad.app.go_main_menu();
+                            needs_redraw = true;
+                        } else {
+                            // Read-only screen: any tap moves on to CONFIRM,
+                            // exactly as a review page does.
                             let evt = crate::app::input::ButtonEvent::ShortPress;
                             ad.app.handle_boot(evt);
                             needs_redraw = true;
@@ -648,8 +673,11 @@ pub fn handle_tx_touch(
                             ad.app.state = crate::app::input::AppState::SignMsgType;
                             needs_redraw = true;
                         } else if (40..280).contains(&x) && (114..158).contains(&y) {
-                            // Load from SD — scan for .TXT files
-                            boot_display.draw_loading_screen("Scanning TXT...");
+                            // Load from SD. Any file, not just .TXT: SHA-256
+                            // hashes bytes and the extension has no bearing on
+                            // what gets signed. The extension only decides
+                            // whether a text preview is worth attempting.
+                            boot_display.draw_loading_screen("Scanning SD...");
                             boot_display.update_progress_bar(50);
                             delay.delay_millis(50);
                             (ad.txt_file_count) = 0;
@@ -658,12 +686,11 @@ pub fn handle_tx_touch(
                                 let fat32 = sdcard::mount_fat32(ct)?;
                                 sdcard::list_root_dir_lfn(ct, &fat32, |entry, disp_name, disp_len| {
                                     if !entry.is_dir() && entry.file_size > 0
-                                        && entry.file_size <= 1024
+                                        && (entry.file_size as usize) <= SIGN_MSG_MAX_BYTES
                                         && ((ad.txt_file_count) as usize) < crate::app::data::SD_FILE_LIST_MAX {
-                                        let ext = &entry.name[8..11];
                                         let first = entry.name[0];
                                         let is_hidden = first == b'.' || first == b'_' || first == 0xE5;
-                                        if !is_hidden && (ext == b"TXT" || ext == b"txt") {
+                                        if !is_hidden {
                                             let idx = (ad.txt_file_count) as usize;
                                             ad.txt_file_names[idx] = entry.name;
                                             let copy_len = disp_len.min(32);
@@ -678,7 +705,7 @@ pub fn handle_tx_touch(
                                 Ok(())
                             });
                             if scan_ok.is_err() || (ad.txt_file_count) == 0 {
-                                boot_display.draw_rejected_screen("No .TXT files on SD");
+                                boot_display.draw_rejected_screen("No files on SD");
                                 sound::beep_error(delay);
                                 delay.delay_millis(2000);
                                 needs_redraw = true;
@@ -712,11 +739,26 @@ pub fn handle_tx_touch(
                                 5 => { ad.pp_input.push_char(b' '); boot_display.draw_keyboard_screen(&ad.pp_input, "MESSAGE"); }
                                 1 => { boot_display.draw_keyboard_screen(&ad.pp_input, "MESSAGE"); }
                                 6 => {
+                                    // Typed messages are ASCII by construction:
+                                    // the keyboard emits single bytes from a
+                                    // 95-glyph set, so the preview can always
+                                    // render them and no block ever appears.
+                                    ad.sign_msg_from_file = false;
+                                    ad.sign_msg_text_ext = true;
                                     // OK — copy text to jpeg_desc_buf (reuse as message buffer)
                                     let msg = ad.pp_input.as_str();
                                     let copy_len = msg.len().min(128);
                                     ad.jpeg_desc_buf[..copy_len].copy_from_slice(&msg.as_bytes()[..copy_len]);
                                     ad.jpeg_desc_len = copy_len;
+                                    // Hashed here, at the same point in the flow
+                                    // the file path hashes at read time, so both
+                                    // reach SignMsgHashPreview with sign_msg_hash
+                                    // already correct and neither screen has to
+                                    // compute anything. copy_len equals msg.len()
+                                    // because the keyboard is capped at 128, so
+                                    // this covers every typed byte.
+                                    ad.sign_msg_hash =
+                                        wallet::hmac::sha256(&ad.jpeg_desc_buf[..copy_len]);
                                     ad.pp_input.reset();
                                     ad.app.state = crate::app::input::AppState::SignMsgPreview;
                                     
@@ -760,26 +802,53 @@ pub fn handle_tx_touch(
                                         boot_display.update_progress_bar(50);
                                         delay.delay_millis(50);
                                         let fname83 = ad.txt_file_names[idx as usize];
+                                        let fext = &fname83[8..11];
+                                        ad.sign_msg_text_ext = fext == b"TXT" || fext == b"txt";
+                                        ad.sign_msg_from_file = true;
                                         ad.jpeg_desc_len = 0;
                                         let read_ok = sdcard::with_sd_card(i2c, delay, |ct| {
                                             let fat32 = sdcard::mount_fat32(ct)?;
                                             let (entry, _, _) = sdcard::find_file_in_root(ct, &fat32, &fname83)?;
                                             let fsize = entry.file_size as usize;
-                                            let cluster = entry.first_cluster();
-                                            if cluster < 2 { return Err("Empty file"); }
-                                            let sector = fat32.cluster_to_sector(cluster);
-                                            let mut sector_buf = [0u8; 512];
-                                            sdcard::sd_read_block(ct, sector, &mut sector_buf)?;
-                                            let start = if fsize >= 3 && sector_buf[0] == 0xEF && sector_buf[1] == 0xBB && sector_buf[2] == 0xBF { 3 } else { 0 };
-                                            let avail = fsize.min(512);
-                                            let use_len = (avail - start).min(128);
-                                            let mut end = use_len;
-                                            while end > 0 && (sector_buf[start + end - 1] == b'\n' || sector_buf[start + end - 1] == b'\r' || sector_buf[start + end - 1] == b' ' || sector_buf[start + end - 1] == 0) {
-                                                end -= 1;
-                                            }
-                                            if end == 0 { return Err("Empty content"); }
-                                            ad.jpeg_desc_buf[..end].copy_from_slice(&sector_buf[start..start + end]);
-                                            ad.jpeg_desc_len = end;
+                                            if fsize == 0 { return Err("Empty file"); }
+                                            if fsize > SIGN_MSG_MAX_BYTES { return Err("File too large"); }
+
+                                            // Read the WHOLE file, byte for byte.
+                                            //
+                                            // The previous version read one sector, stripped a
+                                            // UTF-8 BOM, capped at 128 and trimmed trailing
+                                            // whitespace, none of it shown to the user. Four
+                                            // silent edits, so the signature attested to a
+                                            // device-specific transformation of a prefix rather
+                                            // than to the file. `shasum -a 256` could never
+                                            // reproduce it: a file ending in one newline already
+                                            // produced a different digest.
+                                            //
+                                            // `read_file_progress` walks the cluster chain and
+                                            // returns "Buffer too small" rather than truncating,
+                                            // so a short read fails instead of signing a fragment.
+                                            let mut file = alloc::vec![0u8; fsize];
+                                            let n = sdcard::read_file_progress(
+                                                ct, &fat32, &entry, &mut file,
+                                                &mut |done, total| {
+                                                    let pct = if total > 0 { (done * 80 / total) as u8 } else { 0 };
+                                                    boot_display.update_progress_bar(pct);
+                                                },
+                                            )?;
+                                            if n != fsize { return Err("Short read"); }
+
+                                            // Hashed ONCE, here, over the raw bytes. Both the hash
+                                            // screen and SIGN read this value, so what is shown is
+                                            // provably what is signed. It used to be computed
+                                            // twice, in screens.rs for display and again in the
+                                            // SIGN handler, agreeing only by accident.
+                                            ad.sign_msg_hash = wallet::hmac::sha256(&file);
+
+                                            // Preview only, bounded by the screen rather than by
+                                            // anything cryptographic.
+                                            let plen = fsize.min(ad.jpeg_desc_buf.len());
+                                            ad.jpeg_desc_buf[..plen].copy_from_slice(&file[..plen]);
+                                            ad.jpeg_desc_len = plen;
                                             Ok(())
                                         });
                                         if read_ok.is_ok() && ad.jpeg_desc_len > 0 {
@@ -799,63 +868,39 @@ pub fn handle_tx_touch(
                         
                     }
                     crate::app::input::AppState::SignMsgPreview => {
+                        // Text view. No SIGN here by design: the signature
+                        // covers the whole file and this shows sixty
+                        // characters of it, so signing from this screen
+                        // would mean signing on the strength of a preview.
+                        // SIGN lives on SignMsgHashPreview, which shows the
+                        // full digest that gets signed.
+                        //
+                        // The hash is already in ad.sign_msg_hash, computed
+                        // once at read time, so moving between the two views
+                        // costs nothing and neither screen recomputes it.
                         if is_back {
                             ad.app.state = crate::app::input::AppState::SignMsgChoice;
                             needs_redraw = true;
-                        } else if (185..=225).contains(&y) && (100..=220).contains(&x) {
-                            // SIGN button tapped
-                            boot_display.draw_saving_screen("Signing...");
-                            boot_display.update_progress_bar(20);
-                            delay.delay_millis(50);
-
-                            // SHA256 hash the message
-                            let msg = &ad.jpeg_desc_buf[..ad.jpeg_desc_len];
-                            let msg_hash = wallet::hmac::sha256(msg);
-                            ad.sign_msg_hash = msg_hash;
-                            boot_display.update_progress_bar(40);
-
-                            // Derive private key at account level (depth 3: m/44'/111111'/0')
-                            // This matches the kpub xonly pubkey, which is what users
-                            // enter as the oracle pubkey in covenant scripts.
-                            let pp = ad.seed_mgr.active_slot()
-                                .map(|s| s.passphrase_str())
-                                .unwrap_or("");
-                            let mut privkey = [0u8; 32];
-                            // None for raw-key/xprv slots, which have no BIP39
-                            // seed. Leaves privkey zeroed, the same outcome the
-                            // Err path already produced.
-                            if let Some(seed) = crate::app::signing::derive_seed(
-                                &ad.mnemonic_indices, ad.word_count, pp)
-                            {
-                                if let Ok(acct_key) = wallet::bip32::derive_account_key(&seed.bytes) {
-                                    privkey.copy_from_slice(acct_key.private_key_bytes());
-                                }
-                            }
-                            boot_display.update_progress_bar(70);
-
-                            // Schnorr sign
-                            match wallet::schnorr::schnorr_sign(&privkey, &msg_hash) {
-                                Ok(sig) => {
-                                    ad.sign_msg_sig = sig.bytes;
-                                    boot_display.update_progress_bar(100);
-                                    sound::success(delay);
-                                    ad.app.state = crate::app::input::AppState::SignMsgResult;
-                                    needs_redraw = true;
-                                }
-                                Err(_) => {
-                                    boot_display.draw_rejected_screen("Signing failed");
-                                    sound::beep_error(delay);
-                                    delay.delay_millis(2000);
-                                    needs_redraw = true;
-                                }
-                            }
-                            // Zeroize private key
-                            wallet::hmac::zeroize_buf(&mut privkey);
+                        } else {
+                            // Any other tap rolls to the hash. Back and home
+                            // are already filtered out before this handler
+                            // runs, in main.rs, so there is nothing else to
+                            // exclude.
+                            ad.app.state = crate::app::input::AppState::SignMsgHashPreview;
+                            needs_redraw = true;
                         }
                     }
                     crate::app::input::AppState::SignMsgHashPreview => {
                         if is_back {
-                            ad.app.state = crate::app::input::AppState::SignMsgChoice;
+                            // Rolls back to the text view for a file, since the
+                            // two are one screen pair. A scanned hash has no
+                            // text view to return to, so it keeps going out to
+                            // the choice screen as it always did.
+                            ad.app.state = if ad.sign_msg_from_file {
+                                crate::app::input::AppState::SignMsgPreview
+                            } else {
+                                crate::app::input::AppState::SignMsgChoice
+                            };
                             needs_redraw = true;
                         } else if (185..=225).contains(&y) && (100..=220).contains(&x) {
                             // SIGN button tapped — sign the raw hash (no SHA256)

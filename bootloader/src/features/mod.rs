@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-// features/mod.rs — Feature modules (stego, KRC-20, firmware verify, self-test)
-// features/ — Steganography, KRC-20, firmware update, NVS, verification
+// features/mod.rs — Feature modules (stego, firmware verify, self-test)
+// features/ — Steganography, firmware update, NVS, verification
 
 pub mod stego;
 // Traversal primitive for coefficient-domain stego. Not yet wired to
@@ -27,7 +27,6 @@ pub mod stego_perm;
 // export/import flow, and deciding whether it runs alongside the EXIF path
 // or instead of it, is a separate change.
 pub mod stego_dct;
-pub mod krc20;
 pub mod fw_update;
 pub mod verify;
 pub mod self_test;

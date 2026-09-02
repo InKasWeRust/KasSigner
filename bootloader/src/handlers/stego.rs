@@ -152,9 +152,18 @@ pub fn handle_stego_touch(
                             needs_redraw = true;
                         } else if page_up_zone.contains(x, y) && (ad.jpeg_selected) >= 4 {
                             (ad.jpeg_selected) = (ad.jpeg_selected).saturating_sub(4);
+                            // Both arrow arms moved `jpeg_selected` and neither
+                            // repainted, so the arrows appeared dead: the page
+                            // did change, the screen just never showed it, and
+                            // the new page only surfaced when an unrelated tap
+                            // set the flag and Back repainted the picker.
+                            // `StegoImportPick` at :796 is the same code with
+                            // the flag already present in both arms.
+                            needs_redraw = true;
                         } else if page_down_zone.contains(x, y) && ((ad.jpeg_selected) / 4 + 1) * 4 < (ad.jpeg_file_count) {
                             (ad.jpeg_selected) += 4;
                             if (ad.jpeg_selected) >= (ad.jpeg_file_count) { (ad.jpeg_selected) = (ad.jpeg_file_count) - 1; }
+                            needs_redraw = true;
                         } else {
                             let scroll = ((ad.jpeg_selected) / 4) * 4;
                             for slot in 0..4u8 {
@@ -626,6 +635,46 @@ pub fn handle_stego_touch(
                                             // the file's own SOF marker so they always agree
                                             // with the image.
                                             if app1_len == 0 && !picture_mode {
+                                                // SAFE ONLY BY ORDERING, and nothing
+                                                // here checks it.
+                                                //
+                                                // `generate_trng_nonce` returns ALL
+                                                // ZEROS when the RNG fails its health
+                                                // tests. With a zero `rnd` both draws
+                                                // below become constants:
+                                                // `SOFTWARE_TABLE[0]` every time, and
+                                                // `format_exif_datetime` yields
+                                                // 2019:01:01 06:00:00 every time. That
+                                                // is precisely the cross-artifact
+                                                // constant D-01 exists to remove, and
+                                                // it would come back silently: no
+                                                // refusal, no log, just every artifact
+                                                // a user ever exports sharing two
+                                                // fields.
+                                                //
+                                                // It cannot happen HERE because this
+                                                // block is inside
+                                                // `if let Ok(enc_len) = enc_result`,
+                                                // and that encrypt reaches
+                                                // `encrypt_v3`, which returns
+                                                // `EntropyUnavailable` on an all-zero
+                                                // salt or nonce from the same
+                                                // generators. A dead RNG aborts the
+                                                // export before reaching this line.
+                                                //
+                                                // So do not move this above the
+                                                // encrypt, and do not reach it from a
+                                                // path that builds an artifact without
+                                                // encrypting one. Either reinstates the
+                                                // constant with nothing to catch it.
+                                                //
+                                                // No second check added on purpose:
+                                                // the guard upstream is the right guard
+                                                // for the right reason, and a test here
+                                                // would be unreachable code that never
+                                                // gets exercised. Found 2026-09-02
+                                                // while tracing the seven callers of
+                                                // `generate_trng_nonce` for [D2].
                                                 let rnd = crate::handlers::sd::generate_trng_nonce();
                                                 let sw = stego::SOFTWARE_TABLE[
                                                     (rnd[6] as usize) % stego::SOFTWARE_TABLE.len()];
@@ -718,6 +767,8 @@ pub fn handle_stego_touch(
                                                         "Progressive JPEG",
                                                     crate::features::stego_dct::DctError::NoCapacity =>
                                                         "Photo too small",
+                                                    crate::features::stego_dct::DctError::TooLarge =>
+                                                        "Photo too large",
                                                     _ => "Stego encode failed",
                                                 })?;
                                                 log!("   [dct] embed {} B -> {} B in {} ms",
@@ -735,6 +786,19 @@ pub fn handle_stego_touch(
                                             Ok(())
                                         });
                                         boot_display.update_progress_bar(100);
+                                        // Every failure of this closure reaches
+                                        // the same screen, "JPEG write failed",
+                                        // because the caller only asks is_ok()
+                                        // and `with_sd_card` returns the
+                                        // closure's result unmodified without
+                                        // logging it. So the map_err arms above,
+                                        // and the plain SD errors, are all
+                                        // indistinguishable on the unit. Borrow
+                                        // rather than consume: nothing here may
+                                        // introduce a path that can panic.
+                                        if let Err(e) = &sd_result {
+                                            log!("   [stego] export refused: {}", e);
+                                        }
                                         if sd_result.is_ok() {
                                             (ad.stego_result_ok) = true;
                                             ad.app.state = crate::app::input::AppState::StegoResult;
@@ -965,84 +1029,76 @@ pub fn handle_stego_touch(
                                         if fsize > 2_000_000 { return Err("JPEG >2MB"); }
                                         let mut jpeg_buf = alloc::vec![0u8; fsize];
                                         let read_len = sdcard::read_file(ct, &fat32, &entry, &mut jpeg_buf)?;
-                                        // Carrier order is chosen by one bit of TRNG,
-                                        // not fixed.
+                                        // The user is never asked which carrier they used:
+                                        // they should not have to remember, and a wrong
+                                        // answer would be indistinguishable from a wrong
+                                        // password. A photo can also hold BOTH payloads,
+                                        // by design, since nothing in an export removes
+                                        // the other carrier and running both modes in turn
+                                        // is how a user gets redundancy against the two
+                                        // opposite risks, metadata stripping against
+                                        // recompression.
                                         //
-                                        // The user is never asked which carrier they
-                                        // used: they should not have to remember, and a
-                                        // wrong answer would be indistinguishable from a
-                                        // wrong password.
+                                        // BOTH carriers are read, always, and no coin.
                                         //
-                                        // WHY RANDOM RATHER THAN ALWAYS-EXIF-FIRST. A photo
-                                        // can hold BOTH payloads — nothing in an export
-                                        // removes the other carrier, by design, since
-                                        // running both modes in turn is how a user gets
-                                        // redundancy against the two opposite risks
-                                        // (metadata stripping vs recompression). With a
-                                        // fixed order, a photo carrying two different
-                                        // backups always returns the same one, silently,
-                                        // and the other is unreachable. Randomising the
-                                        // order makes both reachable across retries.
+                                        // The order was chosen by one bit of TRNG and the
+                                        // loop stopped at the first carrier that returned
+                                        // BYTES, not the first that DECRYPTED. A photo
+                                        // holding an old descriptor backup as well as a new
+                                        // coefficient one therefore failed half the time on
+                                        // a CORRECT descriptor: the stale payload won the
+                                        // toss, broke the loop, and the coefficient carrier
+                                        // was never tried. The user saw "Wrong password" on
+                                        // a good password and a good backup. Observed on
+                                        // hardware 2026-09-01.
                                         //
-                                        // This is deliberately asymmetric in the owner's
-                                        // favour, which is the whole point of the feature:
-                                        // the owner knows the photo carries a backup and
-                                        // can simply import again, while an attacker must
-                                        // rule out both carriers on every candidate photo
-                                        // without the descriptor.
+                                        // Reading both costs one coefficient decode, which
+                                        // is exactly what the coin already paid on average,
+                                        // and the outcome no longer depends on the RNG at
+                                        // all. The randomised order existed to make both
+                                        // payloads reachable ACROSS RETRIES; reading both
+                                        // makes them reachable in one pass, which is what
+                                        // that property was for.
                                         //
-                                        // Cost: when only one carrier holds data and the
-                                        // coin picks the other first, the import pays one
-                                        // wasted coefficient decode (~6 s on a 250 KB
-                                        // photo) before falling through.
-                                        //
-                                        // If the RNG health tests fail, `generate_trng_nonce`
-                                        // returns zeros and this degrades to Descriptor
-                                        // first, which is the previous behaviour: no worse,
-                                        // and it cannot fail closed on an import path whose
-                                        // job is to recover a seed.
-                                        let picture_first =
-                                            (crate::handlers::sd::generate_trng_nonce()[0] & 1) == 1;
-                                        let mut extracted = 0usize;
-                                        let mut from_picture = false;
+                                        // The two reads are not symmetric. The descriptor
+                                        // read is unkeyed and hands back whatever sits in
+                                        // the tag. The coefficient read is keyed by the
+                                        // descriptor through the permutation, so bytes from
+                                        // it already imply the descriptor is right. That
+                                        // asymmetry is why the decrypt below tries the
+                                        // coefficient payload first.
+                                        let picture_len = crate::features::stego_dct::extract(
+                                            &jpeg_buf[..read_len],
+                                            &pp_local[..pp_local_len],
+                                            &mut ad.import_exif_b64,
+                                        ).unwrap_or(0);
 
-                                        for attempt in 0..2u8 {
-                                            let try_picture = if attempt == 0 { picture_first } else { !picture_first };
-                                            if try_picture {
-                                                // The descriptor keys the permutation as
-                                                // well as the container, so a wrong
-                                                // descriptor yields a different walk and no
-                                                // payload — the same uniform failure as a
-                                                // wrong password everywhere else.
-                                                extracted = crate::features::stego_dct::extract(
-                                                    &jpeg_buf[..read_len],
-                                                    &pp_local[..pp_local_len],
-                                                    &mut ad.import_exif_b64,
-                                                ).unwrap_or(0);
-                                                if extracted > 0 { from_picture = true; }
-                                            } else if let Some((app1_off, app1_size)) =
-                                                stego::find_exif_app1(&jpeg_buf[..read_len], read_len)
-                                            {
-                                                let app1_end: usize =
-                                                    app1_off.checked_add(app1_size).unwrap_or(usize::MAX);
-                                                if app1_end > read_len { return Err("EXIF overflow"); }
-                                                extracted = stego::extract_user_comment(
+                                        let mut descriptor_len = 0usize;
+                                        if let Some((app1_off, app1_size)) =
+                                            stego::find_exif_app1(&jpeg_buf[..read_len], read_len)
+                                        {
+                                            let app1_end: usize =
+                                                app1_off.checked_add(app1_size).unwrap_or(usize::MAX);
+                                            // A malformed APP1 skips the descriptor carrier
+                                            // rather than aborting the import. It used to
+                                            // `return Err`, which threw away a perfectly
+                                            // good coefficient payload because the photo's
+                                            // metadata was damaged.
+                                            if app1_end <= read_len {
+                                                descriptor_len = stego::extract_user_comment(
                                                     &jpeg_buf[app1_off..app1_end],
                                                     app1_size,
-                                                    &mut ad.import_exif_b64);
+                                                    &mut ad.import_alt_b64);
                                             }
-                                            if extracted > 0 { break; }
                                         }
 
-                                        ad.import_exif_b64_len = extracted;
-                                        if extracted == 0 { return Err("no data"); }
-                                        // Which carrier produced the payload. Without this
-                                        // line a stale payload from the other carrier looks
-                                        // exactly like a correct import, which is how a
-                                        // wrong seed reached slot 1 unnoticed.
-                                        log!("   [stego] payload from {} ({} B)",
-                                            if from_picture { "picture" } else { "descriptor" },
-                                            extracted);
+                                        ad.import_exif_b64_len = picture_len;
+                                        ad.import_alt_b64_len = descriptor_len;
+                                        if picture_len == 0 && descriptor_len == 0 {
+                                            return Err("no data");
+                                        }
+                                        log!("   [stego] payload picture {} B, descriptor {} B",
+                                            picture_len, descriptor_len);
                                         Ok(())
                                     });
                                     boot_display.update_progress_bar(30);
@@ -1072,7 +1128,42 @@ pub fn handle_stego_touch(
                                     let mut hint_decoded = [0u8; 160];
                                     let mut hint_dec_len = 0usize;
 
-                                    if exif_ok.is_ok() && ad.import_exif_b64_len > 0 {
+                                    // Both carriers held a payload. Recorded before the
+                                    // loop overwrites the lengths, and used only to tell
+                                    // the user which one was used: with a single payload
+                                    // there is nothing to disambiguate.
+                                    let both_carriers =
+                                        ad.import_exif_b64_len > 0 && ad.import_alt_b64_len > 0;
+                                    let mut from_picture = true;
+
+                                    // Two candidates: the coefficient payload, then the
+                                    // descriptor one. Whichever DECRYPTS wins, rather than
+                                    // whichever happened to be read first.
+                                    //
+                                    // Coefficient first is deliberate. That walk is keyed by
+                                    // the descriptor, so bytes from it already imply the
+                                    // descriptor matches, while the metadata tag is handed
+                                    // to anyone. When both decrypt, the coefficient payload
+                                    // is the one this descriptor was proven against.
+                                    for cand in 0..2u8 {
+                                        if cand == 1 {
+                                            // Iteration 0 is finished with the coefficient
+                                            // payload, so the descriptor one moves into the
+                                            // buffer the block below reads. Arrays are Copy.
+                                            ad.import_exif_b64 = ad.import_alt_b64;
+                                            ad.import_exif_b64_len = ad.import_alt_b64_len;
+                                            from_picture = false;
+                                        }
+                                        if exif_ok.is_err() || ad.import_exif_b64_len == 0 {
+                                            continue;
+                                        }
+                                        // Fresh per candidate. These four live outside the
+                                        // loop, so without this a stale `dec_len` would
+                                        // re-decrypt the PREVIOUS payload's bytes, and a
+                                        // stale `hint_dec_len` would attach the previous
+                                        // candidate's recovery hint to this seed.
+                                        dec_len = 0;
+                                        hint_dec_len = 0;
                                         let payload_len = ad.import_exif_b64_len;
 
                                         if stego::is_legacy_b64_payload(&ad.import_exif_b64[..payload_len]) {
@@ -1152,6 +1243,30 @@ pub fn handle_stego_touch(
                                                         ad.pp_input.reset();
                                                         decrypt_ok = true;
 
+                                                        // Two payloads in one photo and only
+                                                        // one can be restored, so say which.
+                                                        // Silence here is how a stale backup
+                                                        // gets taken for the intended one.
+                                                        //
+                                                        // On the COMMON path deliberately.
+                                                        // The first cut sat in the no-hint
+                                                        // branch below and so never fired on
+                                                        // an import that carries a hint,
+                                                        // which is the case where it matters
+                                                        // most: that branch ends in a
+                                                        // passphrase screen and moves the
+                                                        // flow straight on.
+                                                        if both_carriers {
+                                                            boot_display.draw_notice_screen(
+                                                                "Photo holds two backups",
+                                                                if from_picture {
+                                                                    "Restored the picture one"
+                                                                } else {
+                                                                    "Restored the descriptor one"
+                                                                });
+                                                            delay.delay_millis(2500);
+                                                        }
+
                                                         // A pre-v3 artifact carries the shared
                                                         // salt, so one precomputed dictionary
                                                         // table attacks every one ever made. The
@@ -1198,9 +1313,13 @@ pub fn handle_stego_touch(
                                                 Err(_) => {}
                                             }
                                         }
+                                        if decrypt_ok { break; }
                                     }
 
-                                    // Uniform failure: no EXIF, bad data, wrong password — all same error
+                                    // Uniform failure: no payload, bad data, wrong password
+                                    // — all the same error. Note this is now reached only
+                                    // when BOTH carriers failed, so a correct descriptor no
+                                    // longer lands here because of a coin toss.
                                     if !decrypt_ok {
                                         boot_display.draw_rejected_screen("Wrong password");
                                         sound::beep_error(delay);

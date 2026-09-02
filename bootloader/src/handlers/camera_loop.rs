@@ -33,6 +33,24 @@ use esp_hal::dma::DmaRxBuf;
 extern crate alloc;
 use alloc::vec::Vec;
 
+/// Decoded QR payloads, version tag and bytes.
+///
+/// `Zeroizing` (K14): a decoded payload can be a SeedQR, and a SeedQR is a
+/// SINGLE frame, so this is the path it takes. The allocation is PSRAM and
+/// `esp-alloc` does not clear freed blocks, so a plain `Vec` left the seed
+/// preimage in external RAM after the drop.
+///
+/// M-09 established this for the multi-frame assembly buffer at
+/// `process_multiframe` and the reasoning is written there. It applies
+/// unchanged here, and to `DecodeOutcome::results` on the cross-core path,
+/// which had the same gap. `wipe_qr_buffers` never covered any of it: it
+/// clears `MF_BUF`, which is the multi-frame static, not these heap payloads.
+///
+/// An alias rather than a wrapper so `Drop` does the work at every site,
+/// including any added later. Explicit zeroize calls at the four production
+/// points and two consumers would leave the one that is forgotten silent.
+type DecodedPayloads = Vec<(u8, zeroize::Zeroizing<Vec<u8>>)>;
+
 /// Convert a hex ASCII byte to a nibble (0-15). Returns 0xFF on invalid input.
 #[inline]
 fn hex_nibble(b: u8) -> u8 {
@@ -50,9 +68,6 @@ static mut FN: u32 = 0;
 static mut DB_PTR: *mut u8 = core::ptr::null_mut();
 // CROP buffer in SRAM for fast display blit
 static mut CROP_BUF: [u8; 240*180] = [0u8; 240*180];
-static mut QR_LAST: [u8; 256] = [0u8; 256];
-static mut QR_LAST_LEN: usize = 0;
-static mut QR_CONSEC: u8 = 0;
 static mut QR_COOLDOWN: u32 = 0;
 static mut QR_FINDERS_BEEPED: bool = false;
 // Full-resolution escalation throttle: after a failed full-res pass,
@@ -174,21 +189,25 @@ static mut MF_LEN: usize = 0;
 static mut QR_FINDERS_ACTIVE: bool = false;
 #[cfg(feature = "waveshare")]
 static mut LAST_AVG: u32 = 128;
-#[cfg(feature = "waveshare")]
-const VOTE_SLOTS: usize = 4;
-#[cfg(feature = "waveshare")]
-const VOTE_THRESHOLD: u8 = 5;
-#[cfg(feature = "waveshare")]
-static mut QR_VOTES: [[u8; 32]; 4] = [[0u8; 32]; 4];
 
-/// Zero every buffer a scanned QR payload can land in (M-10).
+/// Zero the buffer a scanned QR payload can land in (M-10).
 ///
-/// `QR_LAST`, `MF_BUF` and `QR_VOTES` are the generic decode buffers, so a
-/// scanned SeedQR ends up in them: 48 or 96 decimal digits for a standard one,
-/// or 16/32 bytes of raw entropy for CompactSeedQR. They are `static mut`, so
-/// the payload persisted for the rest of the session with nothing to clear it.
-/// The re-entry reset set `QR_LAST_LEN = 0` but left the bytes, which hides the
-/// data from the code without removing it.
+/// `MF_BUF` is the multi-frame assembly buffer: fragments are copied into it at
+/// `process_multiframe` and read back out when the last frame arrives. It is
+/// `static mut`, so without this the payload persisted for the rest of the
+/// session with nothing to clear it.
+///
+/// This used to wipe `QR_LAST` and `QR_VOTES` as well, and claimed all three
+/// were "the generic decode buffers, so a scanned SeedQR ends up in them".
+/// Neither was ever written or read by anything: they were state belonging to
+/// the consecutive-match and dual-core vote filters, both replaced by the
+/// single-pass RS-verified accept, and left behind. Deleted 2026-09-01 ([K13]).
+/// Zeroing a buffer that is always zero is not a defence, and the comment
+/// saying otherwise was the reason nobody looked.
+///
+/// SINGLE-FRAME PAYLOADS DO NOT PASS THROUGH HERE. `rqrr_decode` decodes into a
+/// plain heap `Vec`, and that is what reaches `process_confirmed_qr` on the
+/// single-frame path, which is the path a SeedQR takes. See [K14].
 ///
 /// Called at two points: immediately after a decoded seed is handed to
 /// `AppData`, which is the moment it stops being needed, and on re-entry to the
@@ -198,35 +217,13 @@ static mut QR_VOTES: [[u8; 32]; 4] = [[0u8; 32]; 4];
 /// never read again.
 fn wipe_qr_buffers() {
     unsafe {
-        let p = core::ptr::addr_of_mut!(QR_LAST) as *mut u8;
-        for i in 0..QR_LAST.len() {
-            core::ptr::write_volatile(p.add(i), 0);
-        }
-        QR_LAST_LEN = 0;
-
         let m = core::ptr::addr_of_mut!(MF_BUF) as *mut u8;
         for i in 0..MF_BUF_SIZE {
             core::ptr::write_volatile(m.add(i), 0);
         }
-
-        // Waveshare-only: the vote buffers belong to the dual-core decode
-        // path. M5Stack uses the synchronous path and has none of them.
-        #[cfg(feature = "waveshare")]
-        {
-            let v = core::ptr::addr_of_mut!(QR_VOTES) as *mut u8;
-            for i in 0..(VOTE_SLOTS * 32) {
-                core::ptr::write_volatile(v.add(i), 0);
-            }
-        }
     }
     core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
 }
-#[cfg(feature = "waveshare")]
-static mut QR_VOTE_LENS: [u8; 4] = [0u8; 4];
-#[cfg(feature = "waveshare")]
-static mut QR_VOTE_COUNTS: [u8; 4] = [0u8; 4];
-#[cfg(feature = "waveshare")]
-static mut QR_VOTE_ACTIVE: usize = 0;
 
 /// Read SYSTIMER UNIT0 counter for timing (16MHz clock)
 /// Returns value in 16MHz ticks. Divide by 16000 for ms.
@@ -249,7 +246,7 @@ fn systick() -> u32 {
 /// SRAM working image, mirroring the core-1 worker's zero-copy recipe.
 #[cfg(feature = "m5stack")]
 #[inline(never)]
-fn rqrr_decode_inplace(gray: &mut [u8], w: usize, h: usize, denom: usize) -> (usize, Vec<(u8, Vec<u8>)>) {
+fn rqrr_decode_inplace(gray: &mut [u8], w: usize, h: usize, denom: usize) -> (usize, DecodedPayloads) {
     // STACK MARGIN, measured 2026-07-31: 12,380 bytes free at this point,
     // deterministic across frames (sp = 0x3FCC2CFC). main.rs records rqrr's
     // measured need after the heap-backing fix as ~4 KB for a 240x240 decode,
@@ -290,7 +287,7 @@ fn rqrr_decode_inplace(gray: &mut [u8], w: usize, h: usize, denom: usize) -> (us
             Ok(meta) => {
                 crate::app::stack_probe::report("after rqrr decode");
                 log!("   [rqrr] decoded V{} {} bytes", meta.version.0, out.len());
-                results.push((meta.version.0 as u8, out));
+                results.push((meta.version.0 as u8, zeroize::Zeroizing::new(out)));
             }
             Err(e) => {
                 crate::app::stack_probe::report("after rqrr decode (err)");
@@ -309,7 +306,7 @@ fn rqrr_decode_inplace(gray: &mut [u8], w: usize, h: usize, denom: usize) -> (us
 /// huge modules (interior of large black areas washes out at w/8).
 /// Uses decode_to() for raw bytes — critical for binary payloads (KSPT).
 #[inline(never)]
-fn rqrr_decode(gray: &[u8], w: usize, h: usize, denom: usize) -> (usize, Vec<(u8, Vec<u8>)>) {
+fn rqrr_decode(gray: &[u8], w: usize, h: usize, denom: usize) -> (usize, DecodedPayloads) {
     let t0 = systick();
     let mut img = rqrr::PreparedImage::prepare_from_greyscale_with_denom(w, h, denom, |x, y| {
         gray[y * w + x]
@@ -337,7 +334,7 @@ fn rqrr_decode(gray: &[u8], w: usize, h: usize, denom: usize) -> (usize, Vec<(u8
             Ok(meta) => {
                 crate::app::stack_probe::report("after rqrr decode");
                 log!("   [rqrr] decoded V{} {} bytes", meta.version.0, out.len());
-                results.push((meta.version.0 as u8, out));
+                results.push((meta.version.0 as u8, zeroize::Zeroizing::new(out)));
             }
             Err(e) => {
                 crate::app::stack_probe::report("after rqrr decode (err)");
@@ -461,6 +458,24 @@ fn check_immediate_tap(
 /// Process a decoded QR payload — routes to kaspa address, KSPT, SeedQR, kpub, KSFU handlers.
 /// Called for both cam_dma and DvpCamera paths after consecutive match confirmation.
 #[inline(never)]
+/// Can every output of `tx` be rendered as an address on the review screen?
+///
+/// E21. The gate itself is in `WalletApp::start_review`, which refuses to enter
+/// review when this is false; this just computes it. Kept next to the call
+/// sites rather than in `core` because it is a question about THIS device's
+/// screen, and `is_displayable_output_script` is the shared rule it asks.
+fn all_outputs_displayable(tx: &crate::wallet::transaction::Transaction) -> bool {
+    for i in 0..tx.num_outputs {
+        let spk = &tx.outputs[i].script_public_key;
+        if !crate::wallet::transaction::is_displayable_output_script(
+            &spk.script, spk.script_len)
+        {
+            return false;
+        }
+    }
+    true
+}
+
 fn process_confirmed_qr(
     data: &[u8],
     len: usize,
@@ -624,9 +639,23 @@ fn process_confirmed_qr(
                     ad.tx_sigs_required = required;
                     log!("   → KSPT v{}: {} in, {} out, sigs {}/{}",
                         pskt_version, ad.demo_tx.num_inputs, ad.demo_tx.num_outputs, present, required);
-                    ad.app.start_review(
+                    if !ad.app.start_review(
                         ad.demo_tx.num_outputs as u8,
-                        ad.demo_tx.num_inputs as u8);
+                        ad.demo_tx.num_inputs as u8,
+                        (0..ad.demo_tx.num_outputs)
+                            .any(|i| ad.demo_tx.outputs[i].has_covenant),
+                        all_outputs_displayable(&ad.demo_tx))
+                    {
+                        // E21: an output this screen cannot show. Refused
+                        // before review rather than at the confirm screen, and
+                        // `start_review` left the state untouched.
+                        boot_display.draw_tx_error_screen(
+                            "Unsupported script", "Output cannot be shown");
+                        sound::beep_error(delay);
+                        ad.leave_camera(crate::app::input::AppState::Rejected);
+                        ad.needs_redraw = false;
+                        return;
+                    }
                     // `start_review` sets ReviewTx itself; this is a camera exit and
                     // arms the guard like every other one (found by the fallback log).
                     ad.touch_guard.arm_camera_exit();
@@ -660,9 +689,23 @@ fn process_confirmed_qr(
                     log!("   → KSPT v{}: {} in, {} out{}",
                         pskt_version, ad.demo_tx.num_inputs, ad.demo_tx.num_outputs,
                         if hinted { " (45' hints)" } else { "" });
-                    ad.app.start_review(
+                    if !ad.app.start_review(
                         ad.demo_tx.num_outputs as u8,
-                        ad.demo_tx.num_inputs as u8);
+                        ad.demo_tx.num_inputs as u8,
+                        (0..ad.demo_tx.num_outputs)
+                            .any(|i| ad.demo_tx.outputs[i].has_covenant),
+                        all_outputs_displayable(&ad.demo_tx))
+                    {
+                        // E21: an output this screen cannot show. Refused
+                        // before review rather than at the confirm screen, and
+                        // `start_review` left the state untouched.
+                        boot_display.draw_tx_error_screen(
+                            "Unsupported script", "Output cannot be shown");
+                        sound::beep_error(delay);
+                        ad.leave_camera(crate::app::input::AppState::Rejected);
+                        ad.needs_redraw = false;
+                        return;
+                    }
                     // `start_review` sets ReviewTx itself; this is a camera exit and
                     // arms the guard like every other one (found by the fallback log).
                     ad.touch_guard.arm_camera_exit();
@@ -711,9 +754,21 @@ fn process_confirmed_qr(
                     ad.demo_tx.num_inputs, ad.demo_tx.num_outputs,
                     present, required,
                     ad.pskt_parsed.unknowns_count);
-                ad.app.start_review(
+                if !ad.app.start_review(
                     ad.demo_tx.num_outputs as u8,
-                    ad.demo_tx.num_inputs as u8);
+                    ad.demo_tx.num_inputs as u8,
+                    (0..ad.demo_tx.num_outputs)
+                        .any(|i| ad.demo_tx.outputs[i].has_covenant),
+                    all_outputs_displayable(&ad.demo_tx))
+                {
+                    // E21, as above.
+                    boot_display.draw_tx_error_screen(
+                        "Unsupported script", "Output cannot be shown");
+                    sound::beep_error(delay);
+                    ad.leave_camera(crate::app::input::AppState::Rejected);
+                    ad.needs_redraw = false;
+                    return;
+                }
                 // `start_review` sets ReviewTx itself; this is a camera exit and
                 // arms the guard like every other one (found by the fallback log).
                 ad.touch_guard.arm_camera_exit();
@@ -1039,6 +1094,29 @@ fn process_confirmed_qr(
             // different slot and describe a different wallet.
             match wallet::xpub::parse_kpub_parts_any(&data[..len]) {
                 Some(parts) => {
+                    // E1-fw: refuse a key already collected, at SCAN time.
+                    //
+                    // This loop fills the next empty slot and never compared
+                    // against what was already stored, so scanning the same
+                    // kpub twice built a 2-of-2 with one key in both slots. The
+                    // engine walks the pubkey list forward consuming one key
+                    // per signature, so [A, A] with M=2 is satisfied by sig_A
+                    // twice: a wallet that displays an ordinary P2SH address
+                    // and needs one signature.
+                    //
+                    // Refused here rather than at `build_script`, which also
+                    // catches it, because failing at the end of a five-key
+                    // ceremony with a generic message is a poor way to tell
+                    // someone they scanned the same card twice. `build_script`
+                    // stays as the backstop for descriptors that arrive
+                    // already formed.
+                    if ad.ms_creating.has_cosigner(&parts.pubkey, &parts.chain_code) {
+                        log!("   → kpub REFUSED: already added as a cosigner");
+                        boot_display.draw_rejected_screen("Key already added");
+                        sound::beep_error(delay);
+                        delay.delay_millis(1500);
+                        ad.needs_redraw = true;
+                    } else {
                     // Find the next empty slot
                     let mut ki: u8 = 0;
                     for i in 0..ad.ms_creating.n {
@@ -1081,6 +1159,7 @@ fn process_confirmed_qr(
                         ad.leave_camera(crate::app::input::AppState::MultisigAddKey { key_idx: next });
                     }
                     ad.needs_redraw = true;
+                    }
                 }
                 None => {
                     log!("   → kpub decode failed");
@@ -1468,7 +1547,6 @@ pub fn run_camera_cycle(
                 // Reset QR state when re-entering ScanQR
                 // (atomic swap = test-and-clear in one operation)
                 if crate::QR_RESET_FLAG.swap(false, core::sync::atomic::Ordering::Relaxed) {
-                    QR_CONSEC = 0;
                     QR_COOLDOWN = 0;
                     // Clears the bytes, not just the length (M-10).
                     wipe_qr_buffers();
@@ -1902,7 +1980,6 @@ pub fn run_camera_cycle(
                                     } else {
                                         QR_MISS_STREAK = 0;
                                     }
-                                    QR_CONSEC = 0;
                                     if o.grids == 0 { QR_FINDERS_BEEPED = false; }
                                 } else {
                                     // Escalation failed at o.denom.
@@ -1913,7 +1990,6 @@ pub fn run_camera_cycle(
                                     } else {
                                         ESC_PENDING = false;
                                         QR_ESC_COOLDOWN = 3;
-                                        QR_CONSEC = 0;
                                     }
                                 }
                                 } // gen check
@@ -2078,11 +2154,9 @@ pub fn run_camera_cycle(
                                         // the viewfinder crawls while the user
                                         // holds an undecodable frame.
                                         QR_ESC_COOLDOWN = 3;
-                                        QR_CONSEC = 0;
                                     }
                                 } else {
                                     if QR_ESC_COOLDOWN > 0 { QR_ESC_COOLDOWN -= 1; }
-                                    QR_CONSEC = 0;
                                     if grids == 0 { QR_FINDERS_BEEPED = false; }
                                 }
                             }
@@ -2481,7 +2555,6 @@ pub fn run_camera_cycle(
                                         QR_DENOM = if QR_DENOM == 8 { 3 } else { 8 };
                                         QR_DENOM_MISS = 0;
                                     }
-                                    QR_CONSEC = 0;
                                     if grids == 0 { QR_FINDERS_BEEPED = false; }
                                 }
                             }

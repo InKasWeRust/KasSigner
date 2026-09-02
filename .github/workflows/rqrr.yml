@@ -1,0 +1,70 @@
+# KasSigner : Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0
+#
+# rqrr_nostd: host build and the geometry/grid tests.
+#
+# WHY THIS EXISTS. Until 2026-09-01 no workflow touched this crate at all:
+# core.yml covers core/, fuzz.yml the fuzz targets, kassee-ci.yml the web side.
+# The crate carried six tests in geometry.rs that had never run in CI, and the
+# three added with E30 would have joined them. Those three are the only thing
+# standing between a malformed capture and an i32 overflow, which on device is
+# a panic, and a panic is key wipe and halt. A test nobody runs is not a test.
+#
+# The crate is `#![no_std]`, and that is not an obstacle on a host target:
+# no_std suppresses the std prelude, it does not stop a host build linking std
+# for the test harness. Verified on hardware-side 2026-09-01, 9 passed.
+#
+# The dev profile matters here rather than being incidental. `cargo test` runs
+# it, `overflow-checks` defaults to true in it, and that is exactly what makes
+# `size_estimate_does_not_trap` a real assertion instead of a comment: its
+# inputs panic on the pre-E30 arithmetic.
+name: rqrr CI
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "rqrr_nostd/**"
+      - ".github/workflows/rqrr.yml"
+  pull_request:
+    paths:
+      - "rqrr_nostd/**"
+      - ".github/workflows/rqrr.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rqrr_nostd
+    steps:
+      - uses: actions/checkout@v4
+      # 1.85.0, not stable: rqrr_nostd/rust-toolchain.toml pins it for the same
+      # reason core does. Without that file this job resolves the ROOT pin,
+      # channel = "esp", and fails on a runner that has no Xtensa toolchain.
+      - uses: dtolnay/rust-toolchain@1.85.0
+        with:
+          # The action installs no components by default, so the clippy step
+          # below fails with "'cargo-clippy' is not installed" without this.
+          # Build and test do not need it, which is why it only surfaced when
+          # clippy was added. core.yml has carried this line all along.
+          components: clippy
+      - name: Build (release, as the firmware consumes it)
+        run: cargo build --release
+      - name: Tests
+        # Dev profile on purpose: overflow-checks is on, which is what gives
+        # the E30 trap test its teeth.
+        run: cargo test
+
+      # Added 2026-09-02. Left out when this workflow was written because the
+      # crate is a vendored fork and could not be verified clean from the
+      # session that wrote it; a workflow red on its first run gets ignored.
+      # Run by hand first: seven errors, all three classes deliberate, now
+      # allowed at the crate root with their reasons. See rqrr_nostd/src/lib.rs.
+      - name: Clippy
+        # -A unknown_lints for the same reason core.yml gives: the allow list
+        # in lib.rs is read by both a stable clippy here and the esp toolchain
+        # in the firmware build, and neither must fail on a name the other one
+        # owns.
+        run: cargo clippy --all-targets -- -D warnings -A unknown_lints

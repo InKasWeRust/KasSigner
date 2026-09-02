@@ -391,6 +391,23 @@ fn generate_rfc6979_nonce(
     let k = bytes_to_scalar_reduce(&k_bytes);
     zeroize_buf(&mut k_bytes);
 
+    // `hmac_out` holds the same 32 bytes `k_bytes` just took, and was the one
+    // buffer in this function the M-06/H-05 pass missed: `aux`, `data` and
+    // `k_bytes` are wiped above, `d_scalar` and `k` are `Zeroizing`, and this
+    // was left live on the frame until return.
+    //
+    // Key-equivalent by the argument at the top of this file: `k` yields the
+    // private key from a released signature via `d = (s - k) * e^-1`. So a
+    // surviving copy of the nonce material is the private key with one
+    // subtraction, not merely sensitive.
+    //
+    // Volatile writes, so the wipe cannot be optimised away on a value the
+    // compiler can see is dead. This clears the named binding in SRAM; it makes
+    // no claim about register spills or copies inside `hmac_sha512`, which wipes
+    // its own `k_prime`, `ipad_key` and `opad_key`.
+    let mut hmac_out = hmac_out;
+    zeroize_buf(&mut hmac_out);
+
     // k cannot be zero
     if k.is_zero().into() {
         return Err(SchnorrError::InvalidNonce);

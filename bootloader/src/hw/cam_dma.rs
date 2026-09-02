@@ -161,8 +161,18 @@ pub fn start_capture() {
         PSRAM_OFF = 0;
         WRITE_IDX = 0;
 
-        let a = BOUNCE_A.as_ptr() as u32;
-        let b = BOUNCE_B.as_ptr() as u32;
+        // `addr_of!`, not `as_ptr()`. [S1]
+        //
+        // `<[u8; N]>::as_ptr` takes `&self`, so it forms a shared
+        // reference to the static and derives the pointer from it. A
+        // shared reference asserts the memory is NOT mutated while it
+        // lives, and the header above names exactly who mutates these:
+        // the GDMA engine, which is silicon and party to no such
+        // promise. Of these twelve sites, the six BOUNCE ones are the
+        // group where the reference was a false claim rather than
+        // merely a strong one. `addr_of!` never forms it.
+        let a = core::ptr::addr_of!(BOUNCE_A) as *const u8 as u32;
+        let b = core::ptr::addr_of!(BOUNCE_B) as *const u8 as u32;
         let d0 = core::ptr::addr_of!(DESCS[0]) as u32;
         let d1 = core::ptr::addr_of!(DESCS[1]) as u32;
 
@@ -197,7 +207,15 @@ pub fn poll_done() -> bool {
             if owner == 0 {
                 let len = ((DESCS[idx].dw0 >> 12) & 0xFFF) as usize;
                 if len > 0 && PSRAM_OFF + len <= FRAME_BYTES {
-                    let src = if idx == 0 { BOUNCE_A.as_ptr() } else { BOUNCE_B.as_ptr() };
+                    // See `start`: the engine may be writing the OTHER buffer
+                    // while this one is copied out, so no shared reference to
+                    // either is formed. The OWNER bit checked above is what
+                    // makes this one safe to read.
+                    let src = if idx == 0 {
+                        core::ptr::addr_of!(BOUNCE_A) as *const u8
+                    } else {
+                        core::ptr::addr_of!(BOUNCE_B) as *const u8
+                    };
                     core::ptr::copy_nonoverlapping(src, dst.add(PSRAM_OFF), len);
                     PSRAM_OFF += len;
                 }
@@ -218,7 +236,15 @@ pub fn poll_done() -> bool {
                 if owner == 0 {
                     let len = ((DESCS[idx].dw0 >> 12) & 0xFFF) as usize;
                     if len > 0 && PSRAM_OFF + len <= FRAME_BYTES {
-                        let src = if idx == 0 { BOUNCE_A.as_ptr() } else { BOUNCE_B.as_ptr() };
+                        // See `start`: the engine may be writing the OTHER buffer
+                        // while this one is copied out, so no shared reference to
+                        // either is formed. The OWNER bit checked above is what
+                        // makes this one safe to read.
+                        let src = if idx == 0 {
+                            core::ptr::addr_of!(BOUNCE_A) as *const u8
+                        } else {
+                            core::ptr::addr_of!(BOUNCE_B) as *const u8
+                        };
                         core::ptr::copy_nonoverlapping(src, dst.add(PSRAM_OFF), len);
                         PSRAM_OFF += len;
                     }
@@ -237,7 +263,10 @@ pub fn poll_done() -> bool {
             // Either way, reset offset for next frame into the (possibly same) write buffer
             PSRAM_OFF = 0;
 
-            if let Some(s) = STATE.as_mut() {
+            // `Option::as_mut` needs `&mut self`. Single context here,
+            // no concurrent writer of STATE, so this one is the claim
+            // being stronger than the code needs rather than a hazard.
+            if let Some(s) = (*core::ptr::addr_of_mut!(STATE)).as_mut() {
                 s.last_captured = captured;
                 if is_good { s.frame_ready = true; }
                 s.frame_count += 1;
@@ -256,7 +285,7 @@ pub fn poll_done() -> bool {
 /// Get the last completed frame (the one NOT being written to).
 pub fn get_frame() -> Option<&'static [u8]> {
     unsafe {
-        STATE.as_ref()
+        (*core::ptr::addr_of!(STATE)).as_ref()
             .filter(|s| s.frame_ready)
             .map(|_| {
                 let read_idx = WRITE_IDX ^ 1; // opposite of current write target
@@ -269,7 +298,7 @@ pub fn get_frame() -> Option<&'static [u8]> {
 /// For entropy mixing only — any pixel data is good randomness.
 pub fn get_frame_any() -> Option<&'static [u8]> {
     unsafe {
-        STATE.as_ref()
+        (*core::ptr::addr_of!(STATE)).as_ref()
             .filter(|s| s.last_captured > 0)
             .map(|s| {
                 let read_idx = WRITE_IDX ^ 1;
@@ -284,7 +313,7 @@ pub fn get_frame_any() -> Option<&'static [u8]> {
 /// so the write buffer is where the actual pixel data lives.
 pub fn get_entropy_bytes() -> Option<&'static [u8]> {
     unsafe {
-        STATE.as_ref()
+        (*core::ptr::addr_of!(STATE)).as_ref()
             .filter(|s| s.last_captured > 0)
             .map(|s| {
                 // Return the write buffer — this is where poll_done() copies partial data
@@ -318,8 +347,14 @@ pub fn stop() {
 
 pub fn log_status() {
     unsafe {
+        // Copied out first: `log!` formats its arguments BY REFERENCE,
+        // so passing the statics directly borrowed them. Both are
+        // `usize`, so this is a plain read, not a snapshot with any
+        // ordering meaning.
+        let off = PSRAM_OFF;
+        let widx = WRITE_IDX;
         crate::log!("   cam_dma: INT=0x{:08X} LINK=0x{:08X} CAM_CTRL1=0x{:08X} off={} widx={}",
-            rdv(GDMA_IN_INT_RAW), rdv(GDMA_IN_LINK), rdv(LCD_CAM_CAM_CTRL1), PSRAM_OFF, WRITE_IDX);
+            rdv(GDMA_IN_INT_RAW), rdv(GDMA_IN_LINK), rdv(LCD_CAM_CAM_CTRL1), off, widx);
     }
 }
 

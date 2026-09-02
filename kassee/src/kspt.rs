@@ -572,8 +572,14 @@ fn parse_descriptor_at(
         // spans digits, uppercase and lowercase, so 'Z' sorts before 't'.
         let inner = &desc[11..desc.len() - 1];
         let parts: Vec<&str> = inner.split(',').collect();
-        if parts.len() < 3 {
-            return Err("Need at least M and 2 cosigner kpubs".into());
+        // One entry is a legal descriptor. A 1-of-1 is `multi_hd45(1,<kpub>)`,
+        // which splits to two parts, and its redeem script is accepted by
+        // consensus and by the device. The real check is the M against N test
+        // further down; this guard only ensures there is at least one entry to
+        // read. It required two entries until v1.0.8, and the only shape that
+        // excluded was N=1.
+        if parts.len() < 2 {
+            return Err("Need at least M and one cosigner kpub".into());
         }
         let m: u8 = parts[0]
             .trim()

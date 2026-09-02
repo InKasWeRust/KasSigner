@@ -90,8 +90,15 @@ const SD_SALT: &[u8] = b"KasSigner-SD-v1";
 // rather than inferred (M-04). It is also the migration path for M-02: moving
 // to a memory-hard KDF is a new kdf_id, not a second format bump.
 //
-// Magic bytes 0x01 (seed), 0x02 (xprv and raw) and 0x03 (KSPT) are taken by
-// the legacy formats, which stay readable forever. 0x04 is the v3 container.
+// Magic bytes 0x01 (seed), 0x02 (xprv and raw) and 0x03 (legacy KSPT) are
+// taken by the legacy formats, which stay readable forever. 0x04 is the v3
+// container. 0x05 is DELIBERATELY SKIPPED and must stay unused: the KSPT wire
+// format in `core/wallet/pskt.rs` already uses 0x05 for a signed v4 payload,
+// and although the two namespaces never meet (container magic at file offset
+// 0, wire version inside the payload), that collision between the two "v3/v4"
+// schemes has already cost real debugging time. Container magics are kept
+// clear of wire versions from here. 0x06 is the KSPT container; the next free
+// one is 0x07, and the gap is intentional, not a lost format.
 
 /// v3 container magic.
 pub const V3_MAGIC: [u8; 4] = [b'K', b'A', b'S', 0x04];
@@ -124,6 +131,102 @@ pub const MAX_V3_PAYLOAD: usize = 120;
 
 /// Largest v3 container.
 pub const MAX_V3_CONTAINER: usize = V3_OVERHEAD + MAX_V3_PAYLOAD;
+
+// ─── KSPT container v1 ───────────────────────────────────────────────
+//
+// A second container rather than a fifth purpose of v3, because v3 cannot
+// carry this payload: `encrypt_v3` writes `len` as a single byte and rejects
+// anything over MAX_V3_PAYLOAD (120), while a KSPT runs to SIGNED_QR_BUF_LEN
+// (14,528). The legacy KAS\x03 KSPT header used a 2-byte length for exactly
+// that reason. `PURPOSE_KSPT` was declared for a v3 migration that was never
+// structurally possible; it is used HERE instead, so it stops being a
+// constant with no caller and a KSPT container can never produce the key of
+// a v3 container of any purpose, or the reverse.
+//
+//   off  size  field
+//   0    4     magic   "KAS\x06"
+//   4    1     version 1
+//   5    1     purpose 4 (PURPOSE_KSPT)
+//   6    1     kdf_id  1 = PBKDF2-HMAC-SHA256, 100_000 iterations
+//   7    2     len     plaintext length, u16 LE
+//   9    16    salt    per-file, from the TRNG
+//   25   12    nonce   per-file, from the TRNG
+//   37   len   ciphertext
+//   +len 16    GCM tag
+//
+// AAD is bytes 0..25, the whole header through the salt, one contiguous slice
+// exactly as v3 does it. The legacy AAD was six bytes, magic plus length,
+// binding neither a purpose nor a salt because it had neither.
+//
+// This closes M-01 on the last path that still carried it. The v3 container
+// closed it for seed, xprv and raw on 2026-08-02; KSPT kept the compile-time
+// KSPT_SALT, so one precomputed table broke every .KSP and .TXT on every
+// device. Note that path carries four artifact types, not just transactions:
+// SD_ORIGIN_ADDRESS, _KPUB, _DESCRIPTOR and _KSPT. A multisig descriptor at
+// N >= 2 is a second secret with no on-chain record and no recovery, which is
+// what made this worth fixing rather than shrugging at a public transaction.
+pub const KSPT_V1_MAGIC: [u8; 4] = [b'K', b'A', b'S', 0x06];
+
+/// Format version inside the KSPT container, distinct from the magic so a
+/// later revision does not have to spend another magic byte.
+pub const KSPT_V1_VERSION: u8 = 1;
+
+/// Offset of the `len` field.
+pub const KSPT_V1_LEN_OFF: usize = 7;
+
+/// Offset of the salt, and therefore the length of the AAD.
+pub const KSPT_V1_SALT_OFF: usize = 9;
+pub const KSPT_V1_HEADER_SIZE: usize = KSPT_V1_SALT_OFF + V3_SALT_SIZE;
+
+/// Offsets of the nonce and the ciphertext.
+pub const KSPT_V1_NONCE_OFF: usize = KSPT_V1_HEADER_SIZE;
+pub const KSPT_V1_CT_OFF: usize = KSPT_V1_NONCE_OFF + NONCE_SIZE;
+
+/// Bytes a KSPT v1 container adds to its plaintext.
+pub const KSPT_V1_OVERHEAD: usize = KSPT_V1_CT_OFF + TAG_SIZE;
+
+/// Legacy KAS\x03 KSPT layout: magic(4) + len(2) + nonce(12), then tag(16).
+/// Read-only from now on, and readable forever.
+pub const KSPT_LEGACY_LEN_OFF: usize = 4;
+pub const KSPT_LEGACY_CT_OFF: usize = 18;
+pub const KSPT_LEGACY_OVERHEAD: usize = KSPT_LEGACY_CT_OFF + TAG_SIZE;
+
+/// Nonce length, for callers that frame the container themselves.
+pub const KSPT_NONCE_SIZE: usize = NONCE_SIZE;
+/// GCM tag length, same reason.
+pub const KSPT_TAG_SIZE: usize = TAG_SIZE;
+
+/// Fail closed on dead randomness, the check `encrypt_v3` makes at line 271.
+///
+/// `crypto::entropy::fill` zeroes its output and returns an error when the
+/// hardware RNG fails its health tests, so `generate_trng_salt` and
+/// `generate_trng_nonce` both hand back all zeros. The KSPT path frames its
+/// own container and therefore never reached `encrypt_v3`, which is where
+/// that check lives. The comment on `generate_trng_nonce` claimed every write
+/// converged there. It did not, and this is the missing half.
+pub fn kspt_v1_entropy_ok(salt: &[u8], nonce: &[u8]) -> bool {
+    !salt.iter().all(|&b| b == 0) && !nonce.iter().all(|&b| b == 0)
+}
+
+/// Derive the KSPT container key: PBKDF2(password, per-file salt || purpose).
+///
+/// Calls `v3_derive_key`, so both containers share one derivation and one
+/// purpose namespace. Two files with the same password and the same salt
+/// still produce different keys when their purpose bytes differ, which is the
+/// property that closed M-03.
+pub fn kspt_v1_derive_key(
+    password: &[u8],
+    salt: &[u8; V3_SALT_SIZE],
+    progress: &mut dyn FnMut(u32, u32),
+) -> Result<[u8; 32], BackupError> {
+    // Propagated, not swallowed. This was `.unwrap_or([0u8; 32])` with a note
+    // that `kdf_id` is fixed here so the only error `v3_derive_key` can return
+    // is `UnsupportedKdf`, which this call cannot trigger. Both halves were
+    // true and the shape was still wrong: an unreachable error path that
+    // FAILS OPEN encrypts with an all-zero AES key, and the next person to add
+    // an error to `v3_derive_key` inherits that silently. Two call sites.
+    v3_derive_key(password, salt, PURPOSE_KSPT, KDF_PBKDF2_SHA256_100K, progress)
+}
 
 
 /// PBKDF2 iterations for SD backup key derivation.

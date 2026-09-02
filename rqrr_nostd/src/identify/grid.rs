@@ -251,6 +251,44 @@ where
     count
 }
 
+/// Expected pixel area of the alignment pattern: twice the triangle area
+/// spanned by the seed and the two guessed corners, as a cross product.
+///
+/// SATURATING, and the reason is the clamp at the call site rather than this
+/// function. Every operand is i32 and the whole expression runs BEFORE
+/// `size_estimate.min(diag * diag)`. Under `overflow-checks = true` an
+/// overflow is a panic, and a panic on this device is key wipe and halt.
+/// `rqrr` is a path dependency of the bootloader, so the binary's release
+/// profile governs this crate too.
+///
+/// Two independent routes reach it, and neither needs exotic geometry.
+/// `align_seed` comes from `line_intersect`, which divides by a determinant
+/// that can be 1, so a seed two orders of magnitude outside the image is
+/// ordinary. And `Perspective::map` saturates its float-to-i32 cast by design,
+/// see the K-F note in `geometry.rs`, so `a` and `c` can sit at the i32 bounds
+/// when the perspective is near-degenerate. Either way the product overflows
+/// long before the geometry looks unusual: two differences of 46,341 are
+/// already past i32.
+///
+/// Saturating rather than widening to i64, because the result feeds straight
+/// into that clamp: a saturated value and a merely huge one land on the same
+/// bound. Widening would not settle it anyway, since two full-range i32
+/// differences multiply past i64 as well.
+///
+/// Split out of `find_alignment_pattern` so it can be tested without building
+/// a `PreparedImage`. `cargo test` uses the dev profile, where
+/// `overflow-checks` defaults to true, so the tests below fail on the previous
+/// version of this arithmetic and pass on this one.
+fn alignment_size_estimate(a: &Point, c: &Point, seed: &Point) -> usize {
+    let dx_a = a.x.saturating_sub(seed.x);
+    let dy_a = a.y.saturating_sub(seed.y);
+    let dx_c = c.x.saturating_sub(seed.x);
+    let dy_c = c.y.saturating_sub(seed.y);
+    dx_a.saturating_mul(dy_c.saturating_neg())
+        .saturating_add(dy_a.saturating_mul(dx_c))
+        .unsigned_abs() as usize
+}
+
 fn find_alignment_pattern<S>(
     img: &mut PreparedImage<S>,
     mut align_seed: Point,
@@ -267,9 +305,8 @@ where
     let a = c0.c.map(u, v + 1.0);
     let (u, v) = c2.c.unmap(&align_seed);
     let c = c2.c.map(u + 1.0, v);
-    let size_estimate = ((a.x - align_seed.x) * -(c.y - align_seed.y)
-        + (a.y - align_seed.y) * (c.x - align_seed.x))
-        .unsigned_abs() as usize;
+    // Saturating, and bounded again by the clamp below. See the function.
+    let size_estimate = alignment_size_estimate(&a, &c, &align_seed);
 
     /* Spiral outwards from the estimate point until we find something
      * roughly the right size. Don't look too far from the estimate
@@ -523,4 +560,89 @@ where
     fitness_cell(img, perspective, x + 3, y + 3) + fitness_ring(img, perspective, x + 3, y + 3, 1)
         - fitness_ring(img, perspective, x + 3, y + 3, 2)
         + fitness_ring(img, perspective, x + 3, y + 3, 3)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What the arithmetic is supposed to compute, in a width that cannot
+    /// overflow for these inputs. The reference for the agreement test.
+    fn reference(a: &Point, c: &Point, seed: &Point) -> i64 {
+        let dx_a = a.x as i64 - seed.x as i64;
+        let dy_a = a.y as i64 - seed.y as i64;
+        let dx_c = c.x as i64 - seed.x as i64;
+        let dy_c = c.y as i64 - seed.y as i64;
+        dx_a * -dy_c + dy_a * dx_c
+    }
+
+    fn p(x: i32, y: i32) -> Point {
+        Point { x, y }
+    }
+
+    /// Deterministic coordinates inside a 480x480 frame, the size
+    /// `camera_loop` feeds. A free function rather than a closure so the
+    /// sweep below borrows nothing across its calls.
+    fn lcg(st: &mut u32) -> i32 {
+        *st = st.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        ((*st >> 16) % 481) as i32
+    }
+
+    #[test]
+    fn size_estimate_agrees_on_camera_geometry() {
+        // The half that matters: the fix must not change a real decode. A
+        // deterministic sweep inside a 480x480 frame, the size camera_loop
+        // feeds, where nothing can overflow and the answer must be exact.
+        let mut st: u32 = 0x0E30_1234;
+        let mut checked = 0u32;
+        for _ in 0..20_000 {
+            let a = p(lcg(&mut st), lcg(&mut st));
+            let c = p(lcg(&mut st), lcg(&mut st));
+            let s = p(lcg(&mut st), lcg(&mut st));
+            let want = reference(&a, &c, &s).unsigned_abs() as usize;
+            assert_eq!(alignment_size_estimate(&a, &c, &s), want, "a {:?} c {:?} s {:?}", a, c, s);
+            checked += 1;
+        }
+        assert_eq!(checked, 20_000);
+    }
+
+    #[test]
+    fn size_estimate_does_not_trap() {
+        // Every one of these panicked on the previous arithmetic. `cargo test`
+        // runs the dev profile, where overflow-checks defaults to true, so
+        // reaching the end of this test IS the assertion.
+        //
+        // The values are not arbitrary. `Perspective::map` saturates its
+        // float-to-i32 cast, so i32::MAX and i32::MIN are reachable corners;
+        // 46,341 squared is the smallest ordinary-looking pair whose product
+        // passes i32; 200,000,000 is the scale `line_intersect` reaches when
+        // its determinant is 1.
+        let cases = [
+            (p(i32::MAX, 0), p(0, 0), p(-1, 0)),
+            (p(46_341, 0), p(0, 46_341), p(0, 0)),
+            (p(0, 0), p(0, 11), p(200_000_000, 0)),
+            // Difference of exactly i32::MIN: the unary negation traps here on
+            // its own, independently of either multiply.
+            (p(0, 0), p(0, i32::MIN), p(0, 0)),
+            (p(i32::MAX, i32::MAX), p(i32::MIN, i32::MIN), p(0, 0)),
+            (p(i32::MIN, i32::MIN), p(i32::MAX, i32::MAX), p(i32::MAX, i32::MIN)),
+        ];
+        for (a, c, s) in cases.iter() {
+            let _ = alignment_size_estimate(a, c, s);
+        }
+    }
+
+    #[test]
+    fn size_estimate_is_orientation_independent() {
+        // A cross product changes sign with the winding order and the caller
+        // takes the magnitude, so the estimate must not depend on which way
+        // round the two corners are.
+        let a = p(300, 120);
+        let c = p(140, 260);
+        let s = p(100, 100);
+        assert_eq!(
+            alignment_size_estimate(&a, &c, &s),
+            alignment_size_estimate(&c, &a, &s)
+        );
+    }
 }

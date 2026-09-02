@@ -215,6 +215,28 @@ pub struct FirmwareInfo {
     pub version_minor: u8,
     pub version_patch: u8,
     pub expected_hash: [u8; 32],
+    /// Lowest version this image will accept for ITSELF. A build-configuration
+    /// assertion, not anti-rollback.
+    ///
+    /// Both sides of the comparison come from this same image: the version from
+    /// `crate::version`, the floor from the constant in `new()`. An older signed
+    /// release carries its own consistent pair and boots normally, so nothing
+    /// here prevents a downgrade and nothing could, since the check ships inside
+    /// the code being replaced.
+    ///
+    /// Real rollback protection is the `SECURE_VERSION` eFuse, 16 bits used as a
+    /// thermometer counter, so 16 increments for the life of a chip. Reaching it
+    /// needs an ESP-IDF bootloader built with CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK
+    /// and an `esp_app_desc_t` in the image that a bare-metal Rust build does not
+    /// emit, so it is a change of app format rather than a change here.
+    ///
+    /// Deliberately not done. Secure Boot already stops an unsigned or foreign
+    /// build from running, the residual risk is only a legitimately signed older
+    /// release being reflashed, and unsigned dev builds running on unburned
+    /// hardware is intended: the source is public and a user loading whatever
+    /// version they want on their own device is the design, not a gap.
+    ///
+    /// At 100 against a real version of 10005 this has never fired and cannot.
     pub min_version: u32,
 }
 
@@ -250,13 +272,13 @@ pub fn verify_firmware(
         let canary_pre = CANARY_PRE_VERIFY;
         compiler_fence(Ordering::SeqCst);
 
-        // ── Stage 2: Anti-rollback ──────────────────────────────
+        // ── Stage 2: Version floor ──────────────────────────────
         let current_version = self.version_as_number();
         if current_version < self.min_version {
-            log!("   FAIL: Version {} < minimum {}", current_version, self.min_version);
+            log!("   FAIL: Version {} below floor {}", current_version, self.min_version);
             return VerificationResult::VersionTooOld;
         }
-        log!("   Version {} >= minimum {} OK", current_version, self.min_version);
+        log!("   Version {} >= floor {} OK", current_version, self.min_version);
         flow::step(flow::TAG_ANTI_ROLLBACK); // STAGE 2
 
         // ════════════════════════════════════════════════════════

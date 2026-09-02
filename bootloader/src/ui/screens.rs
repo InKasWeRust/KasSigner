@@ -165,7 +165,7 @@ impl<'a> BootDisplay<'a> {
             .draw(&mut self.display).ok();
         let sd_icon = size24px::docs::Page::new(KASPA_TEAL);
         Image::new(&sd_icon, Point::new(start_x + 6, r1_y + 9)).draw(&mut self.display).ok();
-        draw_lato_title(&mut self.display, "Load .TXT from SD", start_x + 42, r1_y + 28, COLOR_TEXT);
+        draw_lato_title(&mut self.display, "Load file from SD", start_x + 42, r1_y + 28, COLOR_TEXT);
 
         let r2_y = r1_y + card_h + card_gap;
         let r2 = Rectangle::new(Point::new(start_x, r2_y), Size::new(card_w, card_h as u32));
@@ -181,7 +181,30 @@ impl<'a> BootDisplay<'a> {
     }
 
     /// Draw sign message preview — show message text + SIGN button
-    pub fn draw_sign_msg_preview(&mut self, message: &str) {
+    /// Text view of the message about to be signed.
+    ///
+    /// An AID, not the verification. It shows about sixty characters of a file
+    /// that may be 256 KB, so it cannot be what the user checks. The trust is
+    /// the digest on `draw_sign_hash_preview`, which is why SIGN lives there
+    /// and not here.
+    ///
+    /// Takes bytes rather than `&str` on purpose. The old signature forced the
+    /// caller to run `from_utf8(..).unwrap_or("")`, so a file that was not
+    /// valid UTF-8 arrived as an empty string and drew a blank screen with a
+    /// live SIGN button under it.
+    ///
+    /// Iterates characters instead of slicing bytes. `&message[start..end]` on
+    /// fixed 20-byte boundaries panics the moment a multi-byte character
+    /// straddles one, and panic on this device is wipe and halt. Typed
+    /// messages are ASCII so they never hit it; an SD file with one accented
+    /// character does.
+    ///
+    /// Anything outside the font draws as a filled block. The eight fonts in
+    /// `prop_fonts.rs` are all 95 glyphs, 0x20 to 0x7E, so `n~` and an emoji
+    /// are equally undrawable. A space or a `?` would be wrong here because
+    /// both can occur in the file, making the substitution ambiguous; a block
+    /// cannot be typed and cannot appear, so it is unmistakably "not shown".
+    pub fn draw_sign_msg_preview(&mut self, msg: &[u8], text_ext: bool) {
         self.clear_keep_nav();
         let tw = measure_header("SIGN MESSAGE");
         draw_oswald_header(&mut self.display, "SIGN MESSAGE", (320 - tw) / 2, 28, KASPA_TEAL);
@@ -189,53 +212,122 @@ impl<'a> BootDisplay<'a> {
             .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
             .draw(&mut self.display).ok();
 
-        // Message text — white, title font, up to 3 lines ~20 chars each
-        let msg_bytes = message.as_bytes();
-        let chars_per_line: usize = 20;
-        for line_idx in 0..3u8 {
-            let start = line_idx as usize * chars_per_line;
-            if start >= msg_bytes.len() { break; }
-            let end = (start + chars_per_line).min(msg_bytes.len());
-            let line = &message[start..end];
-            let row_y = 48 + line_idx as i32 * 26;
-            let lw = measure_title(line);
-            draw_lato_title(&mut self.display, line, (320 - lw) / 2, row_y + 20, COLOR_TEXT);
-        }
-        if msg_bytes.len() > chars_per_line * 3 {
-            let tw2 = measure_body("...");
-            draw_lato_body(&mut self.display, "...", (320 - tw2) / 2, 128, COLOR_TEXT_DIM);
+        // Extension decides whether a preview is attempted; content decides
+        // what comes out of it. A file claiming to be text and failing to be
+        // text gets the same line as a binary, because a screen full of blocks
+        // is not something the user should have to interpret.
+        let text = if text_ext {
+            match core::str::from_utf8(msg) {
+                Ok(s) => Some(s),
+                // Truncated mid-character is still previewable up to the cut.
+                // `from_utf8(msg).ok()` on the whole slice returned None for a
+                // perfectly good text file that happened to be clipped at a
+                // buffer boundary, and the user was told "No preview
+                // available" about a file the device could read.
+                Err(e) if e.valid_up_to() > 0 => {
+                    core::str::from_utf8(&msg[..e.valid_up_to()]).ok()
+                }
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
+        match text {
+            None => {
+                let w = measure_title("No preview available");
+                draw_lato_title(&mut self.display, "No preview available",
+                                (320 - w) / 2, 74, COLOR_TEXT_DIM);
+            }
+            Some(text) => {
+                const PER_LINE: usize = 20;
+                const BLOCK_W: i32 = 9;
+                const BLOCK_H: u32 = 13;
+                let mut chars = text.chars().peekable();
+                let mut consumed = 0usize;
+                for line_idx in 0..3i32 {
+                    // A row ends at PER_LINE characters or at a newline,
+                    // whichever comes first.
+                    //
+                    // `\n` breaks the row instead of drawing a block. It is
+                    // still hashed and still covered by the signature; the block
+                    // convention is for bytes that cannot be SHOWN, and a line
+                    // break can be shown, by breaking the line. Drawing it as a
+                    // square would put one after every line of a real document.
+                    // `\r` is dropped for the same reason, so a CRLF file does
+                    // not gain a square per line. Every other byte outside
+                    // 0x20..=0x7E stays a block, because it carries content the
+                    // font cannot render and hiding it would be the silent
+                    // truncation this screen exists to stop.
+                    let mut line = ['\0'; PER_LINE];
+                    let mut n = 0usize;
+                    while n < PER_LINE {
+                        match chars.next() {
+                            Some('\n') => { consumed += 1; break; }
+                            Some('\r') => { consumed += 1; }
+                            Some(c) => { line[n] = c; n += 1; consumed += 1; }
+                            None => break,
+                        }
+                    }
+                    // A blank line in the file gives an empty row, so an empty
+                    // row is not the end of the text. Stop only when the
+                    // iterator is actually exhausted.
+                    if n == 0 && chars.peek().is_none() { break; }
+                    let line = &line[..n];
+
+                    // Measured first so the row can be centred: it can mix
+                    // proportional glyphs with fixed-width blocks, so its width
+                    // is not a function of its length.
+                    let mut width = 0i32;
+                    let mut cbuf = [0u8; 4];
+                    for &c in line.iter() {
+                        width += if (c as u32) >= 0x20 && (c as u32) <= 0x7E {
+                            measure_title(c.encode_utf8(&mut cbuf))
+                        } else {
+                            BLOCK_W + 1
+                        };
+                    }
+
+                    let row_y = 48 + line_idx * 26;
+                    let mut x = (320 - width) / 2;
+                    for &c in line.iter() {
+                        if (c as u32) >= 0x20 && (c as u32) <= 0x7E {
+                            let g = c.encode_utf8(&mut cbuf);
+                            draw_lato_title(&mut self.display, g, x, row_y + 20, COLOR_TEXT);
+                            x += measure_title(g);
+                        } else {
+                            Rectangle::new(Point::new(x, row_y + 20 - BLOCK_H as i32),
+                                           Size::new(BLOCK_W as u32, BLOCK_H))
+                                .into_styled(PrimitiveStyle::with_fill(COLOR_TEXT_DIM))
+                                .draw(&mut self.display).ok();
+                            x += BLOCK_W + 1;
+                        }
+                    }
+                }
+                // Counts characters CONSUMED, not drawn: a newline advances
+                // the text without occupying a cell, so counting drawn cells
+                // would under-count and show an ellipsis on a file that is in
+                // fact fully displayed.
+                // Something left that would actually RENDER, not merely
+                // something left. A file whose last displayed row is exactly
+                // PER_LINE characters followed by a trailing newline has one
+                // character remaining and nothing to show, and this drew an
+                // ellipsis promising more.
+                if text.chars().skip(consumed).any(|c| !matches!(c, '\n' | '\r')) {
+                    let tw2 = measure_body("...");
+                    draw_lato_body(&mut self.display, "...", (320 - tw2) / 2, 128, COLOR_TEXT_DIM);
+                }
+            }
         }
 
-        // SHA256 hash preview — orange, body font
-        let msg_hash = wallet::hmac::sha256(&msg_bytes[..msg_bytes.len().min(128)]);
-        let hex_chars = b"0123456789abcdef";
-        let mut hash_buf = [0u8; 24]; // "SHA256: xxxxxxxx..."
-        hash_buf[0..8].copy_from_slice(b"SHA256: ");
-        for i in 0..6 {
-            hash_buf[8 + i * 2] = hex_chars[(msg_hash[i] >> 4) as usize];
-            hash_buf[8 + i * 2 + 1] = hex_chars[(msg_hash[i] & 0x0f) as usize];
-        }
-        hash_buf[20] = b'.';
-        hash_buf[21] = b'.';
-        hash_buf[22] = b'.';
-        hash_buf[23] = b' ';
-        let hash_str = core::str::from_utf8(&hash_buf[..23]).unwrap_or("???");
-        let hw = measure_body(hash_str);
-        draw_lato_body(&mut self.display, hash_str, (320 - hw) / 2, 155, COLOR_ORANGE);
+        // Where the SHA-256 line used to be. It is a hint now because the hash
+        // is on the next screen in full, all 64 characters, rather than the
+        // first twelve with an ellipsis.
+        let hw = measure_hint("Tap to view hash");
+        draw_lato_hint(&mut self.display, "Tap to view hash", (320 - hw) / 2, 155, COLOR_HINT);
 
-        // SIGN button (centered, teal)
-        let btn_w: u32 = 140;
-        let btn_h: u32 = 36;
-        let btn_x: i32 = (320 - btn_w as i32) / 2;
-        let btn_y: i32 = 185;
-        let btn_rect = Rectangle::new(Point::new(btn_x, btn_y), Size::new(btn_w, btn_h));
-        let btn_corner = CornerRadii::new(Size::new(8, 8));
-        RoundedRectangle::new(btn_rect, btn_corner)
-            .into_styled(PrimitiveStyle::with_fill(KASPA_TEAL))
-            .draw(&mut self.display).ok();
-        let lw = measure_title("SIGN");
-        draw_lato_title(&mut self.display, "SIGN", btn_x + (btn_w as i32 - lw) / 2, btn_y + 26, COLOR_BG);
-
+        // No SIGN button. It is on draw_sign_hash_preview, next to the full
+        // digest, so nothing can be signed from a sixty-character view of it.
     }
 
     /// Draw sign hash preview — show 32-byte hash hex + SIGN button (for QR-scanned hash)
@@ -475,20 +567,31 @@ pub fn draw_tx_page(&mut self, tx: &crate::wallet::transaction::Transaction, pag
             let w = measure_body(info_text.as_str());
             draw_lato_body(&mut self.display, info_text.as_str(), (320 - w) / 2, 156, COLOR_TEXT);
 
-            // KRC-20 token detection
-            let krc20 = crate::features::krc20::detect_krc20(tx);
-            if krc20.detected {
-                let mut token_text = heapless::String::<48>::new();
-                write!(&mut token_text, "KRC-20 {} {}", krc20.op_str(), krc20.ticker_str()).ok();
-                let w = measure_title(token_text.as_str());
-                draw_lato_title(&mut self.display, token_text.as_str(), (320 - w) / 2, 182, COLOR_ORANGE);
-                if krc20.amount_len > 0 {
-                    let mut amt_text = heapless::String::<40>::new();
-                    write!(&mut amt_text, "Amount: {}", krc20.amount_str()).ok();
-                    let w = measure_body(amt_text.as_str());
-                    draw_lato_body(&mut self.display, amt_text.as_str(), (320 - w) / 2, 200, KASPA_ACCENT);
-                }
-            }
+            // KRC-20 token detection was drawn here, at y=182 and y=200, and
+            // is removed rather than repaired.
+            //
+            // It could never show a true result. Nothing in this project can
+            // build a KRC-20 transaction: KasSee reads token balances from the
+            // Kasplex indexer and has no write path, and the WASM crate
+            // contains no deploy, mint or transfer. So the banner had no
+            // legitimate producer and never had a true positive.
+            //
+            // What it did have was a way to be wrong. The gate was a
+            // case-insensitive substring search for "krc-20" anywhere in the
+            // buffer, and the three fields were then found by scanning from
+            // byte zero for the FIRST "op", "tick" and "amt", each searched
+            // independently, with nothing tying them to each other or to the
+            // marker. `detected` was set by a non-empty ticker alone. A
+            // crafted payload therefore painted "KRC-20 TRANSFER <ticker>" in
+            // orange over a plain send, and since only a transaction built
+            // outside this project's tooling could reach the code at all,
+            // every firing was foreign or hostile input by construction.
+            //
+            // A warning that has never been true, cannot currently be true,
+            // and can be made false on demand is not a warning. KRC-20 is also
+            // on its way out in favour of KCC-20, so the structural parser
+            // this would otherwise need would be written for a dying format.
+            // Removed 2026-08-30, with `features/krc20.rs`.
 
             // Multisig detection: check first input for multisig script
             use crate::wallet::transaction::{detect_script_type, ScriptType, parse_multisig_script};
@@ -2099,6 +2202,93 @@ pub fn draw_home_grid(&mut self) {
     /// is possible: a P2SH input can be a covenant spend whose OUTPUTS are
     /// plain. The label falls back to the script type in that case rather
     /// than inventing an identity.
+    /// Covenant bindings, in full, on their own screen.
+    ///
+    /// Sits between the last review page and CONFIRM, and only exists when the
+    /// transaction carries a binding. E19: `sighash.rs:430` folds
+    /// `covenant_auth_input` and `covenant_id` into the digest for EVERY
+    /// covenanted output, up to MAX_OUTPUTS of eight, while the confirm screen
+    /// showed the first one and never showed an auth input at all. Up to seven
+    /// identities were signed and never displayed.
+    ///
+    /// The in-code justification for showing one was that a transaction
+    /// spending several covenants at once "is not a shape this device
+    /// constructs". True, and beside the point: the device does not construct
+    /// the transaction, it signs what a coordinator sends, and other cov++
+    /// wallets exist.
+    ///
+    /// A dedicated screen rather than a longer confirm line. The confirm line
+    /// is at its measured width already, 29 characters, with 8+8 bytes recorded
+    /// as running off the right edge at 37. Here there is room for the whole
+    /// 64-hex id when there is one binding, and for a row per binding when
+    /// there are more.
+    pub fn draw_covenant_bindings(&mut self, ids: &[[u8; 32]], auths: &[u16],
+                                  out_idx: &[u8], count: usize) {
+        self.clear_keep_nav();
+        // Function-local, matching the five other sites in this file rather
+        // than adding a file-level import.
+        use core::fmt::Write;
+        const HX: &[u8; 16] = b"0123456789abcdef";
+
+        let mut hdr: heapless::String<24> = heapless::String::new();
+        if count == 1 {
+            let _ = hdr.push_str("COVENANT BINDING");
+        } else {
+            let _ = write!(&mut hdr, "{} BINDINGS", count);
+        }
+        let tw = measure_header(&hdr);
+        draw_oswald_header(&mut self.display, &hdr, (320 - tw) / 2, 30,
+                           if count > 1 { COLOR_ORANGE } else { COLOR_TEXT });
+        Line::new(Point::new(20, 40), Point::new(300, 40))
+            .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
+            .draw(&mut self.display).ok();
+
+        if count == 1 {
+            // One binding, so the whole identity fits: 64 hex over two rows of
+            // 32, plus the output it lands on and the input that authorises it.
+            let mut l1: heapless::String<32> = heapless::String::new();
+            let mut l2: heapless::String<32> = heapless::String::new();
+            for (n, b) in ids[0].iter().enumerate() {
+                let t = if n < 16 { &mut l1 } else { &mut l2 };
+                let _ = t.push(HX[(b >> 4) as usize] as char);
+                let _ = t.push(HX[(b & 0x0F) as usize] as char);
+            }
+            let w1 = measure_body(&l1);
+            draw_lato_body(&mut self.display, &l1, (320 - w1) / 2, 72, COLOR_ORANGE);
+            let w2 = measure_body(&l2);
+            draw_lato_body(&mut self.display, &l2, (320 - w2) / 2, 94, COLOR_ORANGE);
+
+            let mut meta: heapless::String<40> = heapless::String::new();
+            let _ = write!(&mut meta, "output {}  auth input {}", out_idx[0], auths[0]);
+            let mw = measure_body(&meta);
+            draw_lato_body(&mut self.display, &meta, (320 - mw) / 2, 124, COLOR_TEXT);
+        } else {
+            // Several. One row each, head and tail of the id so an attacker
+            // grinding a match has to hit both ends, plus output and auth.
+            // MAX_OUTPUTS is 8, and 8 rows of 22 px clear the nav band.
+            for i in 0..count.min(8) {
+                let mut row: heapless::String<40> = heapless::String::new();
+                let _ = write!(&mut row, "o{} i{} ", out_idx[i], auths[i]);
+                for b in &ids[i][..4] {
+                    let _ = row.push(HX[(b >> 4) as usize] as char);
+                    let _ = row.push(HX[(b & 0x0F) as usize] as char);
+                }
+                let _ = row.push_str("..");
+                for b in &ids[i][28..] {
+                    let _ = row.push(HX[(b >> 4) as usize] as char);
+                    let _ = row.push(HX[(b & 0x0F) as usize] as char);
+                }
+                let rw = measure_body(&row);
+                draw_lato_body(&mut self.display, &row, (320 - rw) / 2,
+                               56 + (i as i32) * 22, COLOR_ORANGE);
+            }
+        }
+
+        const HINT: &str = "Tap to continue";
+        let hw = measure_hint(HINT);
+        draw_lato_hint(&mut self.display, HINT, (320 - hw) / 2, 232, COLOR_HINT);
+    }
+
     pub fn draw_confirm_send_covenant(
         &mut self,
         amount_str: &str,
@@ -4875,7 +5065,7 @@ pub fn draw_home_grid(&mut self) {
         Image::new(&kb_icon, Point::new(start_x + 6, start_y + 9)).draw(&mut self.display).ok();
         draw_lato_title(&mut self.display, "Type manually", start_x + 42, start_y + 28, COLOR_TEXT);
 
-        // Row 1: Load .TXT from SD
+        // Row 1: Load file from SD
         let r1_y = start_y + card_h + card_gap;
         let r1 = Rectangle::new(Point::new(start_x, r1_y), Size::new(card_w, card_h as u32));
         RoundedRectangle::new(r1, card_corner)
@@ -4886,32 +5076,43 @@ pub fn draw_home_grid(&mut self) {
             .draw(&mut self.display).ok();
         let sd_icon = size24px::docs::Page::new(KASPA_TEAL);
         Image::new(&sd_icon, Point::new(start_x + 6, r1_y + 9)).draw(&mut self.display).ok();
-        draw_lato_title(&mut self.display, "Load .TXT from SD", start_x + 42, r1_y + 28, COLOR_TEXT);
+        draw_lato_title(&mut self.display, "Load file from SD", start_x + 42, r1_y + 28, COLOR_TEXT);
 
     }
 
-    /// Draw .TXT file picker with LFN display names — standard template layout
+    /// File picker with LFN display names, standard template layout.
+    ///
+    /// Named for stego and TXT because that is where it started; the
+    /// sign-message flow now lists files of any extension through it, since
+    /// SHA-256 hashes bytes and the extension only decides whether a text
+    /// preview is attempted.
     /// TXT file picker. `scroll` is the index of the first visible row.
     ///
     /// This previously ignored paging entirely and rendered
     /// `disp_names[0..4]` no matter how many files were present, while
     /// still painting the left/right arrows below. The arrows were live
     /// pixels attached to nothing.
-    pub fn draw_stego_txt_pick(&mut self, disp_names: &[[u8; 32]], disp_lens: &[u8], count: u8, scroll: u8) {
+    /// Shared file picker. Three screens use it and they no longer agree on
+    /// what they are picking, so the header and the footer hint come from the
+    /// caller rather than being baked in.
+    ///
+    /// The stego flows still read `(avail - start).min(128)` in
+    /// `handlers/stego.rs`, so "First 128 characters are signed" remains true
+    /// for them. The sign-message flow hashes the whole file, of any
+    /// extension, so both of those strings became false there. One constant
+    /// cannot serve all three.
+    pub fn draw_stego_txt_pick(&mut self, disp_names: &[[u8; 32]], disp_lens: &[u8], count: u8, scroll: u8,
+                               header: &str, hint: &str) {
         self.clear_keep_nav();
-        let tw = measure_header("SELECT TXT");
-        draw_oswald_header(&mut self.display, "SELECT TXT", (320 - tw) / 2, 30, COLOR_TEXT);
+        let tw = measure_header(header);
+        draw_oswald_header(&mut self.display, header, (320 - tw) / 2, 30, COLOR_TEXT);
         Line::new(Point::new(20, 40), Point::new(300, 40))
             .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
             .draw(&mut self.display).ok();
 
-        // The reader takes the first 128 bytes of the file and the preview
-        // shows exactly what will be signed, so a longer file is never signed
-        // silently. Saying so here means the user knows before picking rather
-        // than discovering it at the preview.
-        const PICK_HINT: &str = "First 128 characters are signed";
-        let hw = measure_body(PICK_HINT);
-        draw_lato_body(&mut self.display, PICK_HINT, (320 - hw) / 2, 239, COLOR_TEXT_DIM);
+        // Caller's, for the reason in the doc comment above.
+        let hw = measure_body(hint);
+        draw_lato_body(&mut self.display, hint, (320 - hw) / 2, 239, COLOR_TEXT_DIM);
 
         let max_visible: u8 = 4;
         let card_h: i32 = 42;
@@ -4935,7 +5136,7 @@ pub fn draw_home_grid(&mut self) {
                     .into_styled(PrimitiveStyle::with_stroke(KASPA_TEAL, 1))
                     .draw(&mut self.display).ok();
 
-                // Page icon for TXT files
+                // Page icon, any file
                 let icon = size24px::docs::Page::new(COLOR_TEXT);
                 Image::new(&icon, Point::new(start_x + 6, row_y + 9)).draw(&mut self.display).ok();
 

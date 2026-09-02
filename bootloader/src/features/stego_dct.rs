@@ -74,6 +74,7 @@
 
 extern crate alloc;
 use alloc::vec::Vec;
+use crate::log;
 
 use super::stego_perm::PosPerm;
 
@@ -81,6 +82,33 @@ use super::stego_perm::PosPerm;
 /// generous: a 1,632-bit payload needs roughly 7,000 ranks at the ~25%
 /// non-zero coefficient density typical of a quality-85 photo.
 pub const RANK_WINDOW: u32 = 40_000;
+
+/// Ceiling on a frame's 8x8 block count, independent of file size.
+///
+/// SOF width and height are 16-bit with no upper bound of their own, so a few
+/// hundred bytes on the SD card can declare 65535 x 65535. With four
+/// components at sampling factor 1 that is 8192 x 8192 MCUs of 4 blocks each,
+/// 268,435,456 blocks, and nothing stops the walk early: once the entropy data
+/// runs out `BitReader::bit` returns zeros forever and a zero decodes to a
+/// valid symbol, so every block past the real end of the data decodes as an
+/// empty block. The walk is driven by the DECLARED geometry and never by how
+/// much data exists.
+///
+/// 1,200,000 covers 8000 x 6000 at 4:2:0, which is 1,125,000 blocks and the
+/// largest geometry that realistically fits inside the 2 MB import cap in
+/// `handlers/stego.rs`. Sized to any camera a user might own rather than to
+/// the on-board OV5640: these photos arrive from the SD card, not from the
+/// device's own capture path.
+pub const MAX_FRAME_BLOCKS: u32 = 1_200_000;
+
+/// Blocks one byte of entropy-coded data can encode, at most.
+///
+/// A block costs at least one DC code and one end-of-block code. A 1-bit
+/// Huffman code is legal, so two bits per block is a floor no valid file goes
+/// under, and four blocks per byte rejects nothing a real encoder produces.
+/// This is the bound that catches the small file: a 500-byte scan cannot
+/// honestly claim more than 2,000 blocks.
+const MAX_BLOCKS_PER_SCAN_BYTE: u64 = 4;
 
 /// Payload is framed with a 2-byte big-endian length so the extractor knows
 /// where to stop. Inside high-entropy coefficient noise there is nothing to
@@ -97,6 +125,11 @@ pub enum DctError {
     NoCapacity,
     /// Caller's output buffer is too small.
     BufferTooSmall,
+    /// Declared frame geometry exceeds `MAX_FRAME_BLOCKS`. Distinct from
+    /// `Malformed` on purpose: such a file can be perfectly well formed and
+    /// simply larger than this device walks, and the user is owed that
+    /// difference.
+    TooLarge,
     /// A code the file's own Huffman table cannot express. Only reachable
     /// with optimized tables that omit run/size combinations we need after a
     /// coefficient changed magnitude category.
@@ -169,17 +202,42 @@ struct BitReader<'a> {
     p: usize,
     b: u32,
     n: u32,
+    /// Set the first time a bit is asked for past the end of the scan.
+    ///
+    /// `bit` fabricates zeros when the data runs out, and says nothing. A
+    /// canonical Huffman table has an all-zeros shortest code, so `decode`
+    /// returns a valid symbol rather than an error, `decode_block` returns
+    /// `Ok` with an empty block, and `walk` completes normally. A TRUNCATED
+    /// photo therefore decodes as a run of empty blocks and reports success:
+    /// on extract that is a wrong answer instead of `Malformed`, and on embed
+    /// the output is not the input.
+    ///
+    /// [E25] removed the dangerous half of this. A tiny file claiming a huge
+    /// frame is now refused at `parse` by the geometry bounds before any walk
+    /// happens. What is left is a file whose geometry passes both bounds and
+    /// whose scan is genuinely short, which is a photo damaged in transit
+    /// rather than a crafted one.
+    ///
+    /// Checked once after the walk, which then returns `Malformed`. Same shape
+    /// as `BitWriter::overflow`, which is checked in the same place.
+    ///
+    /// Shipped observe-only first and promoted to a refusal only after
+    /// measurement: four real photos across twelve reader passes never set it,
+    /// and a photo truncated by 800 bytes set it on every pass. The evidence is
+    /// recorded at the check site.
+    over: bool,
 }
 
 impl<'a> BitReader<'a> {
     fn new(d: &'a [u8]) -> Self {
-        Self { d, p: 0, b: 0, n: 0 }
+        Self { d, p: 0, b: 0, n: 0, over: false }
     }
 
     #[inline]
     fn bit(&mut self) -> u32 {
         if self.n == 0 {
             if self.p >= self.d.len() {
+                self.over = true;
                 return 0;
             }
             let c = self.d[self.p];
@@ -487,6 +545,33 @@ fn parse(jpeg: &[u8]) -> Result<Frame, DctError> {
                         return Err(DctError::Malformed);
                     }
                 }
+
+                // Geometry is DECLARED, not measured. Bound it twice here, in
+                // the one place that builds a Frame, so `capacity_bits`,
+                // `embed` and `extract` all inherit both bounds.
+                //
+                // The product cannot overflow before it is tested: w and h are
+                // 16-bit, so mcux <= 8192 + hmax and mcuy <= 8192 + vmax,
+                // while blocks_per_mcu <= 4 * hmax * vmax. That gives a
+                // ceiling of 4 * (8192 + hmax) * (8192 + vmax), at most
+                // 268,697,664, well inside u32. `Frame::total_blocks`
+                // recomputes this same product and is bounded by the test
+                // below from here on.
+                let total_blocks = mcux * mcuy * blocks_per_mcu;
+                if total_blocks > MAX_FRAME_BLOCKS {
+                    return Err(DctError::TooLarge);
+                }
+                // A frame claiming more blocks than its own scan could
+                // possibly encode is malformed rather than large. The two
+                // bounds are loose in opposite places and neither replaces the
+                // other: this one leaves a full 2 MB scan able to claim eight
+                // million blocks, and the ceiling above leaves a few hundred
+                // bytes able to claim 1,200,000.
+                let scan_len = scan_end - scan_start;
+                if u64::from(total_blocks) > scan_len as u64 * MAX_BLOCKS_PER_SCAN_BYTE {
+                    return Err(DctError::Malformed);
+                }
+
                 return Ok(Frame {
                     scan_start,
                     scan_end,
@@ -696,6 +781,31 @@ fn walk(
                 block_index += 1;
             }
         }
+    }
+
+    // ENFORCED as of 2026-09-02, after measuring. See `BitReader::over` for
+    // what fabricating zeros past the end of the scan does.
+    //
+    // Refusing rather than reporting, because the failure is silent and the
+    // output is wrong in a way that looks like success. Measured on hardware
+    // with a photo truncated by 800 bytes, which E25's geometry bounds admit
+    // (30,000 blocks against a cap of 1,200,000 and a scan bound of
+    // 3,244,364): the decoder invented empty blocks for the missing tail, the
+    // encoder wrote real Huffman codes for them, and embed returned Ok with an
+    // output 249 bytes LARGER than its input. Every undamaged photo in the
+    // same session shrank by 89 to 158 bytes.
+    //
+    // Held back one delivery on purpose. In principle a well-formed file never
+    // reads past the end, since the encoder pads the final byte with 1-bits and
+    // `find_scan_end` puts the boundary just after it, but "in principle" is
+    // what turning this into a refusal would have rested on. Four real photos,
+    // grayscale and 4:2:0, 250 KB to 812 KB, went through export and import
+    // across twelve reader passes without setting the flag, and the truncated
+    // one set it on every pass. No false positives, and a true positive.
+    if br.over {
+        log!("   [dct] scan exhausted before {} blocks decoded ({} B scan)",
+            block_index, data.len());
+        return Err(DctError::Malformed);
     }
 
     if writing {
