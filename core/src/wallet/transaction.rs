@@ -215,7 +215,11 @@ pub const OP_EQUAL: u8 = 0x87;
 // ─── Multisig Script Info ────────────────────────────────────────────
 
 /// Parsed multisig script: M-of-N with extracted pubkeys
-#[derive(Debug, Clone)]
+///
+/// `PartialEq` so the hintless 45' search cache in `pskt.rs` can be keyed on
+/// the SET rather than on the input index. Plain data: two `u8` and an array
+/// of byte arrays, so the derive is a byte comparison and nothing more.
+#[derive(Debug, Clone, PartialEq, Eq)]
 /// Detected M-of-N multisig parameters from a script.
 pub struct MultisigInfo {
     pub m: u8,  // required signatures
@@ -258,10 +262,15 @@ pub enum ScriptType {
 /// bytes of it, and script prefixes are shared, so the visible part can look
 /// ordinary while everything that matters sits past it.
 ///
-/// Both parsers refuse an output that fails this, so such a transaction never
-/// reaches review. Refusing what cannot be described is the defensible default
-/// for a signer, and every Kaspa address is one of these two forms, so any
-/// output an ordinary wallet produces passes.
+/// THE PARSERS DO NOT ENFORCE THIS, and the comment here used to say they did.
+/// Both accept such an output; the refusal is `all_outputs_displayable` in
+/// `handlers/camera_loop.rs`, called at the three `start_review` sites. All
+/// three are guarded, so the behaviour is right and only this note was
+/// pointing at the wrong file. Corrected 2026-09-02.
+///
+/// Refusing what cannot be described is the defensible default for a signer,
+/// and every Kaspa address is one of these two forms, so any output an
+/// ordinary wallet produces passes.
 ///
 /// Deliberately NOT `detect_script_type(..) != Unknown`. That also accepts bare
 /// multisig, which the screen cannot render either: `encode_address_str` takes a

@@ -1448,6 +1448,25 @@ pub fn sign_transaction_multisig(
     // Keyed on the hint and recomputed when it changes, so it costs one
     // comparison per input and stays exact either way.
     let mut hint_cache_key: Option<(u32, u32, u32)> = None;
+    // Which multisig set filled `hint_cache` from the HINTLESS search.
+    //
+    // The search's result depends on the set and on nothing else: `ms.n`
+    // bounds the derivation loop and `ms.pubkeys` is what a candidate is
+    // matched against. It does NOT depend on which input is being signed.
+    //
+    // The key used to be `(u32::MAX, u32::MAX, i)`, so it changed on every
+    // input and the whole sweep reran for each one. A hintless bundle this
+    // seed does not own paid the full 29 s ceiling per input; at 32 inputs
+    // that is a quarter of an hour of the device doing nothing reachable.
+    // Keying on the set instead runs it once per distinct set, which for an
+    // ordinary bundle is once.
+    //
+    // Comparing the set rather than hashing it: 165 bytes against a sweep
+    // measured at 29,138 ms, and a hash collision would silently reuse a
+    // cache built for different keys. That cannot forge a signature, since
+    // `*pk == *target_pk` is checked before signing, but it would cost a
+    // missed one, which is the failure this whole path exists to prevent.
+    let mut search_ms: Option<MultisigInfo> = None;
     let mut hint_cache: [Option<(bip32::ExtendedPrivKey, [u8; 32])>; 8] =
         [None, None, None, None, None, None, None, None];
 
@@ -1587,8 +1606,9 @@ pub fn sign_transaction_multisig(
                             // The only case this ordering makes slower is a transaction that matches
                             // nothing: it now builds the table, fails, then searches and fails again.
                             if !tx.inputs[i].ms45_hint.present && ms45_keys.iter().any(|k| k.is_some()) {
-                                let ck = (u32::MAX, u32::MAX, i as u32);
-                                if hint_cache_key != Some(ck) {
+                                // Constant now, not `i`. See `search_ms`.
+                                let ck = (u32::MAX, u32::MAX, 0);
+                                if hint_cache_key != Some(ck) || search_ms.as_ref() != Some(ms) {
                                     hint_cache = [None, None, None, None, None, None, None, None];
                                     'seed: for s in 0..num_seeds {
                                         let mk = match ms45_keys[s].as_ref() {
@@ -1623,6 +1643,7 @@ pub fn sign_transaction_multisig(
                                         }
                                     }
                                     hint_cache_key = Some(ck);
+                                    search_ms = Some(ms.clone());
                                 }
                             }
                                 }

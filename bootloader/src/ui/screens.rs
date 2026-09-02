@@ -216,7 +216,22 @@ impl<'a> BootDisplay<'a> {
         // what comes out of it. A file claiming to be text and failing to be
         // text gets the same line as a binary, because a screen full of blocks
         // is not something the user should have to interpret.
-        let text = if text_ext { core::str::from_utf8(msg).ok() } else { None };
+        let text = if text_ext {
+            match core::str::from_utf8(msg) {
+                Ok(s) => Some(s),
+                // Truncated mid-character is still previewable up to the cut.
+                // `from_utf8(msg).ok()` on the whole slice returned None for a
+                // perfectly good text file that happened to be clipped at a
+                // buffer boundary, and the user was told "No preview
+                // available" about a file the device could read.
+                Err(e) if e.valid_up_to() > 0 => {
+                    core::str::from_utf8(&msg[..e.valid_up_to()]).ok()
+                }
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
 
         match text {
             None => {
@@ -293,7 +308,12 @@ impl<'a> BootDisplay<'a> {
                 // the text without occupying a cell, so counting drawn cells
                 // would under-count and show an ellipsis on a file that is in
                 // fact fully displayed.
-                if text.chars().nth(consumed).is_some() {
+                // Something left that would actually RENDER, not merely
+                // something left. A file whose last displayed row is exactly
+                // PER_LINE characters followed by a trailing newline has one
+                // character remaining and nothing to show, and this drew an
+                // ellipsis promising more.
+                if text.chars().skip(consumed).any(|c| !matches!(c, '\n' | '\r')) {
                     let tw2 = measure_body("...");
                     draw_lato_body(&mut self.display, "...", (320 - tw2) / 2, 128, COLOR_TEXT_DIM);
                 }

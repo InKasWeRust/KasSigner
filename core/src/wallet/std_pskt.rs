@@ -2366,27 +2366,58 @@ fn find_captured_value(
         if e > scratch.len() || s >= e {
             continue;
         }
-        // Captured region begins with `"key":value` (no surrounding
-        // whitespace in compact JSON). Check the key matches.
-        // Minimum length: `"X":X` = 5 bytes for 1-char key.
+        // Captured region begins with `"key"` then a colon then the value.
+        //
+        // WHITESPACE IS TOLERATED between the closing quote, the colon and the
+        // value. This used to require `"key":value` exactly, and `skip_ws`
+        // above says why that was wrong: prettified input tokenizes, so such a
+        // bundle PARSED, the region was captured correctly, and only this
+        // lookup missed. The emitter then fell back to `{}` or `null` and the
+        // field was dropped in silence.
+        //
+        // The blast radius grew when this became the single lookup for
+        // `bip32Derivations`, `proprietaries` and `redeemScript`: one
+        // prettified bundle lost all three rather than one.
+        //
+        // Minimum length: `"X":X` = 5 bytes for a 1-char key.
         if e - s < name.len() + 3 {
             continue;
         }
-        if scratch[s] != b'"' {
+        // LEADING whitespace first. The capture starts at `tok.position()`
+        // taken BEFORE `expect_string`, and it is `expect_string` that calls
+        // `skip_ws`, so on prettified input the region begins at the space or
+        // newline in front of the key, not at its opening quote.
+        let mut c = s;
+        while c < e && matches!(scratch[c], b' ' | b'\t' | b'\r' | b'\n') {
+            c += 1;
+        }
+        if c >= e || scratch[c] != b'"' {
             continue;
         }
-        let key_end = s + 1 + name.len();
+        let key_start = c;
+        let key_end = key_start + 1 + name.len();
         if key_end >= e || scratch[key_end] != b'"' {
             continue;
         }
-        if &scratch[s + 1..key_end] != name {
+        if &scratch[key_start + 1..key_end] != name {
             continue;
         }
-        if key_end + 1 >= e || scratch[key_end + 1] != b':' {
+        // Then the colon, then the value, each possibly preceded by more.
+        c = key_end + 1;
+        while c < e && matches!(scratch[c], b' ' | b'\t' | b'\r' | b'\n') {
+            c += 1;
+        }
+        if c >= e || scratch[c] != b':' {
             continue;
         }
-        // Value starts at key_end + 2, runs to end.
-        return Some(((key_end + 2) as u16, end));
+        c += 1;
+        while c < e && matches!(scratch[c], b' ' | b'\t' | b'\r' | b'\n') {
+            c += 1;
+        }
+        if c >= e {
+            continue;
+        }
+        return Some((c as u16, end));
     }
     None
 }

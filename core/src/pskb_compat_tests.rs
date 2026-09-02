@@ -465,3 +465,70 @@ fn output_without_a_redeem_script_still_emits_null() {
     assert!(text[out_at..].contains(r#""redeemScript":null"#),
         "an output without a redeem script must emit null: {}", &text[out_at..]);
 }
+
+/// A prettified bundle must round-trip its captured fields, not drop them.
+///
+/// The tokenizer skips whitespace by design, and says so: prettified inputs
+/// tokenize. So such a bundle PARSES, and the regions are captured correctly.
+/// `find_captured_value` then required `"key":value` with no space, missed
+/// every one of them, and the emitters fell back to `{}` and `null`. The
+/// bundle came out of the device with its metadata silently stripped.
+///
+/// Fails on the pre-fix lookup: with `"proprietaries" : {...}` the colon is
+/// not where it expected it, so nothing matches.
+#[test]
+fn prettified_input_still_round_trips_its_captured_fields() {
+    // Whitespace in three different places: after the key, around the colon,
+    // and before the value. All legal JSON, all previously fatal to the lookup.
+    let json = concat!(
+        "[{\"global\": {\"version\": 0, \"txVersion\": 0,\n",
+        "  \"fallbackLockTime\": null, \"inputsModifiable\": false,\n",
+        "  \"outputsModifiable\": false, \"inputCount\": 1, \"outputCount\": 1,\n",
+        "  \"xpubs\": {}, \"id\": null, \"proprietaries\": {}, \"payload\": \"\"},\n",
+        " \"inputs\": [{\"utxoEntry\": {\"amount\": 468928887,\n",
+        "  \"scriptPublicKey\":\n",
+        "    \"0000202d8a1414e62e081fb6bcf644e648c18061c2855575cac722f86324cad91dd0faac\",\n",
+        "  \"blockDaaScore\": 84981186, \"isCoinbase\": false},\n",
+        "  \"previousOutpoint\": {\"transactionId\":\n",
+        "    \"69155d0e3380e8816dffe2671294ad104f0b3776f35bce1a22f0c21b1f908500\",\n",
+        "   \"index\": 0}, \"sequence\": 0, \"minTime\": null, \"partialSigs\": {},\n",
+        "  \"sighashType\": 1, \"redeemScript\": null, \"sigOpCount\": 1,\n",
+        "  \"bip32Derivations\": {}, \"finalScriptSig\": null,\n",
+        "  \"proprietaries\" : {\"in\": \"AAA\"}}],\n",
+        " \"outputs\": [{\"amount\": 1500000000, \"scriptPublicKey\":\n",
+        "    \"0000202d8a1414e62e081fb6bcf644e648c18061c2855575cac722f86324cad91dd0faac\",\n",
+        "  \"redeemScript\" : \"aabbccdd\", \"bip32Derivations\": {},\n",
+        "  \"proprietaries\":  {\"out\": \"BBB\"}}]}]",
+    );
+    let mut wire = Vec::from(&b"PSKB"[..]);
+    for b in json.as_bytes() {
+        wire.extend_from_slice(alloc::format!("{b:02x}").as_bytes());
+    }
+
+    let (tx, parsed, scratch) = parse_keep_scratch(&wire).expect("prettified must parse");
+    let mut out = alloc::vec![0u8; 16384];
+    let n = std_pskt::serialize_pskt(
+        &tx, &parsed, &scratch, crate::types::TxInputFormat::PsktPskb, &mut out,
+    ).expect("serialize");
+
+    let mut json_out = Vec::new();
+    for pair in out[4..n].chunks_exact(2) {
+        let hi = (pair[0] as char).to_digit(16).expect("lowercase hex") as u8;
+        let lo = (pair[1] as char).to_digit(16).expect("lowercase hex") as u8;
+        json_out.push((hi << 4) | lo);
+    }
+    let text = std::str::from_utf8(&json_out).expect("utf8");
+
+    let in_at = text.find(r#","inputs":"#).expect("inputs");
+    let out_at = text.find(r#","outputs":"#).expect("outputs");
+    let (inputs, outputs) = (&text[in_at..out_at], &text[out_at..]);
+
+    // Each field survives, in its own object. The emitted form is compact
+    // regardless of how the input was spaced.
+    assert!(inputs.contains(r#""proprietaries":{"in": "AAA"}"#),
+        "input proprietaries lost on prettified input: {inputs}");
+    assert!(outputs.contains(r#""proprietaries":{"out": "BBB"}"#),
+        "output proprietaries lost on prettified input: {outputs}");
+    assert!(outputs.contains(r#""redeemScript":"aabbccdd""#),
+        "output redeemScript lost on prettified input: {outputs}");
+}

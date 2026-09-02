@@ -3016,13 +3016,18 @@ pub fn handle_sd_touch(
                                                 .copy_from_slice(&ad.signed_qr_buf[..data_len]);
 
                                             // PBKDF2(password, per-file salt || PURPOSE_KSPT).
+                                            // `Option`, so a derivation that fails cannot
+                                            // reach the cipher. Unreachable while `kdf_id`
+                                            // is fixed; the point is that it fails CLOSED
+                                            // if it ever is not. Writing a file encrypted
+                                            // under a substitute key is worse than not
+                                            // writing one.
                                             let aes_key = sd_backup::kspt_v1_derive_key(pp_bytes, &salt, &mut |done, total| {
                                                 let pct = if total > 0 { (done * 50 / total) as u8 } else { 0 };
                                                 boot_display.update_progress_bar(pct);
-                                            });
+                                            }).ok();
 
                                             use aes_gcm::{Aes256Gcm, aead::{AeadInPlace, KeyInit, generic_array::GenericArray}};
-                                            let cipher = Aes256Gcm::new(GenericArray::from_slice(&aes_key));
                                             let nonce_ga = GenericArray::from_slice(&nonce);
                                             // AAD is the whole header through the salt, one
                                             // contiguous slice so it cannot be assembled in
@@ -3031,9 +3036,16 @@ pub fn handle_sd_touch(
                                             let mut aad = [0u8; sd_backup::KSPT_V1_HEADER_SIZE];
                                             aad.copy_from_slice(&enc_buf[..sd_backup::KSPT_V1_HEADER_SIZE]);
 
-                                            match cipher.encrypt_in_place_detached(
-                                                nonce_ga, &aad, &mut enc_buf[ct..ct + data_len]
-                                            ) {
+                                            // No key, no attempt. Lands on the same arm as
+                                            // any other encryption failure.
+                                            let enc = match aes_key {
+                                                Some(k) => Aes256Gcm::new(GenericArray::from_slice(&k))
+                                                    .encrypt_in_place_detached(
+                                                        nonce_ga, &aad, &mut enc_buf[ct..ct + data_len])
+                                                    .map_err(|_| ()),
+                                                None => Err(()),
+                                            };
+                                            match enc {
                                                 Ok(tag) => {
                                                     enc_buf[ct + data_len..ct + data_len + sd_backup::KSPT_TAG_SIZE].copy_from_slice(&tag);
                                                     boot_display.update_progress_bar(70);
@@ -3103,6 +3115,21 @@ pub fn handle_sd_touch(
                                         let file_len = ad.signed_qr_len;
                                         let is_v1 = file_len >= 4
                                             && ad.signed_qr_buf[..4] == sd_backup::KSPT_V1_MAGIC;
+                                        // Header fields checked EXPLICITLY, not only through
+                                        // the AAD.
+                                        //
+                                        // `version`, `purpose` and `kdf_id` are all bound into
+                                        // the AAD, so a mismatch already fails the GCM tag and
+                                        // nothing unsafe can happen without this. What it buys
+                                        // is the right message: a future `kdf_id = 2` file would
+                                        // otherwise report "wrong password" to someone whose
+                                        // password is perfectly correct, and send them looking
+                                        // for a lost passphrase instead of a newer firmware.
+                                        let v1_header_ok = !is_v1
+                                            || (file_len > 6
+                                                && ad.signed_qr_buf[4] == sd_backup::KSPT_V1_VERSION
+                                                && ad.signed_qr_buf[5] == sd_backup::PURPOSE_KSPT
+                                                && ad.signed_qr_buf[6] == sd_backup::KDF_PBKDF2_SHA256_100K);
                                         let is_legacy = file_len >= 4
                                             && ad.signed_qr_buf[0] == b'K'
                                             && ad.signed_qr_buf[1] == b'A'
@@ -3117,7 +3144,15 @@ pub fn handle_sd_touch(
                                              sd_backup::KSPT_LEGACY_CT_OFF,
                                              6usize)
                                         };
-                                        if (is_v1 || is_legacy)
+                                        if is_v1 && !v1_header_ok {
+                                            // Distinct from the uniform failure below, and
+                                            // deliberately so: this one is not about the
+                                            // password.
+                                            sound::stop_ticking();
+                                            boot_display.draw_rejected_screen("Unsupported format");
+                                            sound::beep_error(delay);
+                                            delay.delay_millis(2000);
+                                        } else if (is_v1 || is_legacy)
                                             && file_len >= ct_start + 1 + sd_backup::KSPT_TAG_SIZE
                                         {
                                             let data_len = ad.signed_qr_buf[len_off] as usize
@@ -3139,6 +3174,10 @@ pub fn handle_sd_touch(
                                                     salt.copy_from_slice(
                                                         &ad.signed_qr_buf[sd_backup::KSPT_V1_SALT_OFF
                                                             ..sd_backup::KSPT_V1_SALT_OFF + sd_backup::V3_SALT_SIZE]);
+                                                    // `Option`, so a derivation that fails
+                                                    // cannot reach the cipher. Unreachable
+                                                    // while `kdf_id` is fixed; the point is
+                                                    // that it fails CLOSED if it ever is not.
                                                     sd_backup::kspt_v1_derive_key(
                                                         &pp_copy[..pp_bytes_len],
                                                         &salt,
@@ -3146,19 +3185,18 @@ pub fn handle_sd_touch(
                                                             let pct = if total > 0 { (done * 70 / total) as u8 } else { 0 };
                                                             boot_display.update_progress_bar(pct);
                                                         },
-                                                    )
+                                                    ).ok()
                                                 } else {
-                                                    sd_backup::pbkdf2_key_for_kspt(
+                                                    Some(sd_backup::pbkdf2_key_for_kspt(
                                                         &pp_copy[..pp_bytes_len],
                                                         &mut |done, total| {
                                                             let pct = if total > 0 { (done * 70 / total) as u8 } else { 0 };
                                                             boot_display.update_progress_bar(pct);
                                                         },
-                                                    )
+                                                    ))
                                                 };
 
                                                 use aes_gcm::{Aes256Gcm, aead::{AeadInPlace, KeyInit, generic_array::GenericArray}};
-                                                let cipher = Aes256Gcm::new(GenericArray::from_slice(&aes_key));
                                                 let nonce_ga = GenericArray::from_slice(&nonce_arr);
                                                 let tag = GenericArray::from_slice(
                                                     &ad.signed_qr_buf[tag_start..tag_start + sd_backup::KSPT_TAG_SIZE]);
@@ -3175,9 +3213,17 @@ pub fn handle_sd_touch(
                                                 plain[..data_len].copy_from_slice(
                                                     &ad.signed_qr_buf[ct_start..ct_start + data_len]);
 
-                                                match cipher.decrypt_in_place_detached(
-                                                    nonce_ga, aad, &mut plain[..data_len], tag
-                                                ) {
+                                                // No key, no attempt. A missing key lands on
+                                                // the same arm as a bad password, which is
+                                                // the uniform failure this path already has.
+                                                let dec = match aes_key {
+                                                    Some(k) => Aes256Gcm::new(GenericArray::from_slice(&k))
+                                                        .decrypt_in_place_detached(
+                                                            nonce_ga, aad, &mut plain[..data_len], tag)
+                                                        .map_err(|_| ()),
+                                                    None => Err(()),
+                                                };
+                                                match dec {
                                                     Ok(()) => {
                                                         ad.signed_qr_buf[..data_len].copy_from_slice(&plain[..data_len]);
                                                         ad.signed_qr_len = data_len;

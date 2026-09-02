@@ -218,11 +218,14 @@ pub fn kspt_v1_derive_key(
     password: &[u8],
     salt: &[u8; V3_SALT_SIZE],
     progress: &mut dyn FnMut(u32, u32),
-) -> [u8; 32] {
-    // kdf_id is fixed here, so the only error `v3_derive_key` can return is
-    // UnsupportedKdf, which this call cannot trigger.
+) -> Result<[u8; 32], BackupError> {
+    // Propagated, not swallowed. This was `.unwrap_or([0u8; 32])` with a note
+    // that `kdf_id` is fixed here so the only error `v3_derive_key` can return
+    // is `UnsupportedKdf`, which this call cannot trigger. Both halves were
+    // true and the shape was still wrong: an unreachable error path that
+    // FAILS OPEN encrypts with an all-zero AES key, and the next person to add
+    // an error to `v3_derive_key` inherits that silently. Two call sites.
     v3_derive_key(password, salt, PURPOSE_KSPT, KDF_PBKDF2_SHA256_100K, progress)
-        .unwrap_or([0u8; 32])
 }
 
 
