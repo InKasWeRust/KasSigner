@@ -44,6 +44,12 @@ jobs:
       # reason core does. Without that file this job resolves the ROOT pin,
       # channel = "esp", and fails on a runner that has no Xtensa toolchain.
       - uses: dtolnay/rust-toolchain@1.85.0
+        with:
+          # The action installs no components by default, so the clippy step
+          # below fails with "'cargo-clippy' is not installed" without this.
+          # Build and test do not need it, which is why it only surfaced when
+          # clippy was added. core.yml has carried this line all along.
+          components: clippy
       - name: Build (release, as the firmware consumes it)
         run: cargo build --release
       - name: Tests
@@ -57,4 +63,8 @@ jobs:
       # Run by hand first: seven errors, all three classes deliberate, now
       # allowed at the crate root with their reasons. See rqrr_nostd/src/lib.rs.
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        # -A unknown_lints for the same reason core.yml gives: the allow list
+        # in lib.rs is read by both a stable clippy here and the esp toolchain
+        # in the firmware build, and neither must fail on a name the other one
+        # owns.
+        run: cargo clippy --all-targets -- -D warnings -A unknown_lints
