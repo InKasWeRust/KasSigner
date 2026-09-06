@@ -1,0 +1,47 @@
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+* { cursor: auto; }
+body.moved * { cursor: none !important; }
+body.touch-device, body.touch-device * { cursor: none !important; }
+body.touch-device canvas { cursor: none !important; }
+
+:root {
+  --ground:   #0e0f0c;
+  --ink:      #c8d4bc;
+  --ink-dim:  #4a5a42;
+  --ink-faint:#1e2419;
+  --teal:     #1D9E75;
+  --teal-dim: #0d5c42;
+  --teal-pale:#9fcfbc;
+  --seal:     #8b3a2a;
+}
+
+html, body {
+  width: 100%; height: 100%;
+  background: var(--ground);
+  overflow: hidden;
+  font-family: 'Noto Serif', serif;
+}
+
+/* grain */
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 900;
+  opacity: 0.4;
+}
+
+canvas { position: fixed; inset: 0; transition: opacity 0.7s ease; }
+
+/* cursor */
+#cur {
+  position: fixed;
+  width: 22px; height: 22px;
+  pointer-events: none;
+  z-index: 9999;
+  transform: translate(-50%,-50%);
+  transition: transform 0.08s ease, opacity 0.3s ease;
+}
+#cur.dn { transform: translate(-50%,-50%) scale(0.75); }

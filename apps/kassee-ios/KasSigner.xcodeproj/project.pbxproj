@@ -1,0 +1,342 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		69A61C181E06569869C1522A /* KasSigner/App/KasSignerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7930E35C3639A2C92D1E63DD /* KasSigner/App/KasSignerApp.swift */; };
+		96C164EE91F65E96567BA0BF /* KasSigner/Features/Cover/Components/CitySearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07DE51D24D348CD3C776F5AA /* KasSigner/Features/Cover/Components/CitySearchView.swift */; };
+		06A44F78C4CCF82AA60CBD81 /* KasSigner/Features/Cover/Components/DecoyLaunchSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 119CB24E00771173D7A5F896 /* KasSigner/Features/Cover/Components/DecoyLaunchSettingsView.swift */; };
+		1D452908C755681776883C6A /* KasSigner/Features/Cover/Components/WeatherCoverModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2805CE39B44AEC03FE974527 /* KasSigner/Features/Cover/Components/WeatherCoverModel.swift */; };
+		F4F618072971C639A9922110 /* KasSigner/Features/Cover/Components/WeatherCoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58FE75ADD9AA962192A4D3D8 /* KasSigner/Features/Cover/Components/WeatherCoverView.swift */; };
+		96CCD92BCE33B19B6AF9DCD3 /* KasSigner/Features/Cover/Components/WeatherModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CB8B04EFA587BB970CD3B6 /* KasSigner/Features/Cover/Components/WeatherModels.swift */; };
+		0489D2CB34D5CEF99B2C14F9 /* KasSigner/Features/Cover/Components/WeatherSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B784584572BABA5A995CE15D /* KasSigner/Features/Cover/Components/WeatherSettingsView.swift */; };
+		81EBC9712C6CADFCCD27E5FB /* KasSigner/Features/Root/Components/RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8DDDC959813911A2E9FAC7E /* KasSigner/Features/Root/Components/RootView.swift */; };
+		D80700000000000000000001 /* KasSigner/Features/Root/Components/KasSeeWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D80700000000000000000011 /* KasSigner/Features/Root/Components/KasSeeWebView.swift */; };
+		D80700000000000000000002 /* KasSigner/Features/Root/Components/KasSeeLoopbackServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D80700000000000000000012 /* KasSigner/Features/Root/Components/KasSeeLoopbackServer.swift */; };
+		73DC789EB23D4E5C606FF99F /* KasSigner/Features/Settings/SecuritySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39D116DA3FE151AE6EA24D1 /* KasSigner/Features/Settings/SecuritySettingsView.swift */; };
+		F929FBF90A585860B8625DDC /* KasSigner/Infrastructure/Persistence/AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FD3F5AB7F53E402B0C4A881 /* KasSigner/Infrastructure/Persistence/AppPreferences.swift */; };
+		79D91B9F8E7874212CF132E9 /* KasSigner/Infrastructure/Security/AppLockService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7C54C7422CF4604344D691F /* KasSigner/Infrastructure/Security/AppLockService.swift */; };
+		D6A544FA38465CB1A2FD75A2 /* Generated KasSeeUI in Resources */ = {isa = PBXBuildFile; fileRef = 6397099E4CF65E1EA30FB542 /* Generated KasSeeUI */; };
+		A50000000000000000000001 /* KasSigner/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000001 /* KasSigner/Assets.xcassets */; };
+		A60000000000000000000001 /* KasSigner/PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B60000000000000000000001 /* KasSigner/PrivacyInfo.xcprivacy */; };
+		C10000000000000000000005 /* KasSignerAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000001 /* KasSignerAppTests.swift */; };
+		C10000000000000000000006 /* KasSignerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000002 /* KasSignerUITests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		7930E35C3639A2C92D1E63DD /* KasSigner/App/KasSignerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KasSigner/App/KasSignerApp.swift; sourceTree = "<group>"; };
+		07DE51D24D348CD3C776F5AA /* KasSigner/Features/Cover/Components/CitySearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KasSigner/Features/Cover/Components/CitySearchView.swift; sourceTree = "<group>"; };
+		119CB24E00771173D7A5F896 /* KasSigner/Features/Cover/Components/DecoyLaunchSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KasSigner/Features/Cover/Components/DecoyLaunchSettingsView.swift; sourceTree = "<group>"; };
+		2805CE39B44AEC03FE974527 /* KasSigner/Features/Cover/Components/WeatherCoverModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KasSigner/Features/Cover/Components/WeatherCoverModel.swift; sourceTree = "<group>"; };
+		58FE75ADD9AA962192A4D3D8 /* KasSigner/Features/Cover/Components/WeatherCoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KasSigner/Features/Cover/Components/WeatherCoverView.swift; sourceTree = "<group>"; };
+		14CB8B04EFA587BB970CD3B6 /* KasSigner/Features/Cover/Components/WeatherModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KasSigner/Features/Cover/Components/WeatherModels.swift; sourceTree = "<group>"; };
+		B784584572BABA5A995CE15D /* KasSigner/Features/Cover/Components/WeatherSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KasSigner/Features/Cover/Components/WeatherSettingsView.swift; sourceTree = "<group>"; };
+		C8DDDC959813911A2E9FAC7E /* KasSigner/Features/Root/Components/RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KasSigner/Features/Root/Components/RootView.swift; sourceTree = "<group>"; };
+		D80700000000000000000011 /* KasSigner/Features/Root/Components/KasSeeWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KasSigner/Features/Root/Components/KasSeeWebView.swift; sourceTree = "<group>"; };
+		D80700000000000000000012 /* KasSigner/Features/Root/Components/KasSeeLoopbackServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KasSigner/Features/Root/Components/KasSeeLoopbackServer.swift; sourceTree = "<group>"; };
+		A39D116DA3FE151AE6EA24D1 /* KasSigner/Features/Settings/SecuritySettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KasSigner/Features/Settings/SecuritySettingsView.swift; sourceTree = "<group>"; };
+		9FD3F5AB7F53E402B0C4A881 /* KasSigner/Infrastructure/Persistence/AppPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KasSigner/Infrastructure/Persistence/AppPreferences.swift; sourceTree = "<group>"; };
+		E7C54C7422CF4604344D691F /* KasSigner/Infrastructure/Security/AppLockService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KasSigner/Infrastructure/Security/AppLockService.swift; sourceTree = "<group>"; };
+		2E9D668BFA8F548D9470136C /* KasSigner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KasSigner.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6397099E4CF65E1EA30FB542 /* Generated KasSeeUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = KasSeeUI; path = ../../target/kassee-runtime/ios/KasSeeUI; sourceTree = "<group>"; };
+		B50000000000000000000001 /* KasSigner/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = KasSigner/Assets.xcassets; sourceTree = "<group>"; };
+		B60000000000000000000001 /* KasSigner/PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = KasSigner/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		C10000000000000000000001 /* KasSignerAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/KasSignerAppTests/KasSignerAppTests.swift; sourceTree = "<group>"; };
+		C10000000000000000000002 /* KasSignerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/KasSignerUITests/KasSignerUITests.swift; sourceTree = "<group>"; };
+		C10000000000000000000003 /* KasSignerAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KasSignerAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C10000000000000000000004 /* KasSignerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KasSignerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		D66D401460755D22B129D59F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C10000000000000000000009 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		C1000000000000000000000A /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A910BCA13E1B5F2FB1CE74D5 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				2E9D668BFA8F548D9470136C /* KasSigner.app */,
+				C10000000000000000000003 /* KasSignerAppTests.xctest */,
+				C10000000000000000000004 /* KasSignerUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		E269E802453A5921AE36517E = {
+			isa = PBXGroup;
+			children = (
+				C10000000000000000000001 /* KasSignerAppTests.swift */,
+				C10000000000000000000002 /* KasSignerUITests.swift */,
+				7930E35C3639A2C92D1E63DD /* KasSigner/App/KasSignerApp.swift */,
+				07DE51D24D348CD3C776F5AA /* KasSigner/Features/Cover/Components/CitySearchView.swift */,
+				119CB24E00771173D7A5F896 /* KasSigner/Features/Cover/Components/DecoyLaunchSettingsView.swift */,
+				2805CE39B44AEC03FE974527 /* KasSigner/Features/Cover/Components/WeatherCoverModel.swift */,
+				58FE75ADD9AA962192A4D3D8 /* KasSigner/Features/Cover/Components/WeatherCoverView.swift */,
+				14CB8B04EFA587BB970CD3B6 /* KasSigner/Features/Cover/Components/WeatherModels.swift */,
+				B784584572BABA5A995CE15D /* KasSigner/Features/Cover/Components/WeatherSettingsView.swift */,
+				C8DDDC959813911A2E9FAC7E /* KasSigner/Features/Root/Components/RootView.swift */,
+				D80700000000000000000011 /* KasSigner/Features/Root/Components/KasSeeWebView.swift */,
+				D80700000000000000000012 /* KasSigner/Features/Root/Components/KasSeeLoopbackServer.swift */,
+				A39D116DA3FE151AE6EA24D1 /* KasSigner/Features/Settings/SecuritySettingsView.swift */,
+				9FD3F5AB7F53E402B0C4A881 /* KasSigner/Infrastructure/Persistence/AppPreferences.swift */,
+				E7C54C7422CF4604344D691F /* KasSigner/Infrastructure/Security/AppLockService.swift */,
+				6397099E4CF65E1EA30FB542 /* Generated KasSeeUI */,
+				B50000000000000000000001 /* KasSigner/Assets.xcassets */,
+				B60000000000000000000001 /* KasSigner/PrivacyInfo.xcprivacy */,
+				A910BCA13E1B5F2FB1CE74D5 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXContainerItemProxy section */
+		C1000000000000000000000D /* PBXContainerItemProxy */ = {isa = PBXContainerItemProxy; containerPortal = 7A025726E1D052929F74E4AB /* Project object */; proxyType = 1; remoteGlobalIDString = BE1F5D545907559CB2F5BAEB; remoteInfo = KasSigner; };
+		C1000000000000000000000E /* PBXContainerItemProxy */ = {isa = PBXContainerItemProxy; containerPortal = 7A025726E1D052929F74E4AB /* Project object */; proxyType = 1; remoteGlobalIDString = BE1F5D545907559CB2F5BAEB; remoteInfo = KasSigner; };
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		C1000000000000000000000F /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = BE1F5D545907559CB2F5BAEB /* KasSigner */; targetProxy = C1000000000000000000000D /* PBXContainerItemProxy */; };
+		C10000000000000000000010 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = BE1F5D545907559CB2F5BAEB /* KasSigner */; targetProxy = C1000000000000000000000E /* PBXContainerItemProxy */; };
+/* End PBXTargetDependency section */
+
+/* Begin PBXNativeTarget section */
+		BE1F5D545907559CB2F5BAEB /* KasSigner */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 65C31EA465495776A7289703 /* Build configuration list for PBXNativeTarget "KasSigner" */;
+			buildPhases = (
+				F10000000000000000000001 /* Sync shared KasSee runtime */,
+				6E6D9EA783085CCBBB6B74A8 /* Sources */,
+				D66D401460755D22B129D59F /* Frameworks */,
+				CAD5136F21EE5AC1B2D9942D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = KasSigner;
+			productName = KasSigner;
+			productReference = 2E9D668BFA8F548D9470136C /* KasSigner.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C1000000000000000000000B /* KasSignerAppTests */ = {isa = PBXNativeTarget; buildConfigurationList = C10000000000000000000015 /* Build configuration list for PBXNativeTarget "KasSignerAppTests" */; buildPhases = (C10000000000000000000007 /* Sources */, C10000000000000000000009 /* Frameworks */); buildRules = (); dependencies = (C1000000000000000000000F /* PBXTargetDependency */); name = KasSignerAppTests; productName = KasSignerAppTests; productReference = C10000000000000000000003 /* KasSignerAppTests.xctest */; productType = "com.apple.product-type.bundle.unit-test"; };
+		C1000000000000000000000C /* KasSignerUITests */ = {isa = PBXNativeTarget; buildConfigurationList = C10000000000000000000016 /* Build configuration list for PBXNativeTarget "KasSignerUITests" */; buildPhases = (C10000000000000000000008 /* Sources */, C1000000000000000000000A /* Frameworks */); buildRules = (); dependencies = (C10000000000000000000010 /* PBXTargetDependency */); name = KasSignerUITests; productName = KasSignerUITests; productReference = C10000000000000000000004 /* KasSignerUITests.xctest */; productType = "com.apple.product-type.bundle.ui-testing"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		7A025726E1D052929F74E4AB /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					BE1F5D545907559CB2F5BAEB = { CreatedOnToolsVersion = 16.0; };
+					C1000000000000000000000B = { CreatedOnToolsVersion = 16.0; TestTargetID = BE1F5D545907559CB2F5BAEB; };
+					C1000000000000000000000C = { CreatedOnToolsVersion = 16.0; TestTargetID = BE1F5D545907559CB2F5BAEB; };
+				};
+			};
+			buildConfigurationList = EC6174CE49C7569F8F0D4C21 /* Build configuration list for PBXProject "KasSigner" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = E269E802453A5921AE36517E;
+			productRefGroup = A910BCA13E1B5F2FB1CE74D5 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				BE1F5D545907559CB2F5BAEB /* KasSigner */,
+				C1000000000000000000000B /* KasSignerAppTests */,
+				C1000000000000000000000C /* KasSignerUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		CAD5136F21EE5AC1B2D9942D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D6A544FA38465CB1A2FD75A2 /* Generated KasSeeUI in Resources */,
+				A50000000000000000000001 /* KasSigner/Assets.xcassets in Resources */,
+				A60000000000000000000001 /* KasSigner/PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		F10000000000000000000001 /* Sync shared KasSee runtime */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = ();
+			name = "Sync shared KasSee runtime";
+			outputPaths = ();
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "if [[ \"${KASSIGNER_IOS_RUNTIME_SYNCED:-0}\" == \"1\" ]]; then
+  echo \"KasSigner iOS - shared KasSee runtime already synchronized; skipping regeneration.\"
+else
+  python3 \"${SRCROOT}/../../tools/build/web/build_kassee_runtime.py\" --mode release
+  python3 \"${SRCROOT}/../../tools/build/ios/sync_runtime.py\"
+fi
+";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		6E6D9EA783085CCBBB6B74A8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				69A61C181E06569869C1522A /* KasSigner/App/KasSignerApp.swift in Sources */,
+				96C164EE91F65E96567BA0BF /* KasSigner/Features/Cover/Components/CitySearchView.swift in Sources */,
+				06A44F78C4CCF82AA60CBD81 /* KasSigner/Features/Cover/Components/DecoyLaunchSettingsView.swift in Sources */,
+				1D452908C755681776883C6A /* KasSigner/Features/Cover/Components/WeatherCoverModel.swift in Sources */,
+				F4F618072971C639A9922110 /* KasSigner/Features/Cover/Components/WeatherCoverView.swift in Sources */,
+				96CCD92BCE33B19B6AF9DCD3 /* KasSigner/Features/Cover/Components/WeatherModels.swift in Sources */,
+				0489D2CB34D5CEF99B2C14F9 /* KasSigner/Features/Cover/Components/WeatherSettingsView.swift in Sources */,
+				81EBC9712C6CADFCCD27E5FB /* KasSigner/Features/Root/Components/RootView.swift in Sources */,
+				D80700000000000000000001 /* KasSigner/Features/Root/Components/KasSeeWebView.swift in Sources */,
+				D80700000000000000000002 /* KasSigner/Features/Root/Components/KasSeeLoopbackServer.swift in Sources */,
+				73DC789EB23D4E5C606FF99F /* KasSigner/Features/Settings/SecuritySettingsView.swift in Sources */,
+				F929FBF90A585860B8625DDC /* KasSigner/Infrastructure/Persistence/AppPreferences.swift in Sources */,
+				79D91B9F8E7874212CF132E9 /* KasSigner/Infrastructure/Security/AppLockService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C10000000000000000000007 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (C10000000000000000000005 /* KasSignerAppTests.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+		C10000000000000000000008 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (C10000000000000000000006 /* KasSignerUITests.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		955FCF893AE85857A281101E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A7D44005E0A25767B4106761 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		B167C47E5CA0508B907D5DAB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ENABLE_TESTABILITY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = KasSigner;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSCameraUsageDescription = "KasSigner uses the camera to scan watch-only wallet data and signed transaction QR codes from KasSigner.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "KasSigner uses Face ID to protect access to your watch-only wallet information.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 2.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.kassigner.KasSigner;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		FFDA01A37DFC562DBB92FAEB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = KasSigner;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSCameraUsageDescription = "KasSigner uses the camera to scan watch-only wallet data and signed transaction QR codes from KasSigner.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "KasSigner uses Face ID to protect access to your watch-only wallet information.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 2.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.kassigner.KasSigner;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		C10000000000000000000011 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.6; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; BUNDLE_LOADER = "$(TEST_HOST)"; PRODUCT_BUNDLE_IDENTIFIER = org.kassigner.KasSignerAppTests; PRODUCT_NAME = "$(TARGET_NAME)"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/KasSigner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/KasSigner"; }; name = Debug; };
+		C10000000000000000000012 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.6; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; BUNDLE_LOADER = "$(TEST_HOST)"; PRODUCT_BUNDLE_IDENTIFIER = org.kassigner.KasSignerAppTests; PRODUCT_NAME = "$(TARGET_NAME)"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/KasSigner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/KasSigner"; }; name = Release; };
+		C10000000000000000000013 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.6; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; PRODUCT_BUNDLE_IDENTIFIER = org.kassigner.KasSignerUITests; PRODUCT_NAME = "$(TARGET_NAME)"; TEST_TARGET_NAME = KasSigner; }; name = Debug; };
+		C10000000000000000000014 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.6; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; PRODUCT_BUNDLE_IDENTIFIER = org.kassigner.KasSignerUITests; PRODUCT_NAME = "$(TARGET_NAME)"; TEST_TARGET_NAME = KasSigner; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		65C31EA465495776A7289703 /* Build configuration list for PBXNativeTarget "KasSigner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B167C47E5CA0508B907D5DAB /* Debug */,
+				FFDA01A37DFC562DBB92FAEB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		EC6174CE49C7569F8F0D4C21 /* Build configuration list for PBXProject "KasSigner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				955FCF893AE85857A281101E /* Debug */,
+				A7D44005E0A25767B4106761 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C10000000000000000000015 /* Build configuration list for PBXNativeTarget "KasSignerAppTests" */ = {isa = XCConfigurationList; buildConfigurations = (C10000000000000000000011 /* Debug */, C10000000000000000000012 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		C10000000000000000000016 /* Build configuration list for PBXNativeTarget "KasSignerUITests" */ = {isa = XCConfigurationList; buildConfigurations = (C10000000000000000000013 /* Debug */, C10000000000000000000014 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = 7A025726E1D052929F74E4AB /* Project object */;
+}

@@ -1,0 +1,1 @@
+"""Repository inventory architecture support."""

@@ -1,0 +1,13 @@
+# KasSigner M5Stack CoreS3 anti-rollback partition table (16 MiB flash)
+# Anti-rollback intentionally has no factory/test app partition: ESP-IDF requires
+# OTA app slots so the second-stage bootloader can enforce secure_version.
+# Name,            Type, SubType, Offset,   Size,       Flags
+nvs,                data, nvs,     0x9000,   0x4000,
+otadata,            data, ota,     0xD000,   0x2000,
+phy_init,           data, phy,     0xF000,   0x1000,
+ota_0,               app,  ota_0,   0x10000,  0x200000,
+ota_1,               app,  ota_1,   0x210000, 0x200000,
+owner_stage,         data, undefined, 0x410000, 0x200000,
+kassigner_bootctl,   data, undefined, 0x610000, 0x1000,
+kassigner_qa,       data, undefined, 0xFF8000, 0x4000,
+kassigner_state,    data, undefined, 0xFFC000, 0x4000,

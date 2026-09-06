@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "mutation": {
+    "minimum_score_percent": 92.0,
+    "maximum_timeouts": 0,
+    "output_directory": "target/qa/mutation",
+    "artifact": "target/qa/security/mutation-summary.json",
+    "iterate": true,
+    "reuse_unchanged_results": true
+  },
+  "fuzz": {
+    "minimum_seconds_per_target": 300
+  },
+  "test_quality": {
+    "critical_test_roots": [
+      "crates/shared-signer/src/unit_tests",
+      "crates/signer-firmware-core/src/unit_tests",
+      "crates/offline-signer/src",
+      "crates/online-watcher/src",
+      "apps/signer-firmware/src/services/unit_tests",
+      "apps/signer-firmware/src/runtime/unit_tests"
+    ],
+    "required_evidence": [
+      {
+        "id": "canonical-encoding",
+        "files": [
+          "crates/shared-signer/src/unit_tests/account_key_tests.rs",
+          "crates/shared-signer/src/unit_tests/property_tests.rs"
+        ],
+        "terms": [
+          "canonical",
+          "round_trip",
+          "reject"
+        ]
+      },
+      {
+        "id": "mixed-qr-sessions",
+        "files": [
+          "crates/shared-signer/src/unit_tests/qr_frame_tests.rs",
+          "crates/kassigner-protocol/src/unit_tests/mod.rs",
+          "crates/online-watcher/src/protocol/unit_tests/qr_tests.rs"
+        ],
+        "terms": [
+          "mixed",
+          "QrDecoder",
+          "round_trip"
+        ]
+      },
+      {
+        "id": "transaction-roundtrip-and-malformed-input",
+        "files": [
+          "crates/offline-signer/src/transaction/kspt/unit_tests/property.rs",
+          "crates/offline-signer/src/transaction/std_pskt/unit_tests/round_trip.rs",
+          "crates/offline-signer/src/transaction/std_pskt/unit_tests/parser.rs"
+        ],
+        "terms": [
+          "roundtrip",
+          "truncated",
+          "assert_eq!"
+        ]
+      },
+      {
+        "id": "wallet-backup-recovery",
+        "files": [
+          "apps/signer-firmware/src/services/unit_tests/backup_tests.rs"
+        ],
+        "terms": [
+          "roundtrip",
+          "corruption",
+          "historical"
+        ]
+      },
+      {
+        "id": "signing-state-authorization",
+        "files": [
+          "crates/signer-firmware-core/src/unit_tests/security_tests.rs",
+          "apps/signer-firmware/src/runtime/unit_tests/input_tests.rs"
+        ],
+        "terms": [
+          "ReviewIncomplete",
+          "review_authorized",
+          "assert_eq!"
+        ]
+      }
+    ]
+  },
+  "crypto_mutation_domain": {
+    "minimum_score_percent": 100.0,
+    "maximum_timeouts": 0,
+    "artifact": "target/qa/security/crypto-mutation-summary.json",
+    "scope_statement": "Host-testable cryptographic primitives, key derivation/lifecycle, transaction sighash, signing authorization/execution, anti-klepto verification, stealth view-tag derivation, device credential policy and credential-bound KDF, and entropy policy shared by production firmware and watcher protocol code.",
+    "allowed_global_exclude_re": [
+      "impl Debug",
+      "fmt\\(",
+      "message\\("
+    ],
+    "include_globs": [
+      "crates/shared-signer/src/account_key.rs",
+      "crates/shared-signer/src/anti_klepto.rs",
+      "crates/shared-signer/src/bytes.rs",
+      "crates/signer-firmware-core/src/entropy/**/*.rs",
+      "crates/signer-firmware-core/src/security.rs",
+      "crates/signer-firmware-core/src/security/**/*.rs",
+      "crates/shared-signer/src/legacy_account_key.rs",
+      "crates/signer-firmware-core/src/security/credential.rs",
+      "crates/shared-signer/src/security.rs",
+      "crates/kassigner-protocol/src/wire/multisig_descriptor.rs",
+      "crates/offline-signer/src/crypto/**/*.rs",
+      "crates/offline-signer/src/derivation/**/*.rs",
+      "crates/offline-signer/src/transaction/sighash/**/*.rs",
+      "crates/offline-signer/src/transaction/kspt/signing/**/*.rs",
+      "crates/online-watcher/src/protocol/pskt/anti_klepto.rs",
+      "crates/online-watcher/src/protocol/transaction/sighash.rs",
+      "crates/online-watcher/src/privacy/stealth/derivation.rs"
+    ],
+    "exclude_globs": [
+      "**/unit_tests/**",
+      "**/tests/**",
+      "**/bip39_wordlist.rs"
+    ],
+    "equivalent_mutants": [],
+    "scope_limitations": [
+      "The cargo-mutants claim covers the enumerated host-testable source domain only; ESP32-S3 hardware-bound cryptographic adapters and eFuse/HMAC peripheral orchestration are validated by firmware, QEMU/source-contract, reproducible-build, and HIL evidence rather than counted in this mutation percentage."
+    ]
+  }
+}

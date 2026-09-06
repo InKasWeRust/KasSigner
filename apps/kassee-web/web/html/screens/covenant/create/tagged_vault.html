@@ -1,0 +1,107 @@
+                    <!-- Tagged Vault: KIP-20 Covenant ID -->
+                    <div id="cov-tagged-vault-panel" class="card hidden">
+                        <h3 class="u-margin-0-0-4px-text-16px">Tagged Vault (KIP-20)</h3>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-14px-line-1-4">
+                            Watch-only covenant-ID-aware vault. KasSee uses only the loaded kpub/xpub
+                            and creates unsigned PSKBs; every spend-capable authorization is reviewed
+                            and signed on KasSigner.
+                        </p>
+
+                        <!-- Step 1: Load the public owner identity from the watch-only wallet -->
+                        <div id="tv-step-keygen">
+                            <button class="btn btn-primary u-full-width-mb-8px" id="btn-tv-keygen">
+                                1. Use Loaded Watch-Only Account
+                            </button>
+                            <div id="tv-keygen-result" class="hidden">
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Watch-Only Receive Address</div>
+                                    <div class="cov-result-value u-text-10px-break-all" id="tv-eph-address"></div>
+                                </div>
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Derived Public Key</div>
+                                    <div class="cov-result-value u-text-10px-break-all" id="tv-eph-pubkey"></div>
+                                </div>
+                                <p class="tagged-vault-warning">
+                                    No seed, xprv, or private signing key is generated or stored in KasSee.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Step 2: Build genesis PSKB -->
+                        <div id="tv-step-genesis">
+                            <div class="form-group u-mb-8px">
+                                <label class="u-text-11px">Amount (KAS)</label>
+                                <input type="number" id="tv-amount" class="form-control u-text-13px"
+                                       placeholder="e.g. 5" min="0.1" step="0.1" value="5">
+                            </div>
+                            <button class="btn btn-primary u-full-width-mb-8px" id="btn-tv-genesis">
+                                2. Build Tagged Vault Genesis PSKB
+                            </button>
+                            <div id="tv-genesis-result" class="hidden">
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Signing Status</div>
+                                    <div class="cov-result-value u-text-10px-break-all" id="tv-genesis-txid"></div>
+                                </div>
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Covenant ID</div>
+                                    <div class="cov-result-value u-text-10px-break-all-text-teal" id="tv-covenant-id"></div>
+                                </div>
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Covenant Address</div>
+                                    <div class="cov-result-value u-text-10px-break-all" id="tv-covenant-addr"></div>
+                                </div>
+                                <p class="tagged-vault-help">
+                                    Scan the PSKB on KasSigner, review and sign it, then scan the signed result back before broadcasting.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Step 3: Continue the vault with another hardware-signed PSKB -->
+                        <div id="tv-step-spend">
+                            <button class="btn btn-primary u-full-width-mb-8px" id="btn-tv-spend">
+                                3. Build Continuation PSKB
+                            </button>
+                            <div id="tv-spend-result" class="hidden">
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Signing Status</div>
+                                    <div class="cov-result-value u-text-10px-break-all" id="tv-spend-txid"></div>
+                                </div>
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Covenant ID (preserved)</div>
+                                    <div class="cov-result-value u-text-10px-break-all-text-teal" id="tv-spend-covid"></div>
+                                </div>
+                                <p class="u-text-11px-text-success-margin-8px-0-0-line-1-4">
+                                    The unsigned PSKB preserves the KIP-20 covenant binding. KasSigner performs the spend authorization.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Step 4: Split flow; genesis first, then signed continuation -->
+                        <div id="tv-step-split">
+                            <button class="btn btn-primary" id="btn-tv-split">
+                                4. Build Split-Vault Genesis PSKB
+                            </button>
+                            <div id="tv-split-result" class="hidden">
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Signing Status</div>
+                                    <div class="cov-result-value u-text-10px-break-all" id="tv-split-txid"></div>
+                                </div>
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Covenant ID (preserved)</div>
+                                    <div class="cov-result-value u-text-10px-break-all-text-teal" id="tv-split-covid"></div>
+                                </div>
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Output A / B</div>
+                                    <div class="cov-result-value u-text-10px" id="tv-split-amounts"></div>
+                                </div>
+                                <p class="u-text-11px-text-success-margin-8px-0-0-line-1-4">
+                                    The split PSKB carries both tagged outputs and remains unsigned until KasSigner authorizes it.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Log area -->
+                        <div id="tv-log"></div>
+
+                        <button class="btn btn-back" id="btn-tv-back">Back</button>
+                    </div>

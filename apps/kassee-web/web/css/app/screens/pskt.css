@@ -1,0 +1,228 @@
+/* Component-owned styles migrated from one-use global utilities. */
+#btn-relay-compact { width:100%; margin-bottom:14px; text-align:left; padding:14px 16px; }
+#btn-relay-standard { width:100%; margin-bottom:10px; text-align:left; padding:14px 16px; }
+#mb-prove-timer { margin-top:18px; color:#6f9286; font-size:12px; font-variant-numeric:tabular-nums; }
+#pskt-payload-hash { display:none; text-align:right; font-family:monospace; font-size:12px; color:#4ecdc4; padding:4px 12px 8px; opacity:0.85; }
+#relay-choice-modal { position:fixed; inset:0; background:rgba(0,0,0,0.72); backdrop-filter:blur(4px); z-index:1000; display:flex; align-items:center; justify-content:center; padding:20px; }
+.price-proof-animation { position:relative; width:140px; height:140px; margin:0 auto 26px; }
+.price-proof-bolt { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:30px; }
+.price-proof-description { color:#9fc7ba; font-size:13px; line-height:1.55; margin:12px auto 0; max-width:300px; }
+.price-proof-metrics { display:flex; gap:26px; justify-content:center; margin-top:22px; color:#7fa597; font-size:11px; }
+.price-proof-overlay { position:fixed; inset:0; z-index:99999; display:flex; align-items:center; justify-content:center; background:radial-gradient(1100px 560px at 50% -8%,#0c2a22 0%,#070a09 58%); font-family:inherit; }
+.price-proof-panel { width:min(92vw,420px); text-align:center; color:#e8fff7; animation:mbpv-fade .4s ease both; }
+.price-proof-ring { position:absolute; inset:0; border-radius:50%; border:2px solid rgba(46,230,166,.4); animation:mbpv-ring 2.4s ease-out infinite; }
+.price-proof-ring-delayed { position:absolute; inset:0; border-radius:50%; border:2px solid rgba(46,230,166,.4); animation:mbpv-ring 2.4s ease-out infinite 1.2s; }
+.price-proof-spinner { position:absolute; inset:26px; border-radius:50%; border:2px solid rgba(46,230,166,.14); border-top-color:#2ee6a6; animation:mbpv-spin 1.05s linear infinite; }
+.price-proof-title { font-size:22px; font-weight:700; letter-spacing:.2px; }
+.price-proof-value { margin:10px 0 2px; font-size:34px; font-weight:800; color:#2ee6a6; font-variant-numeric:tabular-nums; }
+.relay-dialog { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); max-width:420px; width:100%; padding:24px; box-shadow:0 20px 60px rgba(0,0,0,0.6); }
+.relay-dialog-prompt { margin:0 0 20px 0; color:var(--text-dim); font-size:13px; }
+.relay-dialog-title { margin:0 0 6px 0; color:var(--text); font-size:18px; }
+
+/* Price-proof overlay animation. */
+@keyframes mbpv-ring{0%{transform:scale(.55);opacity:.85}70%{opacity:0}100%{transform:scale(1.7);opacity:0}}
+@keyframes mbpv-spin{to{transform:rotate(360deg)}}
+@keyframes mbpv-fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+#mb-prove .mbpv-step.done .mbpv-num{background:#2ee6a6;color:#04221a;border-color:#2ee6a6}
+#mb-prove .mbpv-step.active .mbpv-num{border-color:#2ee6a6;color:#2ee6a6;box-shadow:0 0 0 4px rgba(46,230,166,.16)}
+#mb-prove .mbpv-step.active,#mb-prove .mbpv-step.done{color:#e8fff7}
+
+/* ─── PSKT / PSKB review screen ─── */
+
+.pskt-header {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding: 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.pskt-hdr-cell {
+    text-align: center;
+}
+
+.pskt-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 2px;
+}
+
+.pskt-value {
+    font-size: 14px;
+    color: var(--text);
+    word-break: break-all;
+}
+
+.pskt-mono {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+/* Address verification zones (prefix + first 8, last 8) — matches the
+   teal emphasis on KasSigner's TX review screen for eye comparison.
+   Normal weight/size: color alone carries the emphasis. */
+.addr-hl {
+    color: var(--teal);
+}
+
+.pskt-section-title {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--teal);
+    margin: 14px 0 8px;
+}
+
+.pskt-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.pskt-row {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+}
+
+.pskt-row-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.pskt-idx {
+    font-family: var(--mono);
+    color: var(--text-dim);
+    font-size: 12px;
+    min-width: 28px;
+}
+
+.pskt-kind {
+    background: rgba(73, 234, 203, 0.08);
+    color: var(--teal);
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.pskt-sig-badge {
+    margin-left: auto;
+    background: rgba(229, 83, 75, 0.1);
+    color: var(--danger);
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-family: var(--mono);
+}
+
+.pskt-sig-badge.ok {
+    background: rgba(63, 185, 80, 0.12);
+    color: var(--success);
+}
+
+.pskt-row-body {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+    align-items: baseline;
+}
+
+.pskt-totals {
+    margin-top: 14px;
+    padding: 10px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.pskt-total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+}
+
+.pskt-total-row:last-child {
+    margin-bottom: 0;
+}
+
+.pskt-total-row span:nth-child(2) {
+    color: var(--text);
+    font-family: var(--mono);
+    margin-left: auto;
+}
+
+.pskt-total-row span:last-child {
+    color: var(--text-dim);
+    margin-left: 2px;
+}
+
+#btn-pskt-finalize:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: var(--surface-2);
+    color: var(--text-dim);
+    border-color: var(--border);
+}
+
+/* The default PSKB review is intentionally non-technical. Detailed UTXO and
+   output data stays available behind Inspect for users who want to audit it. */
+.pskt-simple-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.pskt-summary-destination,
+.pskt-summary-item {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+}
+
+.pskt-summary-address {
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.pskt-summary-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+
+.pskt-summary-value {
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+#btn-pskt-inspect {
+    width: 100%;
+    margin-bottom: 14px;
+}
+
+.pskt-inspect-details {
+    margin-bottom: 14px;
+}
+

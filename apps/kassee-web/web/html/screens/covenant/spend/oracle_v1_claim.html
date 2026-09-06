@@ -1,0 +1,30 @@
+                    <!-- Oracle-v1 beneficiary claim -->
+                    <div id="cov-oracle-v1-claim-panel" class="card hidden">
+                        <h3>Oracle Claim</h3>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                            Scan the oracle's KasSigner attestation QR. KasSee verifies that the
+                            signature commitment matches the attestation text before building the claim.
+                        </p>
+                        <input type="hidden" id="cov-oracle-v1-claim-addr">
+                        <input type="hidden" id="cov-oracle-v1-claim-script">
+                        <input type="hidden" id="cov-oracle-v1-claim-sig">
+                        <input type="hidden" id="cov-oracle-v1-claim-commitment">
+                        <label class="input-label">Attestation text</label>
+                        <textarea id="cov-oracle-v1-claim-text" class="input-text input-textarea" readonly
+                                  placeholder="Exact message the oracle reviewed on KasSigner"></textarea>
+                        <button class="btn btn-outline u-full-width-mb-8px" id="btn-cov-oracle-v1-scan-attestation">
+                            📷 Scan KasSigner Attestation
+                        </button>
+                        <div id="cov-oracle-v1-claim-status" class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4"></div>
+                        <label class="input-label">Claim Destination</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-oracle-v1-claim-dest" class="input-text u-grow-mb-0"
+                                   placeholder="kaspa:..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0"
+                                    id="btn-cov-scan-oracle-v1-claim-dest" title="Scan destination">📷</button>
+                        </div>
+                        <button class="btn btn-primary u-full-width-mb-8px" id="btn-cov-oracle-v1-claim-create">
+                            Build Oracle Claim
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-oracle-v1-claim-back">Back</button>
+                    </div>

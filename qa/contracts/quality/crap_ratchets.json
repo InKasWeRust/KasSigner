@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "coverage_profile": {
+    "branch_instrumentation": true,
+    "dev_opt_level": "0",
+    "test_opt_level": "0"
+  },
+  "host_production_minimum_percent": {
+    "branches": 91.4141,
+    "functions": 90.6473,
+    "lines": 95.9701
+  }
+}

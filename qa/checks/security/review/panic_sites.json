@@ -1,0 +1,158 @@
+{
+  "sites": [
+    {
+      "path": "apps/signer-firmware/src/boot/m5stack/mod.rs",
+      "line": 27,
+      "source": ".expect(\"I2C0 init failed — hardware fault\")",
+      "fingerprint": "6fcce8d7f8f1473de745e7d07db9f92aa8237978ae34b5237fd8e6d37b6bc802",
+      "rationale": "Reviewed fail-stop hardware invariant: continuing after this boot/peripheral invariant fails would be unsafe; the device intentionally halts rather than entering signing operation in a partially initialized state."
+    },
+    {
+      "path": "apps/signer-firmware/src/boot/m5stack/mod.rs",
+      "line": 40,
+      "source": ".expect(\"SPI2 init failed — hardware fault\")",
+      "fingerprint": "48ee7d738dd7af297ab99e0720f54bc59473174940abd9502f9012c919332333",
+      "rationale": "Reviewed fail-stop hardware invariant: continuing after this boot/peripheral invariant fails would be unsafe; the device intentionally halts rather than entering signing operation in a partially initialized state."
+    },
+    {
+      "path": "apps/signer-firmware/src/boot/m5stack/mod.rs",
+      "line": 46,
+      "source": ".expect(\"CoreS3 shared SPI2 init failed — hardware fault\");",
+      "fingerprint": "00b50c5d024ee4eb51783e7ddbad8c330212780cbc3c464c2047b421d27d8a1f",
+      "rationale": "Reviewed fail-stop hardware invariant: the shared SPI2 owner must exist before either LCD or SD can operate; continuing without that sole owner would reintroduce split peripheral ownership, so boot intentionally halts."
+    },
+    {
+      "path": "apps/signer-firmware/src/boot/m5stack/mod.rs",
+      "line": 88,
+      "source": ".expect(\"DMA buffer allocation failed\");",
+      "fingerprint": "43cd4559588448390536a17091c082cefd4b68b48ee3716a14fa5664ab4166af",
+      "rationale": "Reviewed fail-stop hardware invariant: continuing after this boot/peripheral invariant fails would be unsafe; the device intentionally halts rather than entering signing operation in a partially initialized state."
+    },
+    {
+      "path": "apps/signer-firmware/src/boot/shared/application.rs",
+      "line": 27,
+      "source": "panic!(\"boot cryptographic known-answer test failed\");",
+      "fingerprint": "56e218a4a17cdc8d7212ee35db8b47ab71caf2841a5dc1926d61849e1fa5ca13",
+      "rationale": "Reviewed fail-stop hardware invariant: continuing after this boot/peripheral invariant fails would be unsafe; the device intentionally halts rather than entering signing operation in a partially initialized state."
+    },
+    {
+      "path": "apps/signer-firmware/src/boot/shared/security.rs",
+      "line": 10,
+      "source": "panic!(\"wireless power-domain lockdown verification failed\");",
+      "fingerprint": "1a425f4d9ca3cac1271152d6bff2a6b0ca84f29d89223c0e7e0c0df83dd16802",
+      "rationale": "Reviewed fail-stop hardware invariant: continuing after this boot/peripheral invariant fails would be unsafe; the device intentionally halts rather than entering signing operation in a partially initialized state."
+    },
+    {
+      "path": "apps/signer-firmware/src/boot/waveshare/mod.rs",
+      "line": 82,
+      "source": ".expect(\"I2C0 init failed — hardware fault\")",
+      "fingerprint": "0959cb2900941114b54b297b39655e22b30eba18ef5b2f2c8a4bbe42342e72c6",
+      "rationale": "Reviewed fail-stop hardware invariant: continuing after this boot/peripheral invariant fails would be unsafe; the device intentionally halts rather than entering signing operation in a partially initialized state."
+    },
+    {
+      "path": "apps/signer-firmware/src/boot/waveshare/mod.rs",
+      "line": 91,
+      "source": ".expect(\"I2C1 init failed — camera SCCB fault\")",
+      "fingerprint": "4f008c8d9c27aeeda805fa60707da677a2fab5580bf98ef2b346dd8376a717e8",
+      "rationale": "Reviewed fail-stop hardware invariant: continuing after this boot/peripheral invariant fails would be unsafe; the device intentionally halts rather than entering signing operation in a partially initialized state."
+    },
+    {
+      "path": "apps/signer-firmware/src/boot/waveshare/mod.rs",
+      "line": 140,
+      "source": ".expect(\"SPI2 init failed — hardware fault\")",
+      "fingerprint": "758fec4fb83051eb08580c8a6dbc034967556df82b2c52ae65f9967b2660d603",
+      "rationale": "Reviewed fail-stop hardware invariant: continuing after this boot/peripheral invariant fails would be unsafe; the device intentionally halts rather than entering signing operation in a partially initialized state."
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/screenshot.rs",
+      "line": 52,
+      "source": ".expect(\"screenshot framebuffer layout\");",
+      "fingerprint": "32fd4c9fe9390e3b2bc01c85f75fcea0b3533f42ab06ece91f833585bd91aab2",
+      "rationale": "Reviewed fail-stop hardware invariant: continuing after this boot/peripheral invariant fails would be unsafe; the device intentionally halts rather than entering signing operation in a partially initialized state."
+    },
+    {
+      "path": "crates/online-watcher/src/privacy/stealth/derivation.rs",
+      "line": 24,
+      "source": "ScalarPrimitive::<Secp256k1>::from_slice(&adjusted).expect(\"31-byte reduced stealth tweak\")",
+      "fingerprint": "c0ab85b856f4402c55bfede2eadb0374a2a8c1f99f97dd224a2d43a65df2bde2",
+      "rationale": "Reviewed fail-stop invariant: this path represents an internal invariant violation, not attacker-controlled validation; external inputs are validated before reaching it."
+    },
+    {
+      "path": "crates/online-watcher/src/privacy/stealth/derivation.rs",
+      "line": 27,
+      "source": "u32::from_be_bytes(hash[..4].try_into().expect(\"four-byte hash prefix\")) & 0x7fff_ffff;",
+      "fingerprint": "f298159ddbcf22e459ab28ec95123cb00a8e9a21f8258312df2cf2124183cbff",
+      "rationale": "Reviewed fail-stop invariant: this path represents an internal invariant violation, not attacker-controlled validation; external inputs are validated before reaching it."
+    },
+    {
+      "path": "crates/online-watcher/src/protocol/pskt/wire/envelope.rs",
+      "line": 50,
+      "source": "PsktFormat::Unknown => unreachable!(),",
+      "fingerprint": "f877d228314292e6cf6f36136852d3d8c192a5c808cc2ee5cbe418c83780c668",
+      "rationale": "Reviewed fail-stop invariant: this path represents an internal invariant violation, not attacker-controlled validation; external inputs are validated before reaching it."
+    },
+    {
+      "path": "crates/online-watcher/src/protocol/pskt/wire/envelope.rs",
+      "line": 133,
+      "source": "PsktFormat::Pskb => &root.as_array().expect(\"validated PSKB array\")[0],",
+      "fingerprint": "2517eb699295189423f93a71aa7fff530f9fd600ca72336bb8d85cb79f898a7d",
+      "rationale": "Reviewed fail-stop invariant: this path represents an internal invariant violation, not attacker-controlled validation; external inputs are validated before reaching it."
+    },
+    {
+      "path": "crates/online-watcher/src/protocol/pskt/wire/envelope.rs",
+      "line": 135,
+      "source": "PsktFormat::Unknown => unreachable!(\"validated format\"),",
+      "fingerprint": "6c8b24a3bb81261837977b0ac03c49a834b3ac313198478cb7ae88767bb8187d",
+      "rationale": "Reviewed fail-stop invariant: this path represents an internal invariant violation, not attacker-controlled validation; external inputs are validated before reaching it."
+    },
+    {
+      "path": "crates/online-watcher/src/protocol/pskt/wire/envelope.rs",
+      "line": 156,
+      "source": "PsktFormat::Pskb => &mut root.as_array_mut().expect(\"validated PSKB array\")[0],",
+      "fingerprint": "f2add52bf42d90cc55b380d1dae55ea050583bc73e6fe186b3f0a079ada1aaea",
+      "rationale": "Reviewed fail-stop invariant: this path represents an internal invariant violation, not attacker-controlled validation; external inputs are validated before reaching it."
+    },
+    {
+      "path": "crates/online-watcher/src/protocol/pskt/wire/envelope.rs",
+      "line": 158,
+      "source": "PsktFormat::Unknown => unreachable!(\"validated format\"),",
+      "fingerprint": "6c8b24a3bb81261837977b0ac03c49a834b3ac313198478cb7ae88767bb8187d",
+      "rationale": "Reviewed fail-stop invariant: this path represents an internal invariant violation, not attacker-controlled validation; external inputs are validated before reaching it."
+    },
+    {
+      "path": "crates/online-watcher/src/protocol/script/number.rs",
+      "line": 20,
+      "source": "script.push(u8::try_from(bytes.len()).expect(\"u64 script integers use at most 9 bytes\"));",
+      "fingerprint": "a8f2f1a05afd677648845a5572742eb395169270ae6ab7e91a5a29faca429a70",
+      "rationale": "Reviewed fail-stop invariant: this path represents an internal invariant violation, not attacker-controlled validation; external inputs are validated before reaching it."
+    },
+    {
+      "path": "crates/online-watcher/src/protocol/script/push.rs",
+      "line": 4,
+      "source": "script.push(u8::try_from(length).expect(\"length is bounded by 75\"));",
+      "fingerprint": "99a74cc138f13e9f440fa11aa7aac0fdd47b83ad8cdc46db8de1619550b9cdfe",
+      "rationale": "Reviewed proven conversion invariant: the preceding branch/constant bound establishes the condition encoded by this expect/unwrap; regression tests exercise the boundary."
+    },
+    {
+      "path": "crates/online-watcher/src/protocol/script/push.rs",
+      "line": 7,
+      "source": "script.push(u8::try_from(length).expect(\"length is bounded by u8::MAX\"));",
+      "fingerprint": "0fca5e3903f968adfaf8494e5d16fb60223158f0abb90a86b7d330cf14f06cc8",
+      "rationale": "Reviewed proven conversion invariant: the preceding branch/constant bound establishes the condition encoded by this expect/unwrap; regression tests exercise the boundary."
+    },
+    {
+      "path": "crates/online-watcher/src/protocol/script/push.rs",
+      "line": 12,
+      "source": ".expect(\"length is bounded by u16::MAX\")",
+      "fingerprint": "abb47591795c4164b9f08e3207b739374584f39dede54bd5456f8063f9c26096",
+      "rationale": "Reviewed proven conversion invariant: the preceding branch/constant bound establishes the condition encoded by this expect/unwrap; regression tests exercise the boundary."
+    },
+    {
+      "path": "crates/online-watcher/src/protocol/script/push.rs",
+      "line": 17,
+      "source": "let length = u32::try_from(length).expect(\"script item exceeds u32 wire limit\");",
+      "fingerprint": "c3a4e94e7aa7ab895a59430a812d323f00d51480a69829b0ccd2a387a7a6d327",
+      "rationale": "Reviewed fail-stop invariant: this path represents an internal invariant violation, not attacker-controlled validation; external inputs are validated before reaching it."
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "description": "Authoritative host-fuzz coverage registry for externally controlled signer parsing surfaces.",
+  "surfaces": [
+    {"name":"qr-payload-envelope","target":"unwrap_qr_payload","token":"qr_payload"},
+    {"name":"multi-frame-qr","target":"qr_frame_roundtrip","token":"qr_frame"},
+    {"name":"account-key-canonical","target":"account_key_canonical","token":"account_key"},
+    {"name":"firmware-qr-classification-and-hex","target":"firmware_protocol_parsing","token":"classify_qr_payload"},
+    {"name":"compact-kspt-parser","target":"compact_kspt_parser","token":"parse_compact_kspt"},
+    {"name":"compact-kspt-roundtrip","target":"compact_kspt_roundtrip","token":"serialize_compact_kspt"},
+    {"name":"standard-pskt","target":"std_pskt_parser","token":"parse_pskt"},
+    {"name":"bip32-derivation","target":"bip32_derivation","token":"bip32"},
+    {"name":"stego-jpeg-carrier","target":"stego_picture_parser","token":"stego_picture"},
+    {"name":"anti-klepto-wire","target":"firmware_external_inputs","token":"anti_klepto::parse_request"},
+    {"name":"covenant-sign-wire","target":"firmware_external_inputs","token":"covenant_sign::parse_request"},
+    {"name":"private-swap-wire","target":"firmware_external_inputs","token":"private_swap::parse_request"},
+    {"name":"multisig-descriptor","target":"firmware_external_inputs","token":"parse_multisig_descriptor"},
+    {"name":"firmware-update-manifest","target":"firmware_external_inputs","token":"update_manifest::parse"},
+    {"name":"seedqr-standard-compact","target":"firmware_external_inputs","token":"decode_compact_seedqr"},
+    {"name":"sd-import-payload-detection","target":"firmware_external_inputs","token":"detect_payload"},
+    {"name":"fat32-boot-directory-metadata","target":"firmware_external_inputs","token":"parse_boot_sector"},
+    {"name":"advanced-policy-text","target":"firmware_external_inputs","token":"parse_weekly_windows"},
+    {"name":"kpub-compatible-import","target":"firmware_external_inputs","token":"decode_kpub_compatible"},
+    {"name":"password-kdf-metadata","target":"firmware_external_inputs","token":"parse_metadata"},
+    {"name":"device-bound-backup-framing","target":"firmware_external_inputs","token":"parse_backup_header"},
+    {"name":"encrypted-transport-framing","target":"firmware_external_inputs","token":"parse_transport_header"},
+    {"name":"private-swap-script","target":"firmware_external_inputs","token":"parse_private_swap_script"},
+    {"name":"pskt-format-detection","target":"firmware_external_inputs","token":"detect_tx_format"},
+    {"name":"esp-image-attestation-metadata","target":"firmware_external_inputs","token":"parse_image_header"}
+  ]
+}

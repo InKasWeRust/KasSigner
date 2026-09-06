@@ -1,24 +1,19 @@
 ---
-name: Bug Report
-about: Report a bug in KasSigner
-title: "[BUG] "
+name: Bug report
+about: Report a reproducible KasSigner problem
+title: ""
 labels: bug
+assignees: ""
 ---
 
-**Board:** Waveshare ESP32-S3-Touch-LCD-2 / M5Stack CoreS3
-**Firmware version:** 
-**Description:**
+## Summary
 
-**Steps to reproduce:**
-1. 
-2. 
-3. 
+Describe what happened and what you expected instead.
 
-**Expected behavior:**
+## Reproduction
 
-**Actual behavior:**
+Provide the smallest reproducible sequence, board/application, package version, and relevant build/environment details.
 
-**Serial log (if available):**
-```
+## Evidence
 
-```
+Attach relevant logs with secrets and wallet material removed.

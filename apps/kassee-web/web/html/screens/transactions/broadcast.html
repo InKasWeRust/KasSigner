@@ -1,0 +1,31 @@
+            <!-- Broadcast screen -->
+            <section id="screen-broadcast" class="screen">
+                <div class="screen-content">
+                    <h2>Broadcast Transaction</h2>
+                    <p class="subtitle">Scan the signed QR from KasSigner</p>
+                    <div class="card">
+                        <button class="btn btn-primary" id="btn-scan-signed">
+                            Scan Signed QR
+                        </button>
+                        <button class="btn btn-secondary" id="btn-load-signed-qr-image">
+                            Upload Signed QR Image
+                        </button>
+                        <input id="input-signed-qr-image" type="file" accept="image/*" multiple class="hidden">
+                        <div id="broadcast-image-status" class="scanner-status" aria-live="polite"></div>
+                        <div class="divider u-hidden" id="broadcast-hex-divider">or</div>
+                        <textarea id="input-signed-hex" class="input-text input-textarea u-hidden"
+                                  placeholder="Paste signed KSPT hex..." rows="4"></textarea>
+                        <button class="btn btn-secondary u-hidden" id="btn-broadcast-hex">
+                            Broadcast
+                        </button>
+                        <button class="btn btn-back" id="btn-broadcast-back">Back</button>
+                    </div>
+                    <div id="broadcast-result" class="result-card hidden">
+                        <div id="broadcast-result-icon" class="result-icon"></div>
+                        <div id="broadcast-result-msg" class="result-msg"></div>
+                        <div id="broadcast-result-txid" class="tx-id"></div>
+                        <button class="btn btn-link" id="btn-copy-txid">Copy TX ID</button>
+                        <button class="btn btn-secondary u-mt-12px" id="btn-broadcast-done">Back to Dashboard</button>
+                    </div>
+                </div>
+            </section>

@@ -1,0 +1,64 @@
+            <section id="screen-settings" class="screen">
+                <div class="screen-content">
+                    <h2>Node Connection</h2>
+                    <p class="subtitle">Default: auto-connect to public nodes</p>
+                    <button class="btn btn-back" id="btn-settings-back-top">Back</button>
+                    <div class="card">
+                        <label class="input-label">Network</label>
+                        <select id="select-network" class="input-text">
+                            <option value="mainnet">Mainnet</option>
+                            <option value="testnet-10">Testnet-10</option>
+                            <option value="testnet-12">Testnet-12 (custom node)</option>
+                        </select>
+                        <label class="input-label">Custom Node URL (wRPC Borsh)</label>
+                        <input type="text" id="input-node-url" class="input-text"
+                               placeholder="wss://your-node:17110" autocomplete="off" spellcheck="false">
+                        <p class="subtitle settings-network-help">
+                            Leave empty for public nodes. Your node must have<br>
+                            <code>--rpclisten-borsh=0.0.0.0:17110</code> enabled.
+                        </p>
+                        <button class="btn btn-primary" id="btn-save-settings">
+                            Save
+                        </button>
+                        <button class="btn btn-link" id="btn-use-public">
+                            Reset to Public Nodes
+                        </button>
+                        <div class="toggle-row u-mt-16px-pt-14px-border-top-1px-solid-border">
+                            <div>
+                                <label class="input-label u-mb-2px">Address History</label>
+                                <p class="subtitle u-margin-0-align-text-left-text-10px-line-1-4">
+                                    Detect used addresses via your own<br>
+                                    kaspa-rest-server. Requires REST URL.
+                                </p>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="chk-addr-history">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="settings-custom-node">
+                            <label class="input-label">REST API URL</label>
+                            <input type="text" id="input-rest-url" class="input-text"
+                                   placeholder="https://your-server:8000" autocomplete="off" spellcheck="false">
+                            <p class="subtitle settings-security-note">
+                                Your kaspa-rest-server with DB indexer.<br>
+                                Public APIs do not support this feature.
+                            </p>
+                        </div>
+                        <div class="toggle-row u-mt-16px-pt-14px-border-top-1px-solid-border">
+                            <div>
+                                <label class="input-label u-mb-2px">Stealth Indexer</label>
+                                <p class="subtitle u-margin-0-align-text-left-text-10px-line-1-4">
+                                    Pull stealth R's from the keeper<br>
+                                    instead of scanning in-browser.
+                                </p>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="chk-stealth-indexer">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <button class="btn btn-back" id="btn-settings-back">Back</button>
+                    </div>
+                </div>
+            </section>

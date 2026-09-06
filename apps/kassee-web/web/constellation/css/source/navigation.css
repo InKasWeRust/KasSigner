@@ -1,0 +1,42 @@
+/* mini constellation compass */
+#mini-map {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 120px;
+  height: 120px;
+  z-index: 500;
+  opacity: 0;
+  transition: opacity 0.6s ease, transform 1.4s cubic-bezier(0.22,1,0.36,1);
+  transform: scale(0.85);
+  transform-origin: bottom right;
+}
+#mini-map.on {
+  opacity: 1;
+  transform: scale(1);
+}
+#mini-map.on:hover {
+  transform: scale(2);
+  transform-origin: bottom right;
+  transition: opacity 0.6s ease, transform 0.5s cubic-bezier(0.22,1,0.36,1);
+}
+#mini-canvas { width: 120px; height: 120px; border-radius: 50%; }
+
+/* nav hint — always left side, never overlaps compass */
+#hint {
+  position: fixed;
+  bottom: 28px;
+  left: 32px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--teal-dim);
+  text-transform: uppercase;
+  z-index: 400;
+  transition: opacity 0.5s, color 0.3s;
+  opacity: 0;
+  padding: 6px 14px;
+  border: 1px solid var(--ink-faint);
+  border-radius: 20px;
+}
+#hint:hover { color: var(--teal-pale); border-color: var(--teal-dim); }

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<!-- KasSigner / KasSee Web — Constellation interactive explorer -->
+<!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
+<!-- License: GPL-3.0 --><html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KasSigner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif:ital,wght@0,300;0,400;1,300&family=IBM+Plex+Mono:wght@300;400&family=Rubik:wght@400;500;600&family=Oswald:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/constellation.css">
+</head>
+<body>
+
+<div id="cur">
+  <svg viewBox="0 0 22 22" fill="none">
+    <polygon points="2,1 2,18 7,12 11,21 14,20 10,11 19,11"
+      fill="#1D9E75" stroke="#9fcfbc" stroke-width="0.7" stroke-linejoin="round"/>
+  </svg>
+</div>
+
+<!-- main canvas -->
+<canvas id="c"></canvas>
+
+<!-- mini map canvas (inside act) -->
+<div id="mini-map">
+  <canvas id="mini-canvas" width="120" height="120"></canvas>
+</div>
+
+<div id="hint">esc · return</div>
+
+<!-- INTRO -->
+<div class="screen on" id="s-intro">
+  <div class="eyebrow i1">energy · data · security</div>
+  <img src="img/constellation-logo.png" alt="KasSigner"
+  class="i2 constellation-route-logo">
+  <div class="sub i3">air-gapped · kaspa · open source</div>
+  <div class="tagline i4">
+    The last guardian in the signature chain.<br>
+    The only moment where a human<br>and mathematics touch.
+  </div>
+  <div class="enter i5">touch anywhere to begin</div>
+</div>
+
+<!-- ACT -->
+<div class="screen" id="s-act">
+  <div class="act-wrap" id="act-wrap">
+    <div id="act-content"></div>
+  </div>
+  <div id="act-diagram"></div>
+</div>
+
+<script src="js/main.js"></script>
+</body>
+</html>

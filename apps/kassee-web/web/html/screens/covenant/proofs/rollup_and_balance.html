@@ -1,0 +1,27 @@
+                    <!-- KIP-21 Bridge withdrawal sub-screen -->
+
+                    <!-- KIP-21 ZK Rollup State Transition panel -->
+
+                    <!-- KIP-21 Rollup State Advance sub-screen -->
+
+                    <!-- Rollup Deposit (L1->L2) sub-screen -->
+
+                    <!-- Check balance sub-screen -->
+                    <div id="cov-balance-panel" class="card hidden">
+                        <label class="input-label">Covenant Address (P2SH)</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-balance-addr" class="input-text u-grow-mb-0"
+                                   placeholder="kaspatest:pr..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-balance-addr"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-balance-check">
+                            Check Balance
+                        </button>
+                        <div id="cov-balance-result" class="hidden">
+                            <div class="rollup-balance-label">Balance</div>
+                            <div id="cov-balance-kas"></div>
+                            <div class="u-text-11px-mt-4px-text-text-dim" id="cov-balance-utxos"></div>
+                        </div>
+                        <button class="btn btn-back" id="btn-cov-balance-back">Back</button>
+                    </div>

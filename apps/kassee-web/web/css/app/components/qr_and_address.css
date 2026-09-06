@@ -1,0 +1,260 @@
+/* ─── QR Display ─── */
+
+.qr-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 20px 0;
+    transition: opacity 0.1s ease;
+}
+
+.qr-container svg {
+    width: 260px;
+    height: 260px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: #fff;
+    padding: 8px;
+}
+
+.qr-frame-info {
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    letter-spacing: 0.5px;
+}
+
+.frame-dots {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin: 8px 0;
+}
+
+.frame-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: all 0.2s ease;
+}
+
+.frame-dot.active {
+    background: var(--teal);
+    box-shadow: 0 0 8px var(--teal-glow);
+    transform: scale(1.3);
+}
+
+.frame-controls {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    margin: 6px 0;
+}
+
+.btn-frame {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
+    font-size: 14px;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.btn-frame:hover,
+.btn-frame:active {
+    border-color: var(--teal);
+    color: var(--teal);
+}
+
+/* ─── Address display ─── */
+
+.address-display {
+    font-family: var(--mono);
+    font-size: 12px;
+    word-break: break-all;
+    padding: 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin: 14px 0;
+    text-align: center;
+    color: var(--teal);
+    line-height: 1.6;
+    letter-spacing: 0.3px;
+}
+
+.address-list {
+    margin: 16px 0;
+}
+
+.addr-section-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin: 16px 0 8px;
+}
+
+.addr-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: border-color var(--transition);
+}
+
+.addr-item:active {
+    border-color: var(--teal-dim);
+}
+
+.addr-idx {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    min-width: 24px;
+}
+
+.addr-val {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--teal);
+    word-break: break-all;
+    line-height: 1.5;
+    flex: 1;
+}
+
+.copy-icon {
+    font-size: 18px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    transition: color 0.2s;
+    padding: 8px 10px;
+    margin: -8px -10px;
+    cursor: pointer;
+    border-radius: 6px;
+}
+
+.copy-icon:active {
+    color: var(--teal);
+    background: rgba(20, 184, 122, 0.1);
+}
+
+.addr-used {
+    opacity: 0.5;
+}
+
+.addr-used .addr-val {
+    color: var(--text-dim);
+}
+
+.addr-badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--warning);
+    border: 1px solid var(--warning);
+    border-radius: 4px;
+    padding: 1px 5px;
+    flex-shrink: 0;
+    align-self: center;
+}
+
+.addr-badge.used {
+    color: var(--text-muted);
+    border-color: var(--text-muted);
+}
+
+.addr-explore {
+    font-size: 14px;
+    color: var(--teal-dim);
+    text-decoration: none;
+    flex-shrink: 0;
+    align-self: center;
+    padding: 2px 4px;
+    transition: color var(--transition);
+}
+
+.addr-explore:hover {
+    color: var(--teal);
+}
+
+/* ─── Toggle switch ─── */
+
+.toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background: var(--border);
+    border-radius: 12px;
+    transition: background var(--transition);
+}
+
+.toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    left: 3px;
+    bottom: 3px;
+    background: var(--text-dim);
+    border-radius: 50%;
+    transition: transform var(--transition), background var(--transition);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background: var(--teal-dim);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+    transform: translateX(20px);
+    background: var(--teal);
+}
+
+/* Multisig branch UTXO rows must keep long Kaspa addresses inside the card. */
+.utxo-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+    min-width: 0;
+}
+
+.utxo-row > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}

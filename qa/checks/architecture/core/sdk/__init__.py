@@ -1,0 +1,1 @@
+"""KasSigner SDK architecture checks."""

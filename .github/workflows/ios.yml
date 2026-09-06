@@ -1,0 +1,45 @@
+name: ios
+
+on:
+  push:
+    paths:
+      - 'apps/kassee-ios/**'
+      - 'apps/kassee-web/**'
+      - 'crates/online-watcher/**'
+      - 'crates/kassigner-protocol/**'
+      - 'crates/kassigner-sdk/**'
+      - 'qa/config/toolchains.env'
+      - 'scripts/mac/build/ios-build.sh'
+      - 'scripts/mac/build/ios-runtime-sync.sh'
+      - 'tools/build/web/**'
+      - 'tools/build/ios/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'apps/kassee-ios/**'
+      - 'apps/kassee-web/**'
+      - 'crates/online-watcher/**'
+      - 'crates/kassigner-protocol/**'
+      - 'crates/kassigner-sdk/**'
+      - 'qa/config/toolchains.env'
+      - 'scripts/mac/build/ios-build.sh'
+      - 'scripts/mac/build/ios-runtime-sync.sh'
+      - 'tools/build/web/**'
+      - 'tools/build/ios/**'
+      - '.github/workflows/ios.yml'
+
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Export pinned toolchain policy
+        shell: bash
+        run: grep -E '^[A-Za-z_][A-Za-z0-9_]*=' qa/config/toolchains.env >> "$GITHUB_ENV"
+      - name: Install pinned stable Rust
+        shell: bash
+        run: rustup toolchain install "$KASSIGNER_STABLE_RUST" --profile minimal
+      - name: iOS tests
+        run: make ios-test

@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import { kaspaRestApiBase } from '../../../apps/kassee-web/web/js/core/config/network.js';
+import { explorerBase } from '../../../apps/kassee-web/web/js/core/explorer.js';
+assert.equal(kaspaRestApiBase('mainnet'), 'https://api.kaspa.org');
+assert.equal(kaspaRestApiBase('testnet-10'), 'https://api-tn10.kaspa.org');
+assert.equal(kaspaRestApiBase('testnet-12'), 'https://api-tn12.kaspa.org');
+assert.throws(() => kaspaRestApiBase('devnet'), /No public Kaspa REST endpoint configured/);
+assert.equal(explorerBase('testnet-12'), 'https://explorer-tn12.kaspa.org');
+assert.throws(() => explorerBase('devnet'), /No block explorer configured/);
+console.log('PASS: REST/explorer routing is explicit for Testnet-12 and fails closed for unsupported networks');

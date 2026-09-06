@@ -1,0 +1,151 @@
+/* ─── Header ─── */
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    background: var(--bg);
+    z-index: 10;
+}
+
+.header-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.header-logo {
+    height: 24px;
+    width: auto;
+}
+
+.header-brand .title {
+    font-family: var(--mono);
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: none;
+    background: linear-gradient(135deg, var(--teal), #7af5dd);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+
+.header-logo:focus-visible {
+    outline: 2px solid var(--teal);
+    outline-offset: 3px;
+    border-radius: 999px;
+}
+
+.header-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.header-social {
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    padding: 4px;
+    transition: color var(--transition);
+    text-decoration: none;
+}
+
+.header-social:hover {
+    color: var(--text);
+}
+
+.header-settings-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 22px;
+    cursor: pointer;
+    padding: 4px;
+    transition: color var(--transition);
+}
+
+.header-settings-btn:hover,
+.header-settings-btn.active {
+    color: var(--teal);
+}
+
+/* ─── Gear menu panel ─── */
+
+.gear-menu {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.25s ease;
+}
+
+.gear-menu.visible {
+    max-height: 60px;
+    opacity: 1;
+    padding: 8px 16px;
+}
+
+.gear-menu-tabs {
+    display: flex;
+    gap: 4px;
+}
+
+.gear-tab {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 8px 4px;
+    cursor: pointer;
+    text-align: center;
+    transition: all var(--transition);
+    letter-spacing: 0.3px;
+}
+
+.gear-tab:active {
+    transform: scale(0.96);
+}
+
+.gear-tab.active {
+    border-color: var(--teal);
+    color: var(--teal);
+    background: var(--teal-glow);
+}
+
+.dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.dot.offline { background: var(--danger); box-shadow: 0 0 6px rgba(229, 83, 75, 0.4); }
+.dot.connecting { background: var(--warning); animation: pulse 1.2s ease-in-out infinite; }
+.dot.online { background: var(--success); box-shadow: 0 0 6px rgba(63, 185, 80, 0.4); }
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
+}

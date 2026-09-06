@@ -1,55 +1,49 @@
-# kassee (KasSee Web) CI — lint + audit for the wasm crate.
-# Place at repo root: .github/workflows/kassee-ci.yml
-# Toolchain pinned to 1.94.1 — the stable that formats this codebase —
-# so rustfmt/clippy results agree between CI and the dev machine. The
-# firmware's reproducible Docker build stays pinned separately (1.85.0
-# in Dockerfile.base); this lint job does not need to match it.
-name: kassee CI
+name: kassee-ci
 
 on:
   push:
-    paths: ["kassee/**"]
+    paths:
+      - 'apps/kassee-web/**'
+      - 'crates/online-watcher/**'
+      - 'crates/kassigner-protocol/**'
+      - 'crates/kassigner-sdk/**'
+      - 'crates/shared-signer/**'
+      - 'qa/config/toolchains.env'
+      - 'tools/build/web/**'
+      - '.github/workflows/kassee-ci.yml'
   pull_request:
-    paths: ["kassee/**"]
+    paths:
+      - 'apps/kassee-web/**'
+      - 'crates/online-watcher/**'
+      - 'crates/kassigner-protocol/**'
+      - 'crates/kassigner-sdk/**'
+      - 'crates/shared-signer/**'
+      - 'qa/config/toolchains.env'
+      - 'tools/build/web/**'
+      - '.github/workflows/kassee-ci.yml'
+
   workflow_dispatch:
 
-env:
-  CARGO_TERM_COLOR: always
-  RUSTUP_TOOLCHAIN: "1.94.1"
-
 jobs:
-  lint:
-    name: fmt + clippy (wasm)
+  wasm-hygiene:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: kassee
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94.1
-        with:
-          components: rustfmt, clippy
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: kassee
-      - name: Format check
-        run: cargo fmt --all -- --check
-      - name: Clippy (wasm target, deny warnings)
-        run: cargo clippy --lib --target wasm32-unknown-unknown -- -D warnings
-
-  audit:
-    name: cargo audit
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    defaults:
-      run:
-        working-directory: kassee
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94.1
-      - run: cargo install cargo-audit --locked
-      # RUSTSEC-2025-0055 (tracing-subscriber 0.2.x, ANSI escapes in logs):
-      # transitive dep of the arkworks ZK stack; not used for untrusted
-      # input logging in KasSee. Reviewed and accepted 2026-07-03.
-      - run: cargo audit --ignore RUSTSEC-2025-0055
+      - uses: actions/checkout@v6
+      - name: Export pinned toolchain policy
+        shell: bash
+        run: grep -E '^[A-Za-z_][A-Za-z0-9_]*=' qa/config/toolchains.env >> "$GITHUB_ENV"
+      - name: Install pinned stable Rust
+        shell: bash
+        run: rustup toolchain install "$KASSIGNER_STABLE_RUST" --profile minimal --component rustfmt --component clippy
+      - name: KasSee Rust format
+        shell: bash
+        run: rustup run "$KASSIGNER_STABLE_RUST" cargo fmt --manifest-path apps/kassee-web/Cargo.toml --package kassee-web -- --check
+      - name: KasSee Clippy
+        shell: bash
+        run: rustup run "$KASSIGNER_STABLE_RUST" cargo clippy --manifest-path apps/kassee-web/Cargo.toml --locked -- -D warnings
+      - name: Cargo audit (non-blocking)
+        continue-on-error: true
+        shell: bash
+        run: |
+          rustup run "$KASSIGNER_STABLE_RUST" cargo install cargo-audit --locked
+          rustup run "$KASSIGNER_STABLE_RUST" cargo audit

@@ -1,0 +1,62 @@
+/* act screen */
+#s-act {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* bottom padding protects compass — 180px safe zone */
+  padding-bottom: 180px;
+}
+
+.act-wrap {
+  width: 100%;
+  max-width: 860px;
+  padding: 60px 8vw 0;
+  flex-shrink: 0;
+}
+
+#act-diagram {
+  display: none;
+  width: 100%;
+  max-width: none;
+  padding: 32px 168px 0 48px;
+}
+
+.act-num {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.25em;
+  color: var(--teal-dim);
+  text-transform: uppercase;
+  margin-bottom: 24px;
+}
+.act-title {
+  font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+  font-weight: 300;
+  font-style: italic;
+  color: var(--ink);
+  line-height: 1.15;
+  margin-bottom: 32px;
+}
+.act-title em { color: var(--teal); font-style: normal; }
+.act-body {
+  font-size: clamp(0.9rem, 1.3vw, 1rem);
+  color: var(--ink-dim);
+  line-height: 2.1;
+  max-width: 580px;
+  margin-bottom: 24px;
+}
+.act-body strong { color: var(--ink); font-weight: 400; }
+.act-rule { width: 36px; height: 1px; background: var(--teal); opacity: 0.5; margin: 32px 0; }
+.act-quote {
+  border-left: 1px solid var(--teal-dim);
+  padding-left: 20px;
+  font-style: italic;
+  font-size: clamp(0.95rem,1.4vw,1.1rem);
+  color: var(--ink);
+  line-height: 1.9;
+  max-width: 500px;
+  margin: 32px 0;
+}

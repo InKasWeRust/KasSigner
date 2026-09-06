@@ -1,0 +1,24 @@
+                    <!-- Consolidate UTXOs sub-screen -->
+                    <div id="cov-consolidate-panel" class="card hidden">
+                        <label class="input-label" id="cov-consol-title">Select UTXOs</label>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4" id="cov-consol-desc">
+                            Select UTXOs to consolidate or withdraw. Owner signature required.
+                        </p>
+                        <div id="cov-consol-list"></div>
+                        <div class="consolidate-input-row">
+                            <button class="btn btn-outline u-grow-text-12px" id="btn-consol-select-all">Select All</button>
+                            <button class="btn btn-outline u-grow-text-12px" id="btn-consol-select-none">Select None</button>
+                        </div>
+                        <div id="cov-consol-summary"></div>
+                        <label class="input-label">Destination Address</label>
+                        <div class="consolidate-target-row">
+                            <input type="text" id="cov-consol-dest" class="input-text u-grow-mb-0"
+                                   placeholder="Covenant address (consolidate) or personal (withdraw)" autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-consol-scan-dest"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <button class="btn btn-primary u-full-width" id="btn-consol-create">
+                            Create TX
+                        </button>
+                        <button class="btn btn-back" id="btn-consol-back">Back</button>
+                    </div>

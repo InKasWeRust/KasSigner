@@ -1,0 +1,136 @@
+/* Component-owned styles migrated from one-use global utilities. */
+#btn-clear-history { color:var(--text-muted); font-size:11px; }
+#btn-consolidate-selected { margin-top:8px; display:none; }
+
+/* ─── Transaction history ─── */
+
+.history-item,
+.token-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+}
+
+.history-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+    width: 28px;
+    text-align: center;
+}
+
+.history-icon.incoming,
+.history-amount.incoming { color: var(--success); }
+
+.history-icon.outgoing,
+.history-amount.outgoing { color: var(--danger); }
+
+.history-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.history-amount {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.history-time {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+/* ─── Token items (KRC20) ─── */
+
+.token-tick {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--teal);
+    min-width: 60px;
+    text-transform: uppercase;
+}
+
+.token-balance {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    flex: 1;
+    text-align: right;
+}
+
+.tokens-section-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+}
+
+/* ─── NFT items (KRC721) ─── */
+
+/* ─── Portfolio ─── */
+.portfolio-screen-content { max-width: 430px; }
+.portfolio-root { display:flex; flex-direction:column; gap:12px; margin:12px 0 18px; }
+.portfolio-toolbar, .portfolio-actions, .portfolio-range-row, .portfolio-transaction-actions { display:flex; gap:8px; align-items:center; }
+.portfolio-toolbar { align-items:stretch; }
+.portfolio-select { flex:1; min-width:0; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; font:500 13px var(--sans); }
+.portfolio-compact-btn { width:auto; min-width:64px; margin:0; }
+.portfolio-value-card { margin:0; }
+.portfolio-value-row { display:flex; align-items:center; gap:10px; }
+.portfolio-value-row .balance-amount { flex:1; min-width:0; }
+.portfolio-price-refresh { width:40px; min-width:40px; height:36px; margin:0; padding:0; font-size:20px; line-height:1; }
+.portfolio-tabs { display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:4px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); }
+.portfolio-tab, .portfolio-range { border:0; background:transparent; color:var(--text-dim); border-radius:8px; padding:9px 10px; font:600 12px var(--sans); cursor:pointer; }
+.portfolio-tab.active, .portfolio-range.active { background:var(--teal-glow); color:var(--teal); }
+.portfolio-summary-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.portfolio-stat { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; }
+.portfolio-stat-label { color:var(--text-dim); font:500 10px var(--mono); text-transform:uppercase; letter-spacing:.5px; }
+.portfolio-stat-value { margin-top:6px; color:var(--text); font:600 13px var(--mono); overflow-wrap:anywhere; }
+.portfolio-actions { align-items:stretch; }
+.portfolio-actions > .btn { flex:1; margin:0; }
+.portfolio-actions-wrap { flex-wrap:wrap; }
+.portfolio-range-row { justify-content:center; }
+.portfolio-range { flex:1; }
+.portfolio-chart-card { margin:0; padding:16px; }
+.portfolio-section-title { color:var(--text); font:600 14px var(--sans); margin-bottom:10px; }
+.portfolio-chart { min-height:150px; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+.portfolio-chart svg { width:100%; height:150px; }
+.portfolio-chart-line { fill:none; stroke:var(--teal); stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; filter:drop-shadow(0 0 5px var(--teal-glow)); }
+.portfolio-empty { color:var(--text-dim); font-size:12px; text-align:center; line-height:1.5; padding:16px 8px; }
+.portfolio-empty-state { margin:0; text-align:center; }
+.portfolio-transaction-list { display:flex; flex-direction:column; gap:8px; }
+.portfolio-transaction { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px 12px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; }
+.portfolio-transaction-main { min-width:0; }
+.portfolio-transaction-type { font:600 13px var(--sans); color:var(--text); }
+.portfolio-transaction-meta { margin-top:3px; color:var(--text-muted); font:400 10px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.portfolio-transaction-amount { color:var(--teal); font:600 12px var(--mono); white-space:nowrap; }
+.portfolio-transaction-actions { grid-column:1 / -1; justify-content:flex-end; }
+.portfolio-row-action { width:auto; margin:0; padding:3px 7px; font-size:10px; }
+.portfolio-editor { margin:0; }
+.portfolio-field { display:block; margin-bottom:10px; }
+.portfolio-field .input { width:100%; margin-top:5px; }
+@media (max-width:420px) {
+    .portfolio-summary-grid { grid-template-columns:1fr 1fr; }
+    .portfolio-actions { flex-direction:column; }
+    .portfolio-toolbar .btn { padding-left:10px; padding-right:10px; }
+}
+
+.portfolio-inline-card {
+    display: grid;
+    gap: 12px;
+    margin: 10px 0;
+}
+
+.portfolio-warning-card {
+    border-color: var(--danger, #dc5252);
+}

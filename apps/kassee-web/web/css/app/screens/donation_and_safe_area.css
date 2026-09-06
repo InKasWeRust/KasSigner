@@ -1,0 +1,104 @@
+/* Donation card and safe-area behavior. */
+#donate-address {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8.5px;
+    font-weight: 500;
+    color: rgba(240, 245, 240, 0.85);
+    text-align: center;
+    margin-bottom: 12px;
+    word-break: break-all;
+    cursor: copy;
+    border-radius: 6px;
+}
+#donate-address:hover,
+#donate-address:focus-visible { color: #fff; outline: 1px solid rgba(255,255,255,0.35); }
+#donate-qr {
+    width: 110px;
+    height: 110px;
+    min-width: 110px;
+    flex-shrink: 0;
+    background: #fff;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 1px solid rgba(73, 191, 170, 0.3);
+    cursor: copy;
+}
+#donate-qr:hover,
+#donate-qr:focus-visible { outline: 2px solid rgba(255,255,255,0.75); outline-offset: 2px; }
+#donate-qr img { width: 100px; height: 100px; display: block; }
+.donate-actions { display:flex; gap:10px; margin-bottom:12px; }
+.donate-brand { display:inline-block; text-align:left; max-width:100%; }
+.donate-brand-image { width:170px; height:auto; border-radius:0; -webkit-mask-image:radial-gradient(ellipse 85% 75% at center,black 60%,transparent 100%); mask-image:radial-gradient(ellipse 85% 75% at center,black 60%,transparent 100%); max-width:100%; display:block; }
+.donate-brand-link { display:block; text-decoration:none; }
+.donate-card { position:relative; border-radius:20px; overflow:hidden; background:linear-gradient(145deg,#0d1a1a 0%,#162a28 30%,#1a3530 50%,#49bfaa 100%); padding:28px 24px 22px; }
+.donate-card-content { position:relative; z-index:2; }
+.donate-card-glow { position:absolute; inset:0; background:radial-gradient(circle at 75% 8%,rgba(73,191,170,0.3) 0%,transparent 35%),radial-gradient(circle at 15% 65%,rgba(73,191,170,0.15) 0%,transparent 40%); pointer-events:none; z-index:1; }
+.donate-content { text-align:center; max-width:400px; margin:0 auto; padding:0; }
+.donate-footer { text-align:center; }
+.donate-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px; gap:16px; }
+.donate-identity { text-align:left; }
+.donate-motto-primary { font-family:'Cormorant Garamond',Georgia,serif; font-size:13px; font-weight:300; font-style:italic; color:rgba(224,232,224,0.45); line-height:1.5; letter-spacing:0.02em; margin:0; }
+.donate-motto-secondary { font-family:'Cormorant Garamond',Georgia,serif; font-size:13px; font-weight:300; font-style:italic; color:rgba(224,232,224,0.45); line-height:1.5; letter-spacing:0.02em; margin:4px 0 0; }
+.donate-mottos { text-align:center; margin-bottom:14px; }
+.donate-site-link { font-family:'JetBrains Mono',monospace; font-size:9px; color:rgba(224,232,224,0.5); text-decoration:none; letter-spacing:0.05em; }
+.donate-social-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px; }
+.donate-title { font-family:'Space Grotesk',sans-serif; font-size:25px; font-weight:700; color:#e0e8e0; letter-spacing:-0.3px; margin:0 0 10px; text-align:left; }
+#btn-copy-donate,
+#btn-donate-skip {
+    flex: 1;
+    padding: 10px 0;
+    border: none;
+    border-radius: 10px;
+    color: #fff;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: filter 120ms ease, transform 120ms ease;
+}
+#btn-copy-donate { background:linear-gradient(135deg,#1D9E75,#2abf8e); box-shadow:0 4px 14px rgba(29,158,117,0.35); }
+#btn-donate-skip { background:linear-gradient(135deg,#b83a3a,#d44e4e); box-shadow:0 4px 14px rgba(184,58,58,0.3); }
+#btn-copy-donate:hover,
+#btn-copy-donate:active,
+#btn-donate-skip:hover,
+#btn-donate-skip:active {
+    color: #fff;
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+}
+@supports (padding-top: env(safe-area-inset-top)) {
+    header { padding-top: calc(14px + env(safe-area-inset-top)); }
+}
+
+@media (max-width: 420px) {
+    .donate-card {
+        padding: 22px 16px 18px;
+    }
+
+    .donate-header {
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .donate-identity,
+    .donate-brand {
+        width: 100%;
+        text-align: center;
+    }
+
+    .donate-title {
+        text-align: center;
+    }
+
+    .donate-brand-image {
+        margin: 0 auto;
+    }
+
+    #donate-qr {
+        align-self: center;
+    }
+}

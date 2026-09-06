@@ -1,0 +1,2180 @@
+<!DOCTYPE html>
+<!-- KasSigner / KasSee Web — Watch-only companion wallet -->
+<!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
+<!-- License: GPL-3.0 -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0d1117">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https: ws: wss://*.kaspa.stream wss://*.kaspa.green wss://*.kaspa.blue wss://*.kaspa.red; img-src 'self' https://gateway.pinata.cloud data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com">
+    <title>KasSee — KasSigner Companion</title>
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="css/app.css?v=102">
+    <link rel="manifest" href="manifest.json">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header id="header">
+            <div class="header-brand">
+                <button class="header-settings-btn" id="btn-header-settings" title="Settings">⚙</button>
+                <img src="img/logo-sm.png" alt="KasSigner" class="header-logo" id="btn-logo"
+                     role="button" tabindex="0" title="Open or close donation page"
+                     aria-label="Open or close donation page">
+            </div>
+            <div class="header-right">
+                <a href="https://x.com/KasSigner" target="_blank" rel="noopener" class="header-social" title="X / Twitter">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                </a>
+                <a href="https://www.youtube.com/@KasSigner" target="_blank" rel="noopener" class="header-social" title="YouTube">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                </a>
+                <a href="https://github.com/InKasWeRust/KasSigner" target="_blank" rel="noopener" class="header-social" title="GitHub">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+                </a>
+                <a href="https://kaspa.stream/" target="_blank" rel="noopener" class="header-social" title="Kaspa Explorer" id="btn-explorer">
+                    <img class="explorer-network-icon" src="img/kaspa-icon.png" alt="Kaspa" width="16" height="16">
+                </a>
+                <div class="header-status" id="status-dot">
+                    <span class="dot connecting"></span>
+                    <span class="label">Checking</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Gear menu panel -->
+        <div id="gear-menu" class="gear-menu">
+            <div class="gear-menu-tabs">
+                <button class="gear-tab active" data-target="kpub-manager" id="gear-tab-kpub-manager">kpubs</button>
+                <button class="gear-tab" data-target="addresses" id="gear-tab-addresses">Addresses</button>
+                <button class="gear-tab" data-target="utxos" id="gear-tab-utxos">UTXOs</button>
+                <button class="gear-tab" data-target="tokens" id="gear-tab-tokens">Tokens</button>
+                <button class="gear-tab" data-target="history" id="gear-tab-history">History</button>
+                <button class="gear-tab" data-target="portfolio" id="gear-tab-portfolio">Portfolio</button>
+                <button class="gear-tab" data-target="settings" id="gear-tab-settings">Node</button>
+            </div>
+        </div>
+
+        <!-- Screens (only one visible at a time) -->
+        <main id="main">
+            <!-- Welcome / Import screen -->
+            <section id="screen-welcome" class="screen active">
+                <div class="screen-content">
+                    <h2>Welcome to KasSee</h2>
+                    <p class="subtitle">Watch-only companion for KasSigner</p>
+                    <div class="card">
+                        <p class="welcome-import-prompt">Load your <strong>kpub</strong> from KasSigner to start.</p>
+                        <p id="kassee-startup-status" class="welcome-startup-status" role="status" aria-live="polite">
+                            Initializing the KasSee security engine…
+                        </p>
+                        <div id="welcome-saved-kpubs" class="welcome-saved-kpubs hidden">
+                            <p class="welcome-saved-kpubs-label">Saved kpubs</p>
+                            <div id="welcome-kpub-list" class="welcome-kpub-list" role="list"></div>
+                        </div>
+                        <div class="welcome-import-actions">
+                            <button class="btn btn-primary" id="btn-scan-kpub">Load kpub</button>
+                        </div>
+                        <div class="divider">other tools</div>
+                        <button class="btn btn-outline u-text-13px" id="btn-multisig-welcome">
+                            Multisig Spend
+                        </button>
+                        <button class="btn btn-outline" id="btn-broadcast-welcome">
+                            Broadcast TX
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Dashboard (balance + actions) -->
+            <section id="screen-dashboard" class="screen">
+                <div class="screen-content">
+                    <div class="balance-card">
+                        <div class="balance-label">Balance</div>
+                        <div class="balance-amount" id="balance-kas">—</div>
+                        <div class="balance-sub" id="balance-sompi"></div>
+                        <div class="balance-info" id="balance-info"></div>
+                        <div class="balance-info" id="balance-daa"></div>
+                    </div>
+                    <div class="actions">
+                        <button class="btn btn-primary btn-large" id="btn-send">
+                            Send KAS
+                        </button>
+                        <button class="btn btn-secondary btn-large" id="btn-receive">
+                            Receive
+                        </button>
+                        <button class="btn btn-outline btn-large" id="btn-broadcast">
+                            Broadcast TX
+                        </button>
+                        <button class="btn btn-outline btn-large u-mt-4px" id="btn-multisig-spend">
+                            Multisig Spend
+                        </button>
+                        <button class="btn btn-outline btn-large u-mt-4px" id="btn-covenant">
+                            Covenant++
+                        </button>
+                        <button class="btn btn-outline btn-large u-mt-4px" id="btn-stealth">
+                            Stealth Addresses
+                        </button>
+                    </div>
+                    <button class="btn btn-link" id="btn-refresh">
+                        Refresh Balance
+                    </button>
+                    <button class="btn btn-link btn-danger" id="btn-reset-wallet">
+                        Reset Wallet
+                    </button>
+                </div>
+            </section>
+            <!-- Addresses screen -->
+            <section id="screen-addresses" class="screen">
+                <div class="screen-content">
+                    <h2>Addresses</h2>
+                    <p class="subtitle">Tap to verify · long-press to copy</p>
+                    <button class="btn btn-back" id="btn-addresses-back-top">Back</button>
+                    <div id="address-list" class="address-list"></div>
+                    <button class="btn btn-back" id="btn-addresses-back">Back</button>
+                </div>
+            </section>
+            <!-- Address Verify screen -->
+            <section id="screen-verify" class="screen">
+                <div class="screen-content">
+                    <h2>Verify Address</h2>
+                    <p class="subtitle" id="verify-path"></p>
+                    <div id="verify-qr" class="qr-container"></div>
+                    <div id="verify-address" class="address-display"></div>
+                    <p class="subtitle verify-format-help">
+                        Compare with your KasSigner or other wallet.<br>
+                        Every character must match exactly.
+                    </p>
+                    <button class="btn btn-secondary" id="btn-verify-copy">Copy Address</button>
+                    <a class="btn btn-link u-text-teal-dim" id="btn-verify-explore" href="#" target="_blank" rel="noopener">View in Explorer ↗</a>
+                    <button class="btn btn-back" id="btn-verify-back">Back to Addresses</button>
+                </div>
+            </section>
+            <!-- UTXO screen -->
+            <section id="screen-utxos" class="screen">
+                <div class="screen-content">
+                    <h2>UTXOs</h2>
+                    <p class="subtitle" id="utxo-summary"></p>
+                    <button class="btn btn-back" id="btn-utxos-back-top">Back</button>
+                    <div id="utxo-list" class="address-list"></div>
+                    <button class="btn btn-primary u-mt-12px u-hidden" id="btn-send-selected-utxos">
+                        Send with Selected
+                    </button>
+                    <button class="btn btn-outline u-mt-12px" id="btn-consolidate">
+                        Consolidate All
+                    </button>
+                    <button class="btn btn-primary" id="btn-consolidate-selected">
+                        Consolidate Selected
+                    </button>
+                    <button class="btn btn-back" id="btn-utxos-back">Back</button>
+                </div>
+            </section>
+
+            <!-- Transaction History screen -->
+            <section id="screen-history" class="screen">
+                <div class="screen-content">
+                    <h2>Transaction History</h2>
+                    <p class="subtitle" id="history-summary"></p>
+                    <button class="btn btn-back" id="btn-history-back-top">Back</button>
+                    <div id="history-list" class="address-list"></div>
+                    <button class="btn btn-link" id="btn-clear-history">Clear History</button>
+                    <button class="btn btn-back" id="btn-history-back">Back</button>
+                </div>
+            </section>
+            <section id="screen-portfolio" class="screen">
+                <div class="screen-content portfolio-screen-content">
+                    <h2>Portfolio</h2>
+                    <p class="subtitle" id="portfolio-status">Track KAS holdings, cost basis, and historical value.</p>
+                    <button class="btn btn-back" id="btn-portfolio-back-top">Back</button>
+                    <div id="portfolio-root" class="portfolio-root"></div>
+                    <button class="btn btn-back" id="btn-portfolio-back">Back</button>
+                </div>
+            </section>
+            <!-- Tokens (KRC20) screen -->
+            <section id="screen-tokens" class="screen">
+                <div class="screen-content">
+                    <h2>Tokens</h2>
+                    <p class="subtitle" id="tokens-summary">KRC-20 token balances</p>
+                    <button class="btn btn-back" id="btn-tokens-back-top">Back</button>
+                    <div id="tokens-list" class="address-list"></div>
+                    <button class="btn btn-back" id="btn-tokens-back">Back</button>
+                </div>
+            </section>
+
+            <!-- Node Settings screen -->
+            <section id="screen-settings" class="screen">
+                <div class="screen-content">
+                    <h2>Node Connection</h2>
+                    <p class="subtitle">Default: auto-connect to public nodes</p>
+                    <button class="btn btn-back" id="btn-settings-back-top">Back</button>
+                    <div class="card">
+                        <label class="input-label">Network</label>
+                        <select id="select-network" class="input-text">
+                            <option value="mainnet">Mainnet</option>
+                            <option value="testnet-10">Testnet-10</option>
+                            <option value="testnet-12">Testnet-12 (custom node)</option>
+                        </select>
+                        <label class="input-label">Custom Node URL (wRPC Borsh)</label>
+                        <input type="text" id="input-node-url" class="input-text"
+                               placeholder="wss://your-node:17110" autocomplete="off" spellcheck="false">
+                        <p class="subtitle settings-network-help">
+                            Leave empty for public nodes. Your node must have<br>
+                            <code>--rpclisten-borsh=0.0.0.0:17110</code> enabled.
+                        </p>
+                        <button class="btn btn-primary" id="btn-save-settings">
+                            Save
+                        </button>
+                        <button class="btn btn-link" id="btn-use-public">
+                            Reset to Public Nodes
+                        </button>
+                        <div class="toggle-row u-mt-16px-pt-14px-border-top-1px-solid-border">
+                            <div>
+                                <label class="input-label u-mb-2px">Address History</label>
+                                <p class="subtitle u-margin-0-align-text-left-text-10px-line-1-4">
+                                    Detect used addresses via your own<br>
+                                    kaspa-rest-server. Requires REST URL.
+                                </p>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="chk-addr-history">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="settings-custom-node">
+                            <label class="input-label">REST API URL</label>
+                            <input type="text" id="input-rest-url" class="input-text"
+                                   placeholder="https://your-server:8000" autocomplete="off" spellcheck="false">
+                            <p class="subtitle settings-security-note">
+                                Your kaspa-rest-server with DB indexer.<br>
+                                Public APIs do not support this feature.
+                            </p>
+                        </div>
+                        <div class="toggle-row u-mt-16px-pt-14px-border-top-1px-solid-border">
+                            <div>
+                                <label class="input-label u-mb-2px">Stealth Indexer</label>
+                                <p class="subtitle u-margin-0-align-text-left-text-10px-line-1-4">
+                                    Pull stealth R's from the keeper<br>
+                                    instead of scanning in-browser.
+                                </p>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="chk-stealth-indexer">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <button class="btn btn-back" id="btn-settings-back">Back</button>
+                    </div>
+                </div>
+            </section>
+            <section id="screen-kpub-manager" class="screen">
+                <div class="screen-content">
+                    <h2>kpub Management</h2>
+                    <p class="subtitle">Choose a saved watch-only wallet or add a new kpub.</p>
+                    <button class="btn btn-back" id="btn-kpub-manager-back-top">Back</button>
+
+                    <div class="card kpub-manager-list-card">
+                        <div class="kpub-manager-list-heading">
+                            <div>
+                                <h3>Saved kpubs</h3>
+                                <p id="kpub-current-status" class="kpub-manager-current-status">No wallet is currently loaded.</p>
+                            </div>
+                            <span id="kpub-saved-count" class="kpub-manager-count">0</span>
+                        </div>
+                        <div id="kpub-saved-list" class="kpub-saved-list" role="list"></div>
+                        <p id="kpub-empty-state" class="kpub-empty-state">
+                            No saved kpubs yet.
+                        </p>
+                        <button class="btn btn-primary kpub-manager-load-button" id="btn-open-kpub-import">
+                            Load kpub
+                        </button>
+                    </div>
+
+                    <div class="card kpub-manager-form hidden" id="kpub-import-form">
+                        <div class="kpub-manager-form-heading">
+                            <div>
+                                <h3>Load a kpub</h3>
+                                <p class="kpub-manager-note">
+                                    Scan with a camera, upload a QR image, or paste the account public key. KasSee stores only public watch-only data in this browser.
+                                </p>
+                            </div>
+                            <button class="btn btn-link" id="btn-close-kpub-import" type="button">Cancel</button>
+                        </div>
+
+                        <div class="kpub-import-methods">
+                            <button class="btn btn-secondary" id="btn-scan-managed-kpub" type="button">
+                                Scan QR with camera
+                            </button>
+                            <button class="btn btn-secondary" id="btn-upload-managed-kpub" type="button">
+                                Upload QR image
+                            </button>
+                            <input type="file" id="input-managed-kpub-image" class="u-hidden"
+                                   accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/*">
+                        </div>
+
+                        <div class="divider">or enter manually</div>
+                        <label class="input-label" for="input-managed-kpub">Account public key</label>
+                        <textarea id="input-managed-kpub" class="input-text input-textarea"
+                                  placeholder="Paste canonical kpub1 text, original Base58Check kpub, or account-level xpub"
+                                  autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+
+                        <label class="input-label" for="input-kpub-friendly-name">Friendly name (optional)</label>
+                        <input type="text" id="input-kpub-friendly-name" class="input-text"
+                               maxlength="64" placeholder="Example: Main wallet; defaults to Wallet 1" autocomplete="off">
+
+                        <div class="toggle-row kpub-manager-startup-toggle">
+                            <div>
+                                <label class="input-label kpub-manager-toggle-label" for="chk-new-kpub-auto-load">
+                                    Load on startup
+                                </label>
+                                <p class="subtitle kpub-manager-toggle-help">
+                                    Replaces the current startup selection.
+                                </p>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="chk-new-kpub-auto-load">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <button class="btn btn-primary" id="btn-save-managed-kpub">Save and load kpub</button>
+                        <p class="subtitle kpub-manager-toggle-help">
+                            Use once loads this watch-only kpub for the current session only. It is not saved and will not load on startup.
+                        </p>
+                        <button class="btn btn-secondary" id="btn-use-current-kpub">Use kpub once</button>
+                    </div>
+
+                    <button class="btn btn-back" id="btn-kpub-manager-back">Back</button>
+                </div>
+            </section>
+            <!-- Send screen -->
+            <section id="screen-send" class="screen">
+                <div class="screen-content">
+                    <h2>Send KAS</h2>
+                    <div id="send-balance-ref" class="send-balance-ref"></div>
+                    <div class="card">
+                        <label class="input-label">Destination Address</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="input-dest" class="input-text u-grow-mb-0"
+                                   placeholder="kaspa:..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-scan-dest"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <div id="send-amount-wrap">
+                        <label class="input-label">Amount (KAS)</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="input-amount" class="input-text u-grow-mb-0"
+                                   placeholder="0.0" inputmode="decimal" autocomplete="off">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-send-max"
+                                   >Max</button>
+                        </div>
+                        </div>
+                        <label class="input-label">Fee</label>
+                        <div class="fee-cards">
+                            <button class="fee-card" id="btn-fee-low">
+                                <div class="fee-card-label">Low</div>
+                                <div class="fee-card-amount" id="fee-low-amount">2,500</div>
+                                <div class="fee-card-time" id="fee-low-time"></div>
+                            </button>
+                            <button class="fee-card fee-card-active" id="btn-fee-normal">
+                                <div class="fee-card-label">Normal</div>
+                                <div class="fee-card-amount" id="fee-normal-amount">5,000</div>
+                                <div class="fee-card-time" id="fee-normal-time"></div>
+                            </button>
+                            <button class="fee-card" id="btn-fee-priority">
+                                <div class="fee-card-label">Priority</div>
+                                <div class="fee-card-amount" id="fee-priority-amount">10,000</div>
+                                <div class="fee-card-time" id="fee-priority-time"></div>
+                            </button>
+                        </div>
+                        <input type="number" id="input-fee" class="input-text"
+                               value="10000" step="1" min="10000">
+                        <button class="btn btn-link u-text-12px-padding-4px-0-mb-8px-align-text-left" id="btn-toggle-utxos">
+                            Select UTXOs manually ▸
+                        </button>
+                        <div id="send-utxo-advanced" class="hidden">
+                            <div class="utxo-detail" id="send-utxo-summary">0 manually selected</div>
+                            <label class="input-label" for="send-utxo-sort">UTXO order</label>
+                            <select id="send-utxo-sort" class="input-text">
+                                <option value="amount-desc">Largest first</option>
+                                <option value="amount-asc">Largest last</option>
+                                <option value="daa-desc">Most recent first</option>
+                                <option value="daa-asc">Most recent last</option>
+                            </select>
+                            <label class="input-label" for="send-utxo-limit">Maximum selected UTXOs</label>
+                            <input type="number" id="send-utxo-limit" class="input-text" min="1" max="32" step="1" value="8">
+                            <div class="utxo-detail">Click individual UTXOs below to choose the exact outpoints to spend. If none are selected, KasSee uses automatic selection. Default automatic selection is 8. KasSee reads the connected KasSigner SDK capability ceiling (32 inputs for the v2 reference signer) and will not construct a standard send above that hardware limit. Larger UTXO sets should be consolidated first.</div>
+                            <div id="send-utxo-list" class="address-list"></div>
+                        </div>
+                        <button class="btn btn-primary" id="btn-create-tx">
+                            Create Transaction
+                        </button>
+                        <button class="btn btn-back" id="btn-send-back">Back</button>
+                    </div>
+                </div>
+            </section>
+            <!-- QR Display screen (shows KSPT as animated QR) -->
+            <section id="screen-qr-display" class="screen">
+                <div class="screen-content">
+                    <h2 id="qr-display-title">Scan with KasSigner</h2>
+                    <div id="qr-container" class="qr-container"></div>
+                    <div id="qr-frame-info" class="qr-frame-info"></div>
+                    <div id="qr-display-instruction" class="qr-frame-info"></div>
+                    <button class="btn btn-secondary u-hidden-mt-12px" id="btn-scan-next-sig">
+                        Scan Next Signature
+                    </button>
+                    <button class="btn btn-primary u-mt-12px" id="btn-qr-scan-signed">
+                        Scan Signed QR
+                    </button>
+                    <button class="btn btn-outline" id="btn-copy-kspt">
+                        Copy KSPT Hex
+                    </button>
+                    <button class="btn btn-back" id="btn-qr-back">Done</button>
+                    <div id="qr-tx-info"></div>
+                </div>
+            </section>
+
+            <!-- Camera scanner screen -->
+            <section id="screen-scanner" class="screen">
+                <div class="screen-content scanner-content">
+                    <h2 id="scanner-title">Scan QR Code</h2>
+                    <div class="scanner-viewport">
+                        <video id="scanner-video" autoplay playsinline></video>
+                        <canvas id="scanner-canvas" class="hidden"></canvas>
+                        <div class="scanner-guide"></div>
+                    </div>
+                    <div id="scanner-status" class="scanner-status">
+                        Waiting for camera...
+                    </div>
+                    <button class="btn btn-back" id="btn-scanner-cancel">Back</button>
+                </div>
+            </section>
+            <!-- Receive screen (show address) -->
+            <section id="screen-receive" class="screen">
+                <div class="screen-content">
+                    <h2>Receive KAS</h2>
+                    <div class="card">
+                        <div id="receive-qr" class="qr-container"></div>
+                        <div id="receive-address" class="address-display"></div>
+                        <button class="btn btn-secondary" id="btn-copy-address">
+                            Copy Address
+                        </button>
+                        <button class="btn btn-back" id="btn-receive-back">Back</button>
+                    </div>
+                </div>
+            </section>
+            <!-- Multisig Spend screen -->
+            <section id="screen-multisig" class="screen">
+                <div class="screen-content">
+                    <h2>Multisig Spend</h2>
+                    <p class="subtitle">Spend from a P2SH multisig address</p>
+                    <div class="card">
+                        <label class="input-label">Descriptor</label>
+                        <textarea id="input-ms-descriptor" class="input-text input-textarea"
+                                  placeholder="multi(2,pk1hex,...) or multi_hd(2,xpub,...)" rows="3"
+                                  autocomplete="off" spellcheck="false"></textarea>
+                        <button class="btn btn-outline u-full-width-mt-4px-text-12px" id="btn-scan-ms-descriptor"
+                               >📷 Scan Descriptor QR</button>
+                        <label class="input-label" for="input-ms-cosigner">45' Cosigner Branch</label>
+                        <input type="number" id="input-ms-cosigner" class="input-text" value="0" placeholder="0" min="0" max="4" step="1" autocomplete="off">
+                        <div class="send-balance-ref u-mt-4px">Branch 0 is the default; use the cosigner index shown by KasSigner.</div>
+                        <button class="btn btn-outline u-full-width-mt-4px-text-12px" id="btn-ms-discover">
+                            Discover Receive / Change Addresses
+                        </button>
+                        <div id="ms-discovery-info" class="send-balance-ref u-mt-8px"></div>
+                        <div id="ms-branch-utxos" class="address-list hidden"></div>
+                        <label class="input-label">Source Address (P2SH)</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="input-ms-source" class="input-text u-grow-mb-0"
+                                   placeholder="kaspa:pr..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-scan-ms-source"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <label class="input-label">Destination Address</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="input-ms-dest" class="input-text u-grow-mb-0"
+                                   placeholder="kaspa:..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-scan-ms-dest"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <label class="input-label">Amount (KAS)</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="number" id="input-ms-amount" class="input-text u-grow-mb-0"
+                                   placeholder="0.0" step="0.00000001" min="0">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-ms-max"
+                                   >Max</button>
+                        </div>
+                        <div id="ms-balance-info" class="send-balance-ref u-mt-8px"></div>
+                        <button class="btn btn-link u-text-12px-padding-4px-0-mb-8px-align-text-left" id="btn-toggle-ms-utxos">
+                            Select UTXOs manually ▸
+                        </button>
+                        <div id="ms-utxo-list" class="address-list hidden"></div>
+                        <button class="btn btn-primary u-mt-12px" id="btn-ms-create">
+                            Create Multisig TX
+                        </button>
+                        <button class="btn btn-back" id="btn-ms-back">Back</button>
+                    </div>
+                </div>
+            </section>
+            <!-- Covenant++ screen -->
+            <section id="screen-covenant" class="screen">
+                <div class="screen-content">
+                    <h2>Covenant++</h2>
+                    <p class="subtitle">Create and spend covenant addresses</p>
+
+                    <!-- Sub-screens toggled by JS -->
+                    <div id="cov-menu">
+
+                        <!-- Active Covenants (populated by JS) -->
+                        <div id="cov-active-list" class="cov-active-list hidden">
+                            <div class="cov-active-header">
+                                <h3>Active Covenants</h3>
+                                <span class="cov-active-count" id="cov-active-count">0</span>
+                            </div>
+                            <div id="cov-active-items"></div>
+                        </div>
+
+                        <button class="btn btn-outline u-full-width-mb-8px-text-13px" id="btn-cov-load-existing">
+                            Load Existing Covenant
+                        </button>
+                        <div class="covenant-menu-tabs">
+                            <button class="btn btn-outline u-grow-text-11px-opacity-0-8-padding-10px-4px" id="btn-cov-recover-chain" title="Scan chain for encrypted covenant payloads and rebuild portfolio">
+                                &#x1F50D; Recover from Chain
+                            </button>
+                            <button class="btn btn-outline u-grow-text-11px-opacity-0-8-padding-10px-4px" id="btn-cov-import-scan" title="Scan covenant backup QR from KasSigner">
+                                &#x1F4F7; Import from KasSigner
+                            </button>
+                        </div>
+
+                        <!-- Savings & Time Locks -->
+                        <div class="cov-category cov-cat-security">
+                            <div class="cov-cat-header">
+                                <div class="cov-cat-icon">&#x1F512;</div>
+                                <h3>Savings &amp; Time Locks</h3>
+                                <span class="cov-chevron">&#x25BC;</span>
+                            </div>
+                            <div class="cov-cat-grid">
+                                <div class="cov-type-card" data-cov-type="dms">
+                                    <div class="cov-card-name">Dead Man's Switch</div>
+                                    <div class="cov-card-desc">Heir inherits after inactivity. Heartbeat resets timer.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-type="additive">
+                                    <div class="cov-card-name">Piggy Bank</div>
+                                    <div class="cov-card-desc">Save toward a goal or a deadline. Break it open to withdraw.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-type="timelocked-savings">
+                                    <div class="cov-card-name">Time-Locked Savings</div>
+                                    <div class="cov-card-desc">Lock funds until a date. No one can touch them early, not even you.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Spending Controls -->
+                        <div class="cov-category cov-cat-governance">
+                            <div class="cov-cat-header">
+                                <div class="cov-cat-icon">&#x1F6A6;</div>
+                                <h3>Spending Controls</h3>
+                                <span class="cov-chevron">&#x25BC;</span>
+                            </div>
+                            <div class="cov-cat-grid">
+                                <div class="cov-type-card" data-cov-type="global-allowance">
+                                    <div class="cov-card-name">Allowance</div>
+                                    <div class="cov-card-desc">A beneficiary withdraws up to a cap, with a cooldown between withdrawals.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-type="merkle-whitelist">
+                                    <div class="cov-card-name">Merkle Whitelist</div>
+                                    <div class="cov-card-desc">Spend to approved set via proof.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-type="global-spending-limit">
+                                    <div class="cov-card-name">Spending Limit</div>
+                                    <div class="cov-card-desc">A cap on each withdrawal, with a cooldown between them. Applies to your whole balance.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Multi-Party & Conditional -->
+                        <div class="cov-category cov-cat-multiparty">
+                            <div class="cov-cat-header">
+                                <div class="cov-cat-icon">&#x1F91D;</div>
+                                <h3>Multi-Party &amp; Conditional</h3>
+                                <span class="cov-chevron">&#x25BC;</span>
+                            </div>
+                            <div class="cov-cat-grid">
+                                <div class="cov-type-card" data-cov-type="escrow">
+                                    <div class="cov-card-name">Direct Channel</div>
+                                    <div class="cov-card-desc">Direct payment channel with arbiter dispute resolution.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-panel="private-swap">
+                                    <div class="cov-card-name">Private Swap</div>
+                                    <div class="cov-card-desc">Adaptor-signature swap. No preimage and no shared on-chain link.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-type="payjoin">
+                                    <div class="cov-card-name">PayJoin</div>
+                                    <div class="cov-card-desc">Anonymous payment covenant.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-type="oracle-v1">
+                                    <div class="cov-card-name">Oracle</div>
+                                    <div class="cov-card-desc">Release on a human-readable oracle attestation.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-type="crowdfund">
+                                    <div class="cov-card-name">ZK Crowdfunding</div>
+                                    <div class="cov-card-desc">Contributors refund after timeout; organizer sweep is ZK-gated and destination-bound.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Advance & PoC -->
+                        <div class="cov-category cov-cat-advanced">
+                            <div class="cov-cat-header">
+                                <div class="cov-cat-icon">&#x26A1;</div>
+                                <h3>Advance &amp; PoC</h3>
+                                <span class="cov-chevron">&#x25BC;</span>
+                            </div>
+                            <div class="cov-cat-grid">
+                                <div class="cov-type-card" data-cov-type="commit-reveal">
+                                    <div class="cov-card-name">Commit-Reveal</div>
+                                    <div class="cov-card-desc">MEV-resistant inscriptions.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-panel="oracle-mb">
+                                    <div class="cov-card-name">ZK Price Oracle</div>
+                                    <div class="cov-card-desc">Live KAS/USD. Pyth + Wormhole, proven on-chain.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Utility row -->
+                        <div class="covenant-menu-actions">
+                            <button class="btn btn-secondary u-grow-text-12px" id="btn-cov-check-balance">
+                                Check Balance
+                            </button>
+                            <button class="btn btn-secondary u-grow-text-12px" id="btn-cov-owner-reclaim">
+                                Owner Spend
+                            </button>
+                        </div>
+                        <button class="btn btn-back" id="btn-cov-back">Back</button>
+                    </div>
+                    <!-- KasFreeze Hub: active sessions list + Create entry -->
+
+                    <!-- KasFreeze: Timed Auto-Release -->
+                    <!-- Tagged Vault: KIP-20 Covenant ID -->
+                    <div id="cov-tagged-vault-panel" class="card hidden">
+                        <h3 class="u-margin-0-0-4px-text-16px">Tagged Vault (KIP-20)</h3>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-14px-line-1-4">
+                            Watch-only covenant-ID-aware vault. KasSee uses only the loaded kpub/xpub
+                            and creates unsigned PSKBs; every spend-capable authorization is reviewed
+                            and signed on KasSigner.
+                        </p>
+
+                        <!-- Step 1: Load the public owner identity from the watch-only wallet -->
+                        <div id="tv-step-keygen">
+                            <button class="btn btn-primary u-full-width-mb-8px" id="btn-tv-keygen">
+                                1. Use Loaded Watch-Only Account
+                            </button>
+                            <div id="tv-keygen-result" class="hidden">
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Watch-Only Receive Address</div>
+                                    <div class="cov-result-value u-text-10px-break-all" id="tv-eph-address"></div>
+                                </div>
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Derived Public Key</div>
+                                    <div class="cov-result-value u-text-10px-break-all" id="tv-eph-pubkey"></div>
+                                </div>
+                                <p class="tagged-vault-warning">
+                                    No seed, xprv, or private signing key is generated or stored in KasSee.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Step 2: Build genesis PSKB -->
+                        <div id="tv-step-genesis">
+                            <div class="form-group u-mb-8px">
+                                <label class="u-text-11px">Amount (KAS)</label>
+                                <input type="number" id="tv-amount" class="form-control u-text-13px"
+                                       placeholder="e.g. 5" min="0.1" step="0.1" value="5">
+                            </div>
+                            <button class="btn btn-primary u-full-width-mb-8px" id="btn-tv-genesis">
+                                2. Build Tagged Vault Genesis PSKB
+                            </button>
+                            <div id="tv-genesis-result" class="hidden">
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Signing Status</div>
+                                    <div class="cov-result-value u-text-10px-break-all" id="tv-genesis-txid"></div>
+                                </div>
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Covenant ID</div>
+                                    <div class="cov-result-value u-text-10px-break-all-text-teal" id="tv-covenant-id"></div>
+                                </div>
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Covenant Address</div>
+                                    <div class="cov-result-value u-text-10px-break-all" id="tv-covenant-addr"></div>
+                                </div>
+                                <p class="tagged-vault-help">
+                                    Scan the PSKB on KasSigner, review and sign it, then scan the signed result back before broadcasting.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Step 3: Continue the vault with another hardware-signed PSKB -->
+                        <div id="tv-step-spend">
+                            <button class="btn btn-primary u-full-width-mb-8px" id="btn-tv-spend">
+                                3. Build Continuation PSKB
+                            </button>
+                            <div id="tv-spend-result" class="hidden">
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Signing Status</div>
+                                    <div class="cov-result-value u-text-10px-break-all" id="tv-spend-txid"></div>
+                                </div>
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Covenant ID (preserved)</div>
+                                    <div class="cov-result-value u-text-10px-break-all-text-teal" id="tv-spend-covid"></div>
+                                </div>
+                                <p class="u-text-11px-text-success-margin-8px-0-0-line-1-4">
+                                    The unsigned PSKB preserves the KIP-20 covenant binding. KasSigner performs the spend authorization.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Step 4: Split flow; genesis first, then signed continuation -->
+                        <div id="tv-step-split">
+                            <button class="btn btn-primary" id="btn-tv-split">
+                                4. Build Split-Vault Genesis PSKB
+                            </button>
+                            <div id="tv-split-result" class="hidden">
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Signing Status</div>
+                                    <div class="cov-result-value u-text-10px-break-all" id="tv-split-txid"></div>
+                                </div>
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Covenant ID (preserved)</div>
+                                    <div class="cov-result-value u-text-10px-break-all-text-teal" id="tv-split-covid"></div>
+                                </div>
+                                <div class="cov-result u-mb-8px">
+                                    <div class="cov-result-label">Output A / B</div>
+                                    <div class="cov-result-value u-text-10px" id="tv-split-amounts"></div>
+                                </div>
+                                <p class="u-text-11px-text-success-margin-8px-0-0-line-1-4">
+                                    The split PSKB carries both tagged outputs and remains unsigned until KasSigner authorizes it.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Log area -->
+                        <div id="tv-log"></div>
+
+                        <button class="btn btn-back" id="btn-tv-back">Back</button>
+                    </div>
+                    <!-- Create covenant sub-screen -->
+                    <div id="cov-create-panel" class="card hidden">
+                        <select id="cov-type" class="input-text u-hidden">
+                            <option value="additive">Piggy Bank</option>
+                            <option value="escrow">Escrow</option>
+                            <option value="ship-escrow">Shipment Escrow</option>
+                            <option value="global-spending-limit">Spending Limit</option>
+                            <option value="timelocked-savings">Time-Locked Savings</option>
+                            <option value="dms">Dead Man's Switch</option>
+                            <option value="global-allowance">Allowance (Thread)</option>
+                            <option value="payjoin">PayJoin (Anonymous Payment)</option>
+                            <option value="oracle-v1">Oracle (Human Attestation)</option>
+                            <option value="crowdfund">ZK Crowdfunding</option>
+                            <option value="commit-reveal">Commit-Reveal (MEV Resistance)</option>
+                            <option value="merkle-whitelist">Merkle Whitelist Vault (OP_CAT)</option>
+                        </select>
+
+                        <!-- Additive / Deposit / Spending-limit fields -->
+                        <div id="cov-fields-simple" class="hidden">
+                            <label class="input-label" id="cov-param-label">Threshold (KAS)</label>
+                            <input type="number" id="cov-param-value" class="input-text"
+                                   placeholder="10" step="0.00000001" min="0">
+                        </div>
+
+                        <!-- Piggy Bank fields -->
+                        <div id="cov-fields-piggy" class="hidden">
+                            <p class="u-text-12px-text-text-dim-margin-0-0-12px-line-1-5">
+                                Your personal savings vault. Add funds any time. Break it open when you reach your goal or after the deadline.
+                            </p>
+                            <label class="input-label">Savings Goal (KAS)</label>
+                            <input type="number" id="cov-piggy-goal" class="input-text"
+                                   placeholder="Optional" step="0.00000001" min="0">
+                            <label class="input-label">Deadline</label>
+                            <input type="datetime-local" id="cov-piggy-deadline" class="input-text u-color-scheme-dark"
+                                  >
+                            <p class="u-text-10px-text-text-muted-margin-4px-0-0">
+                                Fill one or both. Goal reached OR deadline passed lets you break the piggy bank.
+                                Leave both empty to break anytime.
+                                Breaking on the goal means withdrawing at least the goal amount in one sweep; a smaller amount needs the deadline to have passed.
+                            </p>
+                        </div>
+
+                        <!-- Escrow-specific fields -->
+                        <div id="cov-fields-escrow" class="hidden">
+                            <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                2-of-3 escrow: buyer, seller, and arbiter.<br>
+                                Addresses derived automatically from pubkeys.
+                            </p>
+                            <label class="input-label">Seller Pubkey (hex)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-escrow-pk" class="input-text u-grow-mb-0"
+                                       placeholder="32-byte xonly pubkey hex" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-escrow-pk"
+                                        title="Scan QR">📷</button>
+                            </div>
+                            <label class="input-label">Arbiter Pubkey (hex)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-escrow-arbiter-pk" class="input-text u-grow-mb-0"
+                                       placeholder="32-byte xonly pubkey hex" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-escrow-arbiter"
+                                        title="Scan QR">📷</button>
+                            </div>
+                        </div>
+
+                        <!-- Shipment-escrow fields -->
+                        <div id="cov-fields-ship-escrow" class="hidden">
+                            <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                Buyer-funded escrow with seller, deliverer, and arbiter.<br>
+                                You are the buyer. Payouts go to each party's address (from pubkey).
+                            </p>
+                            <label class="input-label">Seller Pubkey (hex)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-ship-seller-pk" class="input-text u-grow-mb-0"
+                                       placeholder="32-byte xonly pubkey hex" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-ship-seller"
+                                        title="Scan QR">📷</button>
+                            </div>
+                            <label class="input-label">Deliverer Pubkey (hex)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-ship-deliverer-pk" class="input-text u-grow-mb-0"
+                                       placeholder="32-byte xonly pubkey hex" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-ship-deliverer"
+                                        title="Scan QR">📷</button>
+                            </div>
+                            <label class="input-label">Arbiter Pubkey (hex)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-ship-arbiter-pk" class="input-text u-grow-mb-0"
+                                       placeholder="32-byte xonly pubkey hex" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-ship-arbiter"
+                                        title="Scan QR">📷</button>
+                            </div>
+                            <label class="input-label">Product Price (KAS)</label>
+                            <input type="number" id="cov-ship-product" class="input-text" step="0.00000001" min="0"
+                                   placeholder="e.g. 1.0" autocomplete="off">
+                            <label class="input-label">Delivery Fee (KAS)</label>
+                            <input type="number" id="cov-ship-fee" class="input-text" step="0.00000001" min="0"
+                                   placeholder="e.g. 0.2" autocomplete="off">
+                            <label class="input-label">Pickup Deadline (DAA score)</label>
+                            <input type="text" id="cov-ship-cltv1" class="input-text"
+                                   placeholder="no-pickup after this refunds buyer" autocomplete="off" spellcheck="false">
+                            <label class="input-label">Delivery Deadline (DAA score)</label>
+                            <input type="text" id="cov-ship-cltv2" class="input-text"
+                                   placeholder="no-delivery after this pays workers" autocomplete="off" spellcheck="false">
+                        </div>
+
+                        <!-- Time-Locked Savings fields -->
+                        <div id="cov-fields-savings" class="hidden">
+                            <p class="u-text-12px-text-text-dim-margin-0-0-12px-line-1-5">
+                                Lock KAS until a date. No one can move the funds before then, not even you.
+                                After the date, claim to anywhere with your wallet (or a backup wallet).
+                                Deposit by sending normally to the covenant address, as many times as you like.
+                            </p>
+                            <label class="input-label">When does it unlock?</label>
+                            <input type="datetime-local" id="cov-savings-datetime" class="input-text u-color-scheme-dark"
+                                  >
+                            <p class="u-text-10px-text-text-muted-margin-4px-0-0">
+                                Pick the date and time. KasSee calculates the DAA score automatically. The unlock is approximate (the chain clock drifts over long periods).
+                            </p>
+                            <input type="number" id="cov-savings-locktime" class="input-text u-hidden"
+                                   placeholder="DAA score (auto-calculated)" min="1" step="1"
+                                  >
+                            <label class="input-label">Recovery wallet (optional, leave blank for none)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-savings-recovery-pk" class="input-text u-grow-mb-0"
+                                       placeholder="Backup wallet's Kaspa address or x-only" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-savings-recovery"
+                                        title="Scan backup wallet address QR">📷</button>
+                            </div>
+                            <p class="u-text-10px-text-text-muted-margin-4px-0-0">
+                                An independent second wallet that can also claim after the date, so a lost main key does not lock you out. Either wallet alone can claim (this is not multisig).
+                            </p>
+                        </div>
+
+                        <!-- Time-Locked Escrow fields -->
+
+                        <!-- DMS (CSV, true heartbeat) fields -->
+                        <div id="cov-fields-dms" class="hidden">
+                            <p class="u-text-12px-text-text-dim-margin-0-0-12px-line-1-5">
+                                Your heir can claim the funds only after a period of inactivity.
+                                Send a heartbeat anytime to reset the timer.
+                            </p>
+                            <label class="input-label">Who inherits? (scan or paste address)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-dms2-heir-pk" class="input-text u-grow-mb-0"
+                                       placeholder="Heir address or scan QR" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-dms2-heir"
+                                        title="Scan heir kpub QR">📷</button>
+                            </div>
+                            <label class="input-label">Inactivity period</label>
+                            <select id="cov-dms2-preset" class="input-text">
+                                <option value="" disabled selected>Choose inactivity period...</option>
+                                <option value="86400">1 Day</option>
+                                <option value="604800">7 Days</option>
+                                <option value="2592000">30 Days</option>
+                                <option value="7776000">90 Days</option>
+                                <option value="15552000">180 Days</option>
+                                <option value="31536000">1 Year</option>
+                                <option value="custom">Custom...</option>
+                            </select>
+                            <div id="cov-dms2-custom-wrap" class="hidden u-mt-8px">
+                                <div class="u-display-flex-gap-4px-align-text-center">
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">YEARS</div>
+                                        <input type="number" id="cov-dms2-years" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="99"
+                                              >
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">MONTHS</div>
+                                        <input type="number" id="cov-dms2-months" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="11"
+                                              >
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">DAYS</div>
+                                        <input type="number" id="cov-dms2-days" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="30"
+                                              >
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">HOURS</div>
+                                        <input type="number" id="cov-dms2-hours" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="23"
+                                              >
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">MINS</div>
+                                        <input type="number" id="cov-dms2-mins" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="59"
+                                              >
+                                    </div>
+                                </div>
+                            </div>
+                            <input type="hidden" id="cov-dms2-duration" value="">
+                            <p class="u-text-10px-text-text-muted-margin-4px-0-0">
+                                If you don't send a heartbeat within this period, your heir can claim.
+                            </p>
+                        </div>
+
+                        <!-- Spending Limit fields -->
+                        <div id="cov-fields-splimit" class="hidden">
+                            <p class="u-text-12px-text-text-dim-margin-0-0-12px-line-1-5">
+                                Lock your funds behind a hard spending limit. You can withdraw up to the max amount,
+                                then must wait the cooldown before the next withdrawal. No bypass, no override.
+                            </p>
+                            <label class="input-label">Max withdrawal per TX (KAS)</label>
+                            <input type="number" id="cov-splimit-max" class="input-text"
+                                   placeholder="e.g. 100" min="0.00000001" step="any">
+                            <p class="spending-limit-warning">
+                                Set this to 0.1 KAS or more. Withdrawals under ~0.1 KAS are uneconomical: a small
+                                output carries a high storage-mass fee that can exceed the amount you withdraw.
+                            </p>
+                            <label class="input-label">Cooldown between withdrawals</label>
+                            <select id="cov-splimit-preset" class="input-text">
+                                <option value="" disabled selected>Choose cooldown period...</option>
+                                <option value="86400">1 Day</option>
+                                <option value="604800">7 Days</option>
+                                <option value="2592000">30 Days</option>
+                                <option value="7776000">90 Days</option>
+                                <option value="15552000">180 Days</option>
+                                <option value="31536000">1 Year</option>
+                                <option value="custom">Custom...</option>
+                            </select>
+                            <div id="cov-splimit-custom-wrap" class="hidden u-mt-8px">
+                                <div class="u-display-flex-gap-4px-align-text-center">
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">YEARS</div>
+                                        <input type="number" id="cov-splimit-years" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="99">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">MONTHS</div>
+                                        <input type="number" id="cov-splimit-months" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="11">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">DAYS</div>
+                                        <input type="number" id="cov-splimit-days" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="30">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">HOURS</div>
+                                        <input type="number" id="cov-splimit-hours" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="23">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">MINS</div>
+                                        <input type="number" id="cov-splimit-mins" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="59">
+                                    </div>
+                                </div>
+                            </div>
+                            <input type="hidden" id="cov-splimit-cooldown" value="">
+                            <p class="u-text-10px-text-text-muted-margin-4px-0-0">
+                                Once created, these limits cannot be changed or bypassed.
+                            </p>
+                        </div>
+
+                        <!-- Allowance fields -->
+                        <div id="cov-fields-allowance" class="hidden">
+                            <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                Set an allowance for a beneficiary. They can withdraw up to the max per TX,
+                                with a cooldown between withdrawals. Optionally lock funds until a start date.
+                                Only the beneficiary can withdraw.
+                            </p>
+                            <label class="input-label">Beneficiary (single address or x-only)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-allowance-bene-pk" class="input-text u-grow-mb-0"
+                                       placeholder="kaspatest:... single address or x-only hex" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-allowance-bene"
+                                        title="Scan beneficiary single address QR">📷</button>
+                            </div>
+                            <label class="input-label">Max Withdrawal per TX (KAS)</label>
+                            <input type="number" id="cov-allowance-max" class="input-text"
+                                   placeholder="10" step="0.00000001" min="0">
+                            <label class="input-label">Cooldown Between Withdrawals</label>
+                            <select id="cov-allowance-period" class="input-text">
+                                <option value="3600">1 Hour</option>
+                                <option value="21600">6 Hours</option>
+                                <option value="43200">12 Hours</option>
+                                <option value="86400" selected>24 Hours</option>
+                                <option value="604800">7 Days</option>
+                                <option value="2592000">30 Days</option>
+                                <option value="custom">Custom...</option>
+                            </select>
+                            <div id="cov-allowance-custom-wrap" class="hidden u-mt-8px">
+                                <div class="u-display-flex-gap-4px-align-text-center">
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">YEARS</div>
+                                        <input type="number" id="cov-allow-years" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="99">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">MONTHS</div>
+                                        <input type="number" id="cov-allow-months" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="11">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">DAYS</div>
+                                        <input type="number" id="cov-allow-days" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="30">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">HOURS</div>
+                                        <input type="number" id="cov-allow-hours" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="23">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">MINS</div>
+                                        <input type="number" id="cov-allow-mins" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="59">
+                                    </div>
+                                </div>
+                            </div>
+                            <input type="hidden" id="cov-allowance-seq" value="">
+                            <label class="input-label">Start Date (optional)</label>
+                            <input type="datetime-local" id="cov-allowance-start" class="input-text u-color-scheme-dark">
+                            <p class="u-text-10px-text-text-muted-margin-4px-0-0">
+                                Leave empty for immediate access. Set a date to lock funds until then (vesting).
+                            </p>
+                            <p id="cov-allowance-summary">
+                                Withdraw up to ? KAS every 24 hours. Uses OP_CHECKSEQUENCEVERIFY.
+                            </p>
+                        </div>
+
+                        <!-- Vesting fields -->
+
+                        <!-- Treasury fields -->
+
+                        <!-- PayJoin Covenant fields -->
+                        <div id="cov-fields-payjoin" class="hidden">
+                            <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                Anonymous payment. Owner locks funds for a
+                                beneficiary. To claim, the beneficiary must add their own
+                                inputs to the TX, making it look like a multi-party
+                                consolidation on the DAG instead of a directed payment.
+                                The beneficiary only needs a kpub and some funds.
+                                Owner can refund after timeout.
+                            </p>
+                            <label class="input-label">Beneficiary Pubkey (hex)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-payjoin-bene-pk" class="input-text u-grow-mb-0"
+                                       placeholder="32-byte xonly pubkey hex" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-payjoin-bene"
+                                        title="Scan QR">📷</button>
+                            </div>
+                            <label class="input-label">Owner Refund Timeout</label>
+                            <input type="datetime-local" id="cov-payjoin-datetime" class="input-text u-color-scheme-dark"
+                                  >
+                            <input type="number" id="cov-payjoin-locktime" class="input-text u-hidden"
+                                   placeholder="DAA score (auto)" min="1" step="1">
+                            <input type="number" id="cov-payjoin-min-inputs" class="input-text u-hidden"
+                                   value="2">
+                            <input type="number" id="cov-payjoin-min-outputs" class="input-text u-hidden"
+                                   value="2">
+                        </div>
+
+                        <!-- Persistent Vault (KIP-20) fields -->
+                        <!-- Human-attested Oracle-v1 covenant fields -->
+                        <div id="cov-fields-oracle-v1" class="hidden">
+                            <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                Release to a beneficiary only after the selected oracle signs an exact
+                                human-readable attestation. The owner can refund after the timeout.
+                                KasSigner signs the covenant's exact 32-byte commitment with an isolated per-covenant key; wallet SIGN HASH remains disabled.
+                            </p>
+                            <label class="input-label">Beneficiary Pubkey / Address</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-oracle-v1-bene" class="input-text u-grow-mb-0"
+                                       placeholder="Kaspa address or 32-byte x-only pubkey" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0"
+                                        id="btn-cov-scan-oracle-v1-bene" title="Scan QR">📷</button>
+                            </div>
+                            <label class="input-label">Oracle Covenant Key</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-oracle-v1-pubkey" class="input-text u-grow-mb-0"
+                                       placeholder="Scan isolated covenant-key response" readonly>
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0"
+                                        id="btn-cov-oracle-v1-key-request" title="Show covenant-key request">KEY QR</button>
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0"
+                                        id="btn-cov-scan-oracle-v1-key" title="Scan covenant-key response">📷</button>
+                            </div>
+                            <input type="hidden" id="cov-oracle-v1-key-id" value="">
+                            <div class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                KasSee creates a unique covenant-key request. The oracle scans it on KasSigner under
+                                <b>Single Signature → Covenant Sign</b> and returns the isolated key QR.
+                                This key cannot spend ordinary wallet funds.
+                            </div>
+                            <label class="input-label">Release Statement</label>
+                            <textarea id="cov-oracle-v1-statement" class="input-text input-textarea" maxlength="190"
+                                      placeholder="e.g. Release after shipment is confirmed delivered"></textarea>
+                            <p class="u-text-10px-text-text-muted-margin-4px-0-0">
+                                KasSee adds a unique request ID and locks this exact statement into the covenant.
+                                The oracle later signs exactly that displayed statement.
+                            </p>
+                            <label class="input-label">Owner Refund Timeout</label>
+                            <input type="datetime-local" id="cov-oracle-v1-datetime" class="input-text u-color-scheme-dark">
+                            <input type="hidden" id="cov-oracle-v1-locktime" value="">
+                        </div>
+                        <!-- ZK Crowdfunding fields -->
+                        <div id="cov-fields-crowdfund" class="hidden">
+                            <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                Each contributor locks funds in their own covenant. The organizer can sweep only after a Groth16 proof and the script itself verifies the real input total, campaign goal, fixed organizer destination, and fee ceiling. Contributors can refund after the deadline.
+                            </p>
+                            <div class="covenant-menu-tabs " id="crowdfund-role-tabs">
+                                <button class="btn btn-primary u-grow" id="btn-crowdfund-role-organizer">Organizer</button>
+                                <button class="btn btn-outline u-grow" id="btn-crowdfund-role-contributor">Contributor</button>
+                            </div>
+                            <div id="crowdfund-organizer-fields">
+                                <label class="input-label">Campaign Name</label>
+                                <input type="text" id="cov-crowdfund-name" class="input-text" maxlength="64" placeholder="e.g. Hardware signer production run" autocomplete="off">
+                                <label class="input-label">Goal Amount (KAS)</label>
+                                <input type="text" inputmode="decimal" id="cov-crowdfund-goal" class="input-text" placeholder="100" autocomplete="off">
+                                <label class="input-label">Organizer Destination</label>
+                                <input type="text" id="cov-crowdfund-organizer-address" class="input-text" placeholder="kaspa:..." autocomplete="off" spellcheck="false">
+                                <label class="input-label">Contributor Refund Deadline</label>
+                                <input type="datetime-local" id="cov-crowdfund-datetime" class="input-text">
+                                <input type="hidden" id="cov-crowdfund-locktime" value="">
+                                <button class="btn btn-outline u-full-width-mb-8px" id="btn-crowdfund-setup">Run ZK Trusted Setup</button>
+                                <div id="crowdfund-setup-status" class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4"></div>
+                            </div>
+                            <div id="crowdfund-contributor-fields" class="hidden">
+                                <button class="btn btn-primary u-full-width-mb-8px" id="btn-crowdfund-scan-campaign">Scan Campaign Invite</button>
+                                <div id="crowdfund-contributor-summary" class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">Scan the organizer's campaign invite before generating your contribution address.</div>
+                            </div>
+                        </div>
+
+
+
+
+                        <div id="cov-fields-commit-reveal" class="hidden">
+                            <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                Commit-reveal covenant. Type your secret on KasSigner
+                                (air-gapped). The device hashes and encrypts it.
+                                Scan the commitment QR here. Your secret never
+                                touches the browser. Reveal later to spend.
+                                Refund after timeout if you don't reveal.
+                            </p>
+                            <button class="btn btn-outline" id="btn-cov-cr-scan-commitment">
+                                📷 Scan Commitment from KasSigner
+                            </button>
+                            <div id="cov-cr-hash-display"></div>
+                            <!-- Hidden: stores ECIES ciphertext hex from KasSigner QR -->
+                            <input type="hidden" id="cov-cr-ciphertext-hex">
+                            <label class="input-label">Refund Timeout</label>
+                            <input type="datetime-local" id="cov-cr-datetime" class="input-text u-color-scheme-dark">
+                            <input type="text" id="cov-cr-locktime" class="input-text u-hidden"
+                                   placeholder="DAA score (auto)" autocomplete="off" spellcheck="false">
+                        </div>
+
+                        <div id="cov-fields-merkle-whitelist" class="hidden">
+                            <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                Merkle whitelist vault — funds can only go to approved addresses.<br>
+                                Uses OP_CAT + OP_BLAKE2B for on-chain merkle proof verification.<br>
+                                Supports thousands of addresses with a 32-byte root in the script.
+                            </p>
+                            <label class="input-label">Whitelisted Addresses (one per line)</label>
+                            <textarea id="cov-mw-addresses" class="input-text input-textarea"
+                                      placeholder="kaspatest:qq...&#10;kaspatest:qq...&#10;kaspatest:qq..." rows="4" autocomplete="off" spellcheck="false"></textarea>
+                            <button class="btn btn-outline u-full-width-mt-4px-text-12px" id="btn-cov-scan-mw-add"
+                                   >📷 Scan Address to Add</button>
+                            <label class="input-label">Refund Timeout</label>
+                            <input type="datetime-local" id="cov-mw-datetime" class="input-text u-color-scheme-dark"
+                                  >
+                            <button class="btn btn-outline u-full-width-mt-4px-text-12px" id="btn-cov-mw-never"
+                                   >🔒 Lifetime Block</button>
+                            <p class="u-text-10px-text-text-muted-margin-4px-0-0">
+                                After this date the owner can refund to any address, so the whitelist no longer applies. Tap Lifetime Block to make the whitelist permanent. The DAA score is auto-calculated.
+                            </p>
+                            <input type="number" id="cov-mw-locktime" class="input-text u-hidden"
+                                   placeholder="DAA score (auto-calculated)" min="1" step="1"
+                                  >
+                        </div>
+
+                        <!-- KIP-21 ZK Bridge fields -->
+
+                        <!-- KIP-21 ZK Rollup (Persistent) fields -->
+                    <!-- Private Swap v2 — transaction-sighash-bound adaptor signatures -->
+                    <div id="cov-private-swap-panel" class="card hidden">
+                        <div id="private-swap-hub">
+                            <h3 class="u-mb-4px">Private Swap</h3>
+                            <p class="u-text-11px-dim u-line-14">
+                                Atomic swap via adaptor signatures. No hashlock, no preimage, and no shared on-chain link. KasSigner binds every pre-signature to the exact claim transaction.
+                            </p>
+                            <button class="btn btn-primary u-full-width-mb-8px" id="btn-private-swap-create">Create Private Swap</button>
+                            <button class="btn btn-outline u-full-width-mb-8px" id="btn-private-swap-join">Join (Scan Invite)</button>
+                            <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-resume">Resume Active Swap</button>
+                            <button class="btn btn-link btn-back" id="btn-private-swap-back">Back</button>
+                        </div>
+
+                        <div id="private-swap-create" class="hidden">
+                            <h3 class="u-mb-8px">Create Private Swap</h3>
+                            <label class="input-label">Amount you lock (KAS)</label>
+                            <input type="text" id="private-swap-create-amount" class="input-text" inputmode="decimal" placeholder="10">
+                            <label class="input-label u-mt-8px">Your refund time (must be later than Bob's)</label>
+                            <input type="datetime-local" id="private-swap-create-datetime" class="input-text">
+                            <button class="btn btn-primary u-full-width-mt-8px" id="btn-private-swap-create-key">1. Allocate isolated swap key on KasSigner</button>
+                            <button class="btn btn-link btn-back" id="btn-private-swap-create-back">Back</button>
+                        </div>
+
+                        <div id="private-swap-join" class="hidden">
+                            <h3 class="u-mb-8px">Join Private Swap</h3>
+                            <div id="private-swap-offer-summary" class="cov-result u-mb-8px"></div>
+                            <label class="input-label">Amount you lock (KAS)</label>
+                            <input type="text" id="private-swap-join-amount" class="input-text" inputmode="decimal" placeholder="10">
+                            <label class="input-label u-mt-8px">Your refund time (must be earlier than Alice's)</label>
+                            <input type="datetime-local" id="private-swap-join-datetime" class="input-text">
+                            <button class="btn btn-primary u-full-width-mt-8px" id="btn-private-swap-join-key">1. Allocate isolated swap key on KasSigner</button>
+                            <button class="btn btn-link btn-back" id="btn-private-swap-join-back">Back</button>
+                        </div>
+
+                        <div id="private-swap-dashboard" class="hidden">
+                            <div class="u-flex-between-center u-mb-8px">
+                                <h3 class="u-m-0">Private Swap v2</h3>
+                                <span id="private-swap-role" class="badge"></span>
+                            </div>
+                            <div id="private-swap-status" class="cov-result u-mb-8px"></div>
+                            <div class="cov-result u-mb-8px">
+                                <div class="cov-result-label">Your funded covenant</div>
+                                <div class="cov-result-value u-break-all-text-10px" id="private-swap-my-address">Not built yet</div>
+                                <div class="cov-result-label u-mt-4px">Counterparty funded covenant</div>
+                                <div class="cov-result-value u-break-all-text-10px" id="private-swap-counter-address">Not received yet</div>
+                            </div>
+                            <div id="private-swap-actions">
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-share-offer">2. Show Offer QR</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-scan-response">3. Scan Bob Response</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-share-response">2. Show Bob Response QR</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-scan-final">3. Scan Alice Final QR</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-bind">Bind claim key to counterparty covenant</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-share-final">Show Final Handshake QR</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-scan-device">Scan KasSigner Response</button>
+                                <button class="btn btn-primary u-full-width-mb-8px hidden" id="btn-private-swap-fund">Fund Your Side</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-presign">Prepare Exact Claim Adaptor Signature</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-share-presig">Share Alice Pre-Signature QR</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-scan-presig">Scan Alice Pre-Signature QR</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-share-ready">Bob: Show Ready Acknowledgement</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-scan-ready">Alice: Scan Bob Ready Acknowledgement</button>
+                                <button class="btn btn-primary u-full-width-mb-8px hidden" id="btn-private-swap-complete">Alice: Complete + Claim Bob Funds</button>
+                                <button class="btn btn-primary u-full-width-mb-8px hidden" id="btn-private-swap-bob-claim">Bob: Extract Secret + Claim Alice Funds</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-refund">Owner Refund (after timeout)</button>
+                            </div>
+                            <button class="btn btn-link btn-back" id="btn-private-swap-dashboard-back">Back</button>
+                            <button class="btn btn-link" id="btn-private-swap-clear">Clear Private Swap</button>
+                        </div>
+                    </div>
+
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-generate">
+                            Generate Covenant Address
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-create-back">Back</button>
+                    </div>
+
+                    <!-- Result sub-screen -->
+                    <div id="cov-result-panel" class="card hidden">
+                        <label class="input-label">Covenant Address</label>
+                        <div class="mono-text" id="cov-result-addr" title="Tap to copy"></div>
+                        <label class="input-label">Redeem Script</label>
+                        <div class="mono-text" id="cov-result-script" title="Tap to copy"></div>
+                        <div id="cov-result-extra"></div>
+                        <div id="cov-result-balance"></div>
+                        <div id="cov-result-txid-wrap">
+                            <label class="input-label">Last Broadcast TX</label>
+                            <div class="mono-text" id="cov-result-txid" title="Click to copy"></div>
+                        </div>
+                        <button class="btn btn-primary u-full-width-mb-8px-hidden" id="btn-cov-res-oracle-v1-bind">
+                            🔐 Bind Oracle Covenant Key
+                        </button>
+                        <button class="btn btn-outline u-full-width-mb-8px-hidden" id="btn-cov-res-oracle-v1-scan-binding">
+                            📷 Scan Key Binding Response
+                        </button>
+                        <button class="btn btn-primary u-full-width-mb-8px" id="btn-cov-fund">
+                            Covenant Deposit
+                        </button>
+                        <button class="btn btn-outline u-full-width-mb-8px-hidden" id="btn-cov-res-balance">>
+                            Check Balance
+                        </button>
+                        <button class="btn btn-outline u-full-width-mb-8px" id="btn-cov-res-owner">
+                            Owner Spend
+                        </button>
+                        <button class="btn btn-outline u-full-width-mb-8px" id="btn-cov-res-bene">
+                            Beneficiary Spend
+                        </button>
+                        <button class="btn btn-outline" id="btn-cov-res-consolidate">
+                            Consolidate UTXOs
+                        </button>
+                        <button class="btn btn-outline u-full-width-mb-8px-hidden" id="btn-cov-res-share-swap">
+                            📤 Share Swap Invite QR
+                        </button>
+                        <button class="btn btn-outline u-full-width-mb-8px-hidden" id="btn-cov-res-scan-swap">
+                            📷 Scan Counterparty Invite
+                        </button>
+                        <button class="btn btn-outline u-full-width-mb-8px-hidden" id="btn-cov-res-share-cov">
+                            📤 Share with Counterparty
+                        </button>
+                        <button class="btn btn-primary u-full-width-mb-8px-hidden" id="btn-cov-res-oracle-v1-attest">
+                            🤖 Oracle Attest
+                        </button>
+                        <div id="crowdfund-result-panel" class="hidden">
+                            <hr>
+                            <div id="crowdfund-campaign-info" class="u-text-12px"></div>
+                            <button class="btn btn-outline u-full-width-mb-8px-hidden" id="btn-crowdfund-share-campaign">Share Campaign Invite</button>
+                            <button class="btn btn-outline u-full-width-mb-8px" id="btn-crowdfund-share-contribution">Share This Contribution</button>
+                            <button class="btn btn-outline u-full-width-mb-8px-hidden" id="btn-crowdfund-scan-contribution">Scan Contributor Invite</button>
+                            <div id="crowdfund-contribution-list" class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4"></div>
+                            <div id="crowdfund-watcher-status" class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4"></div>
+                            <button class="btn btn-outline u-full-width-mb-8px-hidden" id="btn-crowdfund-refresh">Refresh Campaign Total</button>
+                            <button class="btn btn-primary u-full-width-mb-8px-hidden" id="btn-crowdfund-sweep">Generate Proof &amp; Sweep</button>
+                            <div id="crowdfund-sweep-status" class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4"></div>
+                        </div>
+                        <div id="cov-watcher-status"></div>
+<button class="btn btn-back" id="btn-cov-result-back">Back</button>
+                    </div>
+                    <!-- Owner spend sub-screen -->
+                    <div id="cov-owner-panel" class="card hidden">
+                        <div class="u-text-11px-text-text-dim-margin-0-0-10px-line-1-4" id="cov-owner-help"></div>
+                        <div class="u-hidden">
+                            <input type="text" id="cov-owner-addr">
+                            <textarea id="cov-owner-script"></textarea>
+                        </div>
+                        <label class="input-label">Destination Address</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-owner-dest" class="input-text u-grow-mb-0"
+                                   placeholder="kaspatest:qq..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-owner-dest"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <label class="input-label">Amount (KAS) — leave empty to sweep all</label>
+                        <input type="text" id="cov-owner-amount" class="input-text"
+                               placeholder="Empty = sweep all" autocomplete="off" spellcheck="false" inputmode="decimal">
+                        <div class="u-mt-8px" id="cov-owner-fee-picker">
+                            <label class="input-label u-text-10px">Fee Level</label>
+                            <div class="u-display-flex-gap-4px">
+                                <button class="btn btn-outline cov-fee-btn u-grow-padding-6px-text-11px" data-cov-fee="low">Low</button>
+                                <button class="btn btn-outline cov-fee-btn cov-fee-active u-grow-padding-6px-text-11px" data-cov-fee="normal">Normal</button>
+                                <button class="btn btn-outline cov-fee-btn u-grow-padding-6px-text-11px" data-cov-fee="priority">Priority</button>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-owner-create">
+                            Create Owner Spend TX
+                        </button>
+                        <button class="btn btn-outline u-hidden-full-width-action" id="btn-cov-owner-consolidate">
+                            Consolidate UTXOs
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-owner-back">Back</button>
+                    </div>
+                    <!-- Consolidate UTXOs sub-screen -->
+                    <div id="cov-consolidate-panel" class="card hidden">
+                        <label class="input-label" id="cov-consol-title">Select UTXOs</label>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4" id="cov-consol-desc">
+                            Select UTXOs to consolidate or withdraw. Owner signature required.
+                        </p>
+                        <div id="cov-consol-list"></div>
+                        <div class="consolidate-input-row">
+                            <button class="btn btn-outline u-grow-text-12px" id="btn-consol-select-all">Select All</button>
+                            <button class="btn btn-outline u-grow-text-12px" id="btn-consol-select-none">Select None</button>
+                        </div>
+                        <div id="cov-consol-summary"></div>
+                        <label class="input-label">Destination Address</label>
+                        <div class="consolidate-target-row">
+                            <input type="text" id="cov-consol-dest" class="input-text u-grow-mb-0"
+                                   placeholder="Covenant address (consolidate) or personal (withdraw)" autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-consol-scan-dest"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <button class="btn btn-primary u-full-width" id="btn-consol-create">
+                            Create TX
+                        </button>
+                        <button class="btn btn-back" id="btn-consol-back">Back</button>
+                    </div>
+                    <!-- Borrower spend sub-screen -->
+                    <div id="cov-borrower-panel" class="card hidden">
+                        <label class="input-label">Borrower Mode</label>
+                        <select id="cov-borrower-mode" class="input-text">
+                            <option value="additive">Additive (add funds to covenant)</option>
+                            <option value="withdraw">Withdraw (spending limit)</option>
+                        </select>
+                        <label class="input-label">Covenant Address (P2SH)</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-borrower-addr" class="input-text u-grow-mb-0"
+                                   placeholder="kaspatest:pr..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-borrower-addr"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <label class="input-label">Redeem Script (hex)</label>
+                        <textarea id="cov-borrower-script" class="input-text input-textarea"
+                                  placeholder="6320...68" rows="2" autocomplete="off" spellcheck="false"></textarea>
+                        <label class="input-label" id="cov-borrower-amount-label">Amount (KAS)</label>
+                        <input type="number" id="cov-borrower-amount" class="input-text"
+                               placeholder="10" step="0.00000001" min="0">
+                        <div class="u-mt-8px" id="cov-borrower-fee-picker">
+                            <label class="input-label u-text-10px">Fee Level</label>
+                            <div class="u-display-flex-gap-4px">
+                                <button class="btn btn-outline cov-fee-btn u-grow-padding-6px-text-11px" data-cov-fee="low">Low</button>
+                                <button class="btn btn-outline cov-fee-btn cov-fee-active u-grow-padding-6px-text-11px" data-cov-fee="normal">Normal</button>
+                                <button class="btn btn-outline cov-fee-btn u-grow-padding-6px-text-11px" data-cov-fee="priority">Priority</button>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-borrower-create">
+                            Create Borrower TX
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-borrower-back">Back</button>
+                    </div>
+                    <!-- Beneficiary spend sub-screen (time-locked vault) -->
+                    <div id="cov-beneficiary-panel" class="card hidden">
+                        <div class="u-text-11px-text-text-dim-margin-0-0-10px-line-1-4" id="cov-bene-help"></div>
+                        <div class="u-hidden">
+                            <input type="text" id="cov-bene-addr">
+                            <textarea id="cov-bene-script"></textarea>
+                        </div>
+                        <div id="cov-bene-locktime-wrap">
+                            <label class="input-label">Locktime (DAA score)</label>
+                            <input type="number" id="cov-bene-locktime" class="input-text"
+                                   placeholder="Same value used at creation" min="1" step="1">
+                        </div>
+                        <div class="u-hidden" id="cov-bene-amount-wrap">
+                            <label class="input-label">Withdraw Amount (KAS)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="number" id="cov-bene-amount" class="input-text u-grow-mb-0"
+                                       placeholder="Amount to withdraw" step="0.00000001" min="0">
+                                <button class="btn btn-outline" id="btn-cov-bene-max">Max</button>
+                            </div>
+                        </div>
+                        <label class="input-label">Destination Address</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-bene-dest" class="input-text u-grow-mb-0"
+                                   placeholder="kaspatest:qq..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-bene-dest"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <div class="u-mt-8px" id="cov-bene-fee-picker">
+                            <label class="input-label u-text-10px">Fee Level</label>
+                            <div class="u-display-flex-gap-4px">
+                                <button class="btn btn-outline cov-fee-btn u-grow-padding-6px-text-11px" data-cov-fee="low">Low</button>
+                                <button class="btn btn-outline cov-fee-btn cov-fee-active u-grow-padding-6px-text-11px" data-cov-fee="normal">Normal</button>
+                                <button class="btn btn-outline cov-fee-btn u-grow-padding-6px-text-11px" data-cov-fee="priority">Priority</button>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-bene-create">
+                            Create Release TX
+                        </button>
+                        <button class="btn btn-outline u-hidden-full-width-action" id="btn-cov-bene-pick">Select UTXO(s) to claim (advanced)</button>
+                        <button class="btn btn-back" id="btn-cov-bene-back">Back</button>
+                    </div>
+                    <!-- Timeout refund sub-screen (time-locked escrow) -->
+                    <div id="cov-timeout-panel" class="card hidden">
+                        <label class="input-label">Covenant Address (P2SH)</label>
+                        <input type="text" id="cov-timeout-addr" class="input-text"
+                               placeholder="kaspatest:pr..." autocomplete="off" spellcheck="false">
+                        <label class="input-label">Redeem Script (hex)</label>
+                        <textarea id="cov-timeout-script" class="input-text input-textarea"
+                                  placeholder="6320...68" rows="2" autocomplete="off" spellcheck="false"></textarea>
+                        <label class="input-label">Locktime (DAA score)</label>
+                        <input type="number" id="cov-timeout-locktime" class="input-text"
+                               placeholder="Same value used at creation" min="1" step="1">
+                        <label class="input-label">Refund Destination Address</label>
+                        <input type="text" id="cov-timeout-dest" class="input-text"
+                               placeholder="kaspatest:qq... (must match Alice's address in script)" autocomplete="off" spellcheck="false">
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-timeout-create">
+                            Create Timeout Refund TX
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-timeout-back">Back</button>
+                    </div>
+                    <!-- PayJoin claim sub-screen -->
+                    <div id="cov-payjoin-claim-panel" class="card hidden">
+                        <p class="u-text-11px-text-text-dim-margin-0-0-12px-line-1-4">
+                            Claim the PayJoin covenant. Your wallet will automatically
+                            add a mixing input. Enter the destination for the funds.
+                        </p>
+                        <!-- Hidden: auto-filled from invite -->
+                        <input type="hidden" id="cov-payjoin-claim-addr">
+                        <textarea class="u-hidden" id="cov-payjoin-claim-script"></textarea>
+                        <input type="hidden" id="cov-payjoin-claim-mix-addr">
+                        <label class="input-label">Destination Address</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-payjoin-claim-dest" class="input-text u-grow-mb-0"
+                                   placeholder="kaspatest:qq..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-payjoin-claim-dest"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-payjoin-claim-create">
+                            Claim PayJoin Covenant
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-payjoin-claim-back">Back</button>
+                    </div>
+                    <!-- Oracle-v1 beneficiary claim -->
+                    <div id="cov-oracle-v1-claim-panel" class="card hidden">
+                        <h3>Oracle Claim</h3>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                            Scan the oracle's KasSigner attestation QR. KasSee verifies that the
+                            signature commitment matches the attestation text before building the claim.
+                        </p>
+                        <input type="hidden" id="cov-oracle-v1-claim-addr">
+                        <input type="hidden" id="cov-oracle-v1-claim-script">
+                        <input type="hidden" id="cov-oracle-v1-claim-sig">
+                        <input type="hidden" id="cov-oracle-v1-claim-commitment">
+                        <label class="input-label">Attestation text</label>
+                        <textarea id="cov-oracle-v1-claim-text" class="input-text input-textarea" readonly
+                                  placeholder="Exact message the oracle reviewed on KasSigner"></textarea>
+                        <button class="btn btn-outline u-full-width-mb-8px" id="btn-cov-oracle-v1-scan-attestation">
+                            📷 Scan KasSigner Attestation
+                        </button>
+                        <div id="cov-oracle-v1-claim-status" class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4"></div>
+                        <label class="input-label">Claim Destination</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-oracle-v1-claim-dest" class="input-text u-grow-mb-0"
+                                   placeholder="kaspa:..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0"
+                                    id="btn-cov-scan-oracle-v1-claim-dest" title="Scan destination">📷</button>
+                        </div>
+                        <button class="btn btn-primary u-full-width-mb-8px" id="btn-cov-oracle-v1-claim-create">
+                            Build Oracle Claim
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-oracle-v1-claim-back">Back</button>
+                    </div>
+                    <!-- Persistent Vault Withdraw sub-screen -->
+
+                    <!-- ZK proof spend sub-screen -->
+
+                    <!-- RISC0 proof spend sub-screen -->
+
+                    <!-- ZK Price Oracle (Model B) — ambient read + ask-for-new -->
+                    <div id="cov-oracle-mb-panel" class="card hidden">
+                        <div class="oracle-price-header">
+                            <div class="oracle-market-label">KAS / USD</div>
+                            <div id="oracle-mb-price">—</div>
+                            <div id="oracle-mb-age">reading the chain…</div>
+                        </div>
+                        <div class="oracle-source-note">Pyth + Wormhole · proven on-chain · pull oracle</div>
+
+                        <div class="oracle-fee-panel">
+                            <div class="oracle-fee-help">Fee (higher confirms faster when the network is busy)</div>
+                            <div class="oracle-fee-options">
+                                <button type="button" class="omb-fee-btn u-grow-text-13px-padding-8px-0-bg-bg" data-omb-fee="1">1 KAS</button>
+                                <button type="button" class="omb-fee-btn u-grow-text-13px-padding-8px-0-bg-bg" data-omb-fee="2">2 KAS</button>
+                                <button type="button" class="omb-fee-btn u-grow-text-13px-padding-8px-0-bg-bg" data-omb-fee="3">3 KAS</button>
+                            </div>
+                            <input id="input-omb-fee-custom" type="number" inputmode="decimal" min="1" step="0.1" placeholder="custom KAS (min 1)">
+                        </div>
+
+                        <button class="btn btn-primary u-full-width-mt-4px" id="btn-oracle-mb-ask">Ask for new price (≈1 KAS)</button>
+                        <div id="oracle-mb-ask-status"></div>
+
+                        <div class="oracle-proof-metadata">
+                            <div>oracle: <span id="oracle-mb-addr">—</span></div>
+                            <div>roll tx: <span id="oracle-mb-rolltx">—</span></div>
+                        </div>
+                        <button class="btn btn-back" id="btn-oracle-mb-back">Back</button>
+                    </div>
+
+                    <!-- RISC0 BRIDGE withdrawal sub-screen (KIP-21) -->
+
+                    <!-- Groth16-wrap bridge withdrawal sub-screen (KIP-21 Step 1) -->
+
+                    <!-- Supply chain advance sub-screen -->
+                    <!-- Oracle-v1 attestation / beacon -->
+                    <div id="cov-oracle-v1-attest-panel" class="card hidden">
+                        <h3>Oracle Attest</h3>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                            Show the covenant request, then the oracle scans it under
+                            <b>Single Signature → Covenant Sign</b>. KasSigner independently recomputes this covenant's
+                            exact 32-byte commitment and verifies the isolated key is bound in the script before signing.
+                        </p>
+                        <label class="input-label">Attestation text</label>
+                        <textarea id="cov-oracle-v1-attest-text" class="input-text input-textarea" readonly
+                                  maxlength="256" placeholder="e.g. Shipment delivered on 2026-08-14"></textarea>
+                        <button class="btn btn-primary u-full-width-mb-8px" id="btn-cov-oracle-v1-sign-request">
+                            Show COVENANT SIGN Request
+                        </button>
+                        <button class="btn btn-outline u-full-width-mb-8px" id="btn-cov-oracle-v1-scan-signed">
+                            📷 Scan COVENANT SIGN Response
+                        </button>
+                        <div id="cov-oracle-v1-attest-status" class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4"></div>
+                        <button class="btn btn-primary u-full-width-mb-8px hidden" id="btn-cov-oracle-v1-beacon">
+                            Publish Attestation Beacon
+                        </button>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                            Optional beacon: the oracle deposits 0.1 KAS into this covenant with the
+                            attestation attached. It never spends covenant funds; the 0.1 KAS remains claimable/refundable.
+                        </p>
+                        <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-cov-oracle-v1-share">
+                            Show Attestation QR
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-oracle-v1-attest-back">Back</button>
+                    </div>
+                    <!-- Shipment-escrow operate sub-screen -->
+                    <div id="cov-ship-panel" class="card hidden">
+                        <label class="input-label">Covenant Address (P2SH)</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-ship-addr" class="input-text u-grow-mb-0"
+                                   placeholder="kaspatest:pr..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-ship-addr"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <label class="input-label">Redeem Script (hex)</label>
+                        <textarea id="cov-ship-script" class="input-text input-textarea"
+                                  placeholder="redeem script hex (encodes parties, amounts, deadlines)" rows="2"
+                                  autocomplete="off" spellcheck="false"></textarea>
+                        <div id="cov-ship-state"></div>
+
+                        <div id="cov-ship-s0-actions">
+                            <div class="shipment-pickup-label">At pickup (state 0):</div>
+                            <button class="btn btn-primary u-full-width" id="btn-cov-ship-pickup">
+                                Confirm Pickup (deliverer)
+                            </button>
+                            <button class="btn btn-outline u-full-width-mt-6px" id="btn-cov-ship-s0-arb">
+                                Arbiter: Refund Buyer
+                            </button>
+                            <button class="btn btn-outline u-full-width-mt-6px" id="btn-cov-ship-s0-timeout">
+                                Timeout: Refund Buyer
+                            </button>
+                        </div>
+
+                        <div id="cov-ship-s1-actions">
+                            <div class="shipment-transit-label">In transit (state 1):</div>
+                            <button class="btn btn-primary u-full-width" id="btn-cov-ship-delivery">
+                                Confirm Delivery (buyer)
+                            </button>
+                            <button class="btn btn-outline u-full-width-mt-6px" id="btn-cov-ship-s1-award">
+                                Arbiter: Pay Workers
+                            </button>
+                            <button class="btn btn-outline u-full-width-mt-6px" id="btn-cov-ship-s1-arb-refund">
+                                Arbiter: Refund Buyer
+                            </button>
+                            <button class="btn btn-outline u-full-width-mt-6px" id="btn-cov-ship-s1-timeout">
+                                Timeout: Pay Workers
+                            </button>
+                        </div>
+
+                        <div id="cov-ship-status"></div>
+                        <button class="btn btn-back" id="btn-cov-ship-back">Back</button>
+                    </div>
+                    <!-- Commit-reveal spend sub-screen -->
+                    <div id="cov-cr-reveal-panel" class="card hidden">
+                        <p class="u-text-11px-text-text-dim-margin-0-0-12px-line-1-4">
+                            Step 1: Show the ciphertext QR. On KasSigner, tap
+                            Single Signature -> Decrypt Secret -> scan the QR.
+                            Step 2: Scan the decrypted preimage QR back here.
+                            Step 3: Enter destination and tap Reveal & Spend.
+                        </p>
+                        <input type="hidden" id="cov-cr-addr">
+                        <textarea class="u-hidden" id="cov-cr-script"></textarea>
+                        <input type="hidden" id="cov-cr-reveal-preimage">
+                        <button class="btn btn-outline" id="btn-cov-cr-show-ct-qr">
+                            1. Show Ciphertext QR
+                        </button>
+                        <button class="btn btn-outline u-full-width-mb-8px-text-13px" id="btn-cov-cr-scan-preimage">
+                            📷 2. Scan Decrypted Preimage
+                        </button>
+                        <div id="cov-cr-preimage-status"></div>
+                        <label class="input-label">Destination Address</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-cr-dest" class="input-text u-grow-mb-0"
+                                   placeholder="kaspatest:qq..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-cr-dest"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-cr-reveal-create">
+                            3. Reveal & Spend
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-cr-reveal-back">Back</button>
+                    </div>
+                    <!-- Commit-reveal verification sub-screen -->
+                    <div id="cov-cr-verify-panel" class="card hidden">
+                        <p class="u-text-11px-text-text-dim-margin-0-0-12px-line-1-4">
+                            Verify a commit-reveal revelation. Paste the reveal TX ID
+                            to extract the preimage and verify it matches the committed hash.
+                        </p>
+                        <label class="input-label">Reveal TX ID</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-cr-verify-txid" class="input-text u-grow-mb-0"
+                                   placeholder="Reveal transaction ID" autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-cr-verify-txid"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <button class="btn btn-primary u-mt-10px-full-width" id="btn-cov-cr-verify">
+                            Verify
+                        </button>
+                        <div class="u-hidden-mt-12px" id="cov-cr-verify-result">
+                            <div class="commit-reveal-result-card">
+                                <div class="u-text-10px-text-text-dim-text-transform-uppercase-tracking-1px">Revealed Secret</div>
+                                <div id="cov-cr-verify-preimage"></div>
+                                <div class="u-text-10px-text-text-dim-text-transform-uppercase-tracking-1px">Committed Hash (from script)</div>
+                                <div class="u-text-11px-text-accent-break-all-mb-10px" id="cov-cr-verify-hash"></div>
+                                <div class="u-text-10px-text-text-dim-text-transform-uppercase-tracking-1px">Computed Hash (BLAKE2B of preimage)</div>
+                                <div class="u-text-11px-text-accent-break-all-mb-10px" id="cov-cr-verify-computed"></div>
+                                <div id="cov-cr-verify-match"></div>
+                                <div class="commit-reveal-timestamp-label">Commitment Timestamp</div>
+                                <div id="cov-cr-verify-time"></div>
+                            </div>
+                            <button class="btn btn-outline u-mt-10px-full-width" id="btn-cov-cr-verify-clear">Clear revelation</button>
+                        </div>
+                        <button class="btn btn-back" id="btn-cov-cr-verify-back">Back</button>
+                    </div>
+                    <!-- Merkle whitelist spend sub-screen -->
+                    <div id="cov-mw-spend-panel" class="card hidden">
+                        <input type="hidden" id="cov-mw-addr">
+                        <input type="hidden" id="cov-mw-script">
+                        <label class="input-label">Whitelisted Addresses</label>
+                        <textarea id="cov-mw-spend-addresses" class="input-text input-textarea"
+                                  placeholder="kaspatest:qq...&#10;kaspatest:qq...&#10;kaspatest:qq..." rows="4" autocomplete="off" spellcheck="false" readonly></textarea>
+                        <label class="input-label">Destination (must be in whitelist)</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-mw-dest" class="input-text u-grow-mb-0"
+                                   placeholder="kaspatest:qq..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-mw-dest"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <label class="input-label">Amount (KAS)</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="number" id="cov-mw-amount" class="input-text u-grow-mb-0"
+                                   placeholder="e.g. 5.0" min="0" step="any" autocomplete="off">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-mw-max"
+                                    title="Use max spendable">Max</button>
+                        </div>
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-mw-spend-create">
+                            Spend to Whitelisted Address
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-mw-spend-back">Back</button>
+                    </div>
+                    <!-- KIP-21 Bridge withdrawal sub-screen -->
+
+                    <!-- KIP-21 ZK Rollup State Transition panel -->
+
+                    <!-- KIP-21 Rollup State Advance sub-screen -->
+
+                    <!-- Rollup Deposit (L1->L2) sub-screen -->
+
+                    <!-- Check balance sub-screen -->
+                    <div id="cov-balance-panel" class="card hidden">
+                        <label class="input-label">Covenant Address (P2SH)</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-balance-addr" class="input-text u-grow-mb-0"
+                                   placeholder="kaspatest:pr..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-balance-addr"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-balance-check">
+                            Check Balance
+                        </button>
+                        <div id="cov-balance-result" class="hidden">
+                            <div class="rollup-balance-label">Balance</div>
+                            <div id="cov-balance-kas"></div>
+                            <div class="u-text-11px-mt-4px-text-text-dim" id="cov-balance-utxos"></div>
+                        </div>
+                        <button class="btn btn-back" id="btn-cov-balance-back">Back</button>
+                    </div>
+                    <!-- Load existing covenant panel -->
+                    <div id="cov-load-panel" class="card hidden">
+                        <p class="u-text-12px-text-text-dim-margin-0-0-12px-line-1-5">
+                            Load a covenant someone shared with you. Scan an invite QR or paste address and redeem script.
+                        </p>
+                        <button class="btn btn-outline u-full-width-mb-12px" id="btn-cov-load-scan">
+                            📷 Scan Covenant Invite QR
+                        </button>
+                        <button class="btn btn-outline u-full-width-mb-12px" id="btn-cov-load-file">
+                            📂 Load from Backup File
+                        </button>
+                        <input class="u-hidden" type="file" id="cov-load-file-input" accept=".covb,.cov">
+                        <label class="input-label">Covenant Address (P2SH)</label>
+                        <input type="text" id="cov-load-addr" class="input-text"
+                               placeholder="kaspatest:pr..." autocomplete="off" spellcheck="false">
+                        <label class="input-label">Redeem Script (hex)</label>
+                        <textarea id="cov-load-script" class="input-text input-textarea"
+                                  placeholder="6320...68" rows="3" autocomplete="off" spellcheck="false"></textarea>
+                        <label class="input-label">Covenant Type</label>
+                        <select id="cov-load-type" class="input-text">
+                            <optgroup label="Savings &amp; Time Locks">
+                                <option value="dms">Dead Man's Switch</option>
+                                <option value="additive">Piggy Bank</option>
+                                <option value="timelocked-savings">Time-Locked Savings</option>
+                            </optgroup>
+                            <optgroup label="Spending Controls">
+                                <option value="global-allowance">Allowance</option>
+                                <option value="merkle-whitelist">Merkle Whitelist</option>
+                                <option value="global-spending-limit">Spending Limit</option>
+                            </optgroup>
+                            <optgroup label="Multi-Party &amp; Conditional">
+                                <option value="escrow">Direct Channel</option>
+                                <option value="payjoin">PayJoin</option>
+                            </optgroup>
+                            <optgroup label="Advance &amp; PoC">
+                                <option value="commit-reveal">Commit-Reveal</option>
+                            </optgroup>
+                            <option value="other">Other</option>
+                        </select>
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-load-submit">
+                            Load Covenant
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-load-back">Back</button>
+                    </div>
+                </div>
+            </section>
+            <!-- Stealth Addresses screen -->
+            <section id="screen-stealth" class="screen">
+                <div class="screen-content">
+                    <h2 class="u-text-accent-teal">Stealth Addresses</h2>
+                    <p class="subtitle">Privacy through unlinkable one-time addresses</p>
+
+                    <!-- Stealth menu -->
+                    <div id="stealth-menu" class="card">
+                        <button class="btn btn-primary u-full-width-mb-8px" id="btn-stealth-meta">
+                            My Stealth Meta-Address
+                        </button>
+                        <button class="btn btn-secondary u-full-width-mb-8px" id="btn-stealth-send">
+                            Send to Stealth Address
+                        </button>
+                        <button class="btn btn-secondary u-full-width-mb-8px" id="btn-stealth-scan">
+                            Scan for Stealth Payments
+                        </button>
+                        <p class="stealth-menu-help">
+                            Stealth addresses let anyone pay you without linking<br>
+                            the payment to your public address. Zero firmware changes<br>
+                            needed — the device signs normally.
+                        </p>
+                    </div>
+
+                    <!-- Generate meta-address panel -->
+                    <div id="stealth-meta-panel" class="card hidden">
+                        <h3 class="u-text-accent-teal-margin-0-0-8px">Your Stealth Meta-Address</h3>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-12px-line-1-4">
+                            Share this publicly. Anyone with it can send you<br>
+                            private payments that only you can detect.
+                        </p>
+                        <div id="stealth-meta-qr" class="qr-container"></div>
+                        <div id="stealth-meta-hex" class="address-display"></div>
+                        <button class="btn btn-outline u-mt-8px-full-width" id="btn-stealth-meta-copy">
+                            Copy Meta-Address
+                        </button>
+                        <p class="stealth-announcement-note">
+                            Announcement address:<br>
+                            <span id="stealth-announce-addr"></span>
+                        </p>
+                        <button class="btn btn-back" id="btn-stealth-meta-back">Back</button>
+                    </div>
+
+                    <!-- Send to stealth panel -->
+                    <div id="stealth-send-panel" class="card hidden">
+                        <h3 class="u-text-accent-teal-margin-0-0-8px">Send to Stealth Address</h3>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-12px-line-1-4">
+                            Paste or scan the receiver's stealth meta-address.<br>
+                            KasSee will derive a one-time address for the payment.
+                        </p>
+                        <label class="input-label">Stealth Meta-Address (128 hex)</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="stealth-send-meta" class="input-text u-grow-mb-0"
+                                   placeholder="128-char hex (scan_pubkey || spend_pubkey)" autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-stealth-scan-meta"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <label class="input-label">Amount (KAS)</label>
+                        <input type="number" id="stealth-send-amount" class="input-text"
+                               placeholder="Amount in KAS" min="0.0001" step="0.0001">
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-stealth-send-go">
+                            Generate Stealth Payment
+                        </button>
+                        <div id="stealth-send-result" class="hidden u-mt-12px">
+                            <p class="stealth-payment-label">One-time payment address:</p>
+                            <div id="stealth-send-addr" class="address-display"></div>
+                            <p class="stealth-ephemeral-label">Ephemeral R (announce this):</p>
+                            <div id="stealth-send-r" class="address-display"></div>
+                            <label class="input-label u-mt-8px">Fee</label>
+                            <div class="fee-cards">
+                                <button class="fee-card" id="btn-sf-low">
+                                    <div class="fee-card-label">Low</div>
+                                    <div class="fee-card-amount" id="sf-low-amount">2,500</div>
+                                    <div class="fee-card-time" id="sf-low-time"></div>
+                                </button>
+                                <button class="fee-card fee-card-active" id="btn-sf-normal">
+                                    <div class="fee-card-label">Normal</div>
+                                    <div class="fee-card-amount" id="sf-normal-amount">5,000</div>
+                                    <div class="fee-card-time" id="sf-normal-time"></div>
+                                </button>
+                                <button class="fee-card" id="btn-sf-priority">
+                                    <div class="fee-card-label">Priority</div>
+                                    <div class="fee-card-amount" id="sf-priority-amount">10,000</div>
+                                    <div class="fee-card-time" id="sf-priority-time"></div>
+                                </button>
+                            </div>
+                            <input type="number" id="input-sf-fee" class="input-text"
+                                   value="10000" step="1" min="1">
+                            <button class="btn btn-primary u-mt-8px-full-width" id="btn-stealth-send-pay">
+                                Send Payment + Announce R
+                            </button>
+                        </div>
+                        <button class="btn btn-back" id="btn-stealth-send-back">Back</button>
+                    </div>
+
+                    <!-- Scan for payments panel -->
+                    <div id="stealth-scan-panel" class="card hidden">
+                        <h3 class="u-text-accent-teal-margin-0-0-8px">Scan for Stealth Payments</h3>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-12px-line-1-4">
+                            Fetches announcements from the stealth announcement address,<br>
+                            sends R values to your device via QR for ECDH scanning,<br>
+                            then checks which one-time pubkeys have UTXOs.
+                        </p>
+                        <p class="stealth-scan-window-note">
+                            Scans approx. the last ~15 minutes on-chain. Live scan keeps watching new blocks after.
+                        </p>
+                        <button class="btn btn-primary u-full-width-mb-8px" id="btn-stealth-fetch-announcements">
+                            1. Fetch Announcements
+                        </button>
+                        <div id="stealth-scan-status"></div>
+                        <button class="btn btn-secondary hidden u-full-width-mb-8px" id="btn-stealth-show-scan-qr">
+                            2. Show QR for Device Scan
+                        </button>
+                        <button class="btn btn-secondary hidden u-full-width-mb-8px" id="btn-stealth-scan-result-qr">
+                            3. Scan Device Response QR
+                        </button>
+                        <div id="stealth-scan-results" class="hidden u-mt-8px">
+                            <p class="stealth-results-heading">Found stealth payments:</p>
+                            <div class="u-text-11px" id="stealth-found-list"></div>
+                        </div>
+                        <button class="btn btn-back" id="btn-stealth-scan-back">Back</button>
+                    </div>
+
+                    <button class="btn btn-back" id="btn-stealth-back">Back to Dashboard</button>
+                </div>
+            </section>
+            <!-- Broadcast screen -->
+            <section id="screen-broadcast" class="screen">
+                <div class="screen-content">
+                    <h2>Broadcast Transaction</h2>
+                    <p class="subtitle">Scan the signed QR from KasSigner</p>
+                    <div class="card">
+                        <button class="btn btn-primary" id="btn-scan-signed">
+                            Scan Signed QR
+                        </button>
+                        <button class="btn btn-secondary" id="btn-load-signed-qr-image">
+                            Upload Signed QR Image
+                        </button>
+                        <input id="input-signed-qr-image" type="file" accept="image/*" multiple class="hidden">
+                        <div id="broadcast-image-status" class="scanner-status" aria-live="polite"></div>
+                        <div class="divider u-hidden" id="broadcast-hex-divider">or</div>
+                        <textarea id="input-signed-hex" class="input-text input-textarea u-hidden"
+                                  placeholder="Paste signed KSPT hex..." rows="4"></textarea>
+                        <button class="btn btn-secondary u-hidden" id="btn-broadcast-hex">
+                            Broadcast
+                        </button>
+                        <button class="btn btn-back" id="btn-broadcast-back">Back</button>
+                    </div>
+                    <div id="broadcast-result" class="result-card hidden">
+                        <div id="broadcast-result-icon" class="result-icon"></div>
+                        <div id="broadcast-result-msg" class="result-msg"></div>
+                        <div id="broadcast-result-txid" class="tx-id"></div>
+                        <button class="btn btn-link" id="btn-copy-txid">Copy TX ID</button>
+                        <button class="btn btn-secondary u-mt-12px" id="btn-broadcast-done">Back to Dashboard</button>
+                    </div>
+                </div>
+            </section>
+            <!-- PSKT / PSKB review screen -->
+            <section id="screen-pskt-review" class="screen">
+                <div class="screen-content">
+                    <h2>Review <span id="pskt-format">PSKB</span></h2>
+                    <p class="subtitle">Confirm where your KAS is going</p>
+                    <div class="card">
+                        <div class="pskt-simple-summary" aria-label="Transaction summary">
+                            <div class="pskt-summary-destination">
+                                <div class="pskt-label">To</div>
+                                <div class="pskt-summary-address" id="pskt-to-address">—</div>
+                            </div>
+                            <div class="pskt-summary-grid">
+                                <div class="pskt-summary-item">
+                                    <div class="pskt-label">Send</div>
+                                    <div class="pskt-summary-value"><span id="pskt-send-total">0</span> KAS</div>
+                                </div>
+                                <div class="pskt-summary-item">
+                                    <div class="pskt-label">Fee</div>
+                                    <div class="pskt-summary-value"><span id="pskt-fee">0</span> KAS</div>
+                                </div>
+                                <div class="pskt-summary-item">
+                                    <div class="pskt-label">Change</div>
+                                    <div class="pskt-summary-value"><span id="pskt-change-total">0</span> KAS</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-secondary" id="btn-pskt-inspect" type="button" aria-expanded="false" aria-controls="pskt-inspect-details">Inspect</button>
+
+                        <div id="pskt-inspect-details" class="pskt-inspect-details hidden">
+                            <div class="pskt-header">
+                                <div class="pskt-hdr-cell">
+                                    <div class="pskt-label">TX Version</div>
+                                    <div class="pskt-value" id="pskt-tx-version">0</div>
+                                </div>
+                                <div class="pskt-hdr-cell">
+                                    <div class="pskt-label">Inputs</div>
+                                    <div class="pskt-value" id="pskt-in-count">0</div>
+                                </div>
+                                <div class="pskt-hdr-cell">
+                                    <div class="pskt-label">Outputs</div>
+                                    <div class="pskt-value" id="pskt-out-count">0</div>
+                                </div>
+                            </div>
+
+                            <h3 class="pskt-section-title">UTXOs</h3>
+                            <div id="pskt-inputs" class="pskt-list"></div>
+
+                            <h3 class="pskt-section-title">Outputs</h3>
+                            <div id="pskt-outputs" class="pskt-list"></div>
+
+                            <div class="pskt-totals">
+                                <div class="pskt-total-row">
+                                    <span>Total in</span>
+                                    <span id="pskt-total-in">0</span><span> KAS</span>
+                                </div>
+                                <div class="pskt-total-row">
+                                    <span>Total out</span>
+                                    <span id="pskt-total-out">0</span><span> KAS</span>
+                                </div>
+                            </div>
+                            <div id="pskt-payload-hash"></div>
+                        </div>
+
+                        <button class="btn btn-primary" id="btn-pskt-finalize">Finalize + broadcast</button>
+                        <button class="btn btn-secondary" id="btn-pskt-relay">Relay to next signer</button>
+                        <button class="btn btn-back" id="btn-pskt-back">Back</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Relay format picker modal — shown when user taps "Relay to next signer" -->
+            <div id="relay-choice-modal" class="hidden">
+                <div class="relay-dialog">
+                    <h3 class="relay-dialog-title">Relay to next signer</h3>
+                    <p class="relay-dialog-prompt">Who is the next signer?</p>
+                    <button class="btn btn-primary" id="btn-relay-kassigner-standard">
+                        <div class="u-weight-600-mb-3px">KasSigner — Standard</div>
+                        <div class="u-text-12px-text-text-dim-weight-normal">Recommended · compact KSPT QR · simple signing flow</div>
+                    </button>
+                    <button class="btn btn-secondary" id="btn-relay-compact">
+                        <div class="u-weight-600-mb-3px">KasSigner — Anti-klepto</div>
+                        <div class="u-text-12px-text-text-dim-weight-normal">Maximum security · adds nonce-exfiltration protection and an interactive QR handshake</div>
+                    </button>
+                    <button class="btn btn-secondary" id="btn-relay-standard">
+                        <div class="u-weight-600-mb-3px">Other wallet — Standard PSKB</div>
+                        <div class="u-text-12px-text-text-dim-weight-normal">Interoperable PSKB for other compatible wallets; not for KasSigner</div>
+                    </button>
+                    <button class="btn btn-link u-full-width" id="btn-relay-cancel">Cancel</button>
+                </div>
+            </div>
+
+            <!-- Marker to keep diff clean -->
+            <section id="screen-donate" class="screen">
+                <div class="screen-content donate-content">
+                  <!-- Donate Card — fully self-contained -->
+                  <div class="donate-card">
+                    <!-- Gradient overlay -->
+                    <div class="donate-card-glow"></div>
+                    <!-- Content -->
+                    <div class="donate-card-content">
+                      <!-- Top row: name left, QR right -->
+                      <div class="donate-header">
+                        <div class="donate-identity">
+                          <div class="donate-brand">
+                            <h2 class="donate-title">KasSigner.kas</h2>
+                            <a class="donate-brand-link" href="https://kassigner.org" target="_blank">
+                              <img class="donate-brand-image" src="img/kassigner-donate.png" alt="KasSigner">
+                            </a>
+                          </div>
+                        </div>
+                        <div id="donate-qr" role="button" tabindex="0" title="Copy donation address" aria-label="Copy donation address">
+                          <img src="img/kassigner-donation-qr.png" alt="KasSigner donation address QR code">
+                        </div>
+                      </div>
+                      <!-- Address -->
+                      <div id="donate-address" role="button" tabindex="0" title="Copy donation address" aria-label="Copy donation address"></div>
+                      <!-- Mottos -->
+                      <div class="donate-mottos">
+                        <p class="donate-motto-primary">Don’t trust, verify. Sign offline. Broadcast sovereign.</p>
+                        <p class="donate-motto-secondary">KasSee is free &amp; open source. InKasWeRust</p>
+                      </div>
+                      <!-- Social chips 2x2 -->
+                      <div class="donate-social-grid">
+                        <a class="u-display-flex-direction-column-align-center-gap-4px" href="https://x.com/KasSigner" target="_blank">
+                          <svg class="u-width-20px-height-20px-fill-white" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                          <span class="u-weight-700-text-12px">X</span>
+                          <span class="u-font-jetbrains-mono-monospace-text-8px-text-73-191-170-0-65">@KasSigner</span>
+                        </a>
+                        <a class="u-display-flex-direction-column-align-center-gap-4px" href="https://www.youtube.com/@KasSigner" target="_blank">
+                          <svg class="u-width-20px-height-20px-fill-white" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12z"/></svg>
+                          <span class="u-weight-700-text-12px">YouTube</span>
+                          <span class="u-font-jetbrains-mono-monospace-text-8px-text-73-191-170-0-65">@KasSigner</span>
+                        </a>
+                        <a class="u-display-flex-direction-column-align-center-gap-4px" href="https://github.com/InKasWeRust/KasSigner" target="_blank">
+                          <svg class="u-width-20px-height-20px-fill-white" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+                          <span class="u-weight-700-text-12px">GitHub</span>
+                          <span class="u-font-jetbrains-mono-monospace-text-8px-text-73-191-170-0-65">InKasWeRust</span>
+                        </a>
+                        <a class="u-display-flex-direction-column-align-center-gap-4px" href="https://t.me/KasSigner" target="_blank">
+                          <svg class="u-width-20px-height-20px-fill-white" viewBox="0 0 24 24"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                          <span class="u-weight-700-text-12px">Telegram</span>
+                          <span class="u-font-jetbrains-mono-monospace-text-8px-text-73-191-170-0-65">@KasSigner</span>
+                        </a>
+                      </div>
+                      <!-- Buttons -->
+                      <div class="donate-actions">
+                        <button id="btn-copy-donate">Donate</button>
+                        <button id="btn-donate-skip">Close</button>
+                      </div>
+                      <!-- Footer -->
+                      <div class="donate-footer">
+                        <a class="donate-site-link" href="https://kassigner.org" target="_blank">kassigner.org</a>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Donation QR sizing is owned by the donate screen stylesheet. -->
+                </div>
+            </section>
+            <!-- Loading overlay -->
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <div id="loading-msg" class="loading-msg">Connecting...</div>
+            </div>
+
+            <!-- Toast notifications -->
+            <div id="toast" class="toast hidden"></div>
+        </main>
+    </div>
+
+    <!-- jsQR for camera QR decoding (bundled locally — no CDN dependency) -->
+    <script src="lib/jsQR.js"></script>
+    <!-- main.js freshness is handled by the server no-cache header on *.js/*.wasm/*.html
+         (see Caddyfile). No inline cache-buster: this page's CSP forbids inline
+         scripts, and the header makes a static tag reload on every deploy anyway. -->
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>

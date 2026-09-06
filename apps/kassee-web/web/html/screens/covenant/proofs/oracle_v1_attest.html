@@ -1,0 +1,30 @@
+                    <!-- Oracle-v1 attestation / beacon -->
+                    <div id="cov-oracle-v1-attest-panel" class="card hidden">
+                        <h3>Oracle Attest</h3>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                            Show the covenant request, then the oracle scans it under
+                            <b>Single Signature → Covenant Sign</b>. KasSigner independently recomputes this covenant's
+                            exact 32-byte commitment and verifies the isolated key is bound in the script before signing.
+                        </p>
+                        <label class="input-label">Attestation text</label>
+                        <textarea id="cov-oracle-v1-attest-text" class="input-text input-textarea" readonly
+                                  maxlength="256" placeholder="e.g. Shipment delivered on 2026-08-14"></textarea>
+                        <button class="btn btn-primary u-full-width-mb-8px" id="btn-cov-oracle-v1-sign-request">
+                            Show COVENANT SIGN Request
+                        </button>
+                        <button class="btn btn-outline u-full-width-mb-8px" id="btn-cov-oracle-v1-scan-signed">
+                            📷 Scan COVENANT SIGN Response
+                        </button>
+                        <div id="cov-oracle-v1-attest-status" class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4"></div>
+                        <button class="btn btn-primary u-full-width-mb-8px hidden" id="btn-cov-oracle-v1-beacon">
+                            Publish Attestation Beacon
+                        </button>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                            Optional beacon: the oracle deposits 0.1 KAS into this covenant with the
+                            attestation attached. It never spends covenant funds; the 0.1 KAS remains claimable/refundable.
+                        </p>
+                        <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-cov-oracle-v1-share">
+                            Show Attestation QR
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-oracle-v1-attest-back">Back</button>
+                    </div>

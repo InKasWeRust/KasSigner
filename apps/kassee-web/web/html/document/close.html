@@ -1,0 +1,19 @@
+            <!-- Loading overlay -->
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <div id="loading-msg" class="loading-msg">Connecting...</div>
+            </div>
+
+            <!-- Toast notifications -->
+            <div id="toast" class="toast hidden"></div>
+        </main>
+    </div>
+
+    <!-- jsQR for camera QR decoding (bundled locally — no CDN dependency) -->
+    <script src="lib/jsQR.js"></script>
+    <!-- main.js freshness is handled by the server no-cache header on *.js/*.wasm/*.html
+         (see Caddyfile). No inline cache-buster: this page's CSP forbids inline
+         scripts, and the header makes a static tag reload on every deploy anyway. -->
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>

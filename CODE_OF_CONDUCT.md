@@ -1,4 +1,4 @@
-<!-- KasSigner: Air-gapped offline signing device for Kaspa -->
+<!-- KasSigner — Air-gapped offline signing device for Kaspa -->
 <!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
 <!-- License: GPL-3.0-only -->
 

@@ -1,0 +1,753 @@
+{
+  "schema_version": 1,
+  "invariants": [
+    {
+      "id": "sign-only-after-complete-review",
+      "description": "Signing must fail closed unless a seed is loaded, explicit review approval exists, input counts match, and the requested input index belongs to the reviewed transaction.",
+      "evidence": [
+        {
+          "path": "crates/signer-firmware-core/src/security.rs",
+          "contains": [
+            "authorize_transaction_signing",
+            "ReviewIncomplete",
+            "InputCountMismatch",
+            "InputOutOfRange"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/runtime/signing/workflow.rs",
+          "contains": [
+            "SigningAuthorization",
+            "authorize_transaction_signing",
+            "presentation::SIGN_REVIEW"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/runtime/input/wallet_app.rs",
+          "contains": [
+            "review_authorized = true",
+            "review_authorized = false"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "reject-mixed-qr-sessions",
+      "description": "Frame assembly must reject a session identifier or total-frame count change at each canonical assembly owner.",
+      "evidence": [
+        {
+          "path": "crates/shared-signer/src/security.rs",
+          "contains": [
+            "authorize_frame_session",
+            "MixedSession",
+            "TotalChanged"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/runtime/interactions/camera_loop/multiframe.rs",
+          "contains": [
+            "authorize_frame_session",
+            "Mixed multi-frame QR session rejected"
+          ]
+        },
+        {
+          "path": "crates/kassigner-protocol/src/qr/mod.rs",
+          "contains": [
+            "authorize_frame_session",
+            "mixed multi-frame QR session rejected",
+            "pub struct QrDecoder"
+          ]
+        },
+        {
+          "path": "crates/online-watcher/src/protocol/qr.rs",
+          "contains": [
+            "kassigner_protocol::qr::{encode_frames, QrDecoder}",
+            ".accept(&payload)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "offline-signing-is-network-independent",
+      "description": "Offline/shared signing crates must not depend on browser or networking crates.",
+      "forbidden": [
+        {
+          "paths": [
+            "crates/offline-signer/Cargo.toml",
+            "crates/shared-signer/Cargo.toml"
+          ],
+          "terms": [
+            "web-sys",
+            "web_sys",
+            "wasm-bindgen",
+            "wasm_bindgen",
+            "reqwest",
+            "tokio",
+            "tungstenite",
+            "TcpStream",
+            "UdpSocket"
+          ]
+        },
+        {
+          "globs": [
+            "crates/offline-signer/src/**/*.rs",
+            "crates/shared-signer/src/**/*.rs"
+          ],
+          "terms": [
+            "std::net",
+            "web_sys::",
+            "reqwest::",
+            "tungstenite::"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "canonical-account-key-only",
+      "description": "Canonical account-key metadata and text are validated before use.",
+      "evidence": [
+        {
+          "path": "crates/shared-signer/src/account_key.rs",
+          "contains": [
+            "validate_account_key_payload",
+            "ACCOUNT_KEY_DEPTH",
+            "ACCOUNT_KEY_CHILD_INDEX"
+          ]
+        },
+        {
+          "path": "crates/offline-signer/src/derivation/xpub/kpub.rs",
+          "contains": [
+            "validate_account_key_payload",
+            "normalize_kpub_text"
+          ]
+        },
+        {
+          "path": "crates/kassigner-protocol/src/account/bip32.rs",
+          "contains": [
+            "Account-key payload is not canonical",
+            "canonical_kpub_text",
+            "validate_account_key_payload"
+          ]
+        },
+        {
+          "path": "crates/online-watcher/src/account/bip32.rs",
+          "contains": [
+            "kassigner_protocol::compat::decode_kpub_text",
+            "kassigner_protocol::compat::import_kpub",
+            "kassigner_protocol::compat::import_kpub_raw"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "deterministic-transaction-interpretation",
+      "description": "Accepted KSPT and PSKT transactions must reserialize canonically and reject truncation or malformed framing.",
+      "evidence": [
+        {
+          "path": "crates/offline-signer/src/transaction/kspt/unit_tests/property.rs",
+          "contains": [
+            "compact_kspt_roundtrip_is_canonical",
+            "rejects_every_truncated_prefix",
+            "InvalidMagic"
+          ]
+        },
+        {
+          "path": "crates/offline-signer/src/transaction/std_pskt/unit_tests/round_trip.rs",
+          "contains": [
+            "round_trip",
+            "assert_eq!"
+          ]
+        },
+        {
+          "path": "qa/fuzz/compact_kspt_parser.rs",
+          "contains": [
+            "canonical serialization must parse",
+            "assert_eq!"
+          ]
+        },
+        {
+          "path": "qa/fuzz/std_pskt_parser.rs",
+          "contains": [
+            "canonical PSKT must parse",
+            "assert_eq!"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "seed-generation-fails-closed",
+      "description": "Seed collection requires checked hardware RNG, camera contribution, device identity, and timing evidence; Waveshare QMI input is supplemental and cannot satisfy a mandatory gate.",
+      "evidence": [
+        {
+          "path": "crates/signer-firmware-core/src/security.rs",
+          "contains": [
+            "validate_seed_entropy",
+            "CameraUnavailable",
+            "HardwareRngUnavailable",
+            "DeviceIdentityUnavailable",
+            "TimingUnavailable"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/services/entropy/collection.rs",
+          "contains": [
+            "enable_hardware_rng()?",
+            "seed::mix_initial",
+            "imu::mix_seed_sample",
+            "validate_seed_entropy",
+            "mixer::zeroize"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/services/entropy/trng.rs",
+          "contains": [
+            "set_and_verify",
+            "inspect(&samples)?"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "supplemental-physical-entropy-preserves-authoritative-gates",
+      "description": "Waveshare QMI and ambient touch are restored as domain-separated supplemental inputs only: IMU bytes must be complete and healthy before mixing, ambient observations are movement-gated, and later fills still require the checked hardware RNG before staged data can contribute.",
+      "evidence": [
+        {
+          "path": "apps/signer-firmware/src/services/entropy/imu.rs",
+          "contains": [
+            "count == sample.len()",
+            "buffer_is_healthy",
+            "KasSigner-seed-imu-v2",
+            "mixer::zeroize(sample)"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/services/entropy/ambient.rs",
+          "contains": [
+            "LAST_TOUCH",
+            "KasSigner-ambient-stage-v2",
+            "KasSigner-ambient-touch-v2"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/services/entropy/collection.rs",
+          "contains": [
+            "trng::enable_hardware_rng()?",
+            "ambient::mix_staged",
+            "imu::mix_staged"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/runtime/event_loop/mod.rs",
+          "contains": [
+            "IMU_RESTAGE_TICKS",
+            "runner::restage_imu"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/runtime/event_loop/runner/idle.rs",
+          "contains": [
+            "stage_idle_imu"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/runtime/event_loop/touch.rs",
+          "contains": [
+            "stage_ambient_touch"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "device-bound-storage-preserves-portable-recovery-boundary",
+      "description": "Device-bound persistence and removable seed/XPrv backups remain tied to the creating device; current writers use Argon2id and AES-GCM while deployed KASDB004 compatibility is selected only by its explicit legacy magic.",
+      "evidence": [
+        {
+          "path": "crates/offline-signer/src/crypto/unit_tests/device_bound_storage_tests.rs",
+          "contains": [
+            "same_device_roundtrip_succeeds_and_tampering_fails_with_zeroized_plaintext",
+            "wrong_password_and_wrong_device_are_rejected",
+            "missing_hmac_service_fails_closed_and_zeroizes_buffers",
+            "fresh_salt_and_nonce_are_generated_for_each_container"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/services/unit_tests/backup_tests.rs",
+          "contains": [
+            "current_device_bound_backup_uses_argon2_metadata",
+            "deployed_legacy_device_bound_reader_is_magic_selected_only",
+            "wrong_password",
+            "bad_kdf"
+          ]
+        },
+        {
+          "path": "crates/shared-signer/src/bytes.rs",
+          "contains": [
+            "constant_time_eq",
+            "constant_time_eq_32"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/services/persistent_wallet/wallet_activation.rs",
+          "contains": [
+            "constant_time_eq_32",
+            "expected",
+            "actual"
+          ]
+        },
+        {
+          "path": "crates/offline-signer/src/crypto/container_framing.rs",
+          "contains": [
+            "KASDB005",
+            "KASDB004",
+            "BackupReaderKdf::LegacyPbkdf2"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/services/backup/container.rs",
+          "contains": [
+            "PasswordKdfPurpose::DeviceBoundBackup",
+            "BackupReaderKdf::LegacyPbkdf2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "portable-backup-is-password-only-argon2id",
+      "description": "Current Portable JPEG recovery is exactly JPEG + password, uses authenticated Argon2id v19 parameters and AES-256-GCM, and never falls back to PBKDF2 or an obsolete second recovery secret.",
+      "evidence": [
+        {
+          "path": "crates/offline-signer/src/crypto/password_kdf.rs",
+          "contains": [
+            "Algorithm::Argon2id",
+            "Version::V0x13",
+            "PortableBackup",
+            "UnsupportedParameters",
+            "AllocationFailed"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/services/stego/payload.rs",
+          "contains": [
+            "const PORTABLE_FORMAT_VERSION: u8 = 4;",
+            "password_kdf::encode_metadata",
+            "password_kdf::parse_metadata",
+            "build_aad"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/services/stego/portable.rs",
+          "contains": [
+            "PasswordKdfPurpose::PortableBackup",
+            "Aes256Gcm",
+            "zeroize_bytes(&mut key)"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/ui/screens/storage/steganography/prompts.rs",
+          "contains": [
+            "PORTABLE BACKUP",
+            "Restore: JPEG + Password",
+            "Works on another KasSigner"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/services/unit_tests/backup_tests.rs",
+          "contains": [
+            "portable_jpeg_is_password_only_cross_device",
+            "portable_jpeg_rejects_all_authenticated_header_tampering_and_clears_outputs"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "paths": [
+            "apps/signer-firmware/src/services/stego/portable.rs",
+            "apps/signer-firmware/src/services/stego/payload.rs",
+            "apps/signer-firmware/src/runtime/interactions/stego/export_security.rs"
+          ],
+          "terms": [
+            "portable_recovery",
+            "RECOVERY_KEY_SIZE",
+            "StegoPortableRecoveryKey"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "secret-material-is-zeroized",
+      "description": "Private keys, seeds, entropy pools, and cryptographic intermediates use the shared volatile zeroization primitive.",
+      "evidence": [
+        {
+          "path": "crates/shared-signer/src/bytes.rs",
+          "contains": [
+            "zeroize_bytes",
+            "write_volatile"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/runtime/signing/derivation.rs",
+          "contains": [
+            "zeroize_seed",
+            "zeroize_bytes"
+          ]
+        },
+        {
+          "path": "crates/offline-signer/src/transaction/kspt/signing/multi_address.rs",
+          "contains": [
+            "zeroize_bytes"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "production-firmware-verification-fails-closed",
+      "description": "Production firmware must reject an unconfigured hash, unsigned image, invalid signing identity/signature, rollback, or verification-flow inconsistency.",
+      "evidence": [
+        {
+          "path": "apps/signer-firmware/src/services/verify/policy.rs",
+          "contains": [
+            "cfg(feature = \"production\")",
+            "verify_production"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/services/verify/policy/production.rs",
+          "contains": [
+            "Hash not configured in production",
+            "Unsigned build in production mode",
+            "FlowViolation",
+            "verify_signature"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/services/verify/signature.rs",
+          "contains": [
+            "firmware signing public key not configured",
+            "InvalidSignature",
+            "schnorr_verify"
+          ]
+        },
+        {
+          "path": "tools/build/firmware/build_production.sh",
+          "contains": [
+            "build_with_hash.sh",
+            "production"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "unsafe-wallet-raw-signature-covenants-are-absent",
+      "description": "Historical wallet-key host-selected-hash signing remains absent. Current Oracle-v1 uses isolated COVENANT SIGN, while restored ZK Crowdfunding uses no organizer raw-hash signature: its sweep is proof-gated and independently constrained on-chain to the real input total, goal, fixed organizer destination, and fee ceiling.",
+      "evidence": [
+        {
+          "path": "crates/online-watcher/src/contracts/covenant/oracle_v1.rs",
+          "contains": [
+            "KasSigner Oracle v1",
+            "Sha256::digest(statement.as_bytes())",
+            "oracle_covenant_key_id_hex",
+            "let mut salt = [0u8; 16]",
+            "oracle_v1_script_commits_to",
+            "bip340_verify"
+          ]
+        },
+        {
+          "path": "crates/online-watcher/src/wasm_api/contracts/covenant/families/oracle_v1.rs",
+          "contains": [
+            "crate::contracts::covenant::oracle_v1::build_json",
+            "crate::transaction_builder::covenant::oracle_v1::build_claim"
+          ]
+        },
+        {
+          "path": "crates/online-watcher/src/contracts/covenant/script/oracle_v1.rs",
+          "contains": [
+            "expected_message_commitment",
+            "OP_CHECKSIGFROMSTACK",
+            "salt: &[u8; 16]"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/services/covenant_sign.rs",
+          "contains": [
+            "derive_active_seed",
+            "provisional_covenant_signature",
+            "finalize_covenant_signature",
+            "verify_host_secret",
+            "verify_nonce_relation",
+            "recompute_known_commitment",
+            "known_script_binds"
+          ]
+        },
+        {
+          "path": "crates/offline-signer/src/derivation/covenant.rs",
+          "contains": [
+            "COVENANT_PURPOSE",
+            "HARDENED + index",
+            "provisional_covenant_signature",
+            "finalize_covenant_signature"
+          ]
+        },
+        {
+          "path": "apps/kassee-web/web/js/features/oracle/v1/controller.js",
+          "contains": [
+            "covenantKnownRequestHex",
+            "CovenantKnownScheme.ORACLE_V1",
+            "ORACLE_V1_BEACON_DEPOSIT_SOMPI",
+            "create_covenant_pskb_with_payload",
+            "covenant_address: result.address",
+            "send_amount: ORACLE_V1_BEACON_DEPOSIT_SOMPI.toString()"
+          ]
+        },
+        {
+          "path": "crates/online-watcher/src/contracts/crowdfund/script.rs",
+          "contains": [
+            "OP_ZK_PRECOMPILE",
+            "OP_TX_INPUT_AMOUNT",
+            "OP_TX_OUTPUT_SPK",
+            "OP_TX_INPUT_SCRIPT_SIG_SUBSTR",
+            "append_campaign_isolation",
+            "crowdfund_campaign_id",
+            "CROWDFUND_MAX_SWEEP_FEE_SOMPI"
+          ]
+        },
+        {
+          "path": "crates/online-watcher/src/transaction_builder/zk/crowdfund.rs",
+          "contains": [
+            "proof::verify_proof",
+            "proof::serialize_total(total)? != public_input",
+            "canonical_redeem",
+            ".checked_add(utxo.amount)"
+          ]
+        },
+        {
+          "path": "crates/online-watcher/src/wasm_api/contracts/zk/crowdfund/sweep.rs",
+          "contains": [
+            "crate::transaction_builder::zk::crowdfund::create_crowdfund_sweep_string"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "globs": [
+            "crates/online-watcher/src/**/*.rs",
+            "apps/kassee-web/web/js/**/*.js",
+            "apps/kassee-web/web/html/**/*.html"
+          ],
+          "terms": [
+            "create_covenant_oracle_claim",
+            "create_oracle_heartbeat",
+            "oracleSig",
+            "oracleMsgHash"
+          ]
+        },
+        {
+          "globs": [
+            "apps/kassee-web/web/js/**/*.js",
+            "apps/kassee-web/web/html/**/*.html"
+          ],
+          "terms": [
+            "oracleAttestations",
+            "cov-oracle-claim",
+            "cov-oracle-pk"
+          ]
+        },
+        {
+          "path": "crates/online-watcher/src/contracts/covenant/script/oracle_v1.rs",
+          "terms": [
+            "OP_TX_INPUT_SPK"
+          ]
+        },
+        {
+          "globs": [
+            "crates/online-watcher/src/contracts/covenant/script/oracle_v1.rs",
+            "crates/online-watcher/src/wasm_api/contracts/covenant/families/oracle_v1.rs",
+            "apps/kassee-web/web/js/features/oracle/v1/**/*.js",
+            "apps/kassee-web/web/html/screens/covenant/**/*oracle_v1*.html"
+          ],
+          "terms": [
+            "oracleV1Heartbeat",
+            "oracle-v1-heartbeat",
+            "create_covenant_oracle_v1_heartbeat"
+          ]
+        },
+        {
+          "path": "crates/online-watcher/src/contracts/crowdfund/script.rs",
+          "terms": [
+            "OP_CHECKSIGFROMSTACK"
+          ]
+        },
+        {
+          "globs": [
+            "crates/online-watcher/src/**/*.rs",
+            "apps/kassee-web/web/js/**/*.js",
+            "apps/kassee-web/web/html/**/*.html"
+          ],
+          "terms": [
+            "schnorr_sign_ephemeral",
+            "schnorr_sign_with_key",
+            "Tap SIGN HASH",
+            "window._crowdfund"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "untrusted-browser-rendering-is-literal",
+      "description": "Dynamic browser markup is centralized through the audited sanitizer; direct dynamic innerHTML and inline onclick markup are forbidden outside QR/SVG rendering.",
+      "evidence": [
+        {
+          "path": "apps/kassee-web/web/js/core/security/safe_html.js",
+          "contains": [
+            "setSafeMarkup",
+            "document.createTextNode(node.outerHTML",
+            "name.startsWith('on')",
+            "name === 'style'"
+          ]
+        },
+        {
+          "path": "qa/checks/web/check_safe_html.py",
+          "contains": [
+            "dynamic_inner_html_errors",
+            "QR_DIRECT_ALLOW",
+            "hostile_markup_contract_errors"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "spend-keys-never-sign-host-selected-digests",
+      "description": "Normal wallet-spending keys never sign host-selected 32-byte digests. Reviewed Sign Message computes a fixed domain digest on-device. Universal COVENANT SIGN is the sole raw-commitment exception and derives only mnemonic-rooted, hardened, covenant-instance keys outside the spending hierarchy; its final signatures require a host-committed anti-klepto reveal.",
+      "evidence": [
+        {
+          "path": "crates/offline-signer/src/crypto/message.rs",
+          "contains": [
+            "KasSigner Signed Message v1",
+            "message_digest(message)",
+            "sign_message_with_entropy"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/runtime/interactions/tx/message_signing/service.rs",
+          "contains": [
+            "crypto::message::message_digest",
+            "sign_user_message_with_entropy"
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/services/covenant_sign.rs",
+          "contains": [
+            "derive_active_seed",
+            "provisional_covenant_signature",
+            "finalize_covenant_signature",
+            "verify_host_secret",
+            "MnemonicRequired"
+          ]
+        },
+        {
+          "path": "crates/offline-signer/src/derivation/covenant.rs",
+          "contains": [
+            "COVENANT_PURPOSE",
+            "COVENANT_ACCOUNT",
+            "HARDENED + index",
+            "exact third-party commitment is consumed as-is",
+            "without changing the covenant message"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "globs": [
+            "apps/signer-firmware/src/**/*.rs"
+          ],
+          "terms": [
+            "SignMsgHashPreview",
+            "AdaptorSignRequest",
+            "KADS1:",
+            "scan_hash"
+          ]
+        },
+        {
+          "path": "crates/offline-signer/src/facade.rs",
+          "terms": [
+            "pub fn sign_message(",
+            "pub fn sign_message_with_entropy("
+          ]
+        }
+      ]
+    },
+    {
+      "id": "private-swap-v2-is-sighash-bound-and-historical-adaptor-surfaces-stay-retired",
+      "description": "Private Swap v2 restores adaptor signatures only as an exact Kaspa transaction-sighash-bound protocol under isolated hardened swap key domains. Historical adaptor-v1 raw-message APIs, HTLC/atomic-swap replacements, wallet raw-hash signing, and CHECKSIGFROMSTACK-based swap claims remain absent.",
+      "evidence": [
+        {
+          "path": "crates/online-watcher/src/contracts/covenant/script/private_swap.rs",
+          "contains": [
+            "Private Swap v2 covenant: adaptor-signature claim + timed owner refund.",
+            "ordinary OP_CHECKSIG over the Kaspa transaction",
+            "no preimage or",
+            "PRIVATE_SWAP_MAX_FEE_SOMPI"
+          ]
+        },
+        {
+          "path": "crates/offline-signer/src/transaction/private_swap.rs",
+          "contains": [
+            "private_swap_claim_sighash",
+            "calculate_sighash",
+            "SigHashType::All"
+          ]
+        },
+        {
+          "path": "crates/offline-signer/src/derivation/covenant.rs",
+          "contains": [
+            "PRIVATE_SWAP_CLAIM_ACCOUNT",
+            "PRIVATE_SWAP_BINDING_ACCOUNT",
+            "PRIVATE_SWAP_ADAPTOR_ACCOUNT",
+            "private_swap_adaptor_secret_and_point"
+          ]
+        },
+        {
+          "path": "crates/shared-signer/src/covenant_sign/private_swap.rs",
+          "contains": [
+            "REQUEST_MAGIC: [u8; 4] = *b\"PSWG\"",
+            "REVEAL_MAGIC: [u8; 4] = *b\"PSWR\"",
+            "Ordinary wallet-spending keys never consume this protocol."
+          ]
+        },
+        {
+          "path": "apps/signer-firmware/src/services/private_swap.rs",
+          "contains": [
+            "private_swap_claim_sighash",
+            "private_swap_binding_matches",
+            "create_private_swap_adaptor_presignature"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "globs": [
+            "apps/kassee-web/web/js/**/*.js",
+            "apps/kassee-web/web/html/**/*.html",
+            "apps/signer-firmware/src/**/*.rs",
+            "crates/online-watcher/src/**/*.rs",
+            "crates/offline-signer/src/**/*.rs"
+          ],
+          "terms": [
+            "KasSigner-AdaptorSwap-v1",
+            "adaptor_generate_keypair",
+            "adaptor_create_sig",
+            "covenant_atomic_swap",
+            "create_covenant_atomic_claim",
+            "kassee_swap_state",
+            "cov-swap-"
+          ]
+        },
+        {
+          "path": "crates/online-watcher/src/contracts/covenant/script/private_swap.rs",
+          "terms": [
+            "OP_CHECKSIGFROMSTACK"
+          ]
+        }
+      ]
+    }
+  ]
+}

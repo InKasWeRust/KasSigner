@@ -1,0 +1,137 @@
+            <!-- Covenant++ screen -->
+            <section id="screen-covenant" class="screen">
+                <div class="screen-content">
+                    <h2>Covenant++</h2>
+                    <p class="subtitle">Create and spend covenant addresses</p>
+
+                    <!-- Sub-screens toggled by JS -->
+                    <div id="cov-menu">
+
+                        <!-- Active Covenants (populated by JS) -->
+                        <div id="cov-active-list" class="cov-active-list hidden">
+                            <div class="cov-active-header">
+                                <h3>Active Covenants</h3>
+                                <span class="cov-active-count" id="cov-active-count">0</span>
+                            </div>
+                            <div id="cov-active-items"></div>
+                        </div>
+
+                        <button class="btn btn-outline u-full-width-mb-8px-text-13px" id="btn-cov-load-existing">
+                            Load Existing Covenant
+                        </button>
+                        <div class="covenant-menu-tabs">
+                            <button class="btn btn-outline u-grow-text-11px-opacity-0-8-padding-10px-4px" id="btn-cov-recover-chain" title="Scan chain for encrypted covenant payloads and rebuild portfolio">
+                                &#x1F50D; Recover from Chain
+                            </button>
+                            <button class="btn btn-outline u-grow-text-11px-opacity-0-8-padding-10px-4px" id="btn-cov-import-scan" title="Scan covenant backup QR from KasSigner">
+                                &#x1F4F7; Import from KasSigner
+                            </button>
+                        </div>
+
+                        <!-- Savings & Time Locks -->
+                        <div class="cov-category cov-cat-security">
+                            <div class="cov-cat-header">
+                                <div class="cov-cat-icon">&#x1F512;</div>
+                                <h3>Savings &amp; Time Locks</h3>
+                                <span class="cov-chevron">&#x25BC;</span>
+                            </div>
+                            <div class="cov-cat-grid">
+                                <div class="cov-type-card" data-cov-type="dms">
+                                    <div class="cov-card-name">Dead Man's Switch</div>
+                                    <div class="cov-card-desc">Heir inherits after inactivity. Heartbeat resets timer.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-type="additive">
+                                    <div class="cov-card-name">Piggy Bank</div>
+                                    <div class="cov-card-desc">Save toward a goal or a deadline. Break it open to withdraw.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-type="timelocked-savings">
+                                    <div class="cov-card-name">Time-Locked Savings</div>
+                                    <div class="cov-card-desc">Lock funds until a date. No one can touch them early, not even you.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Spending Controls -->
+                        <div class="cov-category cov-cat-governance">
+                            <div class="cov-cat-header">
+                                <div class="cov-cat-icon">&#x1F6A6;</div>
+                                <h3>Spending Controls</h3>
+                                <span class="cov-chevron">&#x25BC;</span>
+                            </div>
+                            <div class="cov-cat-grid">
+                                <div class="cov-type-card" data-cov-type="global-allowance">
+                                    <div class="cov-card-name">Allowance</div>
+                                    <div class="cov-card-desc">A beneficiary withdraws up to a cap, with a cooldown between withdrawals.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-type="merkle-whitelist">
+                                    <div class="cov-card-name">Merkle Whitelist</div>
+                                    <div class="cov-card-desc">Spend to approved set via proof.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-type="global-spending-limit">
+                                    <div class="cov-card-name">Spending Limit</div>
+                                    <div class="cov-card-desc">A cap on each withdrawal, with a cooldown between them. Applies to your whole balance.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Multi-Party & Conditional -->
+                        <div class="cov-category cov-cat-multiparty">
+                            <div class="cov-cat-header">
+                                <div class="cov-cat-icon">&#x1F91D;</div>
+                                <h3>Multi-Party &amp; Conditional</h3>
+                                <span class="cov-chevron">&#x25BC;</span>
+                            </div>
+                            <div class="cov-cat-grid">
+                                <div class="cov-type-card" data-cov-type="escrow">
+                                    <div class="cov-card-name">Direct Channel</div>
+                                    <div class="cov-card-desc">Direct payment channel with arbiter dispute resolution.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-panel="private-swap">
+                                    <div class="cov-card-name">Private Swap</div>
+                                    <div class="cov-card-desc">Adaptor-signature swap. No preimage and no shared on-chain link.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-type="payjoin">
+                                    <div class="cov-card-name">PayJoin</div>
+                                    <div class="cov-card-desc">Anonymous payment covenant.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-type="oracle-v1">
+                                    <div class="cov-card-name">Oracle</div>
+                                    <div class="cov-card-desc">Release on a human-readable oracle attestation.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-type="crowdfund">
+                                    <div class="cov-card-name">ZK Crowdfunding</div>
+                                    <div class="cov-card-desc">Contributors refund after timeout; organizer sweep is ZK-gated and destination-bound.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Advance & PoC -->
+                        <div class="cov-category cov-cat-advanced">
+                            <div class="cov-cat-header">
+                                <div class="cov-cat-icon">&#x26A1;</div>
+                                <h3>Advance &amp; PoC</h3>
+                                <span class="cov-chevron">&#x25BC;</span>
+                            </div>
+                            <div class="cov-cat-grid">
+                                <div class="cov-type-card" data-cov-type="commit-reveal">
+                                    <div class="cov-card-name">Commit-Reveal</div>
+                                    <div class="cov-card-desc">MEV-resistant inscriptions.</div>
+                                </div>
+                                <div class="cov-type-card" data-cov-panel="oracle-mb">
+                                    <div class="cov-card-name">ZK Price Oracle</div>
+                                    <div class="cov-card-desc">Live KAS/USD. Pyth + Wormhole, proven on-chain.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Utility row -->
+                        <div class="covenant-menu-actions">
+                            <button class="btn btn-secondary u-grow-text-12px" id="btn-cov-check-balance">
+                                Check Balance
+                            </button>
+                            <button class="btn btn-secondary u-grow-text-12px" id="btn-cov-owner-reclaim">
+                                Owner Spend
+                            </button>
+                        </div>
+                        <button class="btn btn-back" id="btn-cov-back">Back</button>
+                    </div>

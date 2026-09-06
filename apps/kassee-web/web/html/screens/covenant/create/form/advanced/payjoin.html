@@ -1,0 +1,30 @@
+
+                        <!-- PayJoin Covenant fields -->
+                        <div id="cov-fields-payjoin" class="hidden">
+                            <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                Anonymous payment. Owner locks funds for a
+                                beneficiary. To claim, the beneficiary must add their own
+                                inputs to the TX, making it look like a multi-party
+                                consolidation on the DAG instead of a directed payment.
+                                The beneficiary only needs a kpub and some funds.
+                                Owner can refund after timeout.
+                            </p>
+                            <label class="input-label">Beneficiary Pubkey (hex)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-payjoin-bene-pk" class="input-text u-grow-mb-0"
+                                       placeholder="32-byte xonly pubkey hex" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-payjoin-bene"
+                                        title="Scan QR">📷</button>
+                            </div>
+                            <label class="input-label">Owner Refund Timeout</label>
+                            <input type="datetime-local" id="cov-payjoin-datetime" class="input-text u-color-scheme-dark"
+                                  >
+                            <input type="number" id="cov-payjoin-locktime" class="input-text u-hidden"
+                                   placeholder="DAA score (auto)" min="1" step="1">
+                            <input type="number" id="cov-payjoin-min-inputs" class="input-text u-hidden"
+                                   value="2">
+                            <input type="number" id="cov-payjoin-min-outputs" class="input-text u-hidden"
+                                   value="2">
+                        </div>
+
+                        <!-- Persistent Vault (KIP-20) fields -->

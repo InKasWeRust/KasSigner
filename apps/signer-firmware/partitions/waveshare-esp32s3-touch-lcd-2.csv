@@ -1,0 +1,5 @@
+# KasSigner Waveshare ESP32-S3-Touch-LCD-2 partition table (16 MiB flash)
+# The final 16 KiB are reserved for the encrypted persistent-wallet journal.
+# Name,            Type, SubType, Offset,   Size,       Flags
+factory,             app,  factory, 0x10000,  0xFEC000,
+kassigner_state,    data, undefined, 0xFFC000, 0x4000,

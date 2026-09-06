@@ -1,0 +1,30 @@
+                    <!-- Commit-reveal spend sub-screen -->
+                    <div id="cov-cr-reveal-panel" class="card hidden">
+                        <p class="u-text-11px-text-text-dim-margin-0-0-12px-line-1-4">
+                            Step 1: Show the ciphertext QR. On KasSigner, tap
+                            Single Signature -> Decrypt Secret -> scan the QR.
+                            Step 2: Scan the decrypted preimage QR back here.
+                            Step 3: Enter destination and tap Reveal & Spend.
+                        </p>
+                        <input type="hidden" id="cov-cr-addr">
+                        <textarea class="u-hidden" id="cov-cr-script"></textarea>
+                        <input type="hidden" id="cov-cr-reveal-preimage">
+                        <button class="btn btn-outline" id="btn-cov-cr-show-ct-qr">
+                            1. Show Ciphertext QR
+                        </button>
+                        <button class="btn btn-outline u-full-width-mb-8px-text-13px" id="btn-cov-cr-scan-preimage">
+                            📷 2. Scan Decrypted Preimage
+                        </button>
+                        <div id="cov-cr-preimage-status"></div>
+                        <label class="input-label">Destination Address</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-cr-dest" class="input-text u-grow-mb-0"
+                                   placeholder="kaspatest:qq..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-cr-dest"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-cr-reveal-create">
+                            3. Reveal & Spend
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-cr-reveal-back">Back</button>
+                    </div>

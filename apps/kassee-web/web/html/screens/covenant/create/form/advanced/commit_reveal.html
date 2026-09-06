@@ -1,0 +1,23 @@
+
+
+
+
+                        <div id="cov-fields-commit-reveal" class="hidden">
+                            <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                Commit-reveal covenant. Type your secret on KasSigner
+                                (air-gapped). The device hashes and encrypts it.
+                                Scan the commitment QR here. Your secret never
+                                touches the browser. Reveal later to spend.
+                                Refund after timeout if you don't reveal.
+                            </p>
+                            <button class="btn btn-outline" id="btn-cov-cr-scan-commitment">
+                                📷 Scan Commitment from KasSigner
+                            </button>
+                            <div id="cov-cr-hash-display"></div>
+                            <!-- Hidden: stores ECIES ciphertext hex from KasSigner QR -->
+                            <input type="hidden" id="cov-cr-ciphertext-hex">
+                            <label class="input-label">Refund Timeout</label>
+                            <input type="datetime-local" id="cov-cr-datetime" class="input-text u-color-scheme-dark">
+                            <input type="text" id="cov-cr-locktime" class="input-text u-hidden"
+                                   placeholder="DAA score (auto)" autocomplete="off" spellcheck="false">
+                        </div>

@@ -1,0 +1,2214 @@
+{
+  "baseline": {
+    "archive": "KasSigner-main(8).zip",
+    "archive_sha256": "358e25ccde7c560506e117738ce259c3728a35dfb2879586875ac3d1f12f456b",
+    "primary_evidence": [
+      "README.md",
+      "CHANGELOG.md",
+      "core/src",
+      "bootloader/src",
+      "kassee/src",
+      "kassee/web"
+    ],
+    "release": "1.0.7"
+  },
+  "coverage_basis": {
+    "excluded": "Removed/dead historical functionality and vulnerabilities fixed before or in 1.0.7 are not parity requirements.",
+    "rule": "Include every active end-user feature, safety feature, firmware Cargo feature flag, and important public/resource numeric limit documented by original README.md and active in original 1.0.7; include 1.0.7 active additions from CHANGELOG.md that materially affect behavior/interoperability."
+  },
+  "current_extensions_not_required_for_original_parity": [
+    "opt-in protected persistent wallets",
+    "KasSigner third-party wallet SDK/privacy pairing",
+    "Android native host",
+    "iOS native host",
+    "portfolio/accounting UI",
+    "additional covenant families added after the original baseline",
+    "QEMU workflow/HIL infrastructure"
+  ],
+  "features": [
+    {
+      "category": "signer",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "docs"
+        ],
+        "paths": [
+          "apps/signer-firmware/src",
+          "docs/security/SECURITY_OVERVIEW.md"
+        ],
+        "status": "parity"
+      },
+      "id": "signer.air_gapped",
+      "original_claim": "No Wi-Fi/Bluetooth/USB data path; QR, touchscreen and SD are the normal I/O surfaces.",
+      "original_paths": [
+        "README.md",
+        "bootloader/src"
+      ],
+      "title": "Fully air-gapped operation"
+    },
+    {
+      "category": "signer",
+      "current": {
+        "owners": [
+          "apps/signer-firmware"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/services/persistent_wallet",
+          "apps/signer-firmware/src/wallet/seed_manager"
+        ],
+        "status": "enhanced"
+      },
+      "id": "signer.stateless_mode",
+      "notes": "2.0.0 preserves an explicit stateless/Always Start Fresh mode and additionally offers opt-in protected persistence.",
+      "original_claim": "Original operation keeps keys in RAM and wipes on power-off/idle.",
+      "original_paths": [
+        "README.md",
+        "bootloader/src/ui/seed_manager.rs"
+      ],
+      "title": "Stateless/volatile wallet mode"
+    },
+    {
+      "category": "seed",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "offline-signer"
+        ],
+        "paths": [
+          "crates/offline-signer/src/derivation/bip39",
+          "apps/signer-firmware/src/wallet/mnemonic"
+        ],
+        "status": "parity"
+      },
+      "id": "seed.bip39_12_24",
+      "original_claim": "Generate/import BIP39 12- or 24-word mnemonics.",
+      "original_paths": [
+        "README.md",
+        "core/src/wallet/bip39.rs"
+      ],
+      "title": "BIP39 12/24-word mnemonics"
+    },
+    {
+      "category": "seed",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "signer-firmware-core"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/services/entropy/camera",
+          "crates/signer-firmware-core/src/entropy"
+        ],
+        "status": "parity"
+      },
+      "id": "seed.camera_entropy",
+      "original_claim": "Camera seed source uses eight frames plus timing and board entropy, refusing inadequate camera input.",
+      "original_paths": [
+        "README.md",
+        "bootloader/src"
+      ],
+      "title": "Camera entropy seed generation"
+    },
+    {
+      "category": "seed",
+      "current": {
+        "owners": [
+          "apps/signer-firmware"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/wallet/mnemonic/dice.rs",
+          "apps/signer-firmware/src/runtime/interactions/menu/seed_tools/dice.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "seed.dice_entropy",
+      "original_claim": "Manual dice entropy for 12/24-word wallets.",
+      "original_paths": [
+        "README.md",
+        "bootloader/src/ui/setup_wizard.rs"
+      ],
+      "title": "Dice-roll seed generation"
+    },
+    {
+      "category": "seed",
+      "current": {
+        "owners": [
+          "apps/signer-firmware"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/wallet/mnemonic/touch.rs",
+          "apps/signer-firmware/src/services/entropy/touch.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "seed.touch_entropy",
+      "original_claim": "Touch coordinates/timing can be used as the seed source.",
+      "original_paths": [
+        "README.md",
+        "bootloader/src"
+      ],
+      "title": "Touch entropy seed generation"
+    },
+    {
+      "category": "seed",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "signer-firmware-core"
+        ],
+        "paths": [
+          "crates/signer-firmware-core/src/entropy/rng_health.rs",
+          "apps/signer-firmware/src/services/entropy"
+        ],
+        "status": "parity"
+      },
+      "id": "seed.rng_health",
+      "original_claim": "Hardware RNG feeds nonces/salts and is health-checked rather than being the sole seed source.",
+      "original_paths": [
+        "README.md",
+        "core/src/entropy.rs"
+      ],
+      "title": "Hardware RNG health checking"
+    },
+    {
+      "category": "derivation",
+      "current": {
+        "owners": [
+          "kassigner-protocol",
+          "offline-signer"
+        ],
+        "paths": [
+          "crates/offline-signer/src/derivation/bip32",
+          "crates/kassigner-protocol/src/account"
+        ],
+        "status": "parity"
+      },
+      "id": "derivation.bip32_single",
+      "original_claim": "Single-sig account at m/44'/111111'/0'.",
+      "original_paths": [
+        "README.md",
+        "core/src/wallet/bip32.rs"
+      ],
+      "title": "BIP32 single-signature derivation"
+    },
+    {
+      "category": "derivation",
+      "current": {
+        "owners": [
+          "kassigner-protocol",
+          "offline-signer"
+        ],
+        "paths": [
+          "crates/offline-signer/src/derivation/bip32",
+          "crates/kassigner-protocol/src/wire/multisig_descriptor.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "derivation.bip32_multisig45",
+      "original_claim": "Coordinated multisig uses m/45'/111111'/0'/cosigner/chain/index.",
+      "original_paths": [
+        "README.md",
+        "core/src/wallet/bip32.rs"
+      ],
+      "title": "BIP32 45' multisig derivation"
+    },
+    {
+      "category": "derivation",
+      "current": {
+        "owners": [
+          "apps/signer-firmware"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/runtime/interactions/seed/passphrase.rs",
+          "apps/signer-firmware/src/wallet/seed_manager/passphrase.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "derivation.bip39_passphrase",
+      "original_claim": "Optional BIP39 passphrase / hidden-wallet behavior.",
+      "original_paths": [
+        "README.md",
+        "bootloader/src"
+      ],
+      "title": "BIP39 passphrase"
+    },
+    {
+      "category": "derivation",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "offline-signer"
+        ],
+        "paths": [
+          "crates/offline-signer/src/derivation/bip85.rs",
+          "apps/signer-firmware/src/runtime/interactions/seed/bip85"
+        ],
+        "status": "parity"
+      },
+      "id": "derivation.bip85",
+      "original_claim": "Derive independent child mnemonics from a master seed.",
+      "original_paths": [
+        "README.md",
+        "core/src/wallet/bip85.rs"
+      ],
+      "title": "BIP85 child mnemonics"
+    },
+    {
+      "category": "crypto",
+      "current": {
+        "owners": [
+          "offline-signer"
+        ],
+        "paths": [
+          "crates/offline-signer/src/crypto/schnorr.rs",
+          "crates/offline-signer/src/transaction/sighash"
+        ],
+        "status": "parity"
+      },
+      "id": "crypto.schnorr_signing",
+      "original_claim": "Native secp256k1 Schnorr transaction signing.",
+      "original_paths": [
+        "README.md",
+        "core/src/wallet/schnorr.rs"
+      ],
+      "title": "Kaspa Schnorr transaction signing"
+    },
+    {
+      "category": "crypto",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "offline-signer"
+        ],
+        "paths": [
+          "crates/offline-signer/src/crypto/message.rs",
+          "apps/signer-firmware/src/runtime/interactions/tx/message_signing"
+        ],
+        "status": "parity"
+      },
+      "id": "crypto.message_signing",
+      "original_claim": "Sign arbitrary typed or SD-loaded messages with address keys.",
+      "original_paths": [
+        "README.md",
+        "core/src/wallet/message.rs"
+      ],
+      "title": "Message signing"
+    },
+    {
+      "category": "crypto",
+      "current": {
+        "owners": [
+          "offline-signer",
+          "online-watcher"
+        ],
+        "paths": [
+          "crates/offline-signer/src/crypto/ecies.rs",
+          "crates/online-watcher/src/privacy/stealth"
+        ],
+        "status": "parity"
+      },
+      "id": "crypto.ecies",
+      "original_claim": "ECDH/ECIES primitives used by stealth/privacy workflows remain supported.",
+      "original_paths": [
+        "core/src/wallet/ecies.rs",
+        "kassee/src/stealth.rs"
+      ],
+      "title": "ECDH/ECIES capability"
+    },
+    {
+      "category": "protocol",
+      "current": {
+        "owners": [
+          "kassigner-protocol",
+          "kassigner-sdk",
+          "offline-signer"
+        ],
+        "paths": [
+          "crates/kassigner-protocol/src",
+          "crates/offline-signer/src/transaction",
+          "crates/kassigner-sdk/src"
+        ],
+        "status": "parity"
+      },
+      "id": "protocol.pskb_kspt",
+      "original_claim": "Scan, parse, review, sign and export PSKB/KSPT transaction requests.",
+      "original_paths": [
+        "README.md",
+        "core/src/wallet/pskt.rs",
+        "kassee/src/pskt.rs"
+      ],
+      "title": "PSKB/KSPT signing"
+    },
+    {
+      "category": "protocol",
+      "current": {
+        "owners": [
+          "kassigner-protocol",
+          "offline-signer"
+        ],
+        "paths": [
+          "crates/kassigner-protocol/src/wire/kspt",
+          "crates/offline-signer/src/transaction/kspt"
+        ],
+        "status": "parity"
+      },
+      "id": "protocol.kspt_v4",
+      "original_claim": "KSPT v4 carries derivation/covenant binding needed by the original current release.",
+      "original_paths": [
+        "CHANGELOG.md",
+        "core/src/wallet/pskt.rs"
+      ],
+      "title": "KSPT v4"
+    },
+    {
+      "category": "protocol",
+      "current": {
+        "owners": [
+          "kassigner-protocol",
+          "offline-signer",
+          "online-watcher"
+        ],
+        "paths": [
+          "crates/kassigner-protocol/src/pskt",
+          "crates/offline-signer/src/transaction/std_pskt",
+          "crates/online-watcher/src/protocol/pskt"
+        ],
+        "status": "parity"
+      },
+      "id": "protocol.pskb_compat",
+      "original_claim": "Standard PSKT/PSKB transport and preservation/round-trip behavior.",
+      "original_paths": [
+        "CHANGELOG.md",
+        "core/src/wallet/pskt.rs",
+        "kassee/src/pskt.rs"
+      ],
+      "title": "Standards PSKT/PSKB compatibility"
+    },
+    {
+      "category": "protocol",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "offline-signer"
+        ],
+        "paths": [
+          "crates/offline-signer/src/transaction",
+          "apps/signer-firmware/src/ui/screens/signing/transaction_review"
+        ],
+        "status": "parity"
+      },
+      "id": "protocol.locktime_review",
+      "original_claim": "PSKB/KSPT lock time is signed correctly and disclosed on the hardware review screen.",
+      "original_paths": [
+        "CHANGELOG.md",
+        "bootloader/src"
+      ],
+      "title": "Lock-time signing and review"
+    },
+    {
+      "category": "wallet",
+      "current": {
+        "owners": [
+          "apps/signer-firmware"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/wallet/seed_manager"
+        ],
+        "status": "parity"
+      },
+      "id": "wallet.ram_slots",
+      "original_claim": "Up to 16 wallet slots can be loaded/switched.",
+      "original_paths": [
+        "README.md",
+        "bootloader/src/ui/seed_manager.rs"
+      ],
+      "title": "Multi-wallet slot management"
+    },
+    {
+      "category": "wallet",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "offline-signer"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/wallet/seed_manager",
+          "crates/offline-signer/src/derivation"
+        ],
+        "status": "parity"
+      },
+      "id": "wallet.slot_mnemonic",
+      "original_claim": "Mnemonic slots support derivation, signing, export and BIP85.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "Mnemonic wallet slots"
+    },
+    {
+      "category": "wallet",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "offline-signer"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/runtime/interactions/sd/imports/selected_file/xprv.rs",
+          "crates/offline-signer/src/derivation/xpub/xprv.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "wallet.slot_xprv",
+      "original_claim": "Account-level XPrv wallet slots derive/sign without a mnemonic.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "Account XPrv wallet slots"
+    },
+    {
+      "category": "wallet",
+      "current": {
+        "owners": [
+          "apps/signer-firmware"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/services/raw_key.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "wallet.slot_raw_private_key",
+      "original_claim": "Raw private-key import/export compatibility.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "Raw private-key wallet slots"
+    },
+    {
+      "category": "wallet",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "kassigner-protocol"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/runtime/interactions/export/kpub.rs",
+          "crates/kassigner-protocol/src/account"
+        ],
+        "status": "parity"
+      },
+      "id": "wallet.kpub_export",
+      "original_claim": "Export account-level watch-only public derivation material.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "kpub export"
+    },
+    {
+      "category": "wallet",
+      "current": {
+        "owners": [
+          "apps/signer-firmware"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/runtime/interactions/export/xprv.rs",
+          "apps/signer-firmware/src/services/backup/xprv.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "wallet.xprv_export",
+      "original_claim": "Export account XPrv through protected SD workflow.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "Encrypted XPrv export"
+    },
+    {
+      "category": "backup",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "offline-signer"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/services/backup",
+          "crates/offline-signer/src/crypto/container_framing.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "backup.sd_encrypted",
+      "original_claim": "AES-GCM backup for seed/XPrv/raw key/multisig descriptor/unsigned transaction material.",
+      "original_paths": [
+        "README.md",
+        "core/src/wallet/storage.rs"
+      ],
+      "title": "Encrypted SD backup"
+    },
+    {
+      "category": "backup",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "signer-firmware-core"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/services/stego/exif",
+          "crates/signer-firmware-core/src/backup/stego_picture"
+        ],
+        "status": "parity"
+      },
+      "id": "backup.stego_descriptor",
+      "original_claim": "Encrypted wallet backup carried in JPEG EXIF/descriptor metadata.",
+      "original_paths": [
+        "README.md",
+        "core/src/stego.rs"
+      ],
+      "title": "Stego Descriptor carrier"
+    },
+    {
+      "category": "backup",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "signer-firmware-core"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/services/stego",
+          "crates/signer-firmware-core/src/backup/stego_picture"
+        ],
+        "status": "parity"
+      },
+      "id": "backup.stego_picture",
+      "original_claim": "Encrypted wallet backup carried in JPEG compressed picture data.",
+      "original_paths": [
+        "README.md",
+        "core/src/stego.rs"
+      ],
+      "title": "Stego Picture carrier"
+    },
+    {
+      "category": "backup",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "signer-firmware-core"
+        ],
+        "paths": [
+          "crates/signer-firmware-core/src/backup/seed_qr.rs",
+          "apps/signer-firmware/src/runtime/workflow_tests/connected/backup/seedqr.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "backup.seedqr",
+      "original_claim": "Standard SeedQR import/export/manual backup.",
+      "original_paths": [
+        "README.md",
+        "core/src/seed_qr.rs"
+      ],
+      "title": "SeedQR"
+    },
+    {
+      "category": "backup",
+      "current": {
+        "owners": [
+          "signer-firmware-core"
+        ],
+        "paths": [
+          "crates/signer-firmware-core/src/backup/seed_qr.rs",
+          "crates/signer-firmware-core/src/presentation/seed_qr_grid.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "backup.compact_seedqr",
+      "original_claim": "SeedSigner-compatible compact SeedQR with grid view.",
+      "original_paths": [
+        "README.md",
+        "core/src/seed_qr.rs"
+      ],
+      "title": "CompactSeedQR"
+    },
+    {
+      "category": "security",
+      "current": {
+        "owners": [
+          "apps/signer-firmware"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/firmware_hash.rs",
+          "apps/signer-firmware/src/boot"
+        ],
+        "status": "parity"
+      },
+      "id": "security.boot_verification",
+      "original_claim": "Firmware hash and signing-key verification before wallet use.",
+      "original_paths": [
+        "README.md",
+        "bootloader/src/firmware_hash.rs"
+      ],
+      "title": "Firmware hash/signature boot verification"
+    },
+    {
+      "category": "security",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "docs"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/boot",
+          "docs/EFUSE_RUNBOOK.md"
+        ],
+        "status": "parity"
+      },
+      "id": "security.secure_boot_v2",
+      "original_claim": "Production provisioning supports ROM Secure Boot V2 RSA-3072/eFuse state.",
+      "original_paths": [
+        "README.md",
+        "bootloader/src"
+      ],
+      "title": "ESP32-S3 Secure Boot V2 support"
+    },
+    {
+      "category": "security",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "offline-signer"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/boot",
+          "crates/offline-signer/src/transaction/unit_tests/sighash_tests.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "security.boot_kats",
+      "original_claim": "Cryptographic/signing reference vectors execute as boot/release qualification.",
+      "original_paths": [
+        "README.md",
+        "CHANGELOG.md",
+        "core/src/reference_vectors_tests.rs"
+      ],
+      "title": "Boot cryptographic KATs"
+    },
+    {
+      "category": "security",
+      "current": {
+        "owners": [
+          "apps/signer-firmware"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/ui",
+          "apps/signer-firmware/src/boot"
+        ],
+        "status": "parity"
+      },
+      "id": "security.secure_boot_state_ui",
+      "original_claim": "Verification UI reports relevant Secure Boot/eFuse state.",
+      "original_paths": [
+        "CHANGELOG.md"
+      ],
+      "title": "Secure Boot state display"
+    },
+    {
+      "category": "qr",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "external/rqrr-nostd"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/runtime/interactions/camera_loop",
+          "external/rqrr-nostd"
+        ],
+        "status": "parity"
+      },
+      "id": "qr.camera_scanner",
+      "original_claim": "Camera/rqrr scanner for transactions, SeedQR and public-key exchange.",
+      "original_paths": [
+        "README.md",
+        "bootloader/src"
+      ],
+      "title": "On-device QR camera scanner"
+    },
+    {
+      "category": "qr",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "kassigner-protocol",
+          "shared-signer"
+        ],
+        "paths": [
+          "crates/shared-signer/src/qr_frame.rs",
+          "crates/kassigner-protocol/src/qr",
+          "apps/signer-firmware/src/runtime/interactions/camera_loop/multiframe.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "qr.multiframe",
+      "original_claim": "Multi-frame QR request/response transport with bounded frame count.",
+      "original_paths": [
+        "README.md",
+        "kassee/src/qr.rs"
+      ],
+      "title": "Multi-frame QR transport"
+    },
+    {
+      "category": "asset",
+      "current": {
+        "owners": [
+          "apps/signer-firmware"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/services/krc20.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "asset.krc20_detection",
+      "original_claim": "Signer identifies KRC-20 token transactions during review.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "KRC-20 transaction detection"
+    },
+    {
+      "category": "build",
+      "current": {
+        "owners": [
+          "docs/development",
+          "tools/build"
+        ],
+        "paths": [
+          "tools/build",
+          "docs/development/REPRODUCIBLE_BUILD.md"
+        ],
+        "status": "parity"
+      },
+      "id": "build.reproducible",
+      "original_claim": "Containerized reproducible build and hash comparison support.",
+      "original_paths": [
+        "README.md",
+        "Dockerfile"
+      ],
+      "title": "Reproducible release builds"
+    },
+    {
+      "category": "firmware",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "tools"
+        ],
+        "paths": [
+          "apps/signer-firmware/src",
+          "tools"
+        ],
+        "status": "parity"
+      },
+      "id": "firmware.display_mirror",
+      "original_claim": "Developer display mirror/screenshot functionality.",
+      "original_paths": [
+        "README.md",
+        "bootloader/src"
+      ],
+      "title": "Display mirror tooling"
+    },
+    {
+      "category": "multisig",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "kassigner-protocol",
+          "offline-signer"
+        ],
+        "paths": [
+          "crates/kassigner-protocol/src/wire/multisig_descriptor.rs",
+          "crates/offline-signer/src/transaction/model/multisig.rs",
+          "apps/signer-firmware/src/runtime/interactions/tx/multisig_setup"
+        ],
+        "status": "parity"
+      },
+      "id": "multisig.m_of_n",
+      "original_claim": "Create and sign M-of-N multisig using sorted 45' cosigners.",
+      "original_paths": [
+        "README.md",
+        "CHANGELOG.md"
+      ],
+      "title": "M-of-N multisig"
+    },
+    {
+      "category": "multisig",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "kassigner-protocol"
+        ],
+        "paths": [
+          "crates/kassigner-protocol/src/wire/multisig_descriptor.rs",
+          "apps/signer-firmware/src/runtime/interactions/sd/exports/multisig.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "multisig.descriptor_backup",
+      "original_claim": "Display descriptor QR and save descriptor to SD plain/encrypted.",
+      "original_paths": [
+        "README.md",
+        "CHANGELOG.md"
+      ],
+      "title": "Multisig descriptor backup"
+    },
+    {
+      "category": "multisig",
+      "current": {
+        "owners": [
+          "offline-signer"
+        ],
+        "paths": [
+          "crates/offline-signer/src/transaction/model/multisig_change.rs",
+          "crates/offline-signer/src/transaction/model/multisig_validation.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "multisig.change_verification",
+      "original_claim": "Hardware reproduces/validates claimed multisig change against descriptor.",
+      "original_paths": [
+        "README.md",
+        "CHANGELOG.md"
+      ],
+      "title": "Multisig change verification"
+    },
+    {
+      "category": "multisig",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "apps/signer-firmware"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/runtime/workflow_tests/connected/multisig",
+          "apps/kassee-web/web/js/features/transactions/pskt_multisig"
+        ],
+        "status": "parity"
+      },
+      "id": "multisig.qr_cosigning",
+      "original_claim": "Relay partially signed transaction between hardware signers/coordinator.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "QR co-signing relay"
+    },
+    {
+      "category": "multisig",
+      "current": {
+        "owners": [
+          "kassigner-protocol",
+          "online-watcher"
+        ],
+        "paths": [
+          "crates/kassigner-protocol/src/wire/multisig_descriptor.rs",
+          "crates/online-watcher/src/multisig"
+        ],
+        "status": "parity"
+      },
+      "id": "multisig.legacy_44_load_spend",
+      "original_claim": "Original pre-45' multi_hd descriptors still load and spend.",
+      "original_paths": [
+        "README.md",
+        "CHANGELOG.md"
+      ],
+      "title": "Legacy 44' multisig compatibility"
+    },
+    {
+      "category": "multisig",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "kassigner-protocol"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/runtime/interactions/export/kpub.rs",
+          "crates/kassigner-protocol/src/account"
+        ],
+        "status": "parity"
+      },
+      "id": "multisig.multisig_kpub_export",
+      "original_claim": "Dedicated labelled 45' multisig public-account export.",
+      "original_paths": [
+        "CHANGELOG.md"
+      ],
+      "title": "Multisig kpub export"
+    },
+    {
+      "category": "covenant",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "apps/signer-firmware",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/html/screens/covenant/create/menu.html",
+          "crates/online-watcher/src/contracts/covenant",
+          "apps/signer-firmware/src/services/covenant_sign.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "covenant.piggy_bank",
+      "original_claim": "Original Covenants++ Piggy Bank workflow remains available.",
+      "original_paths": [
+        "README.md",
+        "kassee/src"
+      ],
+      "title": "Piggy Bank"
+    },
+    {
+      "category": "covenant",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "apps/signer-firmware",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/html/screens/covenant/create/menu.html",
+          "crates/online-watcher/src/contracts/covenant",
+          "apps/signer-firmware/src/services/covenant_sign.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "covenant.timelocked_savings",
+      "original_claim": "Original Covenants++ Time-Locked Savings workflow remains available.",
+      "original_paths": [
+        "README.md",
+        "kassee/src"
+      ],
+      "title": "Time-Locked Savings"
+    },
+    {
+      "category": "covenant",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "apps/signer-firmware",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/html/screens/covenant/create/menu.html",
+          "crates/online-watcher/src/contracts/covenant",
+          "apps/signer-firmware/src/services/covenant_sign.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "covenant.dead_mans_switch",
+      "original_claim": "Original Covenants++ Dead Man's Switch workflow remains available.",
+      "original_paths": [
+        "README.md",
+        "kassee/src"
+      ],
+      "title": "Dead Man's Switch"
+    },
+    {
+      "category": "covenant",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "apps/signer-firmware",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/html/screens/covenant/create/menu.html",
+          "crates/online-watcher/src/contracts/covenant",
+          "apps/signer-firmware/src/services/covenant_sign.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "covenant.allowance",
+      "original_claim": "Original Covenants++ Allowance workflow remains available.",
+      "original_paths": [
+        "README.md",
+        "kassee/src"
+      ],
+      "title": "Allowance"
+    },
+    {
+      "category": "covenant",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "apps/signer-firmware",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/html/screens/covenant/create/menu.html",
+          "crates/online-watcher/src/contracts/covenant",
+          "apps/signer-firmware/src/services/covenant_sign.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "covenant.spending_limit",
+      "original_claim": "Original Covenants++ Spending Limit workflow remains available.",
+      "original_paths": [
+        "README.md",
+        "kassee/src"
+      ],
+      "title": "Spending Limit"
+    },
+    {
+      "category": "covenant",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "apps/signer-firmware",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/html/screens/covenant/create/menu.html",
+          "crates/online-watcher/src/contracts/covenant",
+          "apps/signer-firmware/src/services/covenant_sign.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "covenant.merkle_whitelist",
+      "original_claim": "Original Covenants++ Merkle Whitelist workflow remains available.",
+      "original_paths": [
+        "README.md",
+        "kassee/src"
+      ],
+      "title": "Merkle Whitelist"
+    },
+    {
+      "category": "covenant",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "apps/signer-firmware",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/html/screens/covenant/create/menu.html",
+          "crates/online-watcher/src/contracts/covenant",
+          "apps/signer-firmware/src/services/covenant_sign.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "covenant.direct_channel",
+      "original_claim": "Original Covenants++ Direct Channel workflow remains available.",
+      "original_paths": [
+        "README.md",
+        "kassee/src"
+      ],
+      "title": "Direct Channel"
+    },
+    {
+      "category": "covenant",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "apps/signer-firmware",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/html/screens/covenant/create/menu.html",
+          "crates/online-watcher/src/contracts/covenant",
+          "apps/signer-firmware/src/services/covenant_sign.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "covenant.oracle",
+      "original_claim": "Original Covenants++ Oracle workflow remains available.",
+      "original_paths": [
+        "README.md",
+        "kassee/src"
+      ],
+      "title": "Oracle"
+    },
+    {
+      "category": "covenant",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "apps/signer-firmware",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/html/screens/covenant/create/menu.html",
+          "crates/online-watcher/src/contracts/covenant",
+          "apps/signer-firmware/src/services/covenant_sign.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "covenant.payjoin",
+      "original_claim": "Original Covenants++ PayJoin workflow remains available.",
+      "original_paths": [
+        "README.md",
+        "kassee/src"
+      ],
+      "title": "PayJoin"
+    },
+    {
+      "category": "covenant",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "apps/signer-firmware",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/html/screens/covenant/create/menu.html",
+          "crates/online-watcher/src/contracts/covenant",
+          "apps/signer-firmware/src/services/covenant_sign.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "covenant.commit_reveal",
+      "original_claim": "Original Covenants++ Commit-Reveal workflow remains available.",
+      "original_paths": [
+        "README.md",
+        "kassee/src"
+      ],
+      "title": "Commit-Reveal"
+    },
+    {
+      "category": "covenant",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "apps/signer-firmware",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/html/screens/covenant/create/menu.html",
+          "crates/online-watcher/src/contracts/covenant",
+          "apps/signer-firmware/src/services/covenant_sign.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "covenant.private_swap",
+      "original_claim": "Original Covenants++ Private Swap workflow remains available.",
+      "original_paths": [
+        "README.md",
+        "kassee/src"
+      ],
+      "title": "Private Swap"
+    },
+    {
+      "category": "covenant",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "apps/signer-firmware",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/html/screens/covenant/create/menu.html",
+          "crates/online-watcher/src/contracts/covenant",
+          "apps/signer-firmware/src/services/covenant_sign.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "covenant.zk_price_oracle",
+      "original_claim": "Original Covenants++ ZK Price Oracle workflow remains available.",
+      "original_paths": [
+        "README.md",
+        "kassee/src"
+      ],
+      "title": "ZK Price Oracle"
+    },
+    {
+      "category": "covenant",
+      "current": {
+        "owners": [
+          "apps/signer-firmware",
+          "offline-signer"
+        ],
+        "paths": [
+          "apps/signer-firmware/src/services/covenant_sign.rs",
+          "crates/offline-signer/src/transaction/kspt/validation.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "covenant.hardware_binding_review",
+      "original_claim": "Signer verifies covenant/P2SH binding and displays relevant covenant/input/output information before approval.",
+      "original_paths": [
+        "README.md",
+        "core/src/wallet/pskt.rs"
+      ],
+      "title": "Hardware covenant binding/review"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/wallet/kpub_manager",
+          "crates/online-watcher/src/wasm_api/wallet"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.import_kpub",
+      "original_claim": "Scan/paste public account into watch-only wallet.",
+      "original_paths": [
+        "README.md",
+        "kassee/src/lib.rs"
+      ],
+      "title": "Import kpub"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/wallet",
+          "crates/online-watcher/src/account"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.dashboard",
+      "original_claim": "Live KAS balance, UTXO count and funded-address state.",
+      "original_paths": [
+        "README.md",
+        "kassee/web/index.html"
+      ],
+      "title": "Dashboard"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/transactions/send",
+          "crates/online-watcher/src/transaction_builder/standard.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.send",
+      "original_claim": "Build standard unsigned spends with fee estimation.",
+      "original_paths": [
+        "README.md",
+        "kassee/src"
+      ],
+      "title": "Standard send"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/transactions/send",
+          "crates/online-watcher/src/transaction_builder/pskb/sweep.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.send_max",
+      "original_claim": "Sweep available wallet UTXOs to one destination.",
+      "original_paths": [
+        "README.md",
+        "kassee/src"
+      ],
+      "title": "Send Max"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/transactions/send",
+          "crates/online-watcher/src/transaction_builder/selection/explicit.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.manual_utxo_selection",
+      "notes": "Ordinary sends preserve explicit outpoint coin control at the public KasSigner v2 signer capability ceiling (32 inputs). Selections made in the UTXO explorer can be carried directly into the Send screen.",
+      "original_claim": "Choose individual UTXOs for ordinary sends.",
+      "original_paths": [
+        "README.md",
+        "kassee/web/index.html"
+      ],
+      "title": "Manual UTXO selection / coin control"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/wallet",
+          "crates/online-watcher/src/account"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.receive_unused",
+      "original_claim": "Automatically choose the next unused receive address and skip funded/used indexes.",
+      "original_paths": [
+        "README.md",
+        "kassee/web/index.html"
+      ],
+      "title": "Next unused receive address"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/wallet",
+          "crates/online-watcher/src/account"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.address_reuse",
+      "original_claim": "Funded/used address state and reuse warnings/badges.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "Address reuse prevention/status"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "online-watcher"
+        ],
+        "paths": [
+          "crates/online-watcher/src/wasm_api/transactions/broadcast.rs",
+          "crates/online-watcher/src/network/submission"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.broadcast",
+      "original_claim": "Scan/import signed result and submit to Kaspa network.",
+      "original_paths": [
+        "README.md",
+        "kassee/src/rpc.rs"
+      ],
+      "title": "Broadcast signed transaction"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "kassigner-protocol",
+          "kassigner-sdk",
+          "online-watcher"
+        ],
+        "paths": [
+          "crates/kassigner-protocol/src",
+          "crates/online-watcher/src/protocol/pskt",
+          "crates/kassigner-sdk/src"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.dual_pskt_kspt",
+      "original_claim": "Handle standard PSKT/PSKB and KasSigner compact KSPT.",
+      "original_paths": [
+        "README.md",
+        "kassee/src/pskt.rs",
+        "kassee/src/kspt.rs"
+      ],
+      "title": "Dual PSKT/PSKB + compact KSPT flow"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/wallet/tools",
+          "crates/online-watcher/src/account/utxo.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.utxo_explorer",
+      "original_claim": "List wallet UTXOs with selectable controls.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "UTXO explorer"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/wallet/tools",
+          "crates/online-watcher/src/transaction_builder/selection/consolidation.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.utxo_consolidation",
+      "original_claim": "Build consolidation transactions in bounded batches.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "UTXO consolidation"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/wallet",
+          "crates/online-watcher/src/account/address.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.address_list",
+      "original_claim": "Derived address list with status and explorer actions.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "Address list"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/wallet",
+          "crates/online-watcher/src/wasm_api/wallet/address.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.address_verification",
+      "original_claim": "Show address QR and derivation path for device verification.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "Address verification QR/path"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/transactions/pskt_multisig",
+          "crates/online-watcher/src/multisig",
+          "crates/online-watcher/src/transaction_builder/multisig.rs"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.multisig",
+      "original_claim": "Import descriptor, watch, build, relay and broadcast multisig spends.",
+      "original_paths": [
+        "README.md",
+        "CHANGELOG.md"
+      ],
+      "title": "KasSee multisig coordinator"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/covenants",
+          "crates/online-watcher/src/contracts"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.covenants",
+      "original_claim": "Build/fund/watch/spend original Covenants++ suite.",
+      "original_paths": [
+        "README.md",
+        "kassee/src"
+      ],
+      "title": "KasSee covenant suite"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/stealth",
+          "crates/online-watcher/src/privacy/stealth"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.stealth",
+      "original_claim": "Dual-key ECDH stealth receive/send/watch functionality.",
+      "original_paths": [
+        "README.md",
+        "kassee/src/stealth.rs"
+      ],
+      "title": "Stealth payments"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/oracle/model_b",
+          "crates/online-watcher/src/contracts/zk"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.zk_oracle",
+      "original_claim": "Pyth/Wormhole KAS/USD zero-knowledge oracle workflow.",
+      "original_paths": [
+        "README.md",
+        "kassee/src/zk_api.rs"
+      ],
+      "title": "ZK price oracle"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/assets"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.krc_assets",
+      "original_claim": "Display KRC-20 balances, KRC-721 listings and KNS names.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "KRC-20/KRC-721/KNS display"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/settings",
+          "crates/online-watcher/src/network"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.custom_node",
+      "original_claim": "Configure ws:// or wss:// Kaspa node.",
+      "original_paths": [
+        "README.md",
+        "kassee/src/rpc.rs"
+      ],
+      "title": "Custom Kaspa node"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/stealth/index/camera.js",
+          "apps/kassee-web/web/js"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.camera_scanner",
+      "original_claim": "Scan kpub, signed transaction and descriptor QR data in browser/mobile host.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "Browser camera scanner"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "kassigner-protocol"
+        ],
+        "paths": [
+          "crates/kassigner-protocol/src/qr",
+          "apps/kassee-web/web/js/features/transactions"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.animated_qr",
+      "original_claim": "Multi-frame QR animation with pause/play and frame indicator.",
+      "original_paths": [
+        "README.md",
+        "kassee/src/qr.rs"
+      ],
+      "title": "Animated QR presentation"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/wallet",
+          "crates/online-watcher/src/network"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.address_history",
+      "original_claim": "Used-address discovery through optional history service/self-hosted kaspa-rest-server.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "Optional address history"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/donations"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.donation",
+      "original_claim": "Project donation address display/prefilled send.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "Donation action"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web"
+        ],
+        "paths": [
+          "apps/kassee-web/web/manifest.json"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.pwa",
+      "original_claim": "Installable browser PWA.",
+      "original_paths": [
+        "README.md",
+        "kassee/web/manifest.json"
+      ],
+      "title": "Progressive Web App"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "crates/online-watcher/src/network",
+          "apps/kassee-web/web/js/features/settings"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.public_node_resolver",
+      "original_claim": "Automatically discover/hold a healthy public node and retry failures.",
+      "original_paths": [
+        "README.md",
+        "CHANGELOG.md",
+        "kassee/src/rpc.rs"
+      ],
+      "title": "Public node resolver"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "crates/online-watcher/src/network/queries/fees.rs",
+          "apps/kassee-web/web/js/features/transactions/send"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.fee_estimation",
+      "original_claim": "Low/normal/priority fee estimation from node data.",
+      "original_paths": [
+        "README.md",
+        "kassee/src/rpc.rs"
+      ],
+      "title": "Fee estimation"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web",
+          "online-watcher"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/transactions/send",
+          "crates/online-watcher/src/transaction_builder"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.storage_mass_awareness",
+      "original_claim": "Warn on problematic small change/storage-mass conditions.",
+      "original_paths": [
+        "README.md"
+      ],
+      "title": "Storage mass awareness"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "online-watcher"
+        ],
+        "paths": [
+          "crates/online-watcher/src/network"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.websocket_retry",
+      "original_claim": "Recover node transport after connection drops/timeouts.",
+      "original_paths": [
+        "README.md",
+        "CHANGELOG.md"
+      ],
+      "title": "WebSocket retry/reconnect"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "apps/kassee-web"
+        ],
+        "paths": [
+          "apps/kassee-web/web/js/features/transactions/pskt_multisig"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.pskb_paste_copy_hex",
+      "original_claim": "Reachable paste and copy-hex controls for interoperability/debug exchange.",
+      "original_paths": [
+        "CHANGELOG.md"
+      ],
+      "title": "PSKB paste/copy-hex"
+    },
+    {
+      "category": "kassee",
+      "current": {
+        "owners": [
+          "online-watcher"
+        ],
+        "paths": [
+          "crates/online-watcher/src/network/submission"
+        ],
+        "status": "parity"
+      },
+      "id": "kassee.already_accepted_success",
+      "original_claim": "Treat node already-accepted transaction response as successful broadcast.",
+      "original_paths": [
+        "CHANGELOG.md"
+      ],
+      "title": "Already-accepted broadcast handling"
+    }
+  ],
+  "known_parity_deltas": [
+    {
+      "current_fragment_bytes": 91,
+      "current_single_frame_bytes": 134,
+      "disposition": "accepted_hardening_change",
+      "id": "qr.density",
+      "original_fragment_bytes": 248,
+      "original_single_frame_bytes": 251,
+      "requirement": "Preserve interoperable QR functionality and 64-frame bound; byte density itself is not a parity requirement."
+    },
+    {
+      "current": "Argon2id for current KasSigner-owned password protection, with legacy-read compatibility where required",
+      "disposition": "accepted_security_upgrade",
+      "id": "backup.password_kdf",
+      "original": "legacy PBKDF2-based containers",
+      "requirement": "Do not regress current Argon2id protection merely to reproduce legacy KDF choices."
+    }
+  ],
+  "manifest_id": "kassigner-original-1.0.7-feature-capability-baseline",
+  "numeric_capabilities": [
+    {
+      "category": "transaction",
+      "current": 32,
+      "current_paths": [
+        "crates/kassigner-protocol/src/capabilities/mod.rs",
+        "crates/offline-signer/src/transaction/model/constants.rs"
+      ],
+      "id": "transaction.max_inputs",
+      "original": 32,
+      "original_paths": [
+        "core/src/wallet/transaction.rs"
+      ],
+      "status": "parity",
+      "unit": "inputs"
+    },
+    {
+      "category": "transaction",
+      "current": 8,
+      "current_paths": [
+        "crates/offline-signer/src/transaction/model/constants.rs"
+      ],
+      "id": "transaction.max_outputs",
+      "original": 8,
+      "original_paths": [
+        "core/src/wallet/transaction.rs"
+      ],
+      "status": "parity",
+      "unit": "outputs"
+    },
+    {
+      "category": "transaction",
+      "current": 512,
+      "current_paths": [
+        "crates/offline-signer/src/transaction/model/constants.rs",
+        "crates/kassigner-protocol/src/wire/kspt/model.rs"
+      ],
+      "id": "transaction.max_script_bytes",
+      "original": 512,
+      "original_paths": [
+        "core/src/wallet/transaction.rs"
+      ],
+      "status": "parity",
+      "unit": "bytes"
+    },
+    {
+      "category": "transaction",
+      "current": 1024,
+      "current_paths": [
+        "crates/offline-signer/src/transaction/model/constants.rs"
+      ],
+      "id": "transaction.max_redeem_script_bytes",
+      "original": 1024,
+      "original_paths": [
+        "core/src/wallet/transaction.rs"
+      ],
+      "status": "parity",
+      "unit": "bytes"
+    },
+    {
+      "category": "transaction",
+      "current": 768,
+      "current_paths": [
+        "crates/offline-signer/src/transaction/model/constants.rs"
+      ],
+      "id": "transaction.max_payload_bytes",
+      "original": 768,
+      "original_paths": [
+        "core/src/wallet/transaction.rs"
+      ],
+      "status": "parity",
+      "unit": "bytes"
+    },
+    {
+      "category": "transaction",
+      "current": 5,
+      "current_paths": [
+        "crates/offline-signer/src/transaction/model/constants.rs"
+      ],
+      "id": "transaction.max_signatures_per_input",
+      "original": 5,
+      "original_paths": [
+        "core/src/wallet/transaction.rs"
+      ],
+      "status": "parity",
+      "unit": "signatures"
+    },
+    {
+      "category": "multisig",
+      "current": 5,
+      "current_paths": [
+        "crates/offline-signer/src/transaction/model/constants.rs"
+      ],
+      "id": "multisig.max_keys",
+      "original": 5,
+      "original_paths": [
+        "core/src/wallet/transaction.rs"
+      ],
+      "status": "parity",
+      "unit": "keys"
+    },
+    {
+      "category": "multisig",
+      "current": 2,
+      "current_paths": [
+        "crates/offline-signer/src/transaction/model/constants.rs"
+      ],
+      "id": "multisig.max_loaded_wallets",
+      "original": 2,
+      "original_paths": [
+        "core/src/wallet/transaction.rs"
+      ],
+      "status": "parity",
+      "unit": "wallets"
+    },
+    {
+      "category": "wallet",
+      "current": 16,
+      "current_paths": [
+        "apps/signer-firmware/src/wallet/seed_manager"
+      ],
+      "id": "wallet.max_slots",
+      "original": 16,
+      "original_paths": [
+        "bootloader/src/ui/seed_manager.rs"
+      ],
+      "status": "parity",
+      "unit": "slots"
+    },
+    {
+      "category": "seed",
+      "current": [
+        12,
+        24
+      ],
+      "current_paths": [
+        "crates/offline-signer/src/derivation/bip39"
+      ],
+      "id": "seed.mnemonic_word_counts",
+      "original": [
+        12,
+        24
+      ],
+      "original_paths": [
+        "README.md"
+      ],
+      "status": "parity",
+      "unit": "words"
+    },
+    {
+      "category": "seed",
+      "current": 8,
+      "current_paths": [
+        "apps/signer-firmware/src/services/entropy/camera"
+      ],
+      "id": "seed.camera_frames",
+      "original": 8,
+      "original_paths": [
+        "README.md"
+      ],
+      "status": "parity",
+      "unit": "frames"
+    },
+    {
+      "category": "seed",
+      "current": 99,
+      "current_paths": [
+        "apps/signer-firmware/src/wallet/mnemonic/dice.rs"
+      ],
+      "id": "seed.dice_rolls_12_words",
+      "original": 99,
+      "original_paths": [
+        "bootloader/src/ui/setup_wizard.rs"
+      ],
+      "status": "parity",
+      "unit": "rolls"
+    },
+    {
+      "category": "seed",
+      "current": 198,
+      "current_paths": [
+        "apps/signer-firmware/src/wallet/mnemonic/dice.rs"
+      ],
+      "id": "seed.dice_rolls_24_words",
+      "original": 198,
+      "original_paths": [
+        "bootloader/src/ui/setup_wizard.rs"
+      ],
+      "status": "parity",
+      "unit": "rolls"
+    },
+    {
+      "category": "qr",
+      "current": {
+        "max": 13,
+        "min": 1
+      },
+      "current_paths": [
+        "external/rqrr-nostd"
+      ],
+      "id": "qr.decoder_versions",
+      "original": {
+        "max": 13,
+        "min": 1
+      },
+      "original_paths": [
+        "README.md"
+      ],
+      "status": "parity",
+      "unit": "qr_versions"
+    },
+    {
+      "category": "qr",
+      "current": 64,
+      "current_paths": [
+        "crates/shared-signer/src/qr_frame.rs"
+      ],
+      "id": "qr.max_multiframe_frames",
+      "original": 64,
+      "original_paths": [
+        "kassee/src/qr.rs"
+      ],
+      "status": "parity",
+      "unit": "frames"
+    },
+    {
+      "category": "qr",
+      "current": 134,
+      "current_paths": [
+        "crates/kassigner-protocol/src/qr/mod.rs"
+      ],
+      "id": "qr.single_frame_payload_bytes",
+      "notes": "Current session-bound/hardened QR framing intentionally uses a smaller single-frame threshold; this is not a feature loss.",
+      "original": 251,
+      "original_paths": [
+        "kassee/src/qr.rs"
+      ],
+      "status": "hardened_wire_density_delta",
+      "unit": "bytes"
+    },
+    {
+      "category": "qr",
+      "current": 91,
+      "current_paths": [
+        "crates/kassigner-protocol/src/qr/mod.rs"
+      ],
+      "id": "qr.multiframe_fragment_bytes",
+      "notes": "Current framing reserves more metadata/session binding and targets scan reliability.",
+      "original": 248,
+      "original_paths": [
+        "kassee/src/qr.rs"
+      ],
+      "status": "hardened_wire_density_delta",
+      "unit": "bytes"
+    },
+    {
+      "category": "protocol",
+      "current": 4,
+      "current_paths": [
+        "crates/kassigner-protocol/src/wire/kspt/model.rs"
+      ],
+      "id": "protocol.kspt_generation",
+      "original": 4,
+      "original_paths": [
+        "core/src/wallet/pskt.rs",
+        "CHANGELOG.md"
+      ],
+      "status": "parity",
+      "unit": "generation"
+    },
+    {
+      "category": "address",
+      "current": 80,
+      "current_paths": [
+        "crates/offline-signer/src/address/mod.rs"
+      ],
+      "id": "address.max_encoded_bytes",
+      "original": 72,
+      "original_paths": [
+        "core/src/wallet/address.rs"
+      ],
+      "status": "expanded_capacity",
+      "unit": "bytes"
+    },
+    {
+      "category": "consensus",
+      "current": 2900000000000000000,
+      "current_paths": [
+        "crates/offline-signer/src/transaction/model/constants.rs"
+      ],
+      "id": "consensus.max_sompi",
+      "original": 2900000000000000000,
+      "original_paths": [
+        "core/src/wallet/transaction.rs"
+      ],
+      "status": "parity",
+      "unit": "sompi"
+    },
+    {
+      "category": "security",
+      "current_minimum": 30,
+      "current_paths": [
+        "crates/offline-signer/src/transaction/unit_tests/sighash_tests.rs",
+        "apps/signer-firmware/src/boot"
+      ],
+      "id": "boot.sighash_reference_vectors",
+      "original": 30,
+      "original_paths": [
+        "CHANGELOG.md",
+        "core/src/reference_vectors_tests.rs"
+      ],
+      "status": "parity_or_stronger",
+      "unit": "vectors"
+    }
+  ],
+  "original_firmware_feature_flags": [
+    "af",
+    "boot-kats-full",
+    "e12-capture",
+    "icon-browser",
+    "imu-dump",
+    "m5stack",
+    "mirror",
+    "ov2640-wide",
+    "ov5640-af",
+    "production",
+    "rng-probe",
+    "screenshot",
+    "sentinel-scan",
+    "sha-bench",
+    "silent",
+    "skip-tests",
+    "test-psram",
+    "verbose-boot",
+    "waveshare",
+    "wdev-capture"
+  ],
+  "purpose": "Machine-readable compatibility contract for the complete documented active feature surface and important externally relevant numeric limits of the latest original KasSigner repository before the 2.0 refactor.",
+  "refactored_target": {
+    "package_version": "2.0.0"
+  },
+  "schema_version": 1,
+  "status_values": {
+    "enhanced": "Original capability remains and 2.0 adds functionality/security around it.",
+    "parity": "Original capability remains with equivalent externally visible semantics.",
+    "parity_with_limit_delta": "Feature remains, but a documented numeric compatibility delta exists."
+  }
+}

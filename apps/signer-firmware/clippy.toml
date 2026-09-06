@@ -1,0 +1,5 @@
+# Firmware-specific complexity thresholds.
+# Exceptions above these limits must be item-scoped, justified, and registered
+# in qa/checks/firmware/firmware_lint_exceptions.json.
+too-many-lines-threshold = 300
+cognitive-complexity-threshold = 80

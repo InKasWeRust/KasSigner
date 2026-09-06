@@ -1,0 +1,30 @@
+
+                        <!-- Time-Locked Savings fields -->
+                        <div id="cov-fields-savings" class="hidden">
+                            <p class="u-text-12px-text-text-dim-margin-0-0-12px-line-1-5">
+                                Lock KAS until a date. No one can move the funds before then, not even you.
+                                After the date, claim to anywhere with your wallet (or a backup wallet).
+                                Deposit by sending normally to the covenant address, as many times as you like.
+                            </p>
+                            <label class="input-label">When does it unlock?</label>
+                            <input type="datetime-local" id="cov-savings-datetime" class="input-text u-color-scheme-dark"
+                                  >
+                            <p class="u-text-10px-text-text-muted-margin-4px-0-0">
+                                Pick the date and time. KasSee calculates the DAA score automatically. The unlock is approximate (the chain clock drifts over long periods).
+                            </p>
+                            <input type="number" id="cov-savings-locktime" class="input-text u-hidden"
+                                   placeholder="DAA score (auto-calculated)" min="1" step="1"
+                                  >
+                            <label class="input-label">Recovery wallet (optional, leave blank for none)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-savings-recovery-pk" class="input-text u-grow-mb-0"
+                                       placeholder="Backup wallet's Kaspa address or x-only" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-savings-recovery"
+                                        title="Scan backup wallet address QR">📷</button>
+                            </div>
+                            <p class="u-text-10px-text-text-muted-margin-4px-0-0">
+                                An independent second wallet that can also claim after the date, so a lost main key does not lock you out. Either wallet alone can claim (this is not multisig).
+                            </p>
+                        </div>
+
+                        <!-- Time-Locked Escrow fields -->

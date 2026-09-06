@@ -1,0 +1,40 @@
+[package]
+name = "kassigner-protocol"
+version = "2.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Low-level network-free KasSigner pairing, PSKT/KSPT, QR, and response-validation protocol"
+repository = "https://github.com/InKasWeRust/KasSigner"
+keywords = ["kaspa", "hardware-wallet", "wasm", "protocol", "pskt"]
+categories = ["cryptography::cryptocurrencies", "wasm"]
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+default = ["host"]
+host = [
+    "dep:serde",
+    "dep:serde_json",
+    "dep:hex",
+    "dep:k256",
+    "dep:hmac",
+    "dep:sha2",
+    "dep:blake2b_simd",
+]
+wasm = ["host", "dep:wasm-bindgen", "dep:js-sys"]
+kassee-compat = ["host"]
+
+[dependencies]
+shared-signer = { version = "=2.0.0", path = "../shared-signer" }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+hex = { version = "0.4", optional = true }
+k256 = { version = "0.13", default-features = false, features = ["arithmetic", "ecdsa", "schnorr"], optional = true }
+hmac = { version = "0.12", optional = true }
+sha2 = { version = "0.10", optional = true }
+blake2b_simd = { version = "1", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }

@@ -1,0 +1,79 @@
+            <section id="screen-kpub-manager" class="screen">
+                <div class="screen-content">
+                    <h2>kpub Management</h2>
+                    <p class="subtitle">Choose a saved watch-only wallet or add a new kpub.</p>
+                    <button class="btn btn-back" id="btn-kpub-manager-back-top">Back</button>
+
+                    <div class="card kpub-manager-list-card">
+                        <div class="kpub-manager-list-heading">
+                            <div>
+                                <h3>Saved kpubs</h3>
+                                <p id="kpub-current-status" class="kpub-manager-current-status">No wallet is currently loaded.</p>
+                            </div>
+                            <span id="kpub-saved-count" class="kpub-manager-count">0</span>
+                        </div>
+                        <div id="kpub-saved-list" class="kpub-saved-list" role="list"></div>
+                        <p id="kpub-empty-state" class="kpub-empty-state">
+                            No saved kpubs yet.
+                        </p>
+                        <button class="btn btn-primary kpub-manager-load-button" id="btn-open-kpub-import">
+                            Load kpub
+                        </button>
+                    </div>
+
+                    <div class="card kpub-manager-form hidden" id="kpub-import-form">
+                        <div class="kpub-manager-form-heading">
+                            <div>
+                                <h3>Load a kpub</h3>
+                                <p class="kpub-manager-note">
+                                    Scan with a camera, upload a QR image, or paste the account public key. KasSee stores only public watch-only data in this browser.
+                                </p>
+                            </div>
+                            <button class="btn btn-link" id="btn-close-kpub-import" type="button">Cancel</button>
+                        </div>
+
+                        <div class="kpub-import-methods">
+                            <button class="btn btn-secondary" id="btn-scan-managed-kpub" type="button">
+                                Scan QR with camera
+                            </button>
+                            <button class="btn btn-secondary" id="btn-upload-managed-kpub" type="button">
+                                Upload QR image
+                            </button>
+                            <input type="file" id="input-managed-kpub-image" class="u-hidden"
+                                   accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/*">
+                        </div>
+
+                        <div class="divider">or enter manually</div>
+                        <label class="input-label" for="input-managed-kpub">Account public key</label>
+                        <textarea id="input-managed-kpub" class="input-text input-textarea"
+                                  placeholder="Paste canonical kpub1 text, original Base58Check kpub, or account-level xpub"
+                                  autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+
+                        <label class="input-label" for="input-kpub-friendly-name">Friendly name (optional)</label>
+                        <input type="text" id="input-kpub-friendly-name" class="input-text"
+                               maxlength="64" placeholder="Example: Main wallet; defaults to Wallet 1" autocomplete="off">
+
+                        <div class="toggle-row kpub-manager-startup-toggle">
+                            <div>
+                                <label class="input-label kpub-manager-toggle-label" for="chk-new-kpub-auto-load">
+                                    Load on startup
+                                </label>
+                                <p class="subtitle kpub-manager-toggle-help">
+                                    Replaces the current startup selection.
+                                </p>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="chk-new-kpub-auto-load">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <button class="btn btn-primary" id="btn-save-managed-kpub">Save and load kpub</button>
+                        <p class="subtitle kpub-manager-toggle-help">
+                            Use once loads this watch-only kpub for the current session only. It is not saved and will not load on startup.
+                        </p>
+                        <button class="btn btn-secondary" id="btn-use-current-kpub">Use kpub once</button>
+                    </div>
+
+                    <button class="btn btn-back" id="btn-kpub-manager-back">Back</button>
+                </div>
+            </section>

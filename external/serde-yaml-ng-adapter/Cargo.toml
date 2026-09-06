@@ -1,0 +1,10 @@
+[package]
+name = "serde_yaml"
+version = "0.9.34"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Vendored esp-config adapter backed by serde_yaml_ng"
+
+[dependencies]
+serde_yaml_ng = "=0.10.0"

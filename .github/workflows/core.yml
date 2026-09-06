@@ -1,52 +1,55 @@
-# KasSigner : Air-gapped offline signing device for Kaspa
-# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
-# License: GPL-3.0
-#
-# kassigner-core: host build and the boot-time self-test set under cargo test.
-name: core CI
+name: core
 
 on:
-  # Manual trigger: an Actions-tab "Run workflow" button for any branch, so
-  # CI can be run on a commit whose paths would not fire it (a release-eve
-  # infra change, a tag candidate).
-  workflow_dispatch:
   push:
-    paths:
-      - "core/**"
-      - ".github/workflows/core.yml"
+    paths-ignore:
+      - 'apps/kassee-android/**'
+      - 'apps/kassee-ios/**'
   pull_request:
-    paths:
-      - "core/**"
-      - ".github/workflows/core.yml"
+    paths-ignore:
+      - 'apps/kassee-android/**'
+      - 'apps/kassee-ios/**'
+
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: core
     steps:
-      - uses: actions/checkout@v4
-      # 1.85.0, not stable: core/rust-toolchain.toml pins it and it is the
-      # host compiler in Dockerfile.base, so CI, the release build and a
-      # reviewer's own run all use the same compiler.
-      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: actions/checkout@v6
+      - name: Export pinned toolchain policy
+        shell: bash
+        run: grep -E '^[A-Za-z_][A-Za-z0-9_]*=' qa/config/toolchains.env >> "$GITHUB_ENV"
+      - name: Install pinned stable Rust
+        shell: bash
+        run: rustup toolchain install "$KASSIGNER_STABLE_RUST" --profile minimal --component rustfmt --component clippy
+      - name: Rust format
+        shell: bash
+        run: rustup run "$KASSIGNER_STABLE_RUST" cargo fmt --all -- --check
+      - name: Host Clippy
+        shell: bash
+        run: rustup run "$KASSIGNER_STABLE_RUST" cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Install Core CI native dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libudev-dev \
+            libwayland-cursor0 \
+            libwayland-dev \
+            libxkbcommon-dev \
+            pkg-config
+      - name: Install pinned ESP Rust toolchain
+        uses: esp-rs/xtensa-toolchain@v1.7.0
         with:
-          components: clippy
-      - name: Build (release, as the firmware consumes it)
-        run: cargo build --release
-      - name: Self-tests, boot default set
-        run: cargo test
-      - name: Self-tests, full KAT set
-        run: cargo test --features boot-kats-full
-      - name: Self-tests, verbose-boot gated entry points
-        run: cargo test --features verbose-boot
-      - name: Parser fuzz smoke loop (seeds, edge cases, 3000 mutations per target)
-        run: cargo test --features fuzz-api fuzz_smoke
-      - name: cargo-fuzz targets compile
-        run: cargo check --manifest-path fuzz/Cargo.toml --bins
-      - name: Clippy
-        # -A unknown_lints: lib.rs mirrors the firmware allow list, which
-        # names lints the esp toolchain knows; a stable clippy behind it
-        # must not fail on the names alone.
-        run: cargo clippy --all-targets -- -D warnings -A unknown_lints
+          default: false
+          override: false
+          export: true
+          buildtargets: esp32s3
+          version: ${{ env.KASSIGNER_ESP_RUST }}
+          ldproxy: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Fast contributor suite
+        shell: bash
+        run: make test STRICT_LOCKFILES=1

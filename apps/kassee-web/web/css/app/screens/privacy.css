@@ -1,0 +1,23 @@
+
+
+/* Component-owned styles migrated from one-use global utilities. */
+#input-spf-fee { margin-bottom:10px; }
+#stealth-announce-addr { color:var(--accent-teal); word-break:break-all; display:inline-block; max-width:100%; line-height:1.5; }
+#stealth-meta-hex { font-size:10px; word-break:break-all; line-height:1.6; padding:8px; background:var(--card-bg); border-radius:6px; margin:8px 0; }
+#stealth-meta-qr { margin:12px auto; }
+#stealth-scan-status { font-size:11px; color:var(--text-dim); margin:4px 0; }
+#stealth-send-addr { font-size:12px; word-break:break-all; line-height:1.6; padding:8px; background:var(--card-bg); border-radius:6px; }
+#stealth-send-r { font-size:10px; word-break:break-all; line-height:1.6; padding:8px; background:var(--card-bg); border-radius:6px; }
+.stealth-announcement-note { font-size:10px; color:var(--text-dim); margin:8px 0 0; text-align:center; }
+.stealth-ephemeral-label { font-size:11px; color:var(--text-dim); margin:8px 0 4px; }
+.stealth-live-status { font-size:12px; margin-top:4px; }
+.stealth-menu-help { font-size:11px; color:var(--text-dim); margin:8px 0 0; line-height:1.4; }
+.stealth-payment-address { font-size:10px; word-break:break-all; color:var(--text-dim); margin-bottom:6px; }
+.stealth-payment-card { margin:6px 0; padding:10px; background:var(--card-bg); border-radius:6px; }
+.stealth-payment-label { font-size:11px; color:var(--text-dim); margin:0 0 4px; }
+.stealth-payment-title { font-size:12px; margin-bottom:2px; }
+.stealth-results-heading { font-size:11px; color:var(--accent-teal); margin:0 0 4px; }
+.stealth-scan-frame { font-size:11px; color:var(--text-dim); margin-top:6px; }
+.stealth-scan-qr { margin:12px auto; text-align:center; }
+.stealth-scan-window-note { font-size:10px; color:var(--text-muted); margin:0 0 12px; line-height:1.3; }
+.stealth-spend-btn-wide { width:100%; font-size:12px; }

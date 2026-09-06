@@ -1,0 +1,19 @@
+# Stable step IDs included by public `make test` / `run-all --profile test`.
+# Generated from the contiguous `test` block of qa/config/run_all_steps.tsv; keep these in sync.
+preflight.cargo-resolution
+preflight.repository-lockfiles
+preflight.kassee-build
+unit.shared-signer
+unit.signer-firmware-core
+unit.offline-signer
+unit.online-watcher
+unit.kassee-web
+unit.signer-firmware
+unit.external-rqrr
+unit.tools
+integration.shared-signer-conformance
+integration.repository-layout
+integration.offline-signer-firmware-signing
+integration.online-watcher-source
+integration.kassee-web-generated
+integration.kassee-web-browser

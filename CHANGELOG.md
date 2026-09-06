@@ -9,6 +9,171 @@ All notable changes to KasSigner will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] - Unreleased
+
+### Highlights
+- Reorganized Wallet backup/recovery navigation so **Backup** and **Recovery** are direct Wallet menu entries. Backup owns mnemonic/SeedQR/SD and advanced export methods; Recovery owns restore/import methods. Successful SD backups return to the menu that launched them.
+- Restored wallets now begin with an explicit **Words / SeedQR / SD / Advanced** source picker. Mnemonic restores follow **source -> optional BIP39 passphrase -> wallet name -> Save Securely / Session Only**; XPrv/raw-key restores skip the inapplicable BIP39 step and use the same final storage choice. Session-only wallets remain non-serialized.
+- Removed redundant recovery-word redisplay after mnemonic import and hardened navigation ownership/Back transitions so restore completion does not fall into `UI-NAV-01`.
+- Replaced parallel Add Wallet booleans with an explicit `PendingAddWalletKind` state to keep the firmware within the strict Clippy boolean-structure policy.
+- Fixed multisig review so proven P2SH change is excluded from the displayed send amount, while the hardware independently verifies descriptor-backed ownership before classifying change.
+- Fixed multisig standard-fee planning and finalization for the signed transaction shape, including KIP-9 storage mass and threshold signature-script mass, so standardness fees match node requirements.
+- Preserved exact partially signed KSPT relay payloads between hardware cosigners and corrected partial/complete status handling for M-of-N signing.
+- Fixed testnet multisig branch discovery, next receive/change derivation, descriptor Back routing, and zero-balance guidance.
+- Refactored the PSKT consensus-finalization boundary into smaller helpers while preserving owned-value semantics, consensus output construction, persistent-vault binding, and KIP-9 calculations.
+- Qualified the iOS application path on macOS/Xcode; remaining meaningful hardware qualification gaps are non-CoreS3 ESP32-S3 variants.
+- Kept the canonical production E2E requirements and versionless production-surface ratchet aligned with the current Wallet/Backup/Recovery UI.
+- Added optional CoreS3 owner-authorized application firmware: an RSA-3072 owner key may be enrolled before Pop It! alongside the official Secure Boot authority, development builds simulate irreversible actions without eFuse writes, and owner-signed applications are verified by the vendor bootloader against the dedicated owner digest plus hardware anti-rollback before OTA selection.
+- Separated normal production firmware from the destructive CoreS3 provisioning profile: `make release` omits Pop It!/owner-authority UI and boot-control staging, the dedicated secure-provisioning bootloader defers flash-encryption/Secure-Boot/anti-rollback eFuse transitions until explicit Pop It consent, and `make flash-release` flashes only an existing checksum-verified signed merged normal-release image without rebuilding, provisioning, or unsigned fallback.
+- Restored the original owner-only CoreS3 Secure Boot policy as the distinct `secure-owner-only` profile: the owner RSA-3072 key signs the special boot chain, is enrolled as the sole live Secure Boot digest (slot 0), unused digest slots are revoked, Pop It cannot proceed without owner enrollment, and no vendor hardware signing authority remains trusted.
+- Kept development/workflow-test firmware aligned with the provisioning UI feature split and added resumable full QA through `make qa RESUME_FROM=<stable-step-id>`, which reruns the named failed step and every later canonical QA stage.
+
+
+A major architecture, security, and integration release. KasSigner 2.0 keeps the
+hardware signer air-gapped while separating protocol, signing, firmware, watcher,
+and host-integration responsibilities into reviewable crates. The release also
+turns KasSee into a shared Rust/WASM runtime used by the browser and mobile
+shells, adds a supported wallet-integration SDK, introduces optional encrypted
+on-device wallet persistence, and substantially expands automated assurance.
+
+### Added
+- **Direct wallet integration SDK.** `kassigner-sdk` provides the supported
+  network-free pair/prepare/complete/finalize flow for third-party wallets, while
+  `kassigner-protocol` exposes lower-level PSKT/KSPT/QR primitives. Wallets pair
+  directly with the hardware; KasSee is the reference consumer rather than an
+  intermediary.
+- **Optional encrypted wallet persistence.** Hardware users can choose
+  **Always Start Fresh** for RAM-only operation or opt into device-bound encrypted
+  wallet storage protected by the ESP32-S3 HMAC eFuse service plus the user's
+  credential. Portable recovery remains the BIP39 mnemonic plus optional
+  passphrase.
+- **Expanded wallet model.** Up to 16 active slots can hold BIP39 mnemonic
+  wallets, account XPrv wallets, or raw secp256k1 private keys, with explicit
+  wallet selection, protection, activation, deletion, and recovery flows.
+- **Shared KasSee runtime across browser and mobile.** KasSee Web remains the
+  watch-only reference wallet; Android and iOS shells host the same Rust/WASM
+  runtime with platform-native integration rather than independent wallet logic.
+- **Session-bound KSPT v4 and standard PSKT interoperability.** Compact KSPT
+  carries KasSigner-specific framing/network context, while standard PSKT remains
+  ecosystem-compatible and does not gain a KasSigner network field. QR and SD
+  signing share the canonical parser/signing path.
+- **Richer transaction review.** Compact confirmation is the default, with an
+  optional detailed review path for inputs, outputs, fees, ownership/change,
+  lock time, multisig, covenants, stealth, and other supported transaction
+  metadata before signing.
+- **Broader hardware and runtime qualification.** ESP32-S3 QEMU vectors,
+  connected-device workflow E2E, physical HIL tranches, browser real-node and
+  funded-testnet flows, Android tests, fuzzing, mutation testing, coverage/CRAP,
+  and reproducible-build evidence are integrated into the QA system.
+
+### Changed
+- **Repository architecture.** Security-sensitive logic is split into
+  `offline-signer`, `shared-signer`, `signer-firmware-core`,
+  `kassigner-protocol`, and related focused crates instead of accumulating in one
+  firmware/application surface. Host/watch-only code cannot depend upward into
+  private-key ownership.
+- **KasSee transaction and node layers.** Amounts that participate in signing
+  stay integer-safe end to end, public-node discovery follows the official Kaspa
+  resolver pool and browser TLS policy, WebSocket lifecycles are bounded, and
+  transaction construction/broadcast use the same stable WASM facade consumed by
+  integration tests.
+- **Entropy and key lifecycle.** Seed generation combines mandatory
+  health-checked hardware RNG and camera entropy with additional board/timing
+  context; signing, encryption, and seed creation fail closed when required
+  entropy or key state is unavailable. Secret-bearing session state is wiped at
+  ownership boundaries and on abandonment paths.
+- **Firmware navigation and long-running work.** UI state ownership is explicit,
+  blocking operations are supervised with liveness budgets, camera/SD resources
+  have single owners, and firmware update now presents USB update guidance rather
+  than reusing the transaction QR scanner.
+- **Error presentation.** Device errors wrap by rendered pixel width over
+  multiple lines instead of truncating by character count, preserving complete
+  actionable messages on the 320x240 displays.
+- **Build entrypoints.** GNU Make is the stable Linux/Windows contributor
+  interface. Toolchains, Gradle, WASM generation, firmware builds, release
+  packaging, and source-archive construction are pinned or verified and fail
+  closed when required dependencies are missing.
+
+### Fixed
+- **Fuzz evidence ZIP timestamp hardening.** Fuzz-result archiving now writes deterministic ZIP metadata instead of inheriting filesystem mtimes, so extracted or synthetic files dated before 1980 cannot crash `make qa`.
+- **CoreS3 PIN/password key audio feedback.** Credential-cue resume is now idempotent, so ordinary queued key-click feedback is no longer discarded on non-credential frames and continues to obey the persisted global mute/volume policy.
+- **Initial WALLETS navigation chrome.** The WALLETS screen hides Back while startup wallet resolution has no active wallet, matching the existing fail-closed Back-navigation guard.
+- **Offline signer warning hygiene.** `MAX_REDEEM_SIZE` is imported only by the KSPT wire-adapter unit tests that exercise the redeem boundary, keeping the production library warning-free without weakening the test.
+- **Mutation boundary regressions.** Added exact boundary/oracle coverage identified by full-repository mutation testing: HD45 sorting verifies depth and child-number metadata move with encoded participants, current backup framing pins the exact header-plus-tag short-input boundary, and covenant dust folding preserves change at the KIP-9 minimum.
+- **PSKT output derivation mutation baseline.** Corrected the output `bip32Derivations` mutation fixture to use the canonical keyed-object grammar, preserving MS45 hint coverage while allowing the unmutated `offline-signer` baseline to execute.
+- **Mutation baseline compilation.** Corrected the survivor-regression tests so the fresh repository mutation baseline compiles: the crowdfunding WASM test now imports the intended bounded-hex helper from its contracts module, and the oracle heartbeat-empty assertion no longer requires `UtxoEntry: PartialEq`.
+- **Mutation-test hardening.** Added targeted coverage for viable Rust mutation gaps identified across multisig descriptor parsing, encrypted-container framing, KSPT/PSKT boundaries, signed-KSPT threshold handling, transaction builders, covenant/shipping/vault/oracle/ZK paths, and exact amount/count limits. Equivalent/no-progress mutation sites were rewritten into checked or typed operations, and targeted boundary/round-trip tests distinguish the intended semantics without mutation exclusions.
+- **iOS/macOS application qualification.** Qualified the iOS shell on macOS/Xcode with simulator-tested shared KasSee rendering, loopback HTTP framing/load-health checks, native App Lock test seams, weather-cover behavior fixes, XCTest/XCUITest coverage, and the focused iOS mutation campaign that killed all 85 discovered native-shell mutants. Added the iOS-only `scripts/mac/` setup/build/run entrypoints and native Make dispatch while keeping generated KasSee runtime output under `target/`.
+- **Connected Receive E2E reachability.** Restored the implemented Receive address-control journey as an authoritative connected-device tranche, routes it through the production Home -> Wallet -> Receive controllers, and keeps host/Rust tranche registries synchronized so required runtime markers cannot remain orphaned behind unreachable harness code. Existing tranche numbers 1-10 remain stable; Receive is tranche 11.
+- **Connected-device operation lifecycle parity.** The physical workflow E2E Connect KasSee probe now renders the queued loading surface exactly once and advances `Presented -> Running` through the same authoritative operation transition used by production before driving the real cooperative kpub derivation. This prevents the HIL harness from falsely tripping `OP-ORDER-01` by replaying the one-shot loading-render boundary.
+- **Android mutation-test liveness.** App-lock coroutine tests now prove that authentication actually enters an in-flight state without waiting indefinitely for a callback that a mutant can suppress. Mutant-specific process timeouts after a green baseline are classified as killed mutants, allowing the full mutation campaign to continue while preserving the 100% score requirement.
+- **Standard PSKT review/signing.** Standard PSKT no longer passes through the
+  compact-KSPT network-trailer check. The selected wallet network is bound only
+  to the in-memory review/signing context, leaving the PSKT wire format unchanged.
+- **KasSee signed-PSKT completion.** Browser and funded-testnet flows use the
+  supported SDK completion boundary and consume the serialized `psktHex` result,
+  avoiding stale low-level WASM facade calls or field names.
+- **Public-node integration.** HTTP/loopback clients request the resolver's
+  `any` class while HTTPS clients request `tls` and require `wss://`; resolver
+  exhaustion now reports the individual resolver failures rather than only a
+  generic connectivity error.
+- **Wallet-list workflow parity.** Connected-device wallet inventory tests and
+  navigation now match the production ordering where **Add Wallet** precedes
+  loaded wallet rows, preserving explicit activation semantics after deletion.
+- **Android build and mutation qualification.** API-37 SDK and pinned Gradle
+  discovery work from project/cache locations without requiring global Kotlin
+  CLI tools. Generated KasSee assets participate in the real Gradle dependency
+  graph so unit tests and mutation runs cannot consume their output before the
+  sync task completes. Weather validation/cache behavior and the native app-lock
+  lifecycle now have deterministic Robolectric coverage, including exact lock
+  delay boundaries, concurrent/cancelled authentication, and privacy-cover state.
+- **QEMU and hardware workflow parity.** Transaction touch vectors, firmware
+  update/runtime probes, scanner ownership, connected reset isolation, and
+  failure replay now track the same production controller semantics used on the
+  device.
+
+### Security
+- **Fail-closed parser and signing boundaries.** Parsers enforce declared counts,
+  framing/length limits, full-consumption rules, monetary bounds, ownership and
+  derivation constraints before signing-sensitive state is reached.
+- **Anti-klepto and transaction identity checks** are integrated into the
+  supported signing flow, with transaction/reveal mismatches rejected rather
+  than silently accepted.
+- **Device-bound persistence does not replace mnemonic recovery.** The eFuse/HMAC
+  binding protects local encrypted state; the mnemonic plus optional BIP39
+  passphrase remains the durable cross-device recovery material.
+- **Production architecture gates** prevent debug/measurement features, generated
+  artifacts, host private-key access, and dependency inversions from entering
+  release builds.
+- **Release assurance** includes pinned toolchains, source inventory checks,
+  deterministic flat archives, reproducible builds, signed release evidence,
+  mutation/fuzz campaigns, critical-domain coverage thresholds, complexity/CRAP
+  checks, and connected hardware/runtime qualification.
+
+### Developer and test-suite cleanup
+- Consolidated the Python regression suite
+  into domain-oriented tests. Behavioral/security regressions remain, while
+  duplicate source-shape locks, temporary build-metadata checks, and tests-of-tests are
+  removed so the permanent suite describes product invariants rather than the
+  implementation history of the refactor.
+- Canonical architecture, feature-parity, fuzz, mutation, release, browser,
+  mobile, QEMU, connected-device, and funded/real-node gates remain first-class
+  QA entrypoints.
+
+### Compatibility and validation notes
+- All first-party crates/packages in this release are versioned **2.0.0**.
+- Standard PSKT interoperability is preserved; KasSigner-specific network/session
+  metadata remains in KSPT rather than extending PSKT.
+- The 2.0.0 line has been hardware-tested on M5Stack CoreS3 and exercised
+  through KasSee Web, Android, and the iOS app on macOS Sonoma with Xcode 16.2
+  using an iPhone 16 Pro Simulator. iOS is therefore no longer a meaningful
+  unresolved application-qualification gap. Waveshare boards and other ESP32-S3
+  hardware variants remain unverified until independently tested; signed iOS
+  Release plus physical-device smoke remains formal release evidence.
+- KasSigner remains experimental security software on consumer ESP32-S3 hardware;
+  automated assurance does not replace independent review, physical attack
+  testing, entropy characterization, or field history.
+
 ## [1.0.7]: 2026-08-27
 
 An **auditability** release. The security-critical half of the firmware moves

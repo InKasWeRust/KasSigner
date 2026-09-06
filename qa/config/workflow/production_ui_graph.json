@@ -1,0 +1,2252 @@
+{
+  "schema": 1,
+  "sources": [
+    "apps/signer-firmware/src/runtime/navigation/ui_graph.rs",
+    "apps/signer-firmware/src/runtime/navigation/ui_graph/states.rs",
+    "apps/signer-firmware/src/runtime/navigation/ui_graph/menus.rs"
+  ],
+  "state_count": 185,
+  "menu_count": 22,
+  "menu_item_count": 90,
+  "unique_menu_label_count": 78,
+  "operation_menu_item_count": 4,
+  "operation_kinds": [
+    "ConnectKasSee",
+    "DeriveMultisigKpub",
+    "SignTransaction"
+  ],
+  "external_entry_exceptions": {
+    "ImportExportChoice": "external:legacy-import-export"
+  },
+  "states": [
+    {
+      "state": "About",
+      "owner": "Settings",
+      "kind": "Screen",
+      "entry": "SettingsMenu",
+      "back": "history"
+    },
+    {
+      "state": "AddWalletChoice",
+      "owner": "Seeds",
+      "kind": "Choice",
+      "entry": "SeedList",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "AddrIndexPicker",
+      "owner": "Export",
+      "kind": "Input",
+      "entry": "SeedToolsMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "AdvancedDuressConfirm",
+      "owner": "Settings",
+      "kind": "Modal",
+      "entry": "AdvancedDuressEntry",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "AdvancedDuressEntry",
+      "owner": "Settings",
+      "kind": "Input",
+      "entry": "AdvancedDuressWarning",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "AdvancedDuressWarning",
+      "owner": "Settings",
+      "kind": "Modal",
+      "entry": "AdvancedFeatures",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "AdvancedFeatures",
+      "owner": "Settings",
+      "kind": "Screen",
+      "entry": "SettingsMenu",
+      "back": "history"
+    },
+    {
+      "state": "AdvancedMenu",
+      "owner": "Settings",
+      "kind": "Menu",
+      "entry": "SettingsMenu",
+      "back": "SettingsMenu"
+    },
+    {
+      "state": "FactoryResetWarning",
+      "owner": "Settings",
+      "kind": "Modal",
+      "entry": "AdvancedMenu",
+      "back": "AdvancedMenu"
+    },
+    {
+      "state": "FactoryResetConfirm",
+      "owner": "Settings",
+      "kind": "Modal",
+      "entry": "FactoryResetWarning",
+      "back": "AdvancedMenu"
+    },
+    {
+      "state": "FirmwareUpdateReady",
+      "owner": "Settings",
+      "kind": "Screen",
+      "entry": "AdvancedMenu",
+      "back": "AdvancedMenu"
+    },
+    {
+      "state": "OwnerFirmwareMenu",
+      "owner": "Settings",
+      "kind": "Menu",
+      "entry": "AdvancedMenu",
+      "back": "AdvancedMenu"
+    },
+    {
+      "state": "OwnerKeyWarning",
+      "owner": "Settings",
+      "kind": "Modal",
+      "entry": "OwnerFirmwareMenu",
+      "back": "OwnerFirmwareMenu"
+    },
+    {
+      "state": "OwnerKeyConfirm",
+      "owner": "Settings",
+      "kind": "Input",
+      "entry": "OwnerKeyWarning",
+      "back": "OwnerFirmwareMenu"
+    },
+    {
+      "state": "OwnerInstallWarning",
+      "owner": "Settings",
+      "kind": "Modal",
+      "entry": "OwnerFirmwareMenu",
+      "back": "OwnerFirmwareMenu"
+    },
+    {
+      "state": "OwnerInstallConfirm",
+      "owner": "Settings",
+      "kind": "Input",
+      "entry": "OwnerInstallWarning",
+      "back": "OwnerFirmwareMenu"
+    },
+    {
+      "state": "AdvancedRestoreMenu",
+      "owner": "Onboarding",
+      "kind": "Menu",
+      "entry": "StorageSeedSourceChoice",
+      "back": "StorageSeedSourceChoice"
+    },
+    {
+      "state": "AdvancedRtcEntry",
+      "owner": "Settings",
+      "kind": "Input",
+      "entry": "AdvancedFeatures",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "AdvancedSdStorageWarning",
+      "owner": "Settings",
+      "kind": "Modal",
+      "entry": "AdvancedFeatures",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "AdvancedTimeLockConfirm",
+      "owner": "Settings",
+      "kind": "Modal",
+      "entry": "AdvancedTimeLockEntry",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "AdvancedTimeLockEntry",
+      "owner": "Settings",
+      "kind": "Input",
+      "entry": "AdvancedTimeLockWarning",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "AdvancedTimeLockWarning",
+      "owner": "Settings",
+      "kind": "Modal",
+      "entry": "AdvancedFeatures",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "AdvancedWeeklyConfirm",
+      "owner": "Settings",
+      "kind": "Modal",
+      "entry": "AdvancedWeeklyEntry",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "AdvancedWeeklyEntry",
+      "owner": "Settings",
+      "kind": "Input",
+      "entry": "AdvancedWeeklyWarning",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "AdvancedWeeklyWarning",
+      "owner": "Settings",
+      "kind": "Modal",
+      "entry": "AdvancedFeatures",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "AudioSettings",
+      "owner": "Settings",
+      "kind": "Screen",
+      "entry": "SettingsMenu",
+      "back": "SettingsMenu"
+    },
+    {
+      "state": "BackupRecoveryMenu",
+      "owner": "Seeds",
+      "kind": "Menu",
+      "entry": "WalletBackupMethodsMenu",
+      "back": "history"
+    },
+    {
+      "state": "Bip85Index",
+      "owner": "Seeds",
+      "kind": "Input",
+      "entry": "ChooseWordCount",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "Bip85ShowWord",
+      "owner": "Seeds",
+      "kind": "Input",
+      "entry": "Bip85Index",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "CalcLastWord",
+      "owner": "Seeds",
+      "kind": "Input",
+      "entry": "ChooseWordCount",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ChooseWordCount",
+      "owner": "Seeds",
+      "kind": "Input",
+      "entry": "WalletAdvancedMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "CommitRevealPreview",
+      "owner": "Signing",
+      "kind": "Screen",
+      "entry": "CommitRevealType",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "CommitRevealResult",
+      "owner": "Signing",
+      "kind": "Result",
+      "entry": "CommitRevealPreview",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "CommitRevealResultQr",
+      "owner": "Signing",
+      "kind": "Result",
+      "entry": "CommitRevealResult",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "CommitRevealType",
+      "owner": "Signing",
+      "kind": "Screen",
+      "entry": "WalletAdvancedMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ConfirmDeleteSeed",
+      "owner": "Seeds",
+      "kind": "Modal",
+      "entry": "SeedList",
+      "back": "SeedList"
+    },
+    {
+      "state": "ConfirmTx",
+      "owner": "Signing",
+      "kind": "Menu",
+      "entry": "ReviewTx",
+      "back": "ReviewTx"
+    },
+    {
+      "state": "CovBackupName",
+      "owner": "Storage",
+      "kind": "Screen",
+      "entry": "CovenantSignResultQr",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "CovenantKeyResult",
+      "owner": "Signing",
+      "kind": "Result",
+      "entry": "CovenantSignReview",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "CovenantKeyResultQr",
+      "owner": "Signing",
+      "kind": "Result",
+      "entry": "CovenantKeyResult",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "CovenantSignOpaqueConfirm",
+      "owner": "Signing",
+      "kind": "Modal",
+      "entry": "CovenantSignOpaqueWarning",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "CovenantSignOpaqueWarning",
+      "owner": "Signing",
+      "kind": "Modal",
+      "entry": "CovenantSignReview",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "CovenantSignResult",
+      "owner": "Signing",
+      "kind": "Result",
+      "entry": "CovenantSignOpaqueConfirm",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "CovenantSignResultQr",
+      "owner": "Signing",
+      "kind": "Result",
+      "entry": "CovenantSignResult",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "CovenantSignReview",
+      "owner": "Signing",
+      "kind": "Screen",
+      "entry": "ScanQR",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "DecryptSecretResult",
+      "owner": "Signing",
+      "kind": "Result",
+      "entry": "DecryptSecretScan",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "DecryptSecretResultQr",
+      "owner": "Signing",
+      "kind": "Result",
+      "entry": "DecryptSecretResult",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "DecryptSecretScan",
+      "owner": "Signing",
+      "kind": "Screen",
+      "entry": "WalletAdvancedMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "DiceRoll",
+      "owner": "Seeds",
+      "kind": "Screen",
+      "entry": "StorageSeedDiceCountChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "DisplaySettings",
+      "owner": "Settings",
+      "kind": "Screen",
+      "entry": "SettingsMenu",
+      "back": "SettingsMenu"
+    },
+    {
+      "state": "ExportChoice",
+      "owner": "Export",
+      "kind": "Menu",
+      "entry": "XprvExportMenu",
+      "back": "SeedList"
+    },
+    {
+      "state": "ExportCompactSeedQR",
+      "owner": "Export",
+      "kind": "Screen",
+      "entry": "QrExportMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ExportKpub",
+      "owner": "Export",
+      "kind": "Screen",
+      "entry": "WatchOnlyMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ExportKpubPopup",
+      "owner": "Export",
+      "kind": "Screen",
+      "entry": "ExportKpub",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ExportPlainWordsQR",
+      "owner": "Export",
+      "kind": "Input",
+      "entry": "QrExportMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ExportPrivKey",
+      "owner": "Export",
+      "kind": "Screen",
+      "entry": "ExportPrivKeyIndex",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ExportPrivKeyIndex",
+      "owner": "Export",
+      "kind": "Input",
+      "entry": "SigningKeysMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ExportSeedQR",
+      "owner": "Export",
+      "kind": "Screen",
+      "entry": "QrExportMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ExportXprv",
+      "owner": "Export",
+      "kind": "Screen",
+      "entry": "ExportChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ImportExportChoice",
+      "owner": "Export",
+      "kind": "Choice",
+      "entry": "external:legacy-import-export",
+      "back": "SeedsMenu"
+    },
+    {
+      "state": "ImportMenu",
+      "owner": "Export",
+      "kind": "Menu",
+      "entry": "ImportExportChoice",
+      "back": "ImportExportChoice"
+    },
+    {
+      "state": "ImportPrivKey",
+      "owner": "Dynamic",
+      "kind": "Screen",
+      "entry": "ImportMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ImportWord",
+      "owner": "Seeds",
+      "kind": "Input",
+      "entry": "ChooseWordCount",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "InspectUtxo",
+      "owner": "Signing",
+      "kind": "Screen",
+      "entry": "InspectUtxoSummary",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "InspectUtxoSummary",
+      "owner": "Signing",
+      "kind": "Screen",
+      "entry": "ReviewTx",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "KpubScannedPopup",
+      "owner": "Export",
+      "kind": "Screen",
+      "entry": "ImportPrivKey",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "MainMenu",
+      "owner": "Main",
+      "kind": "Menu",
+      "entry": "boot:session-ready",
+      "back": "-"
+    },
+    {
+      "state": "MultisigAddKey",
+      "owner": "Multisig",
+      "kind": "Screen",
+      "entry": "MultisigChooseMN",
+      "back": "dynamic:key_index"
+    },
+    {
+      "state": "MultisigChooseMN",
+      "owner": "Multisig",
+      "kind": "Screen",
+      "entry": "MultisigMenu",
+      "back": "MultisigMenu"
+    },
+    {
+      "state": "MultisigDescriptor",
+      "owner": "Multisig",
+      "kind": "Screen",
+      "entry": "MultisigSaveAddrAsk",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "MultisigMenu",
+      "owner": "Multisig",
+      "kind": "Menu",
+      "entry": "SeedsMenu",
+      "back": "history"
+    },
+    {
+      "state": "MultisigPickSeed",
+      "owner": "Multisig",
+      "kind": "Screen",
+      "entry": "MultisigChooseMN",
+      "back": "dynamic:key_index"
+    },
+    {
+      "state": "MultisigSaveAddrAsk",
+      "owner": "Multisig",
+      "kind": "Choice",
+      "entry": "MultisigShowAddressQR",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "MultisigShowAddress",
+      "owner": "Multisig",
+      "kind": "Screen",
+      "entry": "MultisigAddKey",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "MultisigShowAddressQR",
+      "owner": "Multisig",
+      "kind": "Screen",
+      "entry": "MultisigShowAddress",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "PassphraseChoice",
+      "owner": "Dynamic",
+      "kind": "Choice",
+      "entry": "RestoreWord",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "PassphraseEntry",
+      "owner": "Dynamic",
+      "kind": "Input",
+      "entry": "PassphraseChoice",
+      "back": "PassphraseChoice"
+    },
+    {
+      "state": "PopItConfirm",
+      "owner": "Settings",
+      "kind": "Modal",
+      "entry": "PopItPrompt",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "PopItExplain",
+      "owner": "Settings",
+      "kind": "Screen",
+      "entry": "PopItPrompt",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "PopItPrompt",
+      "owner": "Settings",
+      "kind": "Modal",
+      "entry": "AdvancedMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "PrivateSwapKeyResult",
+      "owner": "Signing",
+      "kind": "Result",
+      "entry": "PrivateSwapReview",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "PrivateSwapKeyResultQr",
+      "owner": "Signing",
+      "kind": "Result",
+      "entry": "PrivateSwapKeyResult",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "PrivateSwapResult",
+      "owner": "Signing",
+      "kind": "Result",
+      "entry": "PrivateSwapKeyResultQr",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "PrivateSwapResultQr",
+      "owner": "Signing",
+      "kind": "Result",
+      "entry": "PrivateSwapResult",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "PrivateSwapReview",
+      "owner": "Signing",
+      "kind": "Screen",
+      "entry": "ScanQR",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "QrExportMenu",
+      "owner": "Export",
+      "kind": "Menu",
+      "entry": "SeedBackupMenu",
+      "back": "SeedBackupMenu"
+    },
+    {
+      "state": "Rejected",
+      "owner": "Signing",
+      "kind": "Modal",
+      "entry": "ReviewTx",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "RestoreWord",
+      "owner": "Onboarding",
+      "kind": "Input",
+      "entry": "StorageSeedSourceChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "RestoreWord12Detected",
+      "owner": "Onboarding",
+      "kind": "Choice",
+      "entry": "RestoreWord",
+      "back": "RestoreWord"
+    },
+    {
+      "state": "ReviewTx",
+      "owner": "Signing",
+      "kind": "Screen",
+      "entry": "ScanQR",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ScanQR",
+      "owner": "Dynamic",
+      "kind": "Screen",
+      "entry": "SingleSigMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdBackupWarning",
+      "owner": "Storage",
+      "kind": "Modal",
+      "entry": "SeedBackupMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdCardSettings",
+      "owner": "Settings",
+      "kind": "Screen",
+      "entry": "SettingsMenu",
+      "back": "history"
+    },
+    {
+      "state": "SdCardUnlockPassword",
+      "owner": "Settings",
+      "kind": "Input",
+      "entry": "SdCardSettings",
+      "back": "history"
+    },
+    {
+      "state": "SdDeleteConfirm",
+      "owner": "Storage",
+      "kind": "Modal",
+      "entry": "SdFileList",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdFileList",
+      "owner": "Storage",
+      "kind": "Screen",
+      "entry": "SdImportMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdImportMenu",
+      "owner": "Storage",
+      "kind": "Menu",
+      "entry": "ImportMenu",
+      "back": "history"
+    },
+    {
+      "state": "SdKpubEncryptAsk",
+      "owner": "Storage",
+      "kind": "Choice",
+      "entry": "SdKpubFilename",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdKpubFileList",
+      "owner": "Storage",
+      "kind": "Screen",
+      "entry": "SdImportMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdKpubFilename",
+      "owner": "Storage",
+      "kind": "Input",
+      "entry": "WatchOnlyMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdKsptEncryptAsk",
+      "owner": "Storage",
+      "kind": "Choice",
+      "entry": "SdKsptFilename",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdKsptEncryptPass",
+      "owner": "Storage",
+      "kind": "Screen",
+      "entry": "SdKsptEncryptAsk",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdKsptFileList",
+      "owner": "Storage",
+      "kind": "Screen",
+      "entry": "SdImportMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdKsptFilename",
+      "owner": "Storage",
+      "kind": "Input",
+      "entry": "ShowQrPopup",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdMsAddrEncryptAsk",
+      "owner": "Multisig",
+      "kind": "Choice",
+      "entry": "SdMsAddrFilename",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdMsAddrFilename",
+      "owner": "Multisig",
+      "kind": "Input",
+      "entry": "MultisigShowAddress",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdMsDescEncryptAsk",
+      "owner": "Multisig",
+      "kind": "Choice",
+      "entry": "SdMsDescFilename",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdMsDescFilename",
+      "owner": "Multisig",
+      "kind": "Input",
+      "entry": "SdMsAddrEncryptAsk",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdOverwriteWarning",
+      "owner": "Storage",
+      "kind": "Modal",
+      "entry": "SdKpubEncryptAsk",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdSeedExportPassphrase",
+      "owner": "Storage",
+      "kind": "Input",
+      "entry": "SdSeedFilename",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdSeedFilename",
+      "owner": "Storage",
+      "kind": "Input",
+      "entry": "SdBackupWarning",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdSigFilename",
+      "owner": "Storage",
+      "kind": "Input",
+      "entry": "ConfirmTx",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdWalletBackupFileList",
+      "owner": "Storage",
+      "kind": "Screen",
+      "entry": "ImportMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdWalletBackupImportPassphrase",
+      "owner": "Storage",
+      "kind": "Input",
+      "entry": "SdWalletBackupFileList",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdXprvExportPassphrase",
+      "owner": "Storage",
+      "kind": "Input",
+      "entry": "SdXprvFilename",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SdXprvFilename",
+      "owner": "Storage",
+      "kind": "Input",
+      "entry": "ExportXprv",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SeedBackup",
+      "owner": "Dynamic",
+      "kind": "Screen",
+      "entry": "SeedBackupMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SeedBackupMenu",
+      "owner": "Export",
+      "kind": "Menu",
+      "entry": "ImportExportChoice",
+      "back": "ExportChoice"
+    },
+    {
+      "state": "SeedEntropyUnavailable",
+      "owner": "Dynamic",
+      "kind": "Screen",
+      "entry": "StorageSeedWordCountChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SeedList",
+      "owner": "Seeds",
+      "kind": "Screen",
+      "entry": "SeedsMenu",
+      "back": "SeedsMenu"
+    },
+    {
+      "state": "SeedQrGrid",
+      "owner": "Export",
+      "kind": "Screen",
+      "entry": "ExportCompactSeedQR",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SeedToolsMenu",
+      "owner": "Seeds",
+      "kind": "Menu",
+      "entry": "ShowAddress",
+      "back": "SeedsMenu"
+    },
+    {
+      "state": "SeedsMenu",
+      "owner": "Seeds",
+      "kind": "Menu",
+      "entry": "MainMenu",
+      "back": "MainMenu"
+    },
+    {
+      "state": "SettingsMenu",
+      "owner": "Settings",
+      "kind": "Menu",
+      "entry": "MainMenu",
+      "back": "MainMenu"
+    },
+    {
+      "state": "ShowAddress",
+      "owner": "Export",
+      "kind": "Screen",
+      "entry": "MainMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ShowAddressQR",
+      "owner": "Export",
+      "kind": "Screen",
+      "entry": "ShowAddress",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ShowQR",
+      "owner": "Dynamic",
+      "kind": "Screen",
+      "entry": "ConfirmTx",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ShowQrModeChoice",
+      "owner": "Dynamic",
+      "kind": "Choice",
+      "entry": "ShowQR",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "ShowQrPopup",
+      "owner": "Storage",
+      "kind": "Screen",
+      "entry": "SdOverwriteWarning",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SignMsgChoice",
+      "owner": "Signing",
+      "kind": "Choice",
+      "entry": "WalletAdvancedMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SignMsgFile",
+      "owner": "Signing",
+      "kind": "Screen",
+      "entry": "SignMsgChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SignMsgPreview",
+      "owner": "Signing",
+      "kind": "Screen",
+      "entry": "SignMsgFile",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SignMsgResult",
+      "owner": "Signing",
+      "kind": "Result",
+      "entry": "SignMsgPreview",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SignMsgResultQr",
+      "owner": "Signing",
+      "kind": "Result",
+      "entry": "SignMsgResult",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SignMsgScan",
+      "owner": "Signing",
+      "kind": "Screen",
+      "entry": "SignMsgChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SignMsgType",
+      "owner": "Signing",
+      "kind": "Screen",
+      "entry": "SignMsgChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SignTxGuide",
+      "owner": "Signing",
+      "kind": "Screen",
+      "entry": "SingleSigMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "AntiKleptoRevealGuide",
+      "owner": "Signing",
+      "kind": "Modal",
+      "entry": "ShowQR",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "SigningKeysMenu",
+      "owner": "Export",
+      "kind": "Menu",
+      "entry": "ImportExportChoice",
+      "back": "ExportChoice"
+    },
+    {
+      "state": "SingleSigMenu",
+      "owner": "Signing",
+      "kind": "Menu",
+      "entry": "MainMenu",
+      "back": "SeedsMenu"
+    },
+    {
+      "state": "StegoHintPassphrase",
+      "owner": "Stego",
+      "kind": "Input",
+      "entry": "StegoHintReveal",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoHintReveal",
+      "owner": "Stego",
+      "kind": "Screen",
+      "entry": "StegoImportPass",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoImportDescChoice",
+      "owner": "Stego",
+      "kind": "Choice",
+      "entry": "StegoImportPick",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoImportDescFile",
+      "owner": "Stego",
+      "kind": "Screen",
+      "entry": "StegoImportDescChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoImportPass",
+      "owner": "Stego",
+      "kind": "Screen",
+      "entry": "StegoImportDescChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoImportPick",
+      "owner": "Stego",
+      "kind": "Screen",
+      "entry": "ImportMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoImportPortablePassword",
+      "owner": "Stego",
+      "kind": "Screen",
+      "entry": "StegoImportPass",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoJpegConfirm",
+      "owner": "Stego",
+      "kind": "Modal",
+      "entry": "StegoJpegPick",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoJpegDesc",
+      "owner": "Stego",
+      "kind": "Screen",
+      "entry": "StegoJpegDescChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoJpegDescChoice",
+      "owner": "Stego",
+      "kind": "Choice",
+      "entry": "StegoJpegPick",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoJpegDescFile",
+      "owner": "Stego",
+      "kind": "Screen",
+      "entry": "StegoJpegDescChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoJpegDescPreview",
+      "owner": "Stego",
+      "kind": "Screen",
+      "entry": "StegoJpegDesc",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoJpegPick",
+      "owner": "Stego",
+      "kind": "Screen",
+      "entry": "StegoSecuritySelect",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoJpegPpAsk",
+      "owner": "Stego",
+      "kind": "Screen",
+      "entry": "StegoJpegDescPreview",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoJpegPpEntry",
+      "owner": "Stego",
+      "kind": "Input",
+      "entry": "StegoJpegPpInfo",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoJpegPpInfo",
+      "owner": "Stego",
+      "kind": "Screen",
+      "entry": "StegoJpegPpAsk",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoModeSelect",
+      "owner": "Stego",
+      "kind": "Screen",
+      "entry": "ImportExportChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoPortablePassword",
+      "owner": "Stego",
+      "kind": "Screen",
+      "entry": "StegoSecuritySelect",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoPortablePasswordConfirm",
+      "owner": "Stego",
+      "kind": "Modal",
+      "entry": "StegoPortablePassword",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoResult",
+      "owner": "Stego",
+      "kind": "Result",
+      "entry": "StegoJpegConfirm",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StegoSecuritySelect",
+      "owner": "Stego",
+      "kind": "Screen",
+      "entry": "StegoModeSelect",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StorageCredentialType",
+      "owner": "Onboarding",
+      "kind": "Choice",
+      "entry": "StorageProtectionChoice",
+      "back": "StorageProtectionChoice"
+    },
+    {
+      "state": "StorageFinalizeChoice",
+      "owner": "Onboarding",
+      "kind": "Choice",
+      "entry": "StorageRecoveryAcknowledgement",
+      "back": "StorageRecoveryAcknowledgement"
+    },
+    {
+      "state": "StorageProtectionChoice",
+      "owner": "Onboarding",
+      "kind": "Choice",
+      "entry": "StorageFinalizeChoice",
+      "back": "StorageFinalizeChoice"
+    },
+    {
+      "state": "StorageModeChoice",
+      "owner": "Onboarding",
+      "kind": "Choice",
+      "entry": "boot:first-wallet",
+      "back": "-"
+    },
+    {
+      "state": "StoragePasswordConfirm",
+      "owner": "Onboarding",
+      "kind": "Modal",
+      "entry": "StoragePasswordEntry",
+      "back": "StoragePasswordEntry"
+    },
+    {
+      "state": "StoragePasswordEntry",
+      "owner": "Onboarding",
+      "kind": "Input",
+      "entry": "StorageCredentialType",
+      "back": "StorageCredentialType"
+    },
+    {
+      "state": "StoragePinConfirm",
+      "owner": "Onboarding",
+      "kind": "Modal",
+      "entry": "StoragePinEntry",
+      "back": "StoragePinEntry"
+    },
+    {
+      "state": "StoragePinEntry",
+      "owner": "Onboarding",
+      "kind": "Input",
+      "entry": "StorageCredentialType",
+      "back": "StorageCredentialType"
+    },
+    {
+      "state": "StorageRecoveryAcknowledgement",
+      "owner": "Onboarding",
+      "kind": "Modal",
+      "entry": "SeedBackup",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StorageSdFailure",
+      "owner": "Dynamic",
+      "kind": "Modal",
+      "entry": "SettingsMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StorageSeedDiceChoice",
+      "owner": "Dynamic",
+      "kind": "Choice",
+      "entry": "StorageSeedWordCountChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StorageSeedDiceCountChoice",
+      "owner": "Dynamic",
+      "kind": "Choice",
+      "entry": "StorageSeedDiceChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StorageSeedSourceChoice",
+      "owner": "Onboarding",
+      "kind": "Menu",
+      "entry": "StorageModeChoice",
+      "back": "StorageModeChoice"
+    },
+    {
+      "state": "StorageSeedTouchChoice",
+      "owner": "Dynamic",
+      "kind": "Choice",
+      "entry": "StorageSeedDiceChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StorageSeedWordCountChoice",
+      "owner": "Onboarding",
+      "kind": "Choice",
+      "entry": "StorageModeChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "StorageUnlockPassword",
+      "owner": "Storage",
+      "kind": "Screen",
+      "entry": "boot:persistent-password",
+      "back": "-"
+    },
+    {
+      "state": "StorageUnlockPin",
+      "owner": "Storage",
+      "kind": "Screen",
+      "entry": "boot:persistent-pin",
+      "back": "-"
+    },
+    {
+      "state": "TouchEntropy",
+      "owner": "Seeds",
+      "kind": "Screen",
+      "entry": "StorageSeedTouchChoice",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "WalletAdvancedMenu",
+      "owner": "Seeds",
+      "kind": "Menu",
+      "entry": "SeedsMenu",
+      "back": "history"
+    },
+    {
+      "state": "WalletBackupMethodsMenu",
+      "owner": "Seeds",
+      "kind": "Menu",
+      "entry": "SeedsMenu",
+      "back": "SeedsMenu"
+    },
+    {
+      "state": "WalletDetails",
+      "owner": "Seeds",
+      "kind": "Screen",
+      "entry": "SeedsMenu",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "WalletNameEntry",
+      "owner": "Dynamic",
+      "kind": "Input",
+      "entry": "WalletDetails",
+      "back": "workflow-specific"
+    },
+    {
+      "state": "WatchOnlyMenu",
+      "owner": "Export",
+      "kind": "Menu",
+      "entry": "ImportExportChoice",
+      "back": "ExportChoice"
+    },
+    {
+      "state": "XprvExportMenu",
+      "owner": "Export",
+      "kind": "Menu",
+      "entry": "SigningKeysMenu",
+      "back": "history"
+    }
+  ],
+  "menus": [
+    {
+      "state": "MainMenu",
+      "back": "-",
+      "items": [
+        {
+          "index": 0,
+          "label": "Connect",
+          "action": "home.connect_kassee",
+          "destination": "SeedsMenu",
+          "guard": "seed_loaded",
+          "operation": "ConnectKasSee"
+        },
+        {
+          "index": 1,
+          "label": "Scan QR",
+          "action": "home.scan_qr",
+          "destination": "ScanQR",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "Wallet",
+          "action": "home.wallet",
+          "destination": "SeedsMenu",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 3,
+          "label": "Settings",
+          "action": "home.settings",
+          "destination": "SettingsMenu",
+          "guard": "always",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "AdvancedMenu",
+      "back": "SettingsMenu",
+      "items": [
+        {
+          "index": 0,
+          "label": "Firmware Update",
+          "action": "settings.advanced.firmware_update",
+          "destination": "FirmwareUpdateReady",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "Factory Reset",
+          "action": "settings.advanced.factory_reset",
+          "destination": "FactoryResetWarning",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "Owner Firmware",
+          "action": "settings.advanced.owner_firmware",
+          "destination": "OwnerFirmwareMenu",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 3,
+          "label": "Pop It!",
+          "action": "settings.advanced.pop_it",
+          "destination": "PopItPrompt",
+          "guard": "secure_boot_disabled",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "OwnerFirmwareMenu",
+      "back": "AdvancedMenu",
+      "items": [
+        {
+          "index": 0,
+          "label": "Enroll Owner Key",
+          "action": "settings.owner_firmware.enroll",
+          "destination": "OwnerKeyWarning",
+          "guard": "secure_boot_disabled",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "Install from SD",
+          "action": "settings.owner_firmware.install",
+          "destination": "OwnerInstallWarning",
+          "guard": "m5stack",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "SeedsMenu",
+      "back": "MainMenu",
+      "items": [
+        {
+          "index": 0,
+          "label": "Receive",
+          "action": "wallet.receive",
+          "destination": "ShowAddress",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "Backup",
+          "action": "wallet.backup",
+          "destination": "WalletBackupMethodsMenu",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "Recovery",
+          "action": "wallet.recovery",
+          "destination": "SdImportMenu",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 3,
+          "label": "Wallet Details",
+          "action": "wallet.details",
+          "destination": "WalletDetails",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 4,
+          "label": "Switch / Add Wallet",
+          "action": "wallet.switch_add",
+          "destination": "SeedList",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 5,
+          "label": "Multisig",
+          "action": "wallet.multisig",
+          "destination": "MultisigMenu",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 6,
+          "label": "Advanced",
+          "action": "wallet.advanced",
+          "destination": "WalletAdvancedMenu",
+          "guard": "always",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "WalletBackupMethodsMenu",
+      "back": "SeedsMenu",
+      "items": [
+        {
+          "index": 0,
+          "label": "View Words",
+          "action": "wallet.backup.view_words",
+          "destination": "SeedBackup",
+          "guard": "mnemonic_wallet",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "SeedQR Backup",
+          "action": "wallet.backup.seedqr",
+          "destination": "ExportSeedQR",
+          "guard": "mnemonic_wallet",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "Encrypted SD Card",
+          "action": "wallet.backup.sd",
+          "destination": "SdBackupWarning",
+          "guard": "mnemonic_wallet",
+          "operation": null
+        },
+        {
+          "index": 3,
+          "label": "Advanced",
+          "action": "wallet.backup.advanced",
+          "destination": "BackupRecoveryMenu",
+          "guard": "always",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "WalletAdvancedMenu",
+      "back": "history",
+      "items": [
+        {
+          "index": 0,
+          "label": "BIP85 Child Wallet",
+          "action": "wallet.advanced.bip85",
+          "destination": "ChooseWordCount",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "BIP39 Last Word",
+          "action": "wallet.advanced.last_word",
+          "destination": "ChooseWordCount",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "Sign Message",
+          "action": "wallet.advanced.sign_message",
+          "destination": "SignMsgChoice",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 3,
+          "label": "Commit Secret",
+          "action": "wallet.advanced.commit_secret",
+          "destination": "CommitRevealType",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 4,
+          "label": "Decrypt Secret",
+          "action": "wallet.advanced.decrypt_secret",
+          "destination": "DecryptSecretScan",
+          "guard": "seed_loaded",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "BackupRecoveryMenu",
+      "back": "history",
+      "items": [
+        {
+          "index": 0,
+          "label": "Compact SeedQR",
+          "action": "wallet.backup.advanced.compact_seedqr",
+          "destination": "ExportCompactSeedQR",
+          "guard": "mnemonic_wallet",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "Plain-text SeedQR",
+          "action": "wallet.backup.advanced.plain_seedqr",
+          "destination": "ExportPlainWordsQR",
+          "guard": "mnemonic_wallet",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "Steganographic",
+          "action": "wallet.backup.advanced.stego",
+          "destination": "StegoModeSelect",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 3,
+          "label": "XPrv Backup",
+          "action": "wallet.backup.advanced.xprv",
+          "destination": "XprvExportMenu",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 4,
+          "label": "Export Key",
+          "action": "wallet.backup.advanced.export_key",
+          "destination": "ExportPrivKeyIndex",
+          "guard": "seed_loaded",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "StorageSeedSourceChoice",
+      "back": "StorageModeChoice",
+      "items": [
+        {
+          "index": 0,
+          "label": "Words",
+          "action": "onboarding.restore.words",
+          "destination": "RestoreWord",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "SeedQR",
+          "action": "onboarding.restore.seedqr",
+          "destination": "ScanQR",
+          "guard": "camera_available",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "SD",
+          "action": "onboarding.restore.sd",
+          "destination": "SdWalletBackupFileList",
+          "guard": "sd_present",
+          "operation": null
+        },
+        {
+          "index": 3,
+          "label": "Advanced",
+          "action": "onboarding.restore.advanced",
+          "destination": "AdvancedRestoreMenu",
+          "guard": "always",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "AdvancedRestoreMenu",
+      "back": "StorageSeedSourceChoice",
+      "items": [
+        {
+          "index": 0,
+          "label": "Compact SeedQR",
+          "action": "onboarding.advanced_restore.compact_seedqr",
+          "destination": "ScanQR",
+          "guard": "camera_available",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "Plain-text SeedQR",
+          "action": "onboarding.advanced_restore.plain_seedqr",
+          "destination": "ScanQR",
+          "guard": "camera_available",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "Steganographic",
+          "action": "onboarding.advanced_restore.stego",
+          "destination": "StegoImportPick",
+          "guard": "sd_present",
+          "operation": null
+        },
+        {
+          "index": 3,
+          "label": "Raw Private Key",
+          "action": "onboarding.advanced_restore.raw_key",
+          "destination": "ImportPrivKey",
+          "guard": "always",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "SettingsMenu",
+      "back": "MainMenu",
+      "items": [
+        {
+          "index": 0,
+          "label": "Display",
+          "action": "settings.display",
+          "destination": "DisplaySettings",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "Audio",
+          "action": "settings.audio",
+          "destination": "AudioSettings",
+          "guard": "m5stack",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "Security",
+          "action": "settings.security",
+          "destination": "AdvancedFeatures",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 3,
+          "label": "Storage",
+          "action": "settings.storage",
+          "destination": "SdCardSettings",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 4,
+          "label": "Advanced",
+          "action": "settings.advanced",
+          "destination": "AdvancedMenu",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 5,
+          "label": "About",
+          "action": "settings.about",
+          "destination": "About",
+          "guard": "always",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "SeedToolsMenu",
+      "back": "SeedsMenu",
+      "items": [
+        {
+          "index": 0,
+          "label": "New Seed",
+          "action": "seed_tools.new_seed",
+          "destination": "ChooseWordCount",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "Dice Seed",
+          "action": "seed_tools.dice_seed",
+          "destination": "ChooseWordCount",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "Touch Seed",
+          "action": "seed_tools.touch_seed",
+          "destination": "ChooseWordCount",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 3,
+          "label": "Import Words",
+          "action": "seed_tools.import_words",
+          "destination": "ChooseWordCount",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 4,
+          "label": "Address",
+          "action": "seed_tools.address",
+          "destination": "ShowAddress",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 5,
+          "label": "BIP85 Child",
+          "action": "seed_tools.bip85",
+          "destination": "ChooseWordCount",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 6,
+          "label": "Calc Last Word",
+          "action": "seed_tools.last_word",
+          "destination": "ChooseWordCount",
+          "guard": "always",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "ImportMenu",
+      "back": "ImportExportChoice",
+      "items": [
+        {
+          "index": 0,
+          "label": "Import from SD",
+          "action": "import.sd",
+          "destination": "SdImportMenu",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "Stego Import",
+          "action": "import.stego",
+          "destination": "StegoImportPick",
+          "guard": "sd_jpeg_available",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "Import Raw Key",
+          "action": "import.raw_key",
+          "destination": "ImportPrivKey",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 3,
+          "label": "Covenant Restore",
+          "action": "import.covenant",
+          "destination": "SdFileList",
+          "guard": "sd_covenant_available",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "SingleSigMenu",
+      "back": "SeedsMenu",
+      "items": [
+        {
+          "index": 0,
+          "label": "Sign TX",
+          "action": "signing.sign_tx",
+          "destination": "SignTxGuide",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "Sign Message",
+          "action": "signing.sign_message",
+          "destination": "SignMsgChoice",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "Covenant Sign",
+          "action": "signing.covenant",
+          "destination": "ScanQR",
+          "guard": "mnemonic_wallet",
+          "operation": null
+        },
+        {
+          "index": 3,
+          "label": "Commit Secret",
+          "action": "signing.commit_secret",
+          "destination": "CommitRevealType",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 4,
+          "label": "Decrypt Secret",
+          "action": "signing.decrypt_secret",
+          "destination": "DecryptSecretScan",
+          "guard": "seed_loaded",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "MultisigMenu",
+      "back": "history",
+      "items": [
+        {
+          "index": 0,
+          "label": "Create Multisig",
+          "action": "multisig.create",
+          "destination": "MultisigChooseMN",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "kpub Multisig QR",
+          "action": "multisig.kpub",
+          "destination": "MultisigMenu",
+          "guard": "mnemonic_wallet",
+          "operation": "DeriveMultisigKpub"
+        }
+      ]
+    },
+    {
+      "state": "ExportChoice",
+      "back": "SeedList",
+      "items": [
+        {
+          "index": 0,
+          "label": "Seed Backup",
+          "action": "export.seed_backup",
+          "destination": "SeedBackupMenu",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "Watch-Only",
+          "action": "export.watch_only",
+          "destination": "WatchOnlyMenu",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "Signing Keys",
+          "action": "export.signing_keys",
+          "destination": "SigningKeysMenu",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 3,
+          "label": "Steganography",
+          "action": "export.stego",
+          "destination": "StegoModeSelect",
+          "guard": "seed_loaded",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "SeedBackupMenu",
+      "back": "ExportChoice",
+      "items": [
+        {
+          "index": 0,
+          "label": "Show Seed Words",
+          "action": "export.seed.words",
+          "destination": "SeedBackup",
+          "guard": "mnemonic_wallet",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "QR Export",
+          "action": "export.seed.qr",
+          "destination": "QrExportMenu",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "Backup to SD",
+          "action": "export.seed.sd",
+          "destination": "SdBackupWarning",
+          "guard": "mnemonic_wallet",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "WatchOnlyMenu",
+      "back": "ExportChoice",
+      "items": [
+        {
+          "index": 0,
+          "label": "kpub as QR",
+          "action": "export.watch.kpub_qr",
+          "destination": "ExportKpub",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "kpub to SD",
+          "action": "export.watch.kpub_sd",
+          "destination": "SdKpubFilename",
+          "guard": "sd_present_and_seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "kpub Multisig QR",
+          "action": "export.watch.multisig_kpub",
+          "destination": "WatchOnlyMenu",
+          "guard": "mnemonic_wallet",
+          "operation": "DeriveMultisigKpub"
+        }
+      ]
+    },
+    {
+      "state": "SigningKeysMenu",
+      "back": "ExportChoice",
+      "items": [
+        {
+          "index": 0,
+          "label": "xprv Account",
+          "action": "export.keys.xprv",
+          "destination": "XprvExportMenu",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "Private Key",
+          "action": "export.keys.private",
+          "destination": "ExportPrivKeyIndex",
+          "guard": "seed_loaded",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "QrExportMenu",
+      "back": "SeedBackupMenu",
+      "items": [
+        {
+          "index": 0,
+          "label": "CompactSeedQR",
+          "action": "export.seedqr.compact",
+          "destination": "ExportCompactSeedQR",
+          "guard": "mnemonic_wallet",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "Standard SeedQR",
+          "action": "export.seedqr.standard",
+          "destination": "ExportSeedQR",
+          "guard": "mnemonic_wallet",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "Plain Text QR",
+          "action": "export.seedqr.plain",
+          "destination": "ExportPlainWordsQR",
+          "guard": "mnemonic_12_words",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "XprvExportMenu",
+      "back": "history",
+      "items": [
+        {
+          "index": 0,
+          "label": "Show as QR",
+          "action": "export.xprv.qr",
+          "destination": "ExportXprv",
+          "guard": "seed_loaded",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "Encrypt to SD",
+          "action": "export.xprv.sd",
+          "destination": "SdXprvFilename",
+          "guard": "sd_present_and_seed_loaded",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "SdImportMenu",
+      "back": "history",
+      "items": [
+        {
+          "index": 0,
+          "label": "Seed / XPrv Backup",
+          "action": "sd.import.wallet_backup",
+          "destination": "SdWalletBackupFileList",
+          "guard": "sd_present",
+          "operation": null
+        },
+        {
+          "index": 1,
+          "label": "Transaction",
+          "action": "sd.import.transaction",
+          "destination": "SdKsptFileList",
+          "guard": "sd_present",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "kpub (Watch-Only)",
+          "action": "sd.import.kpub",
+          "destination": "SdKpubFileList",
+          "guard": "sd_present",
+          "operation": null
+        },
+        {
+          "index": 3,
+          "label": "Multisig Address",
+          "action": "sd.import.multisig_address",
+          "destination": "SdKpubFileList",
+          "guard": "sd_present",
+          "operation": null
+        },
+        {
+          "index": 4,
+          "label": "Multisig Descriptor",
+          "action": "sd.import.multisig_descriptor",
+          "destination": "SdKpubFileList",
+          "guard": "sd_present",
+          "operation": null
+        },
+        {
+          "index": 5,
+          "label": "Covenant Restore",
+          "action": "sd.import.covenant",
+          "destination": "SdFileList",
+          "guard": "sd_present",
+          "operation": null
+        },
+        {
+          "index": 6,
+          "label": "Import Raw Key",
+          "action": "recovery.import_raw_key",
+          "destination": "ImportPrivKey",
+          "guard": "always",
+          "operation": null
+        }
+      ]
+    },
+    {
+      "state": "ConfirmTx",
+      "back": "ReviewTx",
+      "items": [
+        {
+          "index": 0,
+          "label": "Confirm",
+          "action": "tx.confirm",
+          "destination": "ConfirmTx",
+          "guard": "review_complete",
+          "operation": "SignTransaction"
+        },
+        {
+          "index": 1,
+          "label": "Cancel",
+          "action": "tx.cancel",
+          "destination": "Rejected",
+          "guard": "always",
+          "operation": null
+        },
+        {
+          "index": 2,
+          "label": "Inspect",
+          "action": "tx.inspect",
+          "destination": "ReviewTx",
+          "guard": "review_available",
+          "operation": null
+        }
+      ]
+    }
+  ],
+  "unique_menu_labels": [
+    "About",
+    "Address",
+    "Advanced",
+    "Audio",
+    "BIP39 Last Word",
+    "BIP85 Child",
+    "BIP85 Child Wallet",
+    "Backup",
+    "Backup to SD",
+    "Calc Last Word",
+    "Cancel",
+    "Commit Secret",
+    "Compact SeedQR",
+    "CompactSeedQR",
+    "Confirm",
+    "Connect",
+    "Covenant Restore",
+    "Covenant Sign",
+    "Create Multisig",
+    "Decrypt Secret",
+    "Dice Seed",
+    "Display",
+    "Encrypt to SD",
+    "Encrypted SD Card",
+    "Enroll Owner Key",
+    "Export Key",
+    "Factory Reset",
+    "Firmware Update",
+    "Import Raw Key",
+    "Import Words",
+    "Import from SD",
+    "Inspect",
+    "Install from SD",
+    "Multisig",
+    "Multisig Address",
+    "Multisig Descriptor",
+    "New Seed",
+    "Owner Firmware",
+    "Plain Text QR",
+    "Plain-text SeedQR",
+    "Pop It!",
+    "Private Key",
+    "QR Export",
+    "Raw Private Key",
+    "Receive",
+    "Recovery",
+    "SD",
+    "Scan QR",
+    "Security",
+    "Seed / XPrv Backup",
+    "Seed Backup",
+    "SeedQR",
+    "SeedQR Backup",
+    "Settings",
+    "Show Seed Words",
+    "Show as QR",
+    "Sign Message",
+    "Sign TX",
+    "Signing Keys",
+    "Standard SeedQR",
+    "Steganographic",
+    "Steganography",
+    "Stego Import",
+    "Storage",
+    "Switch / Add Wallet",
+    "Touch Seed",
+    "Transaction",
+    "View Words",
+    "Wallet",
+    "Wallet Details",
+    "Watch-Only",
+    "Words",
+    "XPrv Backup",
+    "kpub (Watch-Only)",
+    "kpub Multisig QR",
+    "kpub as QR",
+    "kpub to SD",
+    "xprv Account"
+  ]
+}

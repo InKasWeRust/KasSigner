@@ -1,0 +1,32 @@
+                    <!-- Commit-reveal verification sub-screen -->
+                    <div id="cov-cr-verify-panel" class="card hidden">
+                        <p class="u-text-11px-text-text-dim-margin-0-0-12px-line-1-4">
+                            Verify a commit-reveal revelation. Paste the reveal TX ID
+                            to extract the preimage and verify it matches the committed hash.
+                        </p>
+                        <label class="input-label">Reveal TX ID</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-cr-verify-txid" class="input-text u-grow-mb-0"
+                                   placeholder="Reveal transaction ID" autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-cr-verify-txid"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <button class="btn btn-primary u-mt-10px-full-width" id="btn-cov-cr-verify">
+                            Verify
+                        </button>
+                        <div class="u-hidden-mt-12px" id="cov-cr-verify-result">
+                            <div class="commit-reveal-result-card">
+                                <div class="u-text-10px-text-text-dim-text-transform-uppercase-tracking-1px">Revealed Secret</div>
+                                <div id="cov-cr-verify-preimage"></div>
+                                <div class="u-text-10px-text-text-dim-text-transform-uppercase-tracking-1px">Committed Hash (from script)</div>
+                                <div class="u-text-11px-text-accent-break-all-mb-10px" id="cov-cr-verify-hash"></div>
+                                <div class="u-text-10px-text-text-dim-text-transform-uppercase-tracking-1px">Computed Hash (BLAKE2B of preimage)</div>
+                                <div class="u-text-11px-text-accent-break-all-mb-10px" id="cov-cr-verify-computed"></div>
+                                <div id="cov-cr-verify-match"></div>
+                                <div class="commit-reveal-timestamp-label">Commitment Timestamp</div>
+                                <div id="cov-cr-verify-time"></div>
+                            </div>
+                            <button class="btn btn-outline u-mt-10px-full-width" id="btn-cov-cr-verify-clear">Clear revelation</button>
+                        </div>
+                        <button class="btn btn-back" id="btn-cov-cr-verify-back">Back</button>
+                    </div>

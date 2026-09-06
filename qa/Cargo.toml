@@ -1,0 +1,37 @@
+[package]
+name = "kassigner-qa"
+version = "2.0.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Repository-wide conformance, integration, and regression checks"
+
+[dev-dependencies]
+firmware-tools = { path = "../tools" }
+offline-signer = { path = "../crates/offline-signer" }
+kassigner-protocol = { path = "../crates/kassigner-protocol" }
+kassigner-sdk = { path = "../crates/kassigner-sdk" }
+shared-signer = { path = "../crates/shared-signer" }
+signer-firmware-core = { path = "../crates/signer-firmware-core" }
+serde_json = "1"
+hex = "0.4"
+
+[[test]]
+name = "conformance"
+path = "tests/conformance.rs"
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "tooling_firmware_signing"
+path = "tests/integration/firmware_signing.rs"
+
+[[bench]]
+name = "protocol_throughput"
+path = "benches/protocol_throughput.rs"
+harness = false
+
+[workspace]
+resolver = "2"

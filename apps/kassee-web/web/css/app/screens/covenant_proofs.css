@@ -1,0 +1,27 @@
+
+
+/* Component-owned styles migrated from one-use global utilities. */
+#btn-cov-cr-show-ct-qr { width:100%; margin-bottom:6px; font-size:13px; }
+#btn-cov-oracle-beacon { width:100%; margin-bottom:8px; display:none; background:var(--teal); }
+#cov-balance-kas { font-size:20px; font-weight:600; color:var(--text-primary); }
+#cov-balance-result { margin-top:12px; padding:12px; background:var(--bg-secondary); border-radius:8px; }
+#cov-cr-preimage-status { font-size:11px; color:var(--text-dim); margin-bottom:8px; }
+#cov-cr-verify-match { font-size:16px; text-align:center; padding:8px; border-radius:6px; font-weight:bold; }
+#cov-cr-verify-preimage { font-size:14px; color:var(--text); word-break:break-all; margin-bottom:10px; }
+#cov-cr-verify-time { font-size:12px; color:var(--text); }
+#cov-mw-spend-addresses { opacity:0.7; font-size:11px; }
+#input-omb-fee-custom { width:100%; box-sizing:border-box; text-align:center; font-size:12px; padding:7px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); }
+#oracle-mb-age { font-size:12px; color:var(--text-muted); }
+#oracle-mb-ask-status { font-size:11px; color:var(--teal); text-align:center; margin-top:8px; display:none; }
+#oracle-mb-price { font-size:38px; font-weight:700; color:var(--teal); line-height:1.15; text-shadow:0 0 30px var(--teal-glow); margin:2px 0; }
+.commit-reveal-result-card { border:1px solid var(--card-border); border-radius:8px; padding:12px; }
+.commit-reveal-timestamp-label { font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; margin-top:10px; margin-bottom:4px; }
+.oracle-fee-help { font-size:11px; color:var(--text-muted); text-align:center; margin-bottom:6px; }
+.oracle-fee-options { display:flex; gap:6px; margin-bottom:6px; }
+.oracle-fee-panel { margin:0 0 12px; display:none; }
+.oracle-market-label { font-size:13px; color:var(--text-muted); letter-spacing:0.04em; text-transform:uppercase; }
+.oracle-price-header { text-align:center; margin-bottom:4px; }
+.oracle-proof-countdown { margin-top:10px; text-align:center; font-size:13px; line-height:1.4; color:var(--teal); }
+.oracle-proof-metadata { border-top:1px solid var(--border); margin-top:14px; padding-top:10px; font-size:10px; color:var(--text-muted); line-height:1.7; word-break:break-all; }
+.oracle-source-note { font-size:11px; color:var(--text-muted); text-align:center; margin:6px 0 14px; }
+.rollup-balance-label { font-size:13px; color:var(--text-secondary); }

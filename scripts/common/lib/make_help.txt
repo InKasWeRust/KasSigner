@@ -1,0 +1,47 @@
+KasSigner developer commands
+
+KASSEE / SDK
+  make kassee                     — build KasSee Web and its application WASM runtime
+  make sdk                        — build standalone @kassigner/sdk WASM package into target/sdk/kassigner-sdk/pkg
+
+IOS
+  make ios                         — real Xcode Debug build (macOS/Xcode required)
+  make ios-release                 — Xcode Release archive; device distribution requires local Apple signing team
+  make ios-test                    — XCTest/XCUITest on the configured simulator
+  make ios-qa                      — iOS-focused architecture/CRAP/instrumentation/mutation QA
+
+ANDROID
+  make android                     — real API-37 Debug build
+  make android-release             — optimized API-37 Release variant; distribution signing is publisher-controlled
+  make android-test                — Android Debug unit tests
+  make android-qa                  — Android-focused architecture/CRAP/instrumentation/mutation QA
+
+FIRMWARE / DEVICE
+  make firmware [BOARD=m5stack|waveshare]                         — build development firmware; BOARD defaults to m5stack
+  make flash [BOARD=m5stack|waveshare] [PORT=/dev/ttyACM0]       — build development firmware, flash, and monitor; PORT auto-detects
+  make flash-release [BOARD=...] [PORT=...] [RELEASE_DIR=release] — flash an existing signed merged normal-release image only; never builds/provisions/falls back unsigned
+  make secure-provisioning SECURE_BOOT_KEY=/secure/vendor-rsa.pem SIGNING_KEY=/secure/vendor-schnorr.key [SECURE_DIR=...] — build the non-flashing CoreS3 vendor+optional-owner provisioning profile
+  make secure-owner-only OWNER_KEY=/secure/owner-rsa.pem [SECURE_DIR=...] — build the non-flashing CoreS3 sole-owner provisioning profile; no vendor authority
+  make firmware-mirror                                             — build Waveshare display-mirror firmware
+  make test-hardware [BOARD=...] [PORT=...]                       — physical registered on-device hardware tests only
+  make workflow-e2e [BOARD=...] [PORT=...]                        — connected physical production workflow E2E only
+  make workflow-hil [BOARD=m5stack] [PORT=...]                    — physical/destructive workflow HIL only
+  make firmware-qemu-setup                                        — install QEMU prerequisites
+  make firmware-qemu                                              — build the ESP32-S3 QEMU image
+  make firmware-qemu-test                                         — build and run QEMU tests
+  make owner-firmware OWNER_KEY=/secure/path/owner.pem             — build OWNERKEY.KAS + owner-signed CoreS3 OWNERFW.BIN; private key stays outside repository
+
+COMMON QA
+  make test                       — fast host/browser contributor suite; no Android, iOS/Xcode, physical-device, or HIL tests
+  make qa [RESUME_FROM=STEP]      — authoritative ALL non-hardware QA; RESUME_FROM reruns STEP then every later full-QA step; missing ephemeral CRAP prerequisites are regenerated automatically
+
+RELEASE
+  make release [SIGNING_KEY=...] [RELEASE_DIR=...]                — build normal non-destructive production artifacts; SIGNING_KEY emits signed images; no provisioning UI
+  make release-readiness                                         — validate operator-supplied source/artifact-bound signed release evidence; requires the bindings documented in qa/release/README.md
+
+RECOMMENDED RELEASE WORKFLOW
+  make test -> make qa -> make test-hardware -> make workflow-e2e -> make workflow-hil -> make release -> make release-readiness
+
+OTHER
+  make clean
+  make help

@@ -1,0 +1,1644 @@
+{
+  "sites": [
+    {
+      "path": "apps/signer-firmware/src/boot/waveshare/mod.rs",
+      "line": 18,
+      "source": "let mut previous = unsafe { (core::ptr::read_volatile(register) >> pin) & 1 };",
+      "fingerprint": "45c7c01b59edaa74285b038f8c50513a5bac392c205330cd999d10a42959933f",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/boot/waveshare/mod.rs",
+      "line": 20,
+      "source": "let current = unsafe { (core::ptr::read_volatile(register) >> pin) & 1 };",
+      "fingerprint": "18f550f14f387f0278379f84bb22573c9a8feb95f211b51450ff1bced572e2f5",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/boot/waveshare/mod.rs",
+      "line": 30,
+      "source": "unsafe {",
+      "fingerprint": "175cfc5deadacc336c2f2909b1d96f9c183b107172381636f49676006ccd3197",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/boot/waveshare/mod.rs",
+      "line": 115,
+      "source": "unsafe {",
+      "fingerprint": "354cbb60c4880d06619c14533071cc797d3a6f59947b2709d0e02a0bce84c758",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/diagnostics/sentinel_scan.rs",
+      "line": 56,
+      "source": "unsafe { core::ptr::write_volatile(scratch.as_mut_ptr().add(128 + offset), byte); }",
+      "fingerprint": "39c0e24e9abf707b7f268d668dd1f1f2d136228eb43816340ab216e2417c9e33",
+      "rationale": "Reviewed developer-only synthetic-remanence boundary: raw volatile accesses are confined to the owned 2048-byte stack probe or to the exact retired probe interval recorded from that object. Fixed offsets plus the 32-byte public sentinel stay in-bounds; remanence_bounds clips the retired interval below the current stack pointer by STACK_LIVE_MARGIN before scan/wipe. No wallet-derived sentinel or unrelated RAM range is used.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/diagnostics/sentinel_scan.rs",
+      "line": 57,
+      "source": "unsafe { core::ptr::write_volatile(scratch.as_mut_ptr().add(896 + offset), byte); }",
+      "fingerprint": "1b4352c54a5d2f1e33dfef717a2d23567c4a0dadc8980208d362bd231a18d53a",
+      "rationale": "Reviewed developer-only synthetic-remanence boundary: raw volatile accesses are confined to the owned 2048-byte stack probe or to the exact retired probe interval recorded from that object. Fixed offsets plus the 32-byte public sentinel stay in-bounds; remanence_bounds clips the retired interval below the current stack pointer by STACK_LIVE_MARGIN before scan/wipe. No wallet-derived sentinel or unrelated RAM range is used.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/diagnostics/sentinel_scan.rs",
+      "line": 58,
+      "source": "unsafe { core::ptr::write_volatile(scratch.as_mut_ptr().add(1664 + offset), byte); }",
+      "fingerprint": "8f7a3930942da8fb8356b017d6b2d753a3030a768b143e0dfa1aed1c4cd2e7ce",
+      "rationale": "Reviewed developer-only synthetic-remanence boundary: raw volatile accesses are confined to the owned 2048-byte stack probe or to the exact retired probe interval recorded from that object. Fixed offsets plus the 32-byte public sentinel stay in-bounds; remanence_bounds clips the retired interval below the current stack pointer by STACK_LIVE_MARGIN before scan/wipe. No wallet-derived sentinel or unrelated RAM range is used.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/diagnostics/sentinel_scan.rs",
+      "line": 62,
+      "source": "unsafe { core::ptr::write_volatile(scratch.as_mut_ptr().add(1408 + offset), byte); }",
+      "fingerprint": "92289efb1013c6a325e1a232c2223305ddd24b5e046aaf136f618d872f4b607a",
+      "rationale": "Reviewed developer-only synthetic-remanence boundary: raw volatile accesses are confined to the owned 2048-byte stack probe or to the exact retired probe interval recorded from that object. Fixed offsets plus the 32-byte public sentinel stay in-bounds; remanence_bounds clips the retired interval below the current stack pointer by STACK_LIVE_MARGIN before scan/wipe. No wallet-derived sentinel or unrelated RAM range is used.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/diagnostics/sentinel_scan.rs",
+      "line": 65,
+      "source": "let observed = unsafe { core::ptr::read_volatile(scratch.as_ptr().add(1664)) };",
+      "fingerprint": "7f3e5e6eb0c30975401cce66c29a7b3e44c3a1fc0e0cdd274e1f32d61d231d03",
+      "rationale": "Reviewed developer-only synthetic-remanence boundary: raw volatile accesses are confined to the owned 2048-byte stack probe or to the exact retired probe interval recorded from that object. Fixed offsets plus the 32-byte public sentinel stay in-bounds; remanence_bounds clips the retired interval below the current stack pointer by STACK_LIVE_MARGIN before scan/wipe. No wallet-derived sentinel or unrelated RAM range is used.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/diagnostics/sentinel_scan.rs",
+      "line": 102,
+      "source": "let stack_byte = unsafe { core::ptr::read_volatile((address + index) as *const u8) };",
+      "fingerprint": "f7a5101e67fa20495d7e926b65c97c81a961b91e0977daaf9c6b2c7e81049a4a",
+      "rationale": "Reviewed developer-only synthetic-remanence boundary: raw volatile accesses are confined to the owned 2048-byte stack probe or to the exact retired probe interval recorded from that object. Fixed offsets plus the 32-byte public sentinel stay in-bounds; remanence_bounds clips the retired interval below the current stack pointer by STACK_LIVE_MARGIN before scan/wipe. No wallet-derived sentinel or unrelated RAM range is used.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/diagnostics/sentinel_scan.rs",
+      "line": 103,
+      "source": "let marker_byte = unsafe { core::ptr::read_volatile(SENTINEL.as_ptr().add(index)) };",
+      "fingerprint": "afced41743b97c43cb4c18d35c7f8d1c4a5206e4d7f14279dab86a47b6357af5",
+      "rationale": "Reviewed developer-only synthetic-remanence boundary: raw volatile accesses are confined to the owned 2048-byte stack probe or to the exact retired probe interval recorded from that object. Fixed offsets plus the 32-byte public sentinel stay in-bounds; remanence_bounds clips the retired interval below the current stack pointer by STACK_LIVE_MARGIN before scan/wipe. No wallet-derived sentinel or unrelated RAM range is used.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/diagnostics/sentinel_scan.rs",
+      "line": 113,
+      "source": "unsafe { core::ptr::write_volatile(address as *mut u8, 0); }",
+      "fingerprint": "8c4788f8451e2d39ceddf8ce2cbe56cfc187d92dfaf8a4b2f0396002c605bfb9",
+      "rationale": "Reviewed developer-only synthetic-remanence boundary: raw volatile accesses are confined to the owned 2048-byte stack probe or to the exact retired probe interval recorded from that object. Fixed offsets plus the 32-byte public sentinel stay in-bounds; remanence_bounds clips the retired interval below the current stack pointer by STACK_LIVE_MARGIN before scan/wipe. No wallet-derived sentinel or unrelated RAM range is used.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/m5stack/spi_bus/gpio35.rs",
+      "line": 18,
+      "source": "unsafe {",
+      "fingerprint": "47eb5f7ee71f9ee037d6bcc3f8734c7822cf7db152e3bd3c4869723a0fa7287e",
+      "rationale": "Reviewed CoreS3 GPIO35 multiplexing boundary: fixed ESP32-S3 GPIO-matrix/enable/data registers switch only GPIO35 between LCD D/C output and SD FSPIQ/MISO. The SD handoff restores the official FSPIQ selector before disabling GPIO35 output; the single shared SPI2 owner serializes every LCD/SD transition.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/m5stack/spi_bus/gpio35.rs",
+      "line": 25,
+      "source": "unsafe {",
+      "fingerprint": "283d40dcf858ffc5b1331ed1d4d342a175604a8fb2a1a290fd8befac5108841d",
+      "rationale": "Reviewed CoreS3 GPIO35 multiplexing boundary: fixed ESP32-S3 GPIO-matrix/enable/data registers switch only GPIO35 between LCD D/C output and SD FSPIQ/MISO. The SD handoff restores the official FSPIQ selector before disabling GPIO35 output; the single shared SPI2 owner serializes every LCD/SD transition.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/m5stack/spi_bus/gpio35.rs",
+      "line": 32,
+      "source": "unsafe {",
+      "fingerprint": "6c5b8a150a88fee78aba6ec4e54aba89355d141fe0d7322b9d642ef60d844c12",
+      "rationale": "Reviewed CoreS3 GPIO35 multiplexing boundary: fixed ESP32-S3 GPIO-matrix/enable/data registers switch only GPIO35 between LCD D/C output and SD FSPIQ/MISO. The SD handoff restores the official FSPIQ selector before disabling GPIO35 output; the single shared SPI2 owner serializes every LCD/SD transition.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/m5stack/spi_bus/gpio35.rs",
+      "line": 41,
+      "source": "unsafe {",
+      "fingerprint": "75f4b8ea8a66883639c2d91e7bbc1672197bd68347b16d89e58bacfc8c7673a9",
+      "rationale": "Reviewed CoreS3 GPIO35 multiplexing boundary: fixed ESP32-S3 GPIO-matrix/enable/data registers switch only GPIO35 between LCD D/C output and SD FSPIQ/MISO. The SD handoff restores the official FSPIQ selector before disabling GPIO35 output; the single shared SPI2 owner serializes every LCD/SD transition.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/m5stack/spi_bus/gpio35.rs",
+      "line": 46,
+      "source": "unsafe fn read_register(address: u32) -> u32 {",
+      "fingerprint": "079c54b752383f182fb0924d36eb373a74073d962fff9a800ad2ad008ff2d05d",
+      "rationale": "Reviewed CoreS3 GPIO35 multiplexing boundary: fixed ESP32-S3 GPIO-matrix/enable/data registers switch only GPIO35 between LCD D/C output and SD FSPIQ/MISO. The SD handoff restores the official FSPIQ selector before disabling GPIO35 output; the single shared SPI2 owner serializes every LCD/SD transition.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/m5stack/spi_bus/gpio35.rs",
+      "line": 50,
+      "source": "unsafe fn write_register(address: u32, value: u32) {",
+      "fingerprint": "c58150fed752f571538115c2df493082f06443e272b4bf114a3f93b90e0f6588",
+      "rationale": "Reviewed CoreS3 GPIO35 multiplexing boundary: fixed ESP32-S3 GPIO-matrix/enable/data registers switch only GPIO35 between LCD D/C output and SD FSPIQ/MISO. The SD handoff restores the official FSPIQ selector before disabling GPIO35 output; the single shared SPI2 owner serializes every LCD/SD transition.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/m5stack/spi_bus/sd_power_lines.rs",
+      "line": 28,
+      "source": "unsafe {",
+      "fingerprint": "c4eabdddcf16e64b25636fd00fc3b6bd7f44c22f7d74e56e59891557d8c20a48",
+      "rationale": "Reviewed CoreS3 microSD electrical-reset boundary: fixed ESP32-S3 GPIO output, enable, and matrix registers affect only card-facing GPIO4/35/36/37. The shared SPI2 owner flushes and deselects the card before these lines are clamped low during ALDO4-off, then restores GPIO36 FSPICLK, GPIO37 FSPID, GPIO35 FSPIQ/input, and GPIO4 high CS immediately after rail enable.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/m5stack/spi_bus/sd_power_lines.rs",
+      "line": 40,
+      "source": "unsafe {",
+      "fingerprint": "3422379c830d49504aab142cfea0d9371ee85d003e023e4f2c3fa8dd6cd01e68",
+      "rationale": "Reviewed CoreS3 microSD electrical-reset boundary: fixed ESP32-S3 GPIO output, enable, and matrix registers affect only card-facing GPIO4/35/36/37. The shared SPI2 owner flushes and deselects the card before these lines are clamped low during ALDO4-off, then restores GPIO36 FSPICLK, GPIO37 FSPID, GPIO35 FSPIQ/input, and GPIO4 high CS immediately after rail enable.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/m5stack/spi_bus/sd_power_lines.rs",
+      "line": 55,
+      "source": "unsafe fn write_register(address: u32, value: u32) {",
+      "fingerprint": "c4ca104937184c17e819133d24a896f4f3cbd0b70a8db0c8e35e3954df993edb",
+      "rationale": "Reviewed CoreS3 microSD electrical-reset boundary: fixed ESP32-S3 GPIO output, enable, and matrix registers affect only card-facing GPIO4/35/36/37. The shared SPI2 owner flushes and deselects the card before these lines are clamped low during ALDO4-off, then restores GPIO36 FSPICLK, GPIO37 FSPID, GPIO35 FSPIQ/input, and GPIO4 high CS immediately after rail enable.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/m5stack/spi_bus/sd_power_lines.rs",
+      "line": 56,
+      "source": "unsafe { ptr::write_volatile(address as *mut u32, value) };",
+      "fingerprint": "d7039183cf329cc506a2ff39d9ece535a8b619b4f22f8c75b5353fced175a15d",
+      "rationale": "Reviewed CoreS3 microSD electrical-reset boundary: fixed ESP32-S3 GPIO output, enable, and matrix registers affect only card-facing GPIO4/35/36/37. The shared SPI2 owner flushes and deselects the card before these lines are clamped low during ALDO4-off, then restores GPIO36 FSPICLK, GPIO37 FSPID, GPIO35 FSPIQ/input, and GPIO4 high CS immediately after rail enable.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/m5stack/spi_bus/state.rs",
+      "line": 176,
+      "source": "Ok(unsafe { &*pointer })",
+      "fingerprint": "96b987cbb582093f1b7e989671227dea344a4fa237e67d9b9024344c664a6986",
+      "rationale": "Reviewed one-time CoreS3 SPI2 publication boundary: the pointer is produced only from the StaticCell allocation during boot, checked non-null before dereference, never replaced after publication, and all mutable SPI2/SD-CS access is mediated by RefCell re-entry checks; architecture policy forbids interrupt handlers from accessing this shared bus.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/core.rs",
+      "line": 47,
+      "source": "let mut cpu_control = CpuControl::new(unsafe { CPU_CTRL::steal() });",
+      "fingerprint": "3ae3a2fba5f7329f2f06d5a4888aaa2ba821500da23f6121e6621a6f858c1ca2",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/core.rs",
+      "line": 51,
+      "source": "unsafe { cpu_control.park_core(other_cpu) };",
+      "fingerprint": "1c41de11d6d538e81f1b2cde76a89138a6dc988bd3082f398fdd586ba8bcc2e0",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/core.rs",
+      "line": 63,
+      "source": "let mut cpu_control = CpuControl::new(unsafe { CPU_CTRL::steal() });",
+      "fingerprint": "d6109fdfa037b85759fcb7aca071f0579055b0417fa5e7dce509c5011e8026d9",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/flash.rs",
+      "line": 84,
+      "source": "let result = ROM_FLASH_LOCK.lock(|| unsafe { esp_rom_spiflash_read(address, data, len) });",
+      "fingerprint": "17e577c5a6eda0cd788b71f5beacaa877105c8dcf4eb683847af9ebd615fdfc4",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/flash.rs",
+      "line": 91,
+      "source": "let result = ROM_FLASH_LOCK.lock(|| unsafe { esp_rom_spiflash_unlock() });",
+      "fingerprint": "a9ae5d480a668d93eacb02e9d00708dc37f465b87c28829333de8710b3fad3b0",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/flash.rs",
+      "line": 98,
+      "source": "let result = ROM_FLASH_LOCK.lock(|| unsafe { esp_rom_spiflash_erase_sector(sector) });",
+      "fingerprint": "cf7e2bbbafdff027cfa2f1eed373c3a11bc4000dec59eb96274c0b51df0bc13f",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/flash.rs",
+      "line": 105,
+      "source": "let result = ROM_FLASH_LOCK.lock(|| unsafe { esp_rom_spiflash_write(address, data, len) });",
+      "fingerprint": "616db59ccd9f4c974de2a697cfae33a9f8b2e489268fba36564c1d6150f51c1d",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/lockdown.rs",
+      "line": 40,
+      "source": "unsafe {",
+      "fingerprint": "275f50a60cfab07708b0d473290d438d2caafe7881f770716f0f074888ee27a2",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/lockdown.rs",
+      "line": 59,
+      "source": "let power = unsafe { read(RTC_CNTL_DIG_PWC) };",
+      "fingerprint": "4aff92dbc9ddeae6db8da624e57489e67410e3dd83cb02a26bc9d73a68ec23e1",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/lockdown.rs",
+      "line": 76,
+      "source": "unsafe {",
+      "fingerprint": "8dce37abb8f5e26124e4b67795a29ae132db262891fcb3a701e61e0a9f44d902",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/lockdown.rs",
+      "line": 95,
+      "source": "unsafe {",
+      "fingerprint": "308019b3582cf932edaa7befa08abbbc12296f56e17281a9352af6541789a8ea",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/mmio.rs",
+      "line": 6,
+      "source": "pub(crate) unsafe fn read(address: u32) -> u32 {",
+      "fingerprint": "479963a7c4029f5d1bf93c2cdf631806e717bf7328e30d426260ab7273308ba4",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/mmio.rs",
+      "line": 7,
+      "source": "unsafe { core::ptr::read_volatile(address as *const u32) }",
+      "fingerprint": "3ba5a8659316524371dd5ce5b9d826dc6fcdb0a9e11be4d7aaffedb3f5c17c01",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/mmio.rs",
+      "line": 11,
+      "source": "pub(crate) unsafe fn write(address: u32, value: u32) {",
+      "fingerprint": "875b34c32f245c8036fc380c4737e7250dfcb7a0b495aa4f314e7c34a78b2fdf",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/mmio.rs",
+      "line": 12,
+      "source": "unsafe { core::ptr::write_volatile(address as *mut u32, value) };",
+      "fingerprint": "17c82327b40715cb49264b9fec27537711c573559af34f99eeeadeccbe6266a4",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/mmio.rs",
+      "line": 16,
+      "source": "pub(crate) unsafe fn set_bits(address: u32, mask: u32) {",
+      "fingerprint": "de7bcef7ef8defdee8e607346c2b030ab5721dbad3e41aad894127d5f8bf35b9",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/mmio.rs",
+      "line": 17,
+      "source": "unsafe { write(address, read(address) | mask) };",
+      "fingerprint": "92a5e9ea347210e1c567ecfba529e384cf23e2535ccdefbd80a2b4ba3abd0180",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/mmio.rs",
+      "line": 21,
+      "source": "pub(crate) unsafe fn clear_bits(address: u32, mask: u32) {",
+      "fingerprint": "6597a9c7e184f5bfba25d068b5e05f1ff0237a64f133ede7646c68a3986c1f9d",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/mmio.rs",
+      "line": 22,
+      "source": "unsafe { write(address, read(address) & !mask) };",
+      "fingerprint": "f5524fbb3be46078267b50a0f99a0992b514b1c39ce4df72ef510a094582b5cb",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/screenshot.rs",
+      "line": 53,
+      "source": "let candidate = unsafe { alloc::alloc::alloc_zeroed(layout) };",
+      "fingerprint": "a1c9716d21475cbc67b7ed97108c1bc00292d08e247e3c343881bd2e950e309e",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/screenshot.rs",
+      "line": 66,
+      "source": "unsafe { alloc::alloc::dealloc(candidate, layout) };",
+      "fingerprint": "6b24f4f68906e3af74e48d1d39c01162378dc801dc08b9f96e7d92f944c8d6d9",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/screenshot.rs",
+      "line": 79,
+      "source": "let framebuffer = unsafe { core::slice::from_raw_parts_mut(pointer, BUF_SIZE) };",
+      "fingerprint": "96004904bf75097a34066c0abf48f46b4d6897f3fb9f0175ba48fae2a295fd15",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/shared/screenshot.rs",
+      "line": 89,
+      "source": "let framebuffer = unsafe { core::slice::from_raw_parts(pointer, BUF_SIZE) };",
+      "fingerprint": "f5b66f5762cf7198e7f928785a47dca228c33a0281e6e479dee6780bf93b7a8f",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/decode_core/mod.rs",
+      "line": 61,
+      "source": "let pointer = unsafe { alloc::alloc::alloc_zeroed(layout) };",
+      "fingerprint": "1409d6996a570033795f47ed7759856d38820923211ab98a5ea06b33466f4b6b",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/decode_core/mod.rs",
+      "line": 82,
+      "source": "unsafe { core::ptr::copy_nonoverlapping(gray.as_ptr(), pointer, length); }",
+      "fingerprint": "9a7388bbba60393c05c8842b0d9fb95f209be48895a3c8cab69f1e833fcbee5a",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/decode_core/mod.rs",
+      "line": 94,
+      "source": "let result = unsafe { core::ptr::replace(RESULT.get(), None) };",
+      "fingerprint": "b5e466278785c26b93e9e97563893c4754f7259e64611a70ae95a290a45661b3",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/decode_core/mod.rs",
+      "line": 127,
+      "source": "let gray = unsafe { core::slice::from_raw_parts(pointer, length) };",
+      "fingerprint": "5a02bdf95e4a678c20de7e9389b2ac2174644b5bba8d3f52324f1e0b32fef8ad",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/decode_core/mod.rs",
+      "line": 154,
+      "source": "unsafe { core::ptr::write(RESULT.get(), Some(outcome)); }",
+      "fingerprint": "6d407192746f59e903a0d2b369b04f193925c7785b1547d559cf7bfba781c6c5",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/dma/buffers.rs",
+      "line": 80,
+      "source": "copy_sample_with(output, self.ready, self.completed_bytes, |index| unsafe {",
+      "fingerprint": "ae5fcb0e5cc74183b2a08167ee1caf0a4815807a6406d1a9612d743f5b1265e6",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/dma/descriptors.rs",
+      "line": 69,
+      "source": "let control = unsafe {",
+      "fingerprint": "dc62adc52165214b7f41a56774b811af2272b15fe83bfb035831c505bfaf79e3",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/dma/descriptors.rs",
+      "line": 76,
+      "source": "unsafe {",
+      "fingerprint": "f78e01c927d8de7ae42be579cd3ffd04bf30c702d8876444f6e8c52bb7c9b9e1",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/dma/descriptors.rs",
+      "line": 86,
+      "source": "unsafe {",
+      "fingerprint": "6ec98f3c7f5cac71b55c324cb0184ac999b5e75b14d671c36c68120006c81ab1",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/dma/owner.rs",
+      "line": 33,
+      "source": "unsafe { (*self.value.get()).write(value) };",
+      "fingerprint": "5f7cac114f76d5d2e40e5c8e874e2af3025dabff16cea563ae6e8b177c721847",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/dma/owner.rs",
+      "line": 45,
+      "source": "let owner = unsafe { (&mut *self.value.get()).assume_init_mut() };",
+      "fingerprint": "686875ac43c0686b9c359198b3550c1444e1a74b29b7655c7f3ebb92af8e0e8d",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/dma/registers.rs",
+      "line": 25,
+      "source": "unsafe {",
+      "fingerprint": "c167d547e340bcf74aab8f07094e524a41b1507a718b79df6004aae156b18c4c",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/dma/registers.rs",
+      "line": 53,
+      "source": "unsafe {",
+      "fingerprint": "b9fb55023b6c621fda529876e8a055d3f47585b2bd91930918d64829000495ab",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/dma/registers.rs",
+      "line": 77,
+      "source": "let raw = unsafe { read(GDMA_IN_INT_RAW) };",
+      "fingerprint": "127c721860dd2fa2805fa6cd67b1762ed271a3c31854ae57b62fdc3d94b8a938",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/dma/registers.rs",
+      "line": 79,
+      "source": "unsafe { write(GDMA_IN_INT_CLR, INT_IN_DONE) };",
+      "fingerprint": "f05a10463ab5bab917c3337efdfd9f27ca79fcf7d36bc887ef4700745f41da3a",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/dma/registers.rs",
+      "line": 82,
+      "source": "unsafe { write(GDMA_IN_INT_CLR, INT_IN_DSCR_ERR) };",
+      "fingerprint": "90a44ca7ae7365b61687fd277101a5aa65cc9873367da690016344675ceba84c",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/dma/registers.rs",
+      "line": 87,
+      "source": "unsafe { write(GDMA_IN_INT_CLR, INT_IN_SUC_EOF) };",
+      "fingerprint": "4797e39beac718953823782a948977ffa62f04abb1e0a938b46c0917e62165ab",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/dma/registers.rs",
+      "line": 92,
+      "source": "unsafe {",
+      "fingerprint": "f17d020c4560f72e2300745d53535499785964e55754ced7c6121be2599f4e14",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/dma/registers.rs",
+      "line": 99,
+      "source": "unsafe {",
+      "fingerprint": "dd29e4a6b74a54f9404cae4750eda89e23571e60c5273600dfb25e78c6578ece",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/dma/registers.rs",
+      "line": 111,
+      "source": "unsafe { core::ptr::read_volatile(&0u32) };",
+      "fingerprint": "0d2663c63a098228c9e854ba63927f8a70456eab02102e0ad033ff7c8c88cada",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/ov5640/peripheral.rs",
+      "line": 20,
+      "source": "unsafe {",
+      "fingerprint": "6610ba9491f724b18a0bda2acd58bb54b1c15533edd59d730cee9b0b1df9873a",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/ov5640/peripheral.rs",
+      "line": 36,
+      "source": "unsafe {",
+      "fingerprint": "415292b0502fe177b5dfb99452e9096570d5aaaba8c39b7ba3ced5c572b33582",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/power.rs",
+      "line": 16,
+      "source": "unsafe { core::ptr::write_volatile(GPIO_OUT_W1TC, CAMERA_PWDN_MASK) };",
+      "fingerprint": "818ab7addbd4ff8c6041dd22c9d2f07286db3085c04360d0836c4e604ac2cd52",
+      "rationale": "Reviewed Waveshare camera hardware boundary: the only raw writes target the fixed ESP32-S3 GPIO write-one-to-clear/set registers for GPIO17 PWDN. This module centralizes the board polarity and register addresses; callers use safe wake/sleep/pulse_reset functions after boot configures GPIO17 as an output.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/cameras/power.rs",
+      "line": 23,
+      "source": "unsafe { core::ptr::write_volatile(GPIO_OUT_W1TS, CAMERA_PWDN_MASK) };",
+      "fingerprint": "6bbf905ed46d9dea365eb80436471270af1ba84e4cea6b82e5980a45fab30413",
+      "rationale": "Reviewed Waveshare camera hardware boundary: the only raw writes target the fixed ESP32-S3 GPIO write-one-to-clear/set registers for GPIO17 PWDN. This module centralizes the board polarity and register addresses; callers use safe wake/sleep/pulse_reset functions after boot configures GPIO17 as an output.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/power/battery.rs",
+      "line": 54,
+      "source": "unsafe {",
+      "fingerprint": "da4a0e35b845628e18db05f3a9eb5d34ce5683e5234f48230f3e53a05bdbb220",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/power/battery.rs",
+      "line": 90,
+      "source": "unsafe {",
+      "fingerprint": "de6bcbc13be99ac8dcf0abc90fa55336fffdd60907d8b8d9831ae6ed9cb86afe",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/power/pmu.rs",
+      "line": 29,
+      "source": "unsafe {",
+      "fingerprint": "3f3b892c8a80f6e0c160fd29787e2ee5a692f7275624af0a1bae849f157e1c42",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/card.rs",
+      "line": 38,
+      "source": "unsafe { reg_set_bits(SYSTEM_PERIP_CLK_EN1, SDHOST_CLK_EN_BIT); }",
+      "fingerprint": "bd682e0cac02a4fe3c6269efafb37cd73106f1feab244821218b3939dcc7237e",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/card.rs",
+      "line": 110,
+      "source": "unsafe { reg_write(func_in_sel_addr(SDHOST_CDATA_IN_10), 0xBC); }",
+      "fingerprint": "771f59c3c2d4b2b8ee1212f854f1c45605bbdfb0f35777f0ce12d9d74170134e",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/gpio.rs",
+      "line": 23,
+      "source": "unsafe {",
+      "fingerprint": "4a814b5f614799e4608279dba419648ac86cc313297456dd01fc89bf9937cb07",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/gpio.rs",
+      "line": 34,
+      "source": "unsafe {",
+      "fingerprint": "e7181c2c644551daa532cd78240227b36895b39a2210e8f69d6606322a97ffe0",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/gpio.rs",
+      "line": 45,
+      "source": "unsafe {",
+      "fingerprint": "83e064d269546070218f17ca1266a02f29f807c007d758084ccc6fd31fce22d3",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/gpio.rs",
+      "line": 84,
+      "source": "unsafe {",
+      "fingerprint": "b14f47f3200cd73424d48f65eb9b25f88574aa81d5634980ec16c5ab6ec83438",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/gpio.rs",
+      "line": 98,
+      "source": "unsafe {",
+      "fingerprint": "d8f521e5b9ed8884351918e1476ab7a93c37a98044b14cd632442c106f440465",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 25,
+      "source": "unsafe {",
+      "fingerprint": "c15abcbb39f9b4d143a9d1e0924c3fbcf69f7637d7edc6261d101eaee58bbd9d",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 43,
+      "source": "unsafe { write_planned_block(plan.address, buffer) }",
+      "fingerprint": "f6d64abaa5431db75ab8656c46fa8ffd3df38ffbcb21e822a2d43fd7dd5c5cc3",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 46,
+      "source": "unsafe fn write_planned_block(",
+      "fingerprint": "db604c86b124ac03c138d6a3c55adb202e5b281c65255558f1e3c702a4984768",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 58,
+      "source": "unsafe fn configure_transfer(byte_count: u32) {",
+      "fingerprint": "e042dee4116e736cc4b967f6fecfa583848574d2b5157d2af302d50dc8da65f2",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 64,
+      "source": "unsafe fn reset_fifo() {",
+      "fingerprint": "99c51b408b631cb35efff19055e85bb6ffff40b6620a80c590a531c730618077",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 66,
+      "source": "let _ = poll_bits_clear(10_000, CTRL_FIFO_RESET, || unsafe { reg_read(SDHOST_CTRL) });",
+      "fingerprint": "e5b202580604b674578ca2623d7f1919a0f4021c85078315e113c4e4aec6a82e",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 69,
+      "source": "unsafe fn issue_data_command(command: u32, address: u32, write: bool) {",
+      "fingerprint": "8ce0a292fbbe3313e774dbdf4c547852c4189bc6fa897c132a2b5691cf7cb616",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 84,
+      "source": "unsafe fn wait_for_read_command() -> Result<(), &'static str> {",
+      "fingerprint": "b4bab0acff9dbe5cbaed56df9c3ce222d2f6f212d73e6dbd0d63d8b3172103c2",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 85,
+      "source": "poll_register(1_000_000, INT_HLE, INT_CD, || unsafe { reg_read(SDHOST_RINTSTS) })",
+      "fingerprint": "573b95761de072cebac33cda5d7812327667a8fe1a0883c2b4187f054f3b67a2",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 90,
+      "source": "unsafe fn check_read_response() -> Result<(), &'static str> {",
+      "fingerprint": "18af3c3e7930f32f83dd591365bb1a6932cd5279c956afa715231703f8ff6158",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 102,
+      "source": "unsafe { reg_read(SDHOST_RINTSTS) }",
+      "fingerprint": "f9ca7cac2ba2c7e434f89c9a16a0a78bf96d0c4532caccfa69834bfb9b81f92d",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 106,
+      "source": "unsafe { reg_read(SDHOST_STATUS) & STATUS_FIFO_EMPTY != 0 }",
+      "fingerprint": "b8f4b3274b986a09bc9d41482cd3a91a543756d3133ea609c3fa14086e87aaf7",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 110,
+      "source": "unsafe { reg_read(SDHOST_BUFFIFO) }",
+      "fingerprint": "a4ac48813da4a7b49e2c3326d22f164a21904b5a72543e225a1bb5602589f38d",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 114,
+      "source": "unsafe { reg_write(SDHOST_RINTSTS, mask) }",
+      "fingerprint": "c0bd10e134699b5c88eeaa5eb900184277ed277204fd0144ac54123f8198bc9e",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 118,
+      "source": "unsafe fn read_fifo(output: &mut [u8]) -> Result<(), &'static str> {",
+      "fingerprint": "2320228416d34fc1773c6168fe1055d4a764c18bd342969c76f2c78a22e24269",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 136,
+      "source": "unsafe fn prefill_fifo(input: &[u8]) -> Result<(), &'static str> {",
+      "fingerprint": "48859dd14f9e77d5a80e08451079474d048c714668433ac6bcda053f6f011ecc",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 137,
+      "source": "write_words(input, |word| unsafe { reg_write(SDHOST_BUFFIFO, word) })",
+      "fingerprint": "4cca813c5cbb002b83c3fa76e9c505c9baf2bc5510fb3ddfc820f5b9706f7218",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 141,
+      "source": "unsafe fn wait_for_write_complete() -> Result<(), &'static str> {",
+      "fingerprint": "616c014c2911187de14908b56676908cc43b2c397cfc93fa5141281adaaf3a2c",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 142,
+      "source": "poll_register(5_000_000, INT_ALL_ERRORS, INT_DTO, || unsafe {",
+      "fingerprint": "66459469a7c56dde260ba1ac771922baf736f06c668a3007a6e1e10fec2e87e9",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+      "line": 152,
+      "source": "unsafe {",
+      "fingerprint": "49ad5be12fd1600381aefa5b3a96ee88b5148bd95b8c2e0b07a1cae9d782ae2a",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/boot.rs",
+      "line": 31,
+      "source": "for _ in 0..50u32 { unsafe { core::ptr::read_volatile(&0u32 as *const u32); } }",
+      "fingerprint": "5ebb334fef9adc9cb6ca3e5f6f2081784bfc602e9528fba72ce95492a6519ae5",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/boot.rs",
+      "line": 33,
+      "source": "for _ in 0..50u32 { unsafe { core::ptr::read_volatile(&0u32 as *const u32); } }",
+      "fingerprint": "50ff87f64939d7bd159d67ab013bc04c6442e6b2cc26608f2ed0a3c0762072e5",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/boot.rs",
+      "line": 59,
+      "source": "unsafe {",
+      "fingerprint": "5b8de993e9e9afdfc7b5684e7feece9cd1d634c906b6a710cb6a536648c8e895",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/capacity.rs",
+      "line": 32,
+      "source": "let words = unsafe {",
+      "fingerprint": "bc261f7f335daec3eaad9cf4a2a261182a0bab6f0865e1f62eae218f0426e94f",
+      "rationale": "Reviewed Waveshare SDHOST response boundary: the four fixed RESP registers are read only after CMD9 completes, through the existing unsafe MMIO wrapper, then copied into a local 16-byte CSD response for pure capacity parsing. No arbitrary address or caller-controlled pointer is accessed.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/clock.rs",
+      "line": 14,
+      "source": "unsafe {",
+      "fingerprint": "0b1d716639b26232af03592af16bd846bda1b186d831c0bc00c7d66ed84e9eac",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/clock.rs",
+      "line": 49,
+      "source": "unsafe {",
+      "fingerprint": "d83c42cf83b3427bda126bc8a64e4a75f21f317b160b3aeb505b10be0515fa37",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/clock.rs",
+      "line": 68,
+      "source": "unsafe {",
+      "fingerprint": "d0e19cf9bdc8f36c0c1f14b494c292819e34caf948e73fd7317f945860d1df92",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/clock.rs",
+      "line": 91,
+      "source": "unsafe {",
+      "fingerprint": "b617e65fc47207e0a24c3653b3b2ed5ab20ba282f32badeeb9cda0480cc1d967",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/command.rs",
+      "line": 17,
+      "source": "unsafe {",
+      "fingerprint": "720d51d1d120f20240d79534da2bf46294e5ed719967193a4ee2c0f3932d5ef4",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/command.rs",
+      "line": 34,
+      "source": "|| unsafe { reg_read(SDHOST_RINTSTS) },",
+      "fingerprint": "16eecbd5b73c7e67fc2b98f0022f7d2f4505a5ae27b132f8a61745e507fba12e",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/command.rs",
+      "line": 35,
+      "source": "|| unsafe { reg_read(SDHOST_RESP0) },",
+      "fingerprint": "542d93fe8c0aec1ea4872e717797f8e9a707bbeb57ea0f907326f24401fff645",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/command.rs",
+      "line": 36,
+      "source": "|mask| unsafe { reg_write(SDHOST_RINTSTS, mask) },",
+      "fingerprint": "baa9da99060a2f0fdf318c21c5d051094a100948cb5d801de3ecbb0bc681082e",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/command.rs",
+      "line": 47,
+      "source": "poll_bits_clear(5_000_000, STATUS_DATA_BUSY, || unsafe {",
+      "fingerprint": "4929598e46c350211414a645e460e090061c24b90c1ae686c7499075ffafe677",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/initialization.rs",
+      "line": 43,
+      "source": "let version = unsafe { reg_read(SDHOST_VERID) };",
+      "fingerprint": "cf6712635d7f855539b5f74cf2ad4b889dc25d302096423ff166fd1dcb09e690",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/initialization.rs",
+      "line": 46,
+      "source": "unsafe {",
+      "fingerprint": "0215655b70f0d1ab22f3e0b94a239caf1245c61e7ef603d241345e9abde0a01a",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/initialization.rs",
+      "line": 72,
+      "source": "unsafe { reg_write(SDHOST_RINTSTS, 0xFFFF_FFFF); }",
+      "fingerprint": "c6cfa989095bda55b641a06a69b267ca10c9a95f9654f5f78b42f7f10dc02298",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block.rs",
+      "line": 53,
+      "source": "TransferMode::Multi => unsafe { read_multiple(output, plan) },",
+      "fingerprint": "770ca4271c07356d95bdf842e099b3175094a3141d02b8438c69623d9df34f42",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block.rs",
+      "line": 68,
+      "source": "unsafe fn read_multiple(output: &mut [u8], plan: TransferPlan) -> Result<(), &'static str> {",
+      "fingerprint": "dea1e13701793ba99add8cb5e94779d601d6a359471ced461bf676d87368a22d",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block.rs",
+      "line": 112,
+      "source": "TransferMode::Multi => unsafe { write_multiple(data, plan) },",
+      "fingerprint": "29f549817583b5e660c0069c268c9465bdf885239eb1a3a65ce052ab767ece64",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block.rs",
+      "line": 121,
+      "source": "unsafe fn write_multiple(data: &[u8], plan: TransferPlan) -> Result<(), &'static str> {",
+      "fingerprint": "b5bc0b72f6c761262bf57939371a76707cc46e63034fb1581700a13f44f7d226",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block.rs",
+      "line": 129,
+      "source": "unsafe fn configure_transfer(byte_count: u32) {",
+      "fingerprint": "83d16863e5b5d242fb15e6871e84696e66a5d46707602fad40438f1f6aac8a83",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block.rs",
+      "line": 135,
+      "source": "unsafe fn reset_fifo() {",
+      "fingerprint": "75d7716970ee7d5bea9aa562be534e0705f2bb862a653add53119a89f4a12cad",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block.rs",
+      "line": 137,
+      "source": "let _ = poll_bits_clear(10_000, CTRL_FIFO_RESET, || unsafe { reg_read(SDHOST_CTRL) });",
+      "fingerprint": "251b5ae88ea3ede075c862d252c16a1181a571645d4cd2cdea76f7c71a2ada4c",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block.rs",
+      "line": 140,
+      "source": "unsafe fn issue_multi_command(command: u32, address: u32, write: bool) {",
+      "fingerprint": "d33f60691df2eae4ea3e015a2b72990ea64597c64ea30874ac4cd165198764e6",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block.rs",
+      "line": 156,
+      "source": "unsafe fn wait_for_command() -> Result<(), &'static str> {",
+      "fingerprint": "76e2d905bbf30fb4b56eb5048cc6495ab8ce7bee2319a1e55e01b1a6e3a66879",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block.rs",
+      "line": 157,
+      "source": "poll_register(1_000_000, INT_HLE, INT_CD, || unsafe { reg_read(SDHOST_RINTSTS) })",
+      "fingerprint": "d48b0d1090162dc6e87d7ce86740d1d55c20b279fb9a4df9bbe8881a43aa6a6e",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block/fifo.rs",
+      "line": 13,
+      "source": "unsafe { reg_read(SDHOST_RINTSTS) }",
+      "fingerprint": "e3ddffbc387ff1fa2f99c1bc1c6ab729f49baf69c6e1b09e1446a6687247f2ae",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block/fifo.rs",
+      "line": 17,
+      "source": "unsafe { reg_read(SDHOST_STATUS) & STATUS_FIFO_EMPTY != 0 }",
+      "fingerprint": "ce2f24970d369ac97fe3c87a6bc98bb5f78183dfea93870df74b32f1a04bbf23",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block/fifo.rs",
+      "line": 21,
+      "source": "unsafe { reg_read(SDHOST_BUFFIFO) }",
+      "fingerprint": "f34f389943195a2c51d04c06c6335a356e3e4f04932b14d0ea387d97bb870dc9",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block/fifo.rs",
+      "line": 25,
+      "source": "unsafe { reg_write(SDHOST_RINTSTS, mask) }",
+      "fingerprint": "6f6f607500e849ded44693b1b1af7a74b7e9eb6e4326ab58041575180c3215f9",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block/fifo.rs",
+      "line": 29,
+      "source": "pub(super) unsafe fn read_fifo(",
+      "fingerprint": "ac02c0b184f4d52ee4f1140ba9b0266300586d5d545ab943f6434c26b4c41e3c",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block/fifo.rs",
+      "line": 58,
+      "source": "unsafe { reg_read(SDHOST_RINTSTS) }",
+      "fingerprint": "e3ddffbc387ff1fa2f99c1bc1c6ab729f49baf69c6e1b09e1446a6687247f2ae",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block/fifo.rs",
+      "line": 62,
+      "source": "unsafe { reg_read(SDHOST_STATUS) & STATUS_FIFO_FULL != 0 }",
+      "fingerprint": "829f49ece37c4d1b6f59df35dbd98ae0ad71f09a53221f4a226ccee5fc15ba2a",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block/fifo.rs",
+      "line": 66,
+      "source": "unsafe { reg_write(SDHOST_BUFFIFO, word) }",
+      "fingerprint": "fcfbf98ece8cd211fe14f2a82604992730c6cfd38be6b26a724f31dcff5eee51",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block/fifo.rs",
+      "line": 70,
+      "source": "unsafe { reg_write(SDHOST_RINTSTS, mask) }",
+      "fingerprint": "6f6f607500e849ded44693b1b1af7a74b7e9eb6e4326ab58041575180c3215f9",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block/fifo.rs",
+      "line": 74,
+      "source": "pub(super) unsafe fn write_fifo(",
+      "fingerprint": "ebe78165111e42951260b62ac4e7ddb80b50722c7d150f2716d5826f4e04ba2b",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/routing.rs",
+      "line": 25,
+      "source": "unsafe {",
+      "fingerprint": "0fc0a9ae706a2e4873c28dc8c20c91149ded0d72632531476342bcd069a4fe0e",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/touch/mod.rs",
+      "line": 75,
+      "source": "unsafe { core::ptr::write_volatile(GPIO_ENABLE1_W1TS as *mut u32, lines); }",
+      "fingerprint": "a1237443dbb5b9207d031151ce4ef4376ef6beacce3972c146c19afb3d196cd8",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/touch/mod.rs",
+      "line": 77,
+      "source": "unsafe { core::ptr::write_volatile(GPIO_ENABLE1_W1TC as *mut u32, lines); }",
+      "fingerprint": "a7789ad88b4d4a374b746f5141221a97cb6bd429ec206d7ffb424ffd3fb7f3e2",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/hw/waveshare/touch/mod.rs",
+      "line": 94,
+      "source": "unsafe { core::ptr::write_volatile(address as *mut u32, bit); }",
+      "fingerprint": "65d5e550af972354736d0155cdf84c9d05ce7129d5b2e15aad213df5c8c5e758",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/qemu/allocator.rs",
+      "line": 24,
+      "source": "unsafe {",
+      "fingerprint": "2a696488587c2410231a5143ca4456607360f73a276694cd9bb91328d886ac89",
+      "rationale": "Reviewed raw-memory boundary: pointer/slice construction is confined to a locally validated allocation or mapped region whose length/alignment/lifetime invariants are checked by the surrounding safe wrapper.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 32,
+      "source": "unsafe { self.ptr.as_mut() }",
+      "fingerprint": "0616ddeeec7d32432cef687720df7cdb8b2318aeed67cab25275b0e709436737",
+      "reviewed": true,
+      "rationale": "Reviewed one-shot ownership handoff: InitializedAppData is a private non-Copy token created only after the StaticCell slot is exclusively claimed and every AppData field is initialized. Consuming the token is the sole safe path that converts its NonNull<AppData> into the long-lived mutable application root, so safe code cannot duplicate the mutable reference."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 37,
+      "source": "unsafe fn place_runtime(target: *mut RuntimeState) {",
+      "fingerprint": "72506c68a4480dd54028e3074b60a58f10d27539d0724016a310beabf744d0df",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 42,
+      "source": "unsafe fn place_presentation(target: *mut PresentationState) {",
+      "fingerprint": "6b3d4a6bdbceef66ef68d2c0436afdd907c7286f6b1d72f55e843989b3ee8a6b",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 47,
+      "source": "unsafe fn place_navigation(target: *mut NavigationState) {",
+      "fingerprint": "0a8ce5e54650f10775c4d9edfc2a1c4b25ba56069e410cd96546c33aa26c59f7",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 52,
+      "source": "unsafe fn place_wallet_seeds(target: *mut SeedSession) {",
+      "fingerprint": "a773a3318852ba5a2df438e96ae1b94144882571ca207a01177119352525f85f",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 57,
+      "source": "unsafe fn place_wallet_keys(target: *mut KeyMaterialState) {",
+      "fingerprint": "392dabd947b8ba768ac4512bf5709d8fa0b760e8215ead6e266c6e1e9dbd837f",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 62,
+      "source": "unsafe fn place_wallet_addresses(target: *mut AddressState) {",
+      "fingerprint": "6dac84c98b7f6b6c3da73805b82d59f125bd8dc0067155ef1e008b4b4158a643",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 67,
+      "source": "unsafe fn place_wallet(target: *mut WalletState) {",
+      "fingerprint": "4619901130f6acbbc32b60c52ea74519a761c6baa8ae32c199bf212eb3c5bac9",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 78,
+      "source": "unsafe fn place_export(target: *mut ExportState) {",
+      "fingerprint": "9f095182c4aab18abd86079bb8ae06bae2bb6d2d3809d7802349a38e5ce118db",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 83,
+      "source": "unsafe fn place_storage(target: *mut StorageState) {",
+      "fingerprint": "8009144ca8a5203f71f309e0a5084b85ceb3cb5ab29cf26c9f39c6188be53b83",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 88,
+      "source": "unsafe fn place_signing(",
+      "fingerprint": "1ed77f4343ce53805caf34899ca0a1d5e11850b20c9f316547b965eaefdb2163",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 96,
+      "source": "unsafe fn place_stego(target: *mut StegoState) {",
+      "fingerprint": "43de8f6fec9205e23b62a16d53b158ee667a56ec41f50e6dbefdabd8969a5617",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 102,
+      "source": "unsafe fn place_camera(target: *mut CameraState) {",
+      "fingerprint": "70771f9b23a1e7851afa722e93bea8033921d44beb67a0990c34ba10b54a6f8d",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 107,
+      "source": "unsafe fn place_settings(target: *mut SettingsState) {",
+      "fingerprint": "990ae44123ecb86a4cf501e7effbe5ae99ea4da2898ba86b829001f3f426cef6",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 113,
+      "source": "unsafe fn place_pop_it(target: *mut PopItState) {",
+      "fingerprint": "3d76d78877fd115c9daa165394d01ffa51e2b77ce3d41df6a7707d66671f300c",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 119,
+      "source": "unsafe fn place_workflow_tests(target: *mut WorkflowTestState) {",
+      "fingerprint": "f2ec9ac9b9a30df2f2ebf4a20af43e6ee27e490b1a6c02beb4c2be9d495e2954",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/placement/mod.rs",
+      "line": 152,
+      "source": "unsafe {",
+      "fingerprint": "004eacf238ea862a25030a101d9057e49f4b28e02177177ff50f69e5ce7c420b",
+      "reviewed": true,
+      "rationale": "Reviewed static placement boundary: the private no-inline initializer operates only on properly aligned field pointers derived from the exclusively claimed StaticCell<MaybeUninit<AppData>> slot; each destination is written exactly once and is never read or dropped before full AppData initialization. The boundary exists to prevent Xtensa LTO from materializing aggregate constructor temporaries on the ProCpu stack."
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/qr.rs",
+      "line": 106,
+      "source": "pub(super) unsafe fn initialize_in_place(target: *mut Self) {",
+      "fingerprint": "821532ceb5b6e3688b17a9d12f6a307006c2b6c8e91e2795314eecce4a92d9d0",
+      "rationale": "Reviewed in-place QR-state initialization boundary: the raw pointer is supplied only from the exclusive uninitialized AppData slot, every QrState field is initialized before exposure, and the 16,320-byte outgoing secret buffer plus scan buffer are zeroed directly at their final internal-SRAM addresses without reading uninitialized storage.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/signing.rs",
+      "line": 134,
+      "source": "pub(super) unsafe fn initialize_in_place(",
+      "fingerprint": "472f6716f3ef55d35212cfd3a8e1aec299ef5b3a28c9532f79289bbb77d0abae",
+      "rationale": "Reviewed signing-state placement boundary: the pointer targets an exclusively owned, uninitialized SigningState field inside the claimed AppData slot. Each child is written exactly once, the only fallible transaction allocation is completed before StaticCell claim, and no signing state is read until every child has been initialized. The no-inline boundary prevents aggregate stack temporaries.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/signing/placement.rs",
+      "line": 9,
+      "source": "unsafe fn place_transaction(",
+      "fingerprint": "543e9b087be508486930ba8cc7ba236ef869cf0bdf7e4f6adc82a6455ca3244c",
+      "rationale": "Reviewed signing-state placement boundary: the pointer targets an exclusively owned, uninitialized SigningState field inside the claimed AppData slot. Each child is written exactly once, the only fallible transaction allocation is completed before StaticCell claim, and no signing state is read until every child has been initialized. The no-inline boundary prevents aggregate stack temporaries.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/signing/placement.rs",
+      "line": 17,
+      "source": "unsafe fn place_multisig(target: *mut MultisigState) {",
+      "fingerprint": "3808649b99d63ce673743b35b58a3345ea430e8758485110fff528f0002e1f2c",
+      "rationale": "Reviewed signing-state placement boundary: the pointer targets an exclusively owned, uninitialized SigningState field inside the claimed AppData slot. Each child is written exactly once, the only fallible transaction allocation is completed before StaticCell claim, and no signing state is read until every child has been initialized. The no-inline boundary prevents aggregate stack temporaries.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/signing/placement.rs",
+      "line": 22,
+      "source": "unsafe fn place_message(target: *mut MessageSigningState) {",
+      "fingerprint": "2f434eb9b1c20cb4673b9f709d633003314550064b096ed501600209be8903fe",
+      "rationale": "Reviewed signing-state placement boundary: the pointer targets an exclusively owned, uninitialized SigningState field inside the claimed AppData slot. Each child is written exactly once, the only fallible transaction allocation is completed before StaticCell claim, and no signing state is read until every child has been initialized. The no-inline boundary prevents aggregate stack temporaries.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/signing/placement.rs",
+      "line": 27,
+      "source": "unsafe fn place_commit_reveal(target: *mut CommitRevealState) {",
+      "fingerprint": "1226c04e142811fff9174f5e4c2dcbd291abb46a1bd59e0990a5fc6d79a1c1c5",
+      "rationale": "Reviewed signing-state placement boundary: the pointer targets an exclusively owned, uninitialized SigningState field inside the claimed AppData slot. Each child is written exactly once, the only fallible transaction allocation is completed before StaticCell claim, and no signing state is read until every child has been initialized. The no-inline boundary prevents aggregate stack temporaries.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/signing/placement.rs",
+      "line": 32,
+      "source": "unsafe fn place_covenant(target: *mut CovenantSigningState) {",
+      "fingerprint": "517607836935d77a13d64c06e412018ac9a5d562e6f1d50509358e3b5a24377a",
+      "rationale": "Reviewed signing-state placement boundary: the pointer targets an exclusively owned, uninitialized SigningState field inside the claimed AppData slot. Each child is written exactly once, the only fallible transaction allocation is completed before StaticCell claim, and no signing state is read until every child has been initialized. The no-inline boundary prevents aggregate stack temporaries.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/signing/placement.rs",
+      "line": 37,
+      "source": "unsafe fn place_private_swap(target: *mut PrivateSwapState) {",
+      "fingerprint": "f3576ce2c236e196ffea0a85cb1cbc4d0bafa8782a9be18c600ce53caae33ce8",
+      "rationale": "Reviewed signing-state placement boundary: the pointer targets an exclusively owned, uninitialized SigningState field inside the claimed AppData slot. Each child is written exactly once, the only fallible transaction allocation is completed before StaticCell claim, and no signing state is read until every child has been initialized. The no-inline boundary prevents aggregate stack temporaries.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/signing/placement.rs",
+      "line": 42,
+      "source": "unsafe fn place_anti_klepto(target: *mut AntiKleptoSigningState) {",
+      "fingerprint": "a22bb710bf338834f463c8c9577c65f447dc7c3b36fe97876e0afd368fe9b1f3",
+      "rationale": "Reviewed signing-state placement boundary: the pointer targets an exclusively owned, uninitialized SigningState field inside the claimed AppData slot. Each child is written exactly once, the only fallible transaction allocation is completed before StaticCell claim, and no signing state is read until every child has been initialized. The no-inline boundary prevents aggregate stack temporaries.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/data/signing/placement.rs",
+      "line": 52,
+      "source": "pub(super) unsafe fn initialize_in_place(",
+      "fingerprint": "880b4db4c03e7b19b2f7e347dca1f5430a78e2ba903ad3991eaef1dd91c77844",
+      "rationale": "Reviewed signing-state placement boundary: the pointer targets an exclusively owned, uninitialized SigningState field inside the claimed AppData slot. Each child is written exactly once, the only fallible transaction allocation is completed before StaticCell claim, and no signing state is read until every child has been initialized. The no-inline boundary prevents aggregate stack temporaries.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/interactions/camera_loop/cycle.rs",
+      "line": 121,
+      "source": "unsafe {",
+      "fingerprint": "b16345e7fee91ea6bda50c1d02aa5834188272049766101dcc0f1a4f8d54273e",
+      "rationale": "Reviewed unsafe boundary: required for embedded FFI/raw hardware interaction; the surrounding safe wrapper establishes pointer validity, bounds, lifetime, and exclusive-access invariants before entry.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/interactions/camera_loop/dvp_capture.rs",
+      "line": 123,
+      "source": "unsafe fn process_captured_frame<'cam>(",
+      "fingerprint": "ba439b53d25b3d2697872a21e382424ffbc578cb962841818a3518115dd85fc6",
+      "rationale": "Reviewed camera scratch-buffer boundary: the camera loop owns independent decode (320x240) and crop (240x180) allocations for the capture lifetime; this function converts those caller-provided raw pointers once into fixed-size exclusive mutable slices before safe rendering/decoding helpers use them.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/interactions/camera_loop/dvp_capture.rs",
+      "line": 203,
+      "source": "pub(super) unsafe fn run_capture(",
+      "fingerprint": "51163a6367287fdb614abfd075eb5e2bdfac9dca258178b1f5eefb283921f35b",
+      "rationale": "Reviewed DVP capture boundary: callers provide the camera-loop-owned decode/crop scratch pointers with their fixed allocation sizes, non-overlap, validity, and exclusive-access lifetime; the raw pointers are forwarded only to the bounded conversion boundary after DMA ownership is recovered.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/interactions/camera_loop/timing.rs",
+      "line": 26,
+      "source": "unsafe {",
+      "fingerprint": "20731b8b837c2369902dd6b584d1ee44a183e142158db813ca4c0403068f7d14",
+      "rationale": "Reviewed unsafe boundary: required for embedded FFI/raw hardware interaction; the surrounding safe wrapper establishes pointer validity, bounds, lifetime, and exclusive-access invariants before entry.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/runtime/interactions/camera_loop/waveshare_capture.rs",
+      "line": 192,
+      "source": "pub(super) unsafe fn run_capture(",
+      "fingerprint": "805e3203d0c621d3ceccbe804c12c0720921c48e0a8a5eeec11f70d132998f45",
+      "rationale": "Reviewed Waveshare capture boundary: callers provide independent camera-loop-owned decode (240x240) and crop (240x180) buffers; after DMA completion this function converts each raw pointer once to its fixed-size exclusive mutable slice and passes only safe slices to frame processing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/self_test/memory.rs",
+      "line": 41,
+      "source": "let observed = unsafe { core::ptr::read_volatile(byte as *const u8) };",
+      "fingerprint": "6a5358a22af20a67d40e94f34fd139384f67502d642cd397c0fbeb3ac5639195",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/self_test/memory.rs",
+      "line": 50,
+      "source": "let data = unsafe {",
+      "fingerprint": "94d4bf145ac8f8ed89eab48eeb5257e4dda0e8a27aaf4a41ffa43923a4a06fb6",
+      "rationale": "Reviewed unsafe boundary: required for embedded FFI/raw hardware interaction; the surrounding safe wrapper establishes pointer validity, bounds, lifetime, and exclusive-access invariants before entry.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/self_test/memory.rs",
+      "line": 62,
+      "source": "let value = unsafe { core::ptr::read_volatile(byte as *const u8) };",
+      "fingerprint": "e1cd8224c0912fbe9c1f94d549491644bb25e046c459bc3f59add65bdf026978",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/entropy/platform.rs",
+      "line": 66,
+      "source": "let value = unsafe { core::ptr::read_volatile(0x6004_0868u32 as *const u32) };",
+      "fingerprint": "43d8cf56cb1824bcf28fe543cac0cf3ba4c0294b7c1b187a35f209d1a6d14907",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/entropy/trng.rs",
+      "line": 15,
+      "source": "unsafe {",
+      "fingerprint": "379e7b811b0b52c3355976a3fbaa8e911d2d1f84d47b90ebd4476e0e8e83ec3e",
+      "rationale": "Reviewed unsafe boundary: required for embedded FFI/raw hardware interaction; the surrounding safe wrapper establishes pointer validity, bounds, lifetime, and exclusive-access invariants before entry.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/entropy/trng.rs",
+      "line": 37,
+      "source": "unsafe { core::ptr::read_volatile(RNG_DATA_REG) }",
+      "fingerprint": "f833fbb6985212e40210feda1b80f0a023aaee14dc09ec4143f5e67bdee538c7",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/memory/password_kdf.rs",
+      "line": 50,
+      "source": "unsafe {",
+      "fingerprint": "0d8033f94ab41abe3b5f5ee82b5d78dff4637112dd02a81d09491bb06364556c",
+      "rationale": "Reviewed Argon2 workspace cast: PsramAllocation now validates the requested PasswordKdfBlock alignment and runtime PSRAM provenance and zero-initializes the complete raw allocation before any reference is exposed. All-zero bytes are a valid argon2::Block representation, and the exact block-count × block-size length is checked before forming the exclusive typed slice.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/memory/password_kdf.rs",
+      "line": 81,
+      "source": "unsafe { core::ptr::write_volatile(byte, expected) };",
+      "fingerprint": "664a08e19986007650eeb4539716ab0a8264ac3671262a1cd91eb4d31216c3a2",
+      "rationale": "Reviewed developer-only PSRAM integrity probe: the allocation is already initialized and bounded by PsramAllocation; volatile access intentionally forces the physical pattern write during the non-secret benchmark integrity test, which zeroizes afterward.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/memory/password_kdf.rs",
+      "line": 86,
+      "source": "let observed = unsafe { core::ptr::read_volatile(byte) };",
+      "fingerprint": "146bcafa88f61c9b52c4513f91fa141df00a20ee8d40c492e89571239d985f92",
+      "rationale": "Reviewed developer-only PSRAM integrity probe: the allocation is initialized and the byte reference is within its exact bounded slice; volatile read verifies physical PSRAM contents during the non-secret benchmark integrity test.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/memory/psram.rs",
+      "line": 57,
+      "source": "unsafe {",
+      "fingerprint": "ef735886b2da2ece22e20e20653870ec1f16006eabf7155daf56b74519532d1c",
+      "rationale": "Reviewed PSRAM registration boundary: ESP-HAL supplies the runtime-mapped external memory base/length; KasSigner validates non-null, non-zero, checked bounds before registering exactly that region with esp-alloc as External for the program lifetime.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/memory/psram.rs",
+      "line": 111,
+      "source": "let ptr = unsafe { HEAP.alloc_caps(MemoryCapability::External.into(), layout) };",
+      "fingerprint": "6ce2df8b6b422d542bd92e1629c1ef85efb55f76dbe8ba0d9e1c62538ada5449",
+      "rationale": "Reviewed PSRAM allocation boundary: allocation is capability-constrained to External memory with a checked non-zero Layout; the returned pointer is rejected unless its full range lies inside the retained ESP-HAL PSRAM region, and production allocations also verify the requested alignment before exposure.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/memory/psram.rs",
+      "line": 117,
+      "source": "unsafe { HEAP.dealloc(ptr, layout) };",
+      "fingerprint": "04bb68d22da7282b1d8e7c8a24dbfd4a16816987b33c98c7863343961e307250",
+      "rationale": "Reviewed fail-closed allocation cleanup: ptr/layout are the exact pair returned by the immediately preceding esp-alloc allocation and have not been exposed to callers; the same Layout is used to release a provenance- or alignment-rejected allocation.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/memory/psram.rs",
+      "line": 121,
+      "source": "unsafe { HEAP.dealloc(ptr, layout) };",
+      "fingerprint": "0bf3822c80ef06b15bcfe7b4f08de36b27eabe1183d459079a3489e976e60f14",
+      "rationale": "Reviewed fail-closed allocation cleanup: ptr/layout are the exact pair returned by the immediately preceding esp-alloc allocation and have not been exposed to callers; the same Layout is used to release a provenance- or alignment-rejected allocation.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/memory/psram.rs",
+      "line": 130,
+      "source": "unsafe { core::ptr::write_bytes(ptr, 0, layout.size()) };",
+      "fingerprint": "cf3a00bf47e7e7ae70ba3443f23ef60fadfec02f03cd240f4657390186ed67e3",
+      "rationale": "Reviewed raw-initialization boundary: after non-null, full-range PSRAM provenance and alignment checks, the uniquely owned raw allocation is zero-filled through its raw u8 pointer before any Rust reference is constructed. This establishes initialized storage for byte slices and for the later zero-valid argon2::Block reinterpretation.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/memory/psram.rs",
+      "line": 143,
+      "source": "unsafe { core::slice::from_raw_parts(self.ptr, self.layout.size()) }",
+      "fingerprint": "09e2aa4ccded6876ce4ec06dbf7025367125d8dcabf9797de581d6930ff90fa0",
+      "rationale": "Reviewed PSRAM shared-slice boundary: PsramAllocation uniquely owns a validated external allocation and zero-initializes the complete region before returning, so the bounded byte slice is both in-range and initialized for its entire lifetime.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/memory/psram.rs",
+      "line": 147,
+      "source": "unsafe { core::slice::from_raw_parts_mut(self.ptr, self.layout.size()) }",
+      "fingerprint": "6fcbd1484a73f8645dce3b362c66ff97dcb4fa03f2d73a42e61ea6fdf30971ac",
+      "rationale": "Reviewed PSRAM mutable-slice boundary: PsramAllocation uniquely owns a validated external allocation and zero-initializes it before exposure; the exclusive byte slice is bounded to the exact Layout and cannot outlive the owner.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/memory/psram.rs",
+      "line": 154,
+      "source": "unsafe { HEAP.dealloc(self.ptr, self.layout) };",
+      "fingerprint": "a9f3556486ad0e59453a27c116ac51b2763a333556a1d14a9f80bdf728314051",
+      "rationale": "Reviewed PSRAM owner teardown: ptr/layout are the exact allocation pair retained by PsramAllocation; Drop volatile-zeroizes the initialized byte region before deallocating with the same Layout.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/memory/psram.rs",
+      "line": 175,
+      "source": "let ptr = unsafe { HEAP.alloc_caps(MemoryCapability::External.into(), layout) };",
+      "fingerprint": "71c76d46329adf8aa3560f64c6ca2025760bb446fda455ccc687586461c9b100",
+      "rationale": "Reviewed PSRAM allocation boundary: allocation is capability-constrained to External memory with a checked non-zero Layout; the returned pointer is rejected unless its full range lies inside the retained ESP-HAL PSRAM region, and production allocations also verify the requested alignment before exposure.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/memory/psram.rs",
+      "line": 178,
+      "source": "unsafe { HEAP.dealloc(ptr, layout) };",
+      "fingerprint": "16c39d5a7325a2354ff9be4ca9b3533618b1456e1c3270b92f81659592dad9ad",
+      "rationale": "Reviewed PSRAM probe cleanup: ptr/layout are the exact pair returned by the temporary capability-constrained allocation probe and are released immediately with the same Layout.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/verify/mapped_segment.rs",
+      "line": 64,
+      "source": "let word = unsafe {",
+      "fingerprint": "520904bdc6d16c0aa7116bffab9497a72d353d3c90ff6c1172f984a3ebfcd761",
+      "rationale": "Reviewed unsafe boundary: required for embedded FFI/raw hardware interaction; the surrounding safe wrapper establishes pointer validity, bounds, lifetime, and exclusive-access invariants before entry.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/verify/mapped_segment.rs",
+      "line": 92,
+      "source": "let data: &[u8] = unsafe {",
+      "fingerprint": "6a73f323b71ffb9ea9127e08e9d6158da3ad34408577576faee0caa29c3e9338",
+      "rationale": "Reviewed unsafe boundary: required for embedded FFI/raw hardware interaction; the surrounding safe wrapper establishes pointer validity, bounds, lifetime, and exclusive-access invariants before entry.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/verify/mapped_segment.rs",
+      "line": 100,
+      "source": "let val = unsafe { core::ptr::read_volatile(&data[i] as *const u8) };",
+      "fingerprint": "feb0d334d2bba1d5ed6e883001b56e6defd0a507e520fcf2827d75b165ae2143",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/verify/mod.rs",
+      "line": 20,
+      "source": "unsafe {",
+      "fingerprint": "50c2fbc2e49501006dc2eec93f8cf8e03da268e334babf8a92e8673e42f4ae73",
+      "rationale": "Reviewed firmware-identity load boundary: the source is an immutable, aligned, generated static forced into flash rodata with process lifetime; read_volatile copies the fixed-size initialized value so LLVM cannot constant-fold generated identity metadata into the executable segment whose hash is being verified.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/verify/mod.rs",
+      "line": 29,
+      "source": "unsafe {",
+      "fingerprint": "7a410e1558b87dea0926aa3a536f3f3a0fd2668cccfae164be9b286e633dd293",
+      "rationale": "Reviewed firmware-identity load boundary: the source is an immutable, aligned, generated static forced into flash rodata with process lifetime; read_volatile copies the fixed-size initialized value so LLVM cannot constant-fold generated identity metadata into the executable segment whose hash is being verified.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/verify/mod.rs",
+      "line": 37,
+      "source": "unsafe { core::ptr::read_volatile(core::ptr::addr_of!(firmware_hash::FIRMWARE_SIGNED)) }",
+      "fingerprint": "f20a5facd1c217b529a683faf65850b393c96bb580414a9a64118ef4d5dcb347",
+      "rationale": "Reviewed firmware-identity load boundary: the source is an immutable, aligned, generated static forced into flash rodata with process lifetime; read_volatile copies the fixed-size initialized value so LLVM cannot constant-fold generated identity metadata into the executable segment whose hash is being verified.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/verify/mod.rs",
+      "line": 43,
+      "source": "unsafe { core::ptr::read_volatile(core::ptr::addr_of!(firmware_hash::FIRMWARE_SIZE)) }",
+      "fingerprint": "1868fddae6ba6ee4149710fc14c74a80365569a53cfb4ccfda2f0c030bbf31a1",
+      "rationale": "Reviewed firmware-identity load boundary: the source is an immutable, aligned, generated static forced into flash rodata with process lifetime; read_volatile copies the fixed-size initialized value so LLVM cannot constant-fold generated identity metadata into the executable segment whose hash is being verified.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/services/verify/mod.rs",
+      "line": 49,
+      "source": "unsafe { core::ptr::read_volatile(core::ptr::addr_of!(firmware_hash::FIRMWARE_IADDR)) }",
+      "fingerprint": "ab0dd8328080815c21ef97e1842d30e1be4013d7aa3451425e8b6c3bf40db1bd",
+      "rationale": "Reviewed firmware-identity load boundary: the source is an immutable, aligned, generated static forced into flash rodata with process lifetime; read_volatile copies the fixed-size initialized value so LLVM cannot constant-fold generated identity metadata into the executable segment whose hash is being verified.",
+      "reviewed": true
+    },
+    {
+      "path": "apps/signer-firmware/src/wallet/mnemonic/touch.rs",
+      "line": 40,
+      "source": "let bytes = unsafe {",
+      "fingerprint": "263dbcd605b04027979caf018902d7498b6306562f1982ea9d839a69459e196b",
+      "rationale": "Reviewed touch-entropy destruction boundary: the collector exclusively owns the in-progress Sha256 value. It converts exactly that ManuallyDrop stack object to a mutable byte slice solely to volatile-zero the complete hashing state, then never reads or drops the scrubbed object. No alias or external buffer is exposed.",
+      "reviewed": true
+    },
+    {
+      "path": "crates/shared-signer/src/bytes.rs",
+      "line": 99,
+      "source": "unsafe { core::ptr::write_volatile(value, zero) };",
+      "fingerprint": "bc7a940e840497f5eba078977df31fe0f4817bcd0a91475f98050c04d46ba24f",
+      "rationale": "Reviewed hardware boundary: volatile/MMIO or peripheral singleton access is required by the ESP32-S3 HAL/ROM contract; caller constrains the fixed register/peripheral and surrounding safe API owns sequencing.",
+      "reviewed": true
+    },
+    {
+      "path": "crates/signer-firmware-core/src/runtime/worker/mailbox.rs",
+      "line": 40,
+      "source": "unsafe { (*self.value.get()).write(value) };",
+      "fingerprint": "e241086ad6d1bbebecfff9cc3b21793ea8fb5656dc3d69b5b75cfc70e3d5fc11",
+      "rationale": "Reviewed typed cross-core mailbox boundary: UnsafeCell/MaybeUninit are centralized here and access is serialized by WorkerLifecycle ownership plus acquire/release initialization state. Writes occur before publication, reads require initialized ownership, and retired slot storage is volatile-zeroized without reading uninitialized bytes.",
+      "reviewed": true
+    },
+    {
+      "path": "crates/signer-firmware-core/src/runtime/worker/mailbox.rs",
+      "line": 51,
+      "source": "let value = unsafe { (*self.value.get()).assume_init_read() };",
+      "fingerprint": "ed6fa577e91db71399b66d7d1a6a3fd56dc492464d5ca6ada790fef8da5d1369",
+      "rationale": "Reviewed typed cross-core mailbox boundary: UnsafeCell/MaybeUninit are centralized here and access is serialized by WorkerLifecycle ownership plus acquire/release initialization state. Writes occur before publication, reads require initialized ownership, and retired slot storage is volatile-zeroized without reading uninitialized bytes.",
+      "reviewed": true
+    },
+    {
+      "path": "crates/signer-firmware-core/src/runtime/worker/mailbox.rs",
+      "line": 67,
+      "source": "let bytes = unsafe {",
+      "fingerprint": "6f93c1f688bd136dc8b6da222569cf4440b058e073f0f1c5832dcc34ddf384b8",
+      "rationale": "Reviewed typed cross-core mailbox boundary: UnsafeCell/MaybeUninit are centralized here and access is serialized by WorkerLifecycle ownership plus acquire/release initialization state. Writes occur before publication, reads require initialized ownership, and retired slot storage is volatile-zeroized without reading uninitialized bytes.",
+      "reviewed": true
+    }
+  ]
+}

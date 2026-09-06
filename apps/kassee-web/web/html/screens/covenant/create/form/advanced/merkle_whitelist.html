@@ -1,0 +1,28 @@
+
+                        <div id="cov-fields-merkle-whitelist" class="hidden">
+                            <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                Merkle whitelist vault — funds can only go to approved addresses.<br>
+                                Uses OP_CAT + OP_BLAKE2B for on-chain merkle proof verification.<br>
+                                Supports thousands of addresses with a 32-byte root in the script.
+                            </p>
+                            <label class="input-label">Whitelisted Addresses (one per line)</label>
+                            <textarea id="cov-mw-addresses" class="input-text input-textarea"
+                                      placeholder="kaspatest:qq...&#10;kaspatest:qq...&#10;kaspatest:qq..." rows="4" autocomplete="off" spellcheck="false"></textarea>
+                            <button class="btn btn-outline u-full-width-mt-4px-text-12px" id="btn-cov-scan-mw-add"
+                                   >📷 Scan Address to Add</button>
+                            <label class="input-label">Refund Timeout</label>
+                            <input type="datetime-local" id="cov-mw-datetime" class="input-text u-color-scheme-dark"
+                                  >
+                            <button class="btn btn-outline u-full-width-mt-4px-text-12px" id="btn-cov-mw-never"
+                                   >🔒 Lifetime Block</button>
+                            <p class="u-text-10px-text-text-muted-margin-4px-0-0">
+                                After this date the owner can refund to any address, so the whitelist no longer applies. Tap Lifetime Block to make the whitelist permanent. The DAA score is auto-calculated.
+                            </p>
+                            <input type="number" id="cov-mw-locktime" class="input-text u-hidden"
+                                   placeholder="DAA score (auto-calculated)" min="1" step="1"
+                                  >
+                        </div>
+
+                        <!-- KIP-21 ZK Bridge fields -->
+
+                        <!-- KIP-21 ZK Rollup (Persistent) fields -->

@@ -1,0 +1,2095 @@
+{
+  "entrypoints": [
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/benches/protocol_throughput.rs",
+      "role": "benchmark",
+      "step": "bench.shared-signer-protocol-throughput"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/linux/run-all.sh",
+      "role": "runner",
+      "step": "catalog"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/linux/run-production-hardening.sh",
+      "role": "alias",
+      "step": "catalog"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_wallet_inventory_behavior.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/windows/run-all.ps1",
+      "role": "runner",
+      "step": "catalog"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/windows/run-production-hardening.ps1",
+      "role": "alias",
+      "step": "catalog"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/windows/runner/run_all.py",
+      "role": "runner",
+      "step": "catalog"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/security/branch_ratchets.py",
+      "role": "security-check",
+      "step": "coverage.critical-branch-targets"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/firmware/qemu/run.py",
+      "role": "test-runner",
+      "step": "emulation.signer-firmware-qemu"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/security/fuzz_results.py",
+      "role": "fuzz-helper",
+      "step": "fuzz.repository-security-targets"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/security/fuzz_targets.py",
+      "role": "fuzz-helper",
+      "step": "fuzz.repository-security-targets"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/fuzz/account_key_canonical.rs",
+      "role": "fuzz-target",
+      "step": "fuzz.repository-security-targets"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/fuzz/bip32_derivation.rs",
+      "role": "fuzz-target",
+      "step": "fuzz.repository-security-targets"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/fuzz/compact_kspt_parser.rs",
+      "role": "fuzz-target",
+      "step": "fuzz.repository-security-targets"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/fuzz/compact_kspt_roundtrip.rs",
+      "role": "fuzz-target",
+      "step": "fuzz.repository-security-targets"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/fuzz/firmware_external_inputs.rs",
+      "role": "fuzz-target",
+      "step": "fuzz.repository-security-targets"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/fuzz/firmware_protocol_parsing.rs",
+      "role": "fuzz-target",
+      "step": "fuzz.repository-security-targets"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/fuzz/qr_frame_roundtrip.rs",
+      "role": "fuzz-target",
+      "step": "fuzz.repository-security-targets"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/fuzz/std_pskt_parser.rs",
+      "role": "fuzz-target",
+      "step": "fuzz.repository-security-targets"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/fuzz/stego_picture_parser.rs",
+      "role": "fuzz-target",
+      "step": "fuzz.repository-security-targets"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/fuzz/unwrap_qr_payload.rs",
+      "role": "fuzz-target",
+      "step": "fuzz.repository-security-targets"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/linux/run-security-fuzz.sh",
+      "role": "alias",
+      "step": "fuzz.repository-security-targets"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/windows/run-security-fuzz.ps1",
+      "role": "alias",
+      "step": "fuzz.repository-security-targets"
+    },
+    {
+      "commands": [
+        "make test-hardware"
+      ],
+      "path": "qa/checks/firmware/run_hardware_tests.py",
+      "role": "hardware-runner",
+      "step": "hardware.signer-firmware-device"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/integration/funded_testnet_e2e.py",
+      "role": "integration",
+      "step": "integration.funded-testnet-e2e"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/linux/run-funded-testnet-e2e.sh",
+      "role": "alias",
+      "step": "integration.funded-testnet-e2e"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/windows/run-funded-testnet-e2e.ps1",
+      "role": "alias",
+      "step": "integration.funded-testnet-e2e"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "apps/kassee-android/app/src/test/java/org/kassigner/kassigner/domain/WeatherUnlockPolicyTest.kt",
+      "role": "test",
+      "step": "integration.kassee-android-gradle"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "apps/kassee-android/app/src/test/java/org/kassigner/kassigner/infrastructure/PersistenceRobolectricTest.kt",
+      "role": "test",
+      "step": "integration.kassee-android-gradle"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "apps/kassee-android/app/src/test/java/org/kassigner/kassigner/infrastructure/WeatherServiceRobolectricTest.kt",
+      "role": "test",
+      "step": "integration.kassee-android-gradle"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "apps/kassee-android/app/src/test/java/org/kassigner/kassigner/infrastructure/AppLockServiceRobolectricTest.kt",
+      "role": "test",
+      "step": "integration.kassee-android-gradle"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "apps/kassee-android/app/src/androidTest/java/org/kassigner/kassigner/integration/MainActivityRecreationInstrumentedTest.kt",
+      "role": "test",
+      "step": "integration.kassee-android-quality"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/android/check_android_architecture.py",
+      "role": "check",
+      "step": "integration.kassee-android-quality"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/android/kotlin_crap.py",
+      "role": "check",
+      "step": "integration.kassee-android-quality"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/android/run_instrumentation_tests.py",
+      "role": "check",
+      "step": "integration.kassee-android-quality"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "apps/kassee-ios/Tests/KasSignerAppTests/KasSignerAppTests.swift",
+      "role": "test",
+      "step": "integration.kassee-ios-quality"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "apps/kassee-ios/Tests/KasSignerUITests/KasSignerUITests.swift",
+      "role": "test",
+      "step": "integration.kassee-ios-quality"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/ios/run_xcode_application_tests.py",
+      "role": "check",
+      "step": "integration.kassee-ios-quality"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/ios/swift_crap.py",
+      "role": "check",
+      "step": "integration.kassee-ios-quality"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/checks/web/check_web_covenant_interactions.mjs",
+      "role": "test",
+      "step": "integration.kassee-web-browser"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/checks/web/check_web_critical_paths.mjs",
+      "role": "test",
+      "step": "integration.kassee-web-browser"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/checks/web/check_web_runtime.mjs",
+      "role": "test",
+      "step": "integration.kassee-web-browser"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/checks/web/covenant_sign_protocol.test.mjs",
+      "role": "test",
+      "step": "integration.kassee-web-browser"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/checks/web/check_safe_html.py",
+      "role": "check",
+      "step": "integration.kassee-web-generated"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/checks/web/check_web_dom_contract.py",
+      "role": "check",
+      "step": "integration.kassee-web-generated"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/checks/web/network_routing.test.mjs",
+      "role": "test",
+      "step": "integration.kassee-web-generated"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/checks/web/safe_html_hostile.test.mjs",
+      "role": "test",
+      "step": "integration.kassee-web-generated"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/tests/integration/firmware_signing.rs",
+      "role": "test",
+      "step": "integration.offline-signer-firmware-signing"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/checks/web/check_web_javascript.py",
+      "role": "check",
+      "step": "integration.online-watcher-source"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/integration/real_node_browser.py",
+      "role": "integration",
+      "step": "integration.real-node"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/security/complete_hardening.py",
+      "role": "compatibility-helper",
+      "step": "integration.real-node"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/linux/run-real-node-integration.sh",
+      "role": "alias",
+      "step": "integration.real-node"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/windows/run-real-node-integration.ps1",
+      "role": "alias",
+      "step": "integration.real-node"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/check_architecture.py",
+      "role": "check",
+      "step": "integration.repository-architecture"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/tests/integration.rs",
+      "role": "test",
+      "step": "integration.repository-layout"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/tests/conformance.rs",
+      "role": "test",
+      "step": "integration.shared-signer-conformance"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/firmware/check_firmware_builds.py",
+      "role": "check",
+      "step": "integration.signer-firmware-builds"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/firmware/check_firmware_lints.py",
+      "role": "check",
+      "step": "integration.signer-firmware-lints"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/firmware/compiled_stack_budget.py",
+      "role": "check",
+      "step": "integration.signer-firmware-lints"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/firmware/firmware_lint_policy.py",
+      "role": "check",
+      "step": "integration.signer-firmware-lints"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/android/run_mutation_tests.py",
+      "role": "mutation",
+      "step": "mutation.kassee-android"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/ios/run_mutation_tests.py",
+      "role": "mutation",
+      "step": "mutation.kassee-ios"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/security/package_artifacts.py",
+      "role": "evidence-helper",
+      "step": "mutation.repository-crypto-certification"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/security/mutation.py",
+      "role": "mutation",
+      "step": "mutation.repository-security-fresh"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/quality/crap/check.py",
+      "role": "coverage-helper",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/quality/crap/classify_report.py",
+      "role": "coverage-helper",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/quality/crap/coverage_manifest.py",
+      "role": "coverage-helper",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/quality/crap/health.py",
+      "role": "coverage-helper",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/quality/crap/package_branch_artifacts.py",
+      "role": "coverage-helper",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/quality/crap/merge_reports.py",
+      "role": "coverage-helper",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/run_web_recovery_coverage.py",
+      "role": "coverage",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/run_web_runtime_coverage.py",
+      "role": "coverage",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_branch_hardening.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_branch_hardening_final.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_branch_hardening_ui.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_branch_ratchet_core.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_branch_ratchet_extended.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_covenant_builder_success_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_covenant_claims_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_covenant_event_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_covenant_result_actions_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_covenant_runtime_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_covenant_sign_binding_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_covenant_spending_success_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_crowdfund_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_generation_vault_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_kpub_manager_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_oracle_model_b_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_portfolio_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_private_swap_controller_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_private_swap_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_recovery_coverage.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_remaining_edge_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_runtime_fail_closed.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_runtime_valid_boundary.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_scanning_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_stealth_live_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_stealth_send_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_stealth_success_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_transaction_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_transaction_success_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_transaction_ui_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_wallet_deep_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/web/web_wallet_success_paths.test.mjs",
+      "role": "test",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/linux/run-pinned-branch-coverage.sh",
+      "role": "alias",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/windows/run-pinned-branch-coverage.ps1",
+      "role": "alias",
+      "step": "preflight.crap-check"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/firmware/check_firmware_source_contracts.py",
+      "role": "check",
+      "step": "preflight.firmware-source-contracts"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/checks/web/typescript_toolchain.py",
+      "role": "check",
+      "step": "preflight.kassee-build"
+    },
+    {
+      "commands": [
+        "make test",
+        "make qa"
+      ],
+      "path": "qa/checks/workspace/check_lockfile.py",
+      "role": "check",
+      "step": "preflight.repository-lockfiles"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/security/irreversible_action_policy.py",
+      "role": "security-check",
+      "step": "preflight.security-assurance"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/security/repository_test_quality.py",
+      "role": "security-check",
+      "step": "preflight.security-assurance"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/security/security_control_evidence.py",
+      "role": "security-check",
+      "step": "preflight.security-assurance"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/security/security_invariants.py",
+      "role": "security-check",
+      "step": "preflight.security-assurance"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/security/test_quality.py",
+      "role": "security-check",
+      "step": "preflight.security-assurance"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/security/watcher_only_apps.py",
+      "role": "security-check",
+      "step": "preflight.security-assurance"
+    },
+    {
+      "commands": [
+        "make release-readiness"
+      ],
+      "path": "qa/checks/release/generate_software_assurance.py",
+      "role": "release-check",
+      "step": "release.candidate-evidence"
+    },
+    {
+      "commands": [
+        "make release-readiness"
+      ],
+      "path": "qa/checks/release/irreversible_action_ack.py",
+      "role": "release-check",
+      "step": "release.candidate-evidence"
+    },
+    {
+      "commands": [
+        "make release-readiness"
+      ],
+      "path": "qa/checks/release/release_readiness.py",
+      "role": "release-check",
+      "step": "release.candidate-evidence"
+    },
+    {
+      "commands": [
+        "make release-readiness"
+      ],
+      "path": "qa/linux/release/generate_software_assurance.sh",
+      "role": "release-helper",
+      "step": "release.candidate-evidence"
+    },
+    {
+      "commands": [
+        "make release-readiness"
+      ],
+      "path": "qa/linux/run-release-readiness.sh",
+      "role": "release-check",
+      "step": "release.candidate-evidence"
+    },
+    {
+      "commands": [
+        "make release-readiness"
+      ],
+      "path": "qa/windows/release/generate_software_assurance.ps1",
+      "role": "release-helper",
+      "step": "release.candidate-evidence"
+    },
+    {
+      "commands": [
+        "make release-readiness"
+      ],
+      "path": "qa/windows/run-release-readiness.ps1",
+      "role": "release-check",
+      "step": "release.candidate-evidence"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/firmware/board_partition_contract.py",
+      "role": "check",
+      "step": "static.firmware-assurance-contracts"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/firmware/m5stack_production_security.py",
+      "role": "check",
+      "step": "static.firmware-assurance-contracts"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/firmware/production_e2e_coverage.py",
+      "role": "check",
+      "step": "static.firmware-assurance-contracts"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/firmware/production_runtime_qualification.py",
+      "role": "check",
+      "step": "static.firmware-assurance-contracts"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/firmware/production_ui_graph.py",
+      "role": "check",
+      "step": "static.firmware-assurance-contracts"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/workspace/check_qa_orchestration.py",
+      "role": "check",
+      "step": "static.qa-orchestration-catalog"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "apps/kassee-android/portable-tests/KasSignerShellCoreTests.kt",
+      "role": "test",
+      "step": "unit.kassee-android-core"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/android/run_core_tests.py",
+      "role": "test-runner",
+      "step": "unit.kassee-android-core"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/ios/check_ios_architecture.py",
+      "role": "check",
+      "step": "unit.kassee-ios-core"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/checks/packaging/source_archive.py",
+      "role": "packaging-check",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_advanced_security_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_all_board_adapter_complexity.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_bip340_known_answer_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_branch_coverage_90_contract.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_crap_warning_scope_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_critical_domain_coverage_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_crypto_mutation_and_host_coverage_hardening.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_device_bound_storage.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_firmware_decision_extraction.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_firmware_source_contracts.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_firmware_transport_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_funded_testnet_e2e.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_hil_release_matrix.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_ios_xcode_application_tests.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_kassee_connection_and_qr_import_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_kpub_management_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_m5stack_boot_phases.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_m5stack_production_security_round.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_mobile_web_coverage_contracts.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_navigation_state_machine.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_offline_signer_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_online_watcher_coverage_targets.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_online_watcher_crap_regression_fixes.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_online_watcher_host_coverage_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_online_watcher_native_logging.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_online_watcher_paths.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_online_watcher_script_locktime_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_online_watcher_test_compile_contracts.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_online_watcher_transaction_fixture_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_original_feature_parity_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_private_swap_feature_parity.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_real_node_integration.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_release_readiness_gate.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_release_version_and_diagnostics.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_restored_feature_crap_coverage.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_retired_raw_signature_protocols.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_signing_domain_and_adaptor_retirement.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_transaction_review_coin_control_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_universal_covenant_signing.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_secure_boot_and_hardware_security.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_credential_kdf_security.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_credential_kdf_hardware_memory.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_workflow_camera_ownership.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_workflow_production_coverage.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_qr_antiklepto_workflow.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_steganography_workflow.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_firmware_security_workflow.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_hardware_transport_recovery.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_sd_protocol_and_workflow.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_multisig_signing_isolation.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_multisig_threshold_security.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_multisig_broadcast_standardness.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_release_flash_security.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_recoverable_error_contracts.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_bounded_operation_liveness.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_credential_runtime_safety.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_workflow_ui_touch_parity.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_workflow_runtime_parity.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_hardware_reboot_detection.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_steganography_stack_safety.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_signing_rejection_navigation.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_firmware_error_utf8_safety.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_firmware_memory_resource_safety.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_firmware_typed_state_ownership.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_hil_and_fuzz_evidence.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_credential_secret_lifetime.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_wasm_business_boundary.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_unlock_credential_privacy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_wallet_network_onboarding_safety.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_wallet_activation_security.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_transaction_review_antiklepto.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_kassee_send_signing_security.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_antiklepto_wallet_identity.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_standard_import_liveness.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_android_gradle_bootstrap.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_multisig_wallet_selection.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_coin_control_and_hil_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_complete_utxo_scan.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_critical_domain_reset.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_parser_and_operation_ownership.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_connected_controller_isolation.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_connected_failure_recovery.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_critical_crypto_truncation.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_android_gradle_exec_recovery.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_failure_diagnostics_and_pskt_boundary.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_qemu_transaction_touch_parity.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_funded_wasm_sdk_boundary.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_wallet_session_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_watcher_only_apps.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_web_pkg_fixture_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_web_runtime_coverage_ratchet.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_web_v8_coverage_merge.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_workflow_e2e_catalog.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_zero_warning_remediation.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_architecture_generated_web_pkg.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_architecture_imports.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_compiled_stack_budget.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_crap_check.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_crap_health.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_crap_reporting.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_crap_toolchain.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_crap_scope_merge.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_firmware_board_layout.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_hardware_device_runner.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_irreversible_action_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_lockfile_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_master_launcher.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_platform_script_wrappers.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_qa_orchestration_catalog.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_qa_test_layout.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_qemu_runner.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_qemu_scripts.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_repository_inventory.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_repository_organization.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_reproducible_build_runner.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_sdk_architecture.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_security_hardening.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_serial_access.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_toolchain_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_typescript_toolchain.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/tooling/test_web_build_pipeline.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make workflow-e2e",
+        "make workflow-hil"
+      ],
+      "path": "qa/checks/firmware/run_workflow_tests.py",
+      "role": "hardware-runner",
+      "step": "workflow"
+    },
+    {
+      "commands": [
+        "make workflow-hil"
+      ],
+      "path": "qa/linux/run-m5stack-security-hil.sh",
+      "role": "hardware-runner",
+      "step": "workflow-hil"
+    },
+    {
+      "commands": [
+        "make workflow-hil"
+      ],
+      "path": "qa/windows/run-m5stack-security-hil.ps1",
+      "role": "hardware-runner",
+      "step": "workflow-hil"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_android_mutation_toolchain.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_resolver_and_firmware_runtime_policy.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    },
+    {
+      "commands": [
+        "make qa"
+      ],
+      "path": "qa/tests/regression/test_kassee_multisig_discovery_state.py",
+      "role": "test",
+      "step": "unit.repository-python-qa"
+    }
+  ],
+  "schema_version": 1
+}

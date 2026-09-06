@@ -1,0 +1,15 @@
+[package]
+name = "signer-firmware-core"
+version = "2.0.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Host-testable no_std device policy and firmware decision core for KasSigner hardware"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+shared-signer = { version = "=2.0.0", path = "../shared-signer" }
+kassigner-protocol = { version = "=2.0.0", path = "../kassigner-protocol", default-features = false }
+sha2 = { version = "0.10", default-features = false }

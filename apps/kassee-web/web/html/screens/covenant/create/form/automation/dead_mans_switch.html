@@ -1,0 +1,59 @@
+
+                        <!-- DMS (CSV, true heartbeat) fields -->
+                        <div id="cov-fields-dms" class="hidden">
+                            <p class="u-text-12px-text-text-dim-margin-0-0-12px-line-1-5">
+                                Your heir can claim the funds only after a period of inactivity.
+                                Send a heartbeat anytime to reset the timer.
+                            </p>
+                            <label class="input-label">Who inherits? (scan or paste address)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-dms2-heir-pk" class="input-text u-grow-mb-0"
+                                       placeholder="Heir address or scan QR" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-dms2-heir"
+                                        title="Scan heir kpub QR">📷</button>
+                            </div>
+                            <label class="input-label">Inactivity period</label>
+                            <select id="cov-dms2-preset" class="input-text">
+                                <option value="" disabled selected>Choose inactivity period...</option>
+                                <option value="86400">1 Day</option>
+                                <option value="604800">7 Days</option>
+                                <option value="2592000">30 Days</option>
+                                <option value="7776000">90 Days</option>
+                                <option value="15552000">180 Days</option>
+                                <option value="31536000">1 Year</option>
+                                <option value="custom">Custom...</option>
+                            </select>
+                            <div id="cov-dms2-custom-wrap" class="hidden u-mt-8px">
+                                <div class="u-display-flex-gap-4px-align-text-center">
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">YEARS</div>
+                                        <input type="number" id="cov-dms2-years" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="99"
+                                              >
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">MONTHS</div>
+                                        <input type="number" id="cov-dms2-months" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="11"
+                                              >
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">DAYS</div>
+                                        <input type="number" id="cov-dms2-days" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="30"
+                                              >
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">HOURS</div>
+                                        <input type="number" id="cov-dms2-hours" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="23"
+                                              >
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">MINS</div>
+                                        <input type="number" id="cov-dms2-mins" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="59"
+                                              >
+                                    </div>
+                                </div>
+                            </div>
+                            <input type="hidden" id="cov-dms2-duration" value="">
+                            <p class="u-text-10px-text-text-muted-margin-4px-0-0">
+                                If you don't send a heartbeat within this period, your heir can claim.
+                            </p>
+                        </div>

@@ -1,0 +1,73 @@
+/* screens */
+.screen {
+  position: fixed; inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.8s ease;
+  z-index: 10;
+}
+.screen.on { opacity: 1; pointer-events: all; }
+
+/* intro */
+#s-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0;
+}
+@keyframes ink { from { opacity:0; filter:blur(8px); } to { opacity:1; filter:blur(0); } }
+.i1 { animation: ink 1s 0.1s both; }
+.i2 { animation: ink 1s 0.3s both; }
+.i3 { animation: ink 1s 0.5s both; }
+.i4 { animation: ink 1s 0.7s both; }
+.i5 { animation: ink 1s 0.9s both; }
+
+.eyebrow {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  color: var(--teal-dim);
+  text-transform: uppercase;
+  margin-bottom: 40px;
+}
+.title {
+  font-size: clamp(3.5rem, 9vw, 7.5rem);
+  font-weight: 300;
+  font-style: italic;
+  color: var(--ink);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.title b { color: var(--teal); font-style: normal; font-weight: 400; }
+.sub {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  color: var(--ink-dim);
+  letter-spacing: 0.2em;
+  margin-top: 28px;
+  margin-bottom: 64px;
+}
+.tagline {
+  font-size: clamp(0.85rem, 1.3vw, 1rem);
+  color: var(--ink-dim);
+  font-style: italic;
+  line-height: 1.9;
+  max-width: 420px;
+}
+.enter {
+  margin-top: 60px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.25em;
+  color: var(--teal-dim);
+  text-transform: uppercase;
+  animation: pulse 2.8s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100%{opacity:0.2} 50%{opacity:0.8} }
+.constellation-route-logo {
+    width: min(340px, 58vw);
+    height: auto;
+    opacity: 0.93;
+}

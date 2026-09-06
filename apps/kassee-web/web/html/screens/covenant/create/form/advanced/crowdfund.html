@@ -1,0 +1,27 @@
+                        <!-- ZK Crowdfunding fields -->
+                        <div id="cov-fields-crowdfund" class="hidden">
+                            <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                Each contributor locks funds in their own covenant. The organizer can sweep only after a Groth16 proof and the script itself verifies the real input total, campaign goal, fixed organizer destination, and fee ceiling. Contributors can refund after the deadline.
+                            </p>
+                            <div class="covenant-menu-tabs " id="crowdfund-role-tabs">
+                                <button class="btn btn-primary u-grow" id="btn-crowdfund-role-organizer">Organizer</button>
+                                <button class="btn btn-outline u-grow" id="btn-crowdfund-role-contributor">Contributor</button>
+                            </div>
+                            <div id="crowdfund-organizer-fields">
+                                <label class="input-label">Campaign Name</label>
+                                <input type="text" id="cov-crowdfund-name" class="input-text" maxlength="64" placeholder="e.g. Hardware signer production run" autocomplete="off">
+                                <label class="input-label">Goal Amount (KAS)</label>
+                                <input type="text" inputmode="decimal" id="cov-crowdfund-goal" class="input-text" placeholder="100" autocomplete="off">
+                                <label class="input-label">Organizer Destination</label>
+                                <input type="text" id="cov-crowdfund-organizer-address" class="input-text" placeholder="kaspa:..." autocomplete="off" spellcheck="false">
+                                <label class="input-label">Contributor Refund Deadline</label>
+                                <input type="datetime-local" id="cov-crowdfund-datetime" class="input-text">
+                                <input type="hidden" id="cov-crowdfund-locktime" value="">
+                                <button class="btn btn-outline u-full-width-mb-8px" id="btn-crowdfund-setup">Run ZK Trusted Setup</button>
+                                <div id="crowdfund-setup-status" class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4"></div>
+                            </div>
+                            <div id="crowdfund-contributor-fields" class="hidden">
+                                <button class="btn btn-primary u-full-width-mb-8px" id="btn-crowdfund-scan-campaign">Scan Campaign Invite</button>
+                                <div id="crowdfund-contributor-summary" class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">Scan the organizer's campaign invite before generating your contribution address.</div>
+                            </div>
+                        </div>

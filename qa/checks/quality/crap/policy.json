@@ -1,0 +1,782 @@
+{
+  "coverage_unavailable_source_policy": {
+    "failure_source_decisions": 25,
+    "roots": [
+      "apps/signer-firmware/"
+    ],
+    "warning_source_decisions": 15
+  },
+  "firmware_testability": {
+    "adapter_roots": [
+      "apps/signer-firmware/src/hw/m5stack",
+      "apps/signer-firmware/src/hw/waveshare"
+    ],
+    "adapter_targets": [
+      {
+        "function": "handle_sd_touch",
+        "path": "apps/signer-firmware/src/runtime/interactions/sd/common/routing.rs",
+        "required_fragments": [
+          "SdRouteGroup",
+          "route_group",
+          "handle_file_list"
+        ]
+      },
+      {
+        "function": "handle",
+        "path": "apps/signer-firmware/src/runtime/interactions/export/seed_qr.rs",
+        "required_fragments": [
+          "reduce_grid",
+          "SeedQrGridEffect",
+          "apply_grid_effect"
+        ]
+      },
+      {
+        "function": "handle",
+        "path": "apps/signer-firmware/src/runtime/interactions/tx/transaction.rs",
+        "required_fragments": [
+          "reduce_touch",
+          "transaction_screen",
+          "apply_decision"
+        ]
+      },
+      {
+        "function": "route_camera_back",
+        "path": "apps/signer-firmware/src/runtime/interactions/camera_loop/touch_input.rs",
+        "required_fragments": [
+          "crate::runtime::effects::route",
+          "crate::runtime::effects::home",
+          "crate::runtime::effects::redraw"
+        ]
+      },
+      {
+        "function": "parse_descriptor",
+        "path": "apps/signer-firmware/src/runtime/interactions/sd/common/shared.rs",
+        "required_fragments": [
+          "parse_multisig_descriptor",
+          "MAX_DESCRIPTOR_PARTICIPANTS"
+        ]
+      },
+      {
+        "function": "read_touch_full",
+        "maximum_source_decisions": 4,
+        "path": "apps/signer-firmware/src/hw/waveshare/touch/mod.rs",
+        "required_fragments": [
+          "read_registers",
+          "configure_controller_once",
+          "decode_registers"
+        ]
+      },
+      {
+        "function": "redraw",
+        "path": "apps/signer-firmware/src/ui/redraw/export.rs",
+        "required_fragments": [
+          "address_render_model",
+          "seed_qr::redraw",
+          "addresses::redraw"
+        ]
+      },
+      {
+        "function": "redraw",
+        "path": "apps/signer-firmware/src/ui/redraw/wallet.rs",
+        "required_fragments": [
+          "inventory::redraw",
+          "words::redraw",
+          "bip85::redraw"
+        ]
+      },
+      {
+        "function": "list_root_dir_lfn",
+        "path": "apps/signer-firmware/src/hw/shared/storage/fat32/lfn.rs",
+        "required_fragments": [
+          "LfnAccumulator",
+          "scan_cluster",
+          "read_fat_entry"
+        ]
+      },
+      {
+        "function": "suggestion_chip",
+        "path": "apps/signer-firmware/src/ui/keyboard/mod.rs",
+        "required_fragments": [
+          "signer_firmware_core::input::keyboard::suggestion_hit_test"
+        ]
+      },
+      {
+        "function": "detect_payload",
+        "path": "apps/signer-firmware/src/runtime/interactions/sd/imports/payload_detection.rs",
+        "required_fragments": [
+          "signer_firmware_core::storage::payload::detect_payload",
+          "detect_payload(buffer, original_len)"
+        ]
+      },
+      {
+        "function": "read_battery_value",
+        "maximum_source_decisions": 4,
+        "path": "apps/signer-firmware/src/hw/waveshare/power/battery.rs",
+        "required_fragments": [
+          "signer_firmware_core::power::battery",
+          "raw_to_voltage_mv",
+          "voltage_to_percent"
+        ]
+      },
+      {
+        "function": "read_touch_checked",
+        "maximum_source_decisions": 4,
+        "path": "apps/signer-firmware/src/hw/m5stack/touch/mod.rs",
+        "required_fragments": [
+          "decode_rotated_single_touch",
+          "write_read",
+          "Result<TouchState, ()>"
+        ]
+      },
+      {
+        "function": "read_battery_value",
+        "maximum_source_decisions": 4,
+        "path": "apps/signer-firmware/src/hw/m5stack/power/battery.rs",
+        "required_fragments": [
+          "decode_axp2101_battery",
+          "read_reg",
+          "BatteryStatus"
+        ]
+      },
+      {
+        "function": "process_confirmed_qr",
+        "path": "apps/signer-firmware/src/runtime/interactions/camera_loop/dispatch.rs",
+        "required_fragments": [
+          "signer_firmware_core::qr::classification",
+          "classify_qr_payload",
+          "QrPayloadKind"
+        ]
+      },
+      {
+        "function": "dispatch_import_scan",
+        "path": "apps/signer-firmware/src/runtime/interactions/sd/imports/import_menu.rs",
+        "required_fragments": [
+          "signer_firmware_core::storage::routing",
+          "import_scan_plan",
+          "ImportScanPlan",
+          "scan_rule_plan"
+        ]
+      },
+      {
+        "function": "initialize_card",
+        "maximum_source_decisions": 4,
+        "path": "apps/signer-firmware/src/hw/m5stack/storage/transport/protocol/initialization.rs",
+        "required_fragments": [
+          "validate_cmd8_echo",
+          "ocr_is_high_capacity",
+          "startup_idle_clocks"
+        ]
+      },
+      {
+        "function": "sd_read_block",
+        "maximum_source_decisions": 4,
+        "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/block.rs",
+        "required_fragments": [
+          "signer_firmware_core::storage::fifo",
+          "plan_transfer",
+          "read_fifo"
+        ]
+      },
+      {
+        "function": "fast_read_multi_block",
+        "maximum_source_decisions": 4,
+        "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block.rs",
+        "required_fragments": [
+          "mod fifo;",
+          "plan_transfer",
+          "read_fifo",
+          "write_fifo"
+        ]
+      },
+      {
+        "function": "enter_idle",
+        "maximum_source_decisions": 4,
+        "path": "apps/signer-firmware/src/hw/m5stack/storage/transport/protocol/initialization.rs",
+        "required_fragments": [
+          "CMD0_RETRIES",
+          "delay.delay_millis",
+          "command(CMD0"
+        ]
+      },
+      {
+        "function": "sd_read_block",
+        "maximum_source_decisions": 4,
+        "path": "apps/signer-firmware/src/hw/m5stack/storage/transport/block/adaptive.rs",
+        "required_fragments": [
+          "block_address",
+          "legacy_data_speed",
+          "recover_read"
+        ]
+      },
+      {
+        "function": "fast_read_multi_block",
+        "maximum_source_decisions": 4,
+        "path": "apps/signer-firmware/src/hw/m5stack/storage/transport/multi_block.rs",
+        "required_fragments": [
+          "validate_buffer",
+          "sd_read_block",
+          "checked_add"
+        ]
+      },
+      {
+        "function": "fast_write_multi_block",
+        "maximum_source_decisions": 4,
+        "path": "apps/signer-firmware/src/hw/m5stack/storage/transport/multi_block.rs",
+        "required_fragments": [
+          "validate_buffer",
+          "sd_write_block",
+          "checked_add"
+        ]
+      },
+      {
+        "function": "read_fifo",
+        "maximum_source_decisions": 4,
+        "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block/fifo.rs",
+        "required_fragments": [
+          "drive_fifo_read",
+          "FifoReadIo"
+        ]
+      },
+      {
+        "function": "write_fifo",
+        "maximum_source_decisions": 4,
+        "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block/fifo.rs",
+        "required_fragments": [
+          "drive_fifo_write",
+          "FifoWriteIo"
+        ]
+      }
+    ],
+    "forbidden_owners": [
+      {
+        "fragments": [
+          "pub struct TouchTracker",
+          "struct TouchTracker"
+        ],
+        "path": "apps/signer-firmware/src/hw/waveshare/touch/mod.rs"
+      },
+      {
+        "fragments": [
+          "pub struct LfnAccumulator",
+          "struct LfnAccumulator"
+        ],
+        "path": "apps/signer-firmware/src/hw/shared/storage/fat32/lfn.rs"
+      },
+      {
+        "fragments": [
+          "pub struct TouchTracker",
+          "struct TouchTracker",
+          "pub enum TouchAction",
+          "enum TouchAction"
+        ],
+        "path": "apps/signer-firmware/src/hw/m5stack/touch/mod.rs"
+      }
+    ],
+    "maximum_adapter_source_decisions": 15,
+    "maximum_board_adapter_source_decisions": 4,
+    "maximum_model_source_decisions": 20,
+    "minimum_host_tests": 69,
+    "model_paths": [
+      "crates/signer-firmware-core/src/input/camera_touch.rs",
+      "crates/kassigner-protocol/src/wire/multisig_descriptor.rs",
+      "crates/signer-firmware-core/src/storage/fat32_lfn.rs",
+      "crates/signer-firmware-core/src/presentation/render.rs",
+      "crates/signer-firmware-core/src/backup/seed_qr.rs",
+      "crates/signer-firmware-core/src/input/touch.rs",
+      "crates/signer-firmware-core/src/input/touch/contact_gate.rs",
+      "crates/signer-firmware-core/src/presentation/transaction.rs",
+      "crates/signer-firmware-core/src/power/battery.rs",
+      "crates/signer-firmware-core/src/input/keyboard.rs",
+      "crates/signer-firmware-core/src/storage/payload.rs",
+      "crates/signer-firmware-core/src/input/button.rs",
+      "crates/signer-firmware-core/src/storage/fifo.rs",
+      "crates/signer-firmware-core/src/input/navigation.rs",
+      "crates/signer-firmware-core/src/qr/classification.rs",
+      "crates/signer-firmware-core/src/storage/retry.rs",
+      "crates/signer-firmware-core/src/storage/routing.rs",
+      "crates/signer-firmware-core/src/input/recovery.rs",
+      "crates/signer-firmware-core/src/power/sequencing.rs",
+      "crates/signer-firmware-core/src/presentation/audio.rs",
+      "crates/signer-firmware-core/src/camera/dma.rs",
+      "crates/signer-firmware-core/src/camera/registers.rs",
+      "crates/signer-firmware-core/src/storage/card.rs",
+      "crates/signer-firmware-core/src/time/bm8563.rs"
+    ],
+    "ownership_contracts": [
+      {
+        "path": "apps/signer-firmware/src/hw/shared/touch.rs",
+        "required_fragments": [
+          "pub use signer_firmware_core::input::touch"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/hw/shared/storage/fat32/lfn/scanner.rs",
+        "required_fragments": [
+          "classify_directory_entry",
+          "LfnAccumulator"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/ui/redraw/export.rs",
+        "required_fragments": [
+          "AddressRenderInput",
+          "address_render_model"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/qemu/validation/target.rs",
+        "required_fragments": [
+          "firmware touch state machine",
+          "SeedQR grid reducer",
+          "transaction touch reducer",
+          "FAT32 LFN state machine",
+          "address render model"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/hw/m5stack/touch/mod.rs",
+        "required_fragments": [
+          "touch::contact_gate::ContactGate",
+          "TouchAction",
+          "decode_rotated_single_touch"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/ui/keyboard/mod.rs",
+        "required_fragments": [
+          "pub use signer_firmware_core::input::keyboard",
+          "suggestion_hit_test"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/runtime/interactions/sd/imports/payload_detection.rs",
+        "required_fragments": [
+          "DetectedPayload as DetectedSdPayload",
+          "signer_firmware_core::storage::payload::detect_payload"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/hw/m5stack/power/battery.rs",
+        "required_fragments": [
+          "signer_firmware_core::power::battery::decode_axp2101_battery",
+          "pub use signer_firmware_core::power::battery::ChargeState"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/hw/waveshare/power/battery.rs",
+        "required_fragments": [
+          "pub use signer_firmware_core::power::battery::ChargeState",
+          "raw_to_voltage_mv",
+          "voltage_to_percent"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/runtime/input/button.rs",
+        "required_fragments": [
+          "signer_firmware_core::input::button",
+          "ButtonEvent"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/runtime/input/menu.rs",
+        "required_fragments": [
+          "signer_firmware_core::input::navigation",
+          "Menu"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/runtime/interactions/camera_loop/dispatch.rs",
+        "required_fragments": [
+          "classify_qr_payload",
+          "QrPayloadKind"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/runtime/interactions/sd/imports/import_menu.rs",
+        "required_fragments": [
+          "import_scan_plan",
+          "ImportScanPlan",
+          "scan_rule_plan"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/hw/m5stack/storage/transport/protocol/initialization.rs",
+        "required_fragments": [
+          "super::wire",
+          "validate_cmd8_echo",
+          "ocr_is_high_capacity"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block/fifo.rs",
+        "required_fragments": [
+          "drive_fifo_read",
+          "drive_fifo_write",
+          "FifoReadIo",
+          "FifoWriteIo"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/multi_block.rs",
+        "required_fragments": [
+          "mod fifo;",
+          "plan_transfer",
+          "read_fifo",
+          "write_fifo"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/hw/m5stack/power/pmu.rs",
+        "required_fragments": [
+          "run_register_writes",
+          "AXP2101_INIT_STEPS",
+          "AW9523B_INIT_STEPS"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/sdhost/command.rs",
+        "required_fragments": [
+          "poll_sdhost_command",
+          "SdHostCommandError"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/hw/waveshare/storage/transport/card.rs",
+        "required_fragments": [
+          "classify_card_state",
+          "run_active_card_session",
+          "finish_card_session"
+        ]
+      },
+      {
+        "path": "apps/signer-firmware/src/hw/waveshare/cameras/decode_core/mod.rs",
+        "required_fragments": [
+          "plan_decode_submission",
+          "JOB_STATE",
+          "decode_current_job"
+        ]
+      },
+      {
+        "path": "crates/signer-firmware-core/src/input/touch/contact_gate.rs",
+        "required_fragments": [
+          "TouchEventType::PressDown => self.observe_press_down",
+          "TouchEventType::Contact => self.observe_contact",
+          "event == TouchEventType::LiftUp",
+          "if !self.is_down",
+          "TouchAction::Tap { x, y }"
+        ]
+      }
+    ],
+    "test_paths": [
+      "crates/signer-firmware-core/src/unit_tests/firmware_flow_tests.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_storage_tests.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_touch_tests.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/battery.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/keyboard.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/payload.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/button.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/fifo.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/navigation.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/parsing.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/retry.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/routing.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/adapters/audio.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/adapters/card.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/adapters/dma.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/adapters/power.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/adapters/recovery.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/adapters/registers.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/rtc.rs",
+      "crates/signer-firmware-core/src/unit_tests/firmware_decisions/contact_gate.rs"
+    ]
+  },
+  "health": {
+    "board_adapter_roots": [
+      "apps/signer-firmware/src/hw/m5stack/",
+      "apps/signer-firmware/src/hw/waveshare/"
+    ],
+    "critical_domains": {
+      "critical_crypto": {
+        "label": "critical crypto",
+        "minimum_branch_coverage_percent": 90.0,
+        "paths": [
+          "crates/offline-signer/src/crypto/*.rs",
+          "crates/offline-signer/src/transaction/sighash/*.rs",
+          "crates/online-watcher/src/protocol/schnorr.rs",
+          "crates/online-watcher/src/protocol/private_swap/adaptor/*.rs",
+          "crates/signer-firmware-core/src/security.rs",
+          "crates/shared-signer/src/security.rs"
+        ],
+        "target_branch_coverage_percent": 100.0
+      },
+      "key_handling": {
+        "label": "key handling",
+        "minimum_branch_coverage_percent": 90.0,
+        "paths": [
+          "crates/offline-signer/src/crypto/*.rs",
+          "crates/offline-signer/src/derivation/**/*.rs",
+          "crates/shared-signer/src/account_key.rs",
+          "crates/shared-signer/src/legacy_account_key.rs",
+          "crates/online-watcher/src/account/bip32.rs",
+          "crates/online-watcher/src/privacy/stealth/derivation.rs",
+          "crates/online-watcher/src/privacy/stealth/keys.rs",
+          "crates/online-watcher/src/wasm_api/wallet/keys.rs",
+          "crates/online-watcher/src/protocol/schnorr.rs"
+        ],
+        "target_branch_coverage_percent": 90.0
+      },
+      "parsers_codecs": {
+        "label": "parsers and codecs",
+        "minimum_branch_coverage_percent": 90.0,
+        "paths": [
+          "crates/signer-firmware-core/src/storage/payload.rs",
+          "crates/shared-signer/src/account_key.rs",
+          "crates/shared-signer/src/legacy_account_key.rs",
+          "crates/shared-signer/src/pskt.rs",
+          "crates/shared-signer/src/qr_frame.rs",
+          "crates/kassigner-protocol/src/wire/qr_payload.rs",
+          "crates/kassigner-protocol/src/wire/multisig_descriptor.rs",
+          "crates/kassigner-protocol/src/wire/kspt/*.rs",
+          "crates/offline-signer/src/transaction/kspt/wire_adapter.rs",
+          "crates/offline-signer/src/transaction/kspt/kssn.rs",
+          "crates/offline-signer/src/transaction/kspt/kssn_io.rs",
+          "crates/offline-signer/src/transaction/std_pskt/parser/*.rs",
+          "crates/offline-signer/src/transaction/std_pskt/parser/**/*.rs",
+          "crates/offline-signer/src/transaction/std_pskt/syntax/*.rs",
+          "crates/online-watcher/src/network/codec/**/*.rs",
+          "crates/online-watcher/src/network/wrpc/error_payload.rs",
+          "crates/online-watcher/src/network/wrpc/request.rs",
+          "crates/online-watcher/src/network/wrpc/response.rs",
+          "crates/online-watcher/src/protocol/pskt/kspt_bridge/parser_compact.rs",
+          "crates/online-watcher/src/protocol/pskt/kspt_bridge/reader.rs",
+          "crates/online-watcher/src/protocol/pskt/review/parser.rs",
+          "crates/online-watcher/src/protocol/pskt/wire/*.rs",
+          "crates/online-watcher/src/protocol/transaction/signed_kspt.rs"
+        ],
+        "target_branch_coverage_percent": 90.0
+      },
+      "signing": {
+        "label": "signing",
+        "minimum_branch_coverage_percent": 90.0,
+        "paths": [
+          "crates/offline-signer/src/crypto/schnorr.rs",
+          "crates/offline-signer/src/transaction/kspt/signing/*.rs",
+          "crates/offline-signer/src/transaction/sighash/*.rs",
+          "crates/offline-signer/src/transaction/std_pskt/signatures.rs",
+          "crates/online-watcher/src/protocol/transaction/sighash.rs",
+          "crates/online-watcher/src/protocol/transaction/signed_kspt.rs",
+          "crates/online-watcher/src/protocol/pskt/scripts/**/*.rs",
+          "crates/signer-firmware-core/src/security.rs",
+          "crates/online-watcher/src/protocol/schnorr.rs"
+        ],
+        "target_branch_coverage_percent": 90.0
+      },
+      "transaction_construction": {
+        "label": "transaction construction",
+        "minimum_branch_coverage_percent": 90.0,
+        "paths": [
+          "crates/offline-signer/src/transaction/model/*.rs",
+          "crates/kassigner-protocol/src/wire/kspt/*.rs",
+          "crates/offline-signer/src/transaction/kspt/wire_adapter.rs",
+          "crates/offline-signer/src/transaction/kspt/kssn.rs",
+          "crates/offline-signer/src/transaction/kspt/kssn_io.rs",
+          "crates/offline-signer/src/transaction/kspt/script.rs",
+          "crates/offline-signer/src/transaction/kspt/validation.rs",
+          "crates/online-watcher/src/transaction_builder/**/*.rs",
+          "crates/online-watcher/src/wasm_api/transactions/*.rs",
+          "crates/online-watcher/src/contracts/**/*.rs",
+          "crates/online-watcher/src/protocol/pskt/consensus/*.rs",
+          "crates/online-watcher/src/protocol/pskt/scripts/**/*.rs"
+        ],
+        "target_branch_coverage_percent": 90.0
+      },
+      "wallet_recovery": {
+        "label": "wallet recovery",
+        "minimum_branch_coverage_percent": 90.0,
+        "paths": [
+          "crates/offline-signer/src/derivation/bip39/*.rs",
+          "crates/offline-signer/src/derivation/bip32/child.rs",
+          "crates/offline-signer/src/derivation/bip32/extended_private.rs",
+          "crates/offline-signer/src/derivation/bip32/paths.rs",
+          "crates/offline-signer/src/derivation/bip85.rs",
+          "crates/offline-signer/src/derivation/xpub/xprv.rs",
+          "crates/shared-signer/src/account_key.rs",
+          "crates/shared-signer/src/legacy_account_key.rs"
+        ],
+        "supplemental_coverage": "browser_recovery",
+        "target_branch_coverage_percent": 90.0
+      }
+    },
+    "host_production_roots": [
+      "crates/signer-firmware-core/src/",
+      "crates/offline-signer/src/",
+      "crates/online-watcher/src/",
+      "crates/shared-signer/src/"
+    ],
+    "maximum_board_adapter_cc": 4,
+    "maximum_production_failures": 0,
+    "maximum_production_warning_percent": 0.0,
+    "maximum_production_warnings": 0,
+    "minimum_critical_domain_coverage_percent": 90.0,
+    "minimum_host_branch_coverage_percent": 90.0,
+    "minimum_host_function_coverage_percent": 90.0,
+    "minimum_host_line_coverage_percent": 90.0,
+    "minimum_web_runtime_mapping_percent": 100.0,
+    "require_branch_coverage": true
+  },
+  "regression": {
+    "allowed_unavailable_board_adapter_warning_cc": 4,
+    "board_adapter_roots": [
+      "apps/signer-firmware/src/hw/m5stack/",
+      "apps/signer-firmware/src/hw/waveshare/"
+    ],
+    "coverage_drop_tolerance_percent": 0.05,
+    "reject_failure_count_increase": true,
+    "reject_measured_to_unavailable": true,
+    "reject_new_failures": true,
+    "reject_new_warnings": true
+  },
+  "report": {
+    "maximum_production_failures": 0,
+    "maximum_production_warnings": 0,
+    "threshold": 30.0
+  },
+  "schema_version": 1,
+  "source_complexity": {
+    "maximum_monitored_source_decisions": 25,
+    "maximum_production_source_decisions": 25,
+    "maximum_warning_functions": 0,
+    "monitored_paths": [
+      "apps/signer-firmware/src/ui/display/icons.rs",
+      "apps/signer-firmware/src/ui/display/icons/classification.rs",
+      "apps/signer-firmware/src/ui/display/icons/drawing.rs",
+      "apps/signer-firmware/src/hw/shared/storage/fat32/lfn.rs",
+      "apps/signer-firmware/src/hw/shared/storage/fat32/lfn/scanner.rs",
+      "crates/online-watcher/src/protocol/pskt/kspt_bridge/parser_compact.rs",
+      "crates/online-watcher/src/protocol/pskt/kspt_bridge/parser_transaction.rs",
+      "crates/offline-signer/src/address/mod.rs",
+      "crates/offline-signer/src/transaction/std_pskt/parser/global.rs",
+      "crates/offline-signer/src/transaction/std_pskt/parser/inputs/mod.rs",
+      "crates/offline-signer/src/transaction/std_pskt/parser/inputs/details.rs",
+      "crates/offline-signer/src/transaction/std_pskt/parser/outputs.rs",
+      "crates/offline-signer/src/transaction/std_pskt/parser/helpers.rs",
+      "crates/offline-signer/src/transaction/std_pskt/serializer/inputs.rs",
+      "crates/signer-firmware-core/src/storage/fat32_lfn.rs",
+      "crates/signer-firmware-core/src/power/battery.rs",
+      "crates/signer-firmware-core/src/input/keyboard.rs",
+      "crates/signer-firmware-core/src/storage/payload.rs"
+    ],
+    "targets": [
+      {
+        "function": "draw_menu_icon_with_profile",
+        "path": "apps/signer-firmware/src/ui/display/icons.rs",
+        "previous_complexity": 54,
+        "required_fragments": [
+          "mod classification;",
+          "mod drawing;",
+          "classify_menu_icon",
+          "draw_classified_icon"
+        ]
+      },
+      {
+        "function": "list_root_dir_lfn",
+        "path": "apps/signer-firmware/src/hw/shared/storage/fat32/lfn.rs",
+        "previous_complexity": 46,
+        "required_fragments": [
+          "mod scanner;",
+          "LfnAccumulator",
+          "scan_cluster",
+          "read_fat_entry"
+        ]
+      },
+      {
+        "function": "parse_compact_kspt_signatures",
+        "path": "crates/online-watcher/src/protocol/pskt/kspt_bridge/parser_compact.rs",
+        "previous_complexity": 39,
+        "required_fragments": [
+          "parse_compact_kspt_transaction",
+          ".inputs",
+          ".signatures",
+          "sighash_type"
+        ]
+      },
+      {
+        "function": "bech32_char_to_val",
+        "path": "crates/offline-signer/src/address/mod.rs",
+        "previous_complexity": 34,
+        "required_fragments": [
+          "CHARSET",
+          ".position(",
+          ".map_or("
+        ]
+      },
+      {
+        "function": "parse_global",
+        "path": "crates/offline-signer/src/transaction/std_pskt/parser/global.rs",
+        "previous_complexity": 61,
+        "required_fragments": [
+          "struct GlobalParser",
+          "fn parse_field",
+          "fn parse_pskt_version",
+          "fn parse_input_count"
+        ]
+      },
+      {
+        "function": "parse_input",
+        "path": "crates/offline-signer/src/transaction/std_pskt/parser/inputs/mod.rs",
+        "previous_complexity": 64,
+        "required_fragments": [
+          "struct InputParser",
+          "fn parse_field",
+          "fn parse_redeem_script",
+          "fn parse_final_script_sig"
+        ]
+      },
+      {
+        "function": "skip_until_matching",
+        "path": "crates/offline-signer/src/transaction/std_pskt/parser/helpers.rs",
+        "previous_complexity": 33,
+        "required_fragments": [
+          "process_container_token",
+          "process_object_key_or_end",
+          "process_array_value_or_end",
+          "process_nested_value"
+        ]
+      },
+      {
+        "function": "parse_output",
+        "path": "crates/offline-signer/src/transaction/std_pskt/parser/outputs.rs",
+        "previous_complexity": 38,
+        "required_fragments": [
+          "struct OutputParser",
+          "fn parse_field",
+          "fn parse_redeem_script",
+          "fn parse_preserved_object"
+        ]
+      },
+      {
+        "function": "parse_utxo_entry",
+        "path": "crates/offline-signer/src/transaction/std_pskt/parser/inputs/details.rs",
+        "previous_complexity": 30,
+        "required_fragments": [
+          "struct UtxoParser",
+          "fn parse_field",
+          "fn parse_block_daa_score",
+          "fn parse_is_coinbase"
+        ]
+      },
+      {
+        "function": "emit_input",
+        "path": "crates/offline-signer/src/transaction/std_pskt/serializer/inputs.rs",
+        "previous_complexity": 30,
+        "required_fragments": [
+          "emit_input_identity",
+          "emit_input_signing",
+          "emit_input_scripts",
+          "emit_input_preserved"
+        ]
+      }
+    ],
+    "warning_source_decisions": 15
+  }
+}

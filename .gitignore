@@ -1,38 +1,34 @@
-# Rust build artifacts
-target/
-**/*.rs.bk
+# Rust / build output
+/target/
+/release/
+/release.tmp.[0-9]*/
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# QA generated state
+/qa/fuzz/Cargo.lock
 
-# OS
+# Generated web/runtime dependencies
+**/node_modules/
+/apps/kassee-web/web/pkg/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# IDE / local machine state
+**/.idea/
+**/.vscode/
+**/*.iml
+**/*.ipr
+**/*.iws
+/apps/kassee-android/local.properties
+/apps/kassee-android/.kotlin/
+
+# OS/editor leftovers
 .DS_Store
 Thumbs.db
+*~
 
-# Signing keys — NEVER commit these
-dev_signing_key.bin
-keys/*.bin
-*.pem
-*.key
-
-# ESP build artifacts
-*.bin
-*.elf
-*.map
-
-# Generated files (rebuilt by build system)
-bootloader/src/logo_data.rs
-
-# Screenshots (dev feature)
-screenshots/
-
-# SD card test files
-*.KAS
-*.jpg.bak
-*.log
-Icon?
-*.rs.bak
+# Mobile release signing secrets
+*.jks
+*.keystore

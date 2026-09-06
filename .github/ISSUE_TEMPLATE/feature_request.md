@@ -1,12 +1,19 @@
 ---
-name: Feature Request
-about: Suggest a feature for KasSigner
-title: "[FEATURE] "
+name: Feature request
+about: Propose a user-facing or developer-facing improvement
+title: ""
 labels: enhancement
+assignees: ""
 ---
 
-**Description:**
+## Problem
 
-**Use case:**
+Describe the concrete user or developer problem.
 
-**Proposed implementation (optional):**
+## Proposed behavior
+
+Describe the desired result, including security or compatibility constraints.
+
+## Alternatives
+
+List other approaches considered, if any.

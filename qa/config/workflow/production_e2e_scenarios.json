@@ -1,0 +1,3544 @@
+{
+  "scenarios": [
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/menu.rs::handle_root_touch"
+      ],
+      "id": "connected-home-root",
+      "items": [
+        "E2E-019-01",
+        "E2E-019-02",
+        "E2E-019-03",
+        "E2E-019-04",
+        "E2E-088-01",
+        "E2E-088-02",
+        "E2E-088-03",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Receive",
+        "Scan QR",
+        "Wallet",
+        "Settings"
+      ],
+      "requirements": [
+        "E2E-019",
+        "E2E-088",
+        "E2E-091"
+      ],
+      "serial_markers": [
+        "HOME OUTSIDE-TILE NOOP OK",
+        "CONNECTED HOME/ROOT PASS"
+      ],
+      "states": [
+        "MainMenu",
+        "ShowAddress",
+        "ScanQR",
+        "SeedsMenu",
+        "SettingsMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::handle_address_view",
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::step_address_index",
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::handle_index_picker",
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::append_index_digit",
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::clear_index_input",
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::confirm_index",
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::leave_index_picker"
+      ],
+      "id": "connected-receive-controls",
+      "items": [
+        "E2E-020-01",
+        "E2E-020-02",
+        "E2E-020-03",
+        "E2E-020-04",
+        "E2E-020-05",
+        "E2E-020-06",
+        "E2E-020-07",
+        "E2E-020-08",
+        "E2E-087-01",
+        "E2E-087-02",
+        "E2E-087-03",
+        "E2E-087-04",
+        "E2E-089-01",
+        "E2E-089-02",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04",
+        "E2E-100-13"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Receive",
+        "Address"
+      ],
+      "requirements": [
+        "E2E-020",
+        "E2E-087",
+        "E2E-089",
+        "E2E-091",
+        "E2E-100"
+      ],
+      "serial_markers": [
+        "RECEIVE QR OPEN/CLOSE OK",
+        "RECEIVE CHAIN TOGGLE OK",
+        "RECEIVE INDEX STEP/BOUNDARY OK",
+        "RECEIVE CONTROLS PASS",
+        "RECEIVE CUSTOM INDEX/QR JOURNEY OK"
+      ],
+      "states": [
+        "ShowAddress",
+        "ShowAddressQR",
+        "AddrIndexPicker",
+        "MainMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/settings/menu.rs::handle_settings_menu",
+        "apps/signer-firmware/src/runtime/interactions/settings/menu.rs::open_setting",
+        "apps/signer-firmware/src/runtime/interactions/settings/menu.rs::open_m5stack_setting",
+        "apps/signer-firmware/src/runtime/interactions/settings/menu.rs::open_security",
+        "apps/signer-firmware/src/runtime/interactions/settings/mod.rs::handle_settings_menu_navigation",
+        "apps/signer-firmware/src/runtime/interactions/settings/mod.rs::handle_about_navigation",
+        "apps/signer-firmware/src/runtime/interactions/settings/mod.rs::handle_advanced_navigation",
+        "apps/signer-firmware/src/runtime/interactions/settings/mod.rs::handle_sd_settings_navigation",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/factory_reset.rs::handle_warning",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_owner_firmware",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/owner_firmware.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/owner_firmware.rs::confirm_edit"
+      ],
+      "id": "connected-settings-root",
+      "items": [
+        "E2E-063-01",
+        "E2E-063-02",
+        "E2E-063-03",
+        "E2E-072-01",
+        "E2E-072-02",
+        "E2E-072-03",
+        "E2E-084-01",
+        "E2E-084-02",
+        "E2E-084-03",
+        "E2E-088-01",
+        "E2E-088-02",
+        "E2E-088-03",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04",
+        "E2E-081-04",
+        "E2E-081-05"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Display",
+        "Audio",
+        "Security",
+        "Storage",
+        "Advanced",
+        "About",
+        "Factory Reset",
+        "Owner Firmware",
+        "Enroll Owner Key",
+        "Install from SD"
+      ],
+      "requirements": [
+        "E2E-072",
+        "E2E-084",
+        "E2E-088",
+        "E2E-091",
+        "E2E-063",
+        "E2E-081"
+      ],
+      "serial_markers": [
+        "SETTINGS OUTSIDE-ITEM NOOP OK",
+        "SETTINGS PAGING BOUNDARIES OK",
+        "SETTINGS ROOT ITEMS PASS 6/6",
+        "FACTORY RESET WARN/CONFIRM/CANCEL OK",
+        "SETTINGS OWNER FIRMWARE WARN/CONFIRM/BACK PASS"
+      ],
+      "states": [
+        "SettingsMenu",
+        "DisplaySettings",
+        "AudioSettings",
+        "AdvancedFeatures",
+        "SdCardSettings",
+        "AdvancedMenu",
+        "About",
+        "MainMenu",
+        "FactoryResetWarning",
+        "FactoryResetConfirm",
+        "OwnerFirmwareMenu",
+        "OwnerKeyWarning",
+        "OwnerKeyConfirm",
+        "OwnerInstallWarning",
+        "OwnerInstallConfirm"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/settings/display.rs::handle_display_settings",
+        "apps/signer-firmware/src/runtime/interactions/settings/mod.rs::handle_display_settings_navigation"
+      ],
+      "id": "connected-display-settings",
+      "items": [
+        "E2E-073-01",
+        "E2E-073-02",
+        "E2E-073-03",
+        "E2E-089-01",
+        "E2E-089-02",
+        "E2E-098-01",
+        "E2E-098-02",
+        "E2E-098-03",
+        "E2E-098-04",
+        "E2E-098-05",
+        "E2E-098-06"
+      ],
+      "level": "hil",
+      "menu_items": [
+        "Display"
+      ],
+      "requirements": [
+        "E2E-073",
+        "E2E-089",
+        "E2E-098"
+      ],
+      "serial_markers": [
+        "SETTINGS DISPLAY BOUNDARIES/HIL OK"
+      ],
+      "states": [
+        "DisplaySettings",
+        "SettingsMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/settings/audio.rs::handle_audio_settings",
+        "apps/signer-firmware/src/runtime/interactions/settings/mod.rs::handle_audio_settings_navigation"
+      ],
+      "id": "connected-audio-settings-controller",
+      "items": [
+        "E2E-074-01",
+        "E2E-074-02",
+        "E2E-074-03",
+        "E2E-089-01",
+        "E2E-089-02"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Audio"
+      ],
+      "requirements": [
+        "E2E-074",
+        "E2E-089"
+      ],
+      "serial_markers": [
+        "SETTINGS AUDIO BOUNDARIES OK"
+      ],
+      "states": [
+        "AudioSettings",
+        "SettingsMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::handle_menu",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_back",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_item",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_wallet",
+        "apps/signer-firmware/src/runtime/interactions/support/menu_selection.rs::handle_paged_menu_touch"
+      ],
+      "id": "connected-wallet-root",
+      "items": [
+        "E2E-023-01",
+        "E2E-023-02",
+        "E2E-023-03",
+        "E2E-023-04",
+        "E2E-023-05",
+        "E2E-023-06",
+        "E2E-023-07",
+        "E2E-023-08",
+        "E2E-024-01",
+        "E2E-024-02",
+        "E2E-024-03",
+        "E2E-024-04",
+        "E2E-088-01",
+        "E2E-088-02",
+        "E2E-088-03",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04",
+        "E2E-023-09"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Receive",
+        "Connect",
+        "Multisig",
+        "Advanced",
+        "Backup",
+        "Recovery"
+      ],
+      "requirements": [
+        "E2E-023",
+        "E2E-088",
+        "E2E-091",
+        "E2E-024"
+      ],
+      "serial_markers": [
+        "WALLET MENU NOOP/PAGING OK",
+        "WALLET ROOT ROUTES OK"
+      ],
+      "states": [
+        "SeedsMenu",
+        "ShowAddress",
+        "WalletBackupMethodsMenu",
+        "MultisigMenu",
+        "WalletAdvancedMenu",
+        "SdImportMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::handle_wallet_details"
+      ],
+      "id": "connected-wallet-details-delete",
+      "items": [
+        "E2E-025-01",
+        "E2E-025-02",
+        "E2E-025-03",
+        "E2E-025-04",
+        "E2E-090-01",
+        "E2E-090-02",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Wallet Details",
+        "Switch / Add Wallet"
+      ],
+      "requirements": [
+        "E2E-025",
+        "E2E-090",
+        "E2E-091"
+      ],
+      "serial_markers": [
+        "WALLET DETAILS DELETE CANCEL OK",
+        "WALLET DELETE RELEASE CANCEL OK",
+        "WALLET DELETE COMMIT OK"
+      ],
+      "states": [
+        "WalletDetails",
+        "ConfirmDeleteSeed",
+        "SeedList",
+        "SeedsMenu",
+        "WalletNameEntry"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/seed/seed_list/list.rs::handle_paging",
+        "apps/signer-firmware/src/runtime/interactions/seed/seed_list.rs::handle_add_wallet_choice"
+      ],
+      "id": "connected-wallet-switch-add",
+      "items": [
+        "E2E-026-01",
+        "E2E-026-02",
+        "E2E-026-03",
+        "E2E-026-04",
+        "E2E-027-01",
+        "E2E-027-02",
+        "E2E-027-03",
+        "E2E-088-01",
+        "E2E-088-02",
+        "E2E-088-03",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Switch / Add Wallet"
+      ],
+      "requirements": [
+        "E2E-026",
+        "E2E-027",
+        "E2E-088",
+        "E2E-091"
+      ],
+      "serial_markers": [
+        "WALLET SWITCH/PAGING OK active=1",
+        "ADD WALLET CREATE/RESTORE/BACK OK"
+      ],
+      "states": [
+        "SeedList",
+        "AddWalletChoice",
+        "ChooseWordCount",
+        "SeedsMenu",
+        "WalletNameEntry"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_wallet_backup_methods",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_wallet"
+      ],
+      "id": "connected-backup-root",
+      "items": [
+        "E2E-028-01",
+        "E2E-028-02",
+        "E2E-028-03",
+        "E2E-028-04",
+        "E2E-028-05",
+        "E2E-088-01",
+        "E2E-088-02",
+        "E2E-088-03",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "View Words",
+        "SeedQR Backup",
+        "Encrypted SD Card",
+        "Advanced",
+        "Backup",
+        "Recovery"
+      ],
+      "requirements": [
+        "E2E-028",
+        "E2E-088",
+        "E2E-091"
+      ],
+      "serial_markers": [
+        "BACKUP MENU OUTSIDE-ITEM NOOP OK",
+        "BACKUP/RECOVERY TRANCHE PASS"
+      ],
+      "states": [
+        "MainMenu",
+        "SeedsMenu",
+        "WalletBackupMethodsMenu",
+        "BackupRecoveryMenu",
+        "SdImportMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "connected-backup-recovery-words",
+      "items": [
+        "E2E-029-01",
+        "E2E-029-02",
+        "E2E-029-03",
+        "E2E-029-04",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "View Words"
+      ],
+      "requirements": [
+        "E2E-029",
+        "E2E-091"
+      ],
+      "serial_markers": [
+        "BACKUP RECOVERY WORDS 12/12 + BOUNDARIES OK",
+        "BACKUP RAW-KEY MNEMONIC ROUTES REJECTED"
+      ],
+      "states": [
+        "SeedBackup",
+        "WalletBackupMethodsMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "connected-backup-seedqr",
+      "items": [
+        "E2E-030-01",
+        "E2E-030-02",
+        "E2E-030-03",
+        "E2E-030-04",
+        "E2E-086-01",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "SeedQR Backup",
+        "Compact SeedQR",
+        "Plain-text SeedQR"
+      ],
+      "requirements": [
+        "E2E-030",
+        "E2E-086",
+        "E2E-091"
+      ],
+      "serial_markers": [
+        "BACKUP STANDARD SEEDQR GRID BOUNDARIES OK",
+        "BACKUP ADVANCED ROUTES/BACK OWNERS OK"
+      ],
+      "states": [
+        "ExportSeedQR",
+        "ExportCompactSeedQR",
+        "ExportPlainWordsQR",
+        "SeedQrGrid",
+        "WalletBackupMethodsMenu",
+        "BackupRecoveryMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/sd/backup/seed.rs::handle_seed_backup_warning"
+      ],
+      "id": "connected-backup-sd-entry",
+      "items": [
+        "E2E-031-01",
+        "E2E-031-02",
+        "E2E-031-03",
+        "E2E-031-04",
+        "E2E-031-05",
+        "E2E-093-01",
+        "E2E-093-02",
+        "E2E-093-03"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Encrypted SD Card"
+      ],
+      "requirements": [
+        "E2E-031",
+        "E2E-093"
+      ],
+      "serial_markers": [
+        "BACKUP ENCRYPTED-SD CARD ENTRY/BACK OK"
+      ],
+      "states": [
+        "SdBackupWarning",
+        "WalletBackupMethodsMenu",
+        "SdSeedFilename"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_backup_recovery",
+        "apps/signer-firmware/src/runtime/interactions/stego.rs::handle_stego_touch",
+        "apps/signer-firmware/src/runtime/interactions/sd/imports/import_menu.rs::handle_sd_import_menu"
+      ],
+      "id": "connected-backup-advanced",
+      "items": [
+        "E2E-032-01",
+        "E2E-032-02",
+        "E2E-032-03",
+        "E2E-032-04",
+        "E2E-032-05",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04",
+        "E2E-032-06"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Compact SeedQR",
+        "Plain-text SeedQR",
+        "Steganographic",
+        "XPrv Backup",
+        "Export Key"
+      ],
+      "requirements": [
+        "E2E-032",
+        "E2E-091"
+      ],
+      "serial_markers": [
+        "BACKUP ADVANCED ROUTES/BACK OWNERS OK"
+      ],
+      "states": [
+        "BackupRecoveryMenu",
+        "ExportCompactSeedQR",
+        "ExportPlainWordsQR",
+        "StegoModeSelect",
+        "WalletBackupMethodsMenu",
+        "XprvExportMenu",
+        "ExportPrivKeyIndex"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/menu/seed_generation.rs::handle_touch_entropy",
+        "apps/signer-firmware/src/runtime/interactions/menu/seed_generation/additive.rs::handle_dice_choice",
+        "apps/signer-firmware/src/runtime/interactions/menu/seed_generation/additive.rs::handle_dice_count",
+        "apps/signer-firmware/src/runtime/interactions/menu/seed_generation/additive.rs::handle_touch_choice",
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding/recovery.rs::handle_recovery_acknowledgement",
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding.rs::handle_seed_source_choice",
+        "apps/signer-firmware/src/runtime/interactions/seed/wallet_name.rs::handle_back",
+        "apps/signer-firmware/src/runtime/interactions/seed/wallet_name.rs::handle_submitted"
+      ],
+      "id": "connected-onboarding-create-core",
+      "items": [
+        "E2E-002-01",
+        "E2E-002-02",
+        "E2E-002-03",
+        "E2E-002-04",
+        "E2E-003-01",
+        "E2E-003-02",
+        "E2E-003-03",
+        "E2E-005-01",
+        "E2E-005-02",
+        "E2E-005-03",
+        "E2E-005-04",
+        "E2E-005-05",
+        "E2E-006-01",
+        "E2E-006-02",
+        "E2E-006-03",
+        "E2E-007-01",
+        "E2E-007-02",
+        "E2E-007-03",
+        "E2E-008-01",
+        "E2E-008-02",
+        "E2E-008-03",
+        "E2E-008-04",
+        "E2E-009-01",
+        "E2E-009-02",
+        "E2E-009-03",
+        "E2E-009-04",
+        "E2E-087-01",
+        "E2E-087-02",
+        "E2E-087-03",
+        "E2E-087-04",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-002",
+        "E2E-003",
+        "E2E-005",
+        "E2E-006",
+        "E2E-007",
+        "E2E-008",
+        "E2E-009",
+        "E2E-087",
+        "E2E-091"
+      ],
+      "serial_markers": [
+        "ONBOARDING WELCOME CREATE/RESTORE/NOOP OK",
+        "CREATE DICE/TOUCH CHOICES + BOUNDARIES OK",
+        "CREATE 12-WORD SESSION-ONLY PASS",
+        "CREATE 24-WORD PASSPHRASE/RECOVERY PASS",
+        "ONBOARDING SESSION-ONLY COMPLETE OK",
+        "CREATE WALLET NAME BACK/SUBMIT OK"
+      ],
+      "states": [
+        "StorageModeChoice",
+        "WalletNameEntry",
+        "StorageSeedSourceChoice",
+        "StorageSeedWordCountChoice",
+        "StorageSeedDiceChoice",
+        "StorageSeedDiceCountChoice",
+        "DiceRoll",
+        "StorageSeedTouchChoice",
+        "TouchEntropy",
+        "PassphraseChoice",
+        "PassphraseEntry",
+        "SeedBackup",
+        "StorageRecoveryAcknowledgement",
+        "StorageFinalizeChoice",
+        "MainMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/persistence/credential.rs::handle_credential_type",
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding/finalize.rs::handle_protection_choice"
+      ],
+      "id": "connected-onboarding-secure-storage-routing",
+      "items": [
+        "E2E-009-01",
+        "E2E-009-02",
+        "E2E-009-03",
+        "E2E-009-04",
+        "E2E-010-01",
+        "E2E-010-02",
+        "E2E-010-03",
+        "E2E-011-01",
+        "E2E-011-02",
+        "E2E-011-03",
+        "E2E-011-04",
+        "E2E-012-01",
+        "E2E-012-02",
+        "E2E-012-03",
+        "E2E-012-04",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-009",
+        "E2E-010",
+        "E2E-011",
+        "E2E-012",
+        "E2E-091"
+      ],
+      "serial_markers": [
+        "CREATE PROTECTION CHOICE + PIN/PASSWORD ROUTES OK",
+        "PERSISTENT PIN QA STORAGE ROUND-TRIP PASS",
+        "CREATE DEVICE-ONLY FLASH COMMIT DEFERRED TO HIL"
+      ],
+      "states": [
+        "StorageFinalizeChoice",
+        "StorageProtectionChoice",
+        "StorageCredentialType",
+        "StoragePinEntry",
+        "StoragePasswordEntry"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding.rs::handle_mode_choice",
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding.rs::handle_seed_source_choice",
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding.rs::handle_advanced_restore",
+        "apps/signer-firmware/src/runtime/interactions/camera_loop/touch_input.rs::route_camera_back",
+        "apps/signer-firmware/src/runtime/interactions/sd/backup/import.rs::handle_wallet_backup_file_list"
+      ],
+      "id": "connected-onboarding-restore-menu",
+      "items": [
+        "E2E-014-01",
+        "E2E-014-02",
+        "E2E-014-03",
+        "E2E-014-04",
+        "E2E-014-05",
+        "E2E-017-01",
+        "E2E-017-02",
+        "E2E-017-03",
+        "E2E-017-04",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Words",
+        "SeedQR",
+        "SD",
+        "Advanced",
+        "Compact SeedQR",
+        "Plain-text SeedQR",
+        "Raw Private Key",
+        "Steganographic"
+      ],
+      "requirements": [
+        "E2E-014",
+        "E2E-017",
+        "E2E-091"
+      ],
+      "serial_markers": [
+        "RESTORE MENU ROUTES/OWNERS/NOOP OK",
+        "RESTORE SD EMPTY-LIST/BACK OWNER OK"
+      ],
+      "states": [
+        "StorageModeChoice",
+        "StorageSeedSourceChoice",
+        "AdvancedRestoreMenu",
+        "ScanQR",
+        "SdWalletBackupFileList",
+        "ImportPrivKey",
+        "StegoImportPick"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding.rs::handle_restore_12_detected",
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding/recovery.rs::handle_recovery_acknowledgement",
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding/finalize.rs::handle_finalize_choice"
+      ],
+      "id": "connected-onboarding-restore-words",
+      "items": [
+        "E2E-015-01",
+        "E2E-015-02",
+        "E2E-015-03",
+        "E2E-015-04",
+        "E2E-015-05",
+        "E2E-087-01",
+        "E2E-087-02",
+        "E2E-087-03",
+        "E2E-087-04",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Words"
+      ],
+      "requirements": [
+        "E2E-015",
+        "E2E-087",
+        "E2E-091"
+      ],
+      "serial_markers": [
+        "RESTORE WORD KEYBOARD NO-MATCH/BACKSPACE OK",
+        "RESTORE WORDS 12 CHECKSUM/DETECTED/BACK PASS",
+        "RESTORE WORDS 24 CONTINUE/PASSPHRASE PASS",
+        "RESTORE INVALID 12 AUTO-CONTINUE + INVALID 24 REJECT OK"
+      ],
+      "states": [
+        "RestoreWord",
+        "RestoreWord12Detected",
+        "PassphraseChoice",
+        "PassphraseEntry",
+        "StorageRecoveryAcknowledgement",
+        "StorageFinalizeChoice",
+        "MainMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/camera_loop/touch_input.rs::route_camera_back"
+      ],
+      "id": "connected-onboarding-restore-seedqr",
+      "items": [
+        "E2E-016-01",
+        "E2E-016-02",
+        "E2E-016-03",
+        "E2E-016-04",
+        "E2E-016-05",
+        "E2E-094-01",
+        "E2E-094-02"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "SeedQR",
+        "Compact SeedQR",
+        "Plain-text SeedQR"
+      ],
+      "requirements": [
+        "E2E-016",
+        "E2E-094"
+      ],
+      "serial_markers": [
+        "RESTORE STANDARD SEEDQR INVALID/VALID 12 PASS",
+        "RESTORE COMPACT SEEDQR INVALID/VALID 24 PASS"
+      ],
+      "states": [
+        "ScanQR",
+        "PassphraseChoice",
+        "StorageRecoveryAcknowledgement",
+        "StorageFinalizeChoice",
+        "MainMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding/finalize.rs::handle_finalize_choice"
+      ],
+      "id": "connected-onboarding-restore-raw-key",
+      "items": [
+        "E2E-017-01",
+        "E2E-017-02",
+        "E2E-017-03",
+        "E2E-017-04",
+        "E2E-018-01",
+        "E2E-018-02",
+        "E2E-018-03",
+        "E2E-018-04",
+        "E2E-018-05",
+        "E2E-087-01",
+        "E2E-087-02",
+        "E2E-087-03",
+        "E2E-087-04",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Raw Private Key"
+      ],
+      "requirements": [
+        "E2E-017",
+        "E2E-018",
+        "E2E-087",
+        "E2E-091"
+      ],
+      "serial_markers": [
+        "RESTORE RAW KEY CASE/LENGTH/INVALID/VALID PASS"
+      ],
+      "states": [
+        "AdvancedRestoreMenu",
+        "ImportPrivKey",
+        "StorageFinalizeChoice",
+        "MainMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/menu.rs::handle_root_touch"
+      ],
+      "id": "connected-transaction-review",
+      "items": [
+        "E2E-040-01",
+        "E2E-040-02",
+        "E2E-040-03",
+        "E2E-041-01",
+        "E2E-041-02",
+        "E2E-041-03",
+        "E2E-041-04",
+        "E2E-041-05",
+        "E2E-042-01",
+        "E2E-042-02",
+        "E2E-042-03",
+        "E2E-042-04",
+        "E2E-043-01",
+        "E2E-043-02",
+        "E2E-043-03",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04",
+        "E2E-095-01",
+        "E2E-095-02"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Scan QR",
+        "Confirm",
+        "Cancel"
+      ],
+      "requirements": [
+        "E2E-040",
+        "E2E-041",
+        "E2E-042",
+        "E2E-043",
+        "E2E-091",
+        "E2E-095"
+      ],
+      "serial_markers": [
+        "SIGN TX INVALID KSPT REJECT PASS",
+        "SIGN TX UTXO INSPECTION 2/2 PASS",
+        "SIGN TX REVIEW PAGES 3/3 PASS",
+        "SIGN TX REVIEW BACK/CONFIRM-BACK/REJECT PASS"
+      ],
+      "states": [
+        "MainMenu",
+        "ScanQR",
+        "ReviewTx",
+        "InspectUtxoSummary",
+        "InspectUtxo",
+        "ConfirmTx",
+        "Rejected"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "connected-transaction-signing",
+      "items": [
+        "E2E-040-01",
+        "E2E-040-02",
+        "E2E-040-03",
+        "E2E-043-01",
+        "E2E-043-02",
+        "E2E-043-03",
+        "E2E-044-01",
+        "E2E-044-02",
+        "E2E-044-03",
+        "E2E-046-01",
+        "E2E-046-02",
+        "E2E-046-03",
+        "E2E-046-04",
+        "E2E-095-01",
+        "E2E-095-02"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Confirm",
+        "Inspect"
+      ],
+      "requirements": [
+        "E2E-040",
+        "E2E-043",
+        "E2E-044",
+        "E2E-046",
+        "E2E-095"
+      ],
+      "serial_markers": [
+        "SIGN TX REVIEW-AUTHORIZATION REJECT PASS",
+        "SIGN TX CRYPTO/SERIALIZE 2/2 INPUTS PASS",
+        "SIGN TX STANDARD PSKT PARSE/SIGN PASS"
+      ],
+      "states": [
+        "ReviewTx",
+        "ConfirmTx",
+        "ShowQR",
+        "Rejected",
+        "MainMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/qr.rs::handle_show_qr_popup",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/qr.rs::handle_show_qr_mode_choice"
+      ],
+      "id": "connected-signed-qr-presentation",
+      "items": [
+        "E2E-046-01",
+        "E2E-046-02",
+        "E2E-046-03",
+        "E2E-046-04",
+        "E2E-085-01",
+        "E2E-085-02",
+        "E2E-085-03",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-046",
+        "E2E-085",
+        "E2E-091"
+      ],
+      "serial_markers": [
+        "SIGN TX SIGNED-QR MANUAL FRAMES PASS",
+        "SIGN TX SIGNED-QR POPUP/BACK PASS"
+      ],
+      "states": [
+        "ShowQR",
+        "ShowQrModeChoice",
+        "ShowQrPopup",
+        "MainMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/menu.rs::handle_root_touch"
+      ],
+      "id": "connected-qr-protocol-classification",
+      "items": [
+        "E2E-021-01",
+        "E2E-021-02",
+        "E2E-021-03",
+        "E2E-094-01",
+        "E2E-094-02",
+        "E2E-095-01",
+        "E2E-095-02"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Scan QR"
+      ],
+      "requirements": [
+        "E2E-021",
+        "E2E-094",
+        "E2E-095"
+      ],
+      "serial_markers": [
+        "QR CLASSIFIER 16/16 + MALFORMED/OVERSIZED PASS"
+      ],
+      "states": [
+        "MainMenu",
+        "ScanQR"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/menu.rs::handle_root_touch"
+      ],
+      "id": "connected-qr-multiframe-session",
+      "items": [
+        "E2E-022-01",
+        "E2E-022-02",
+        "E2E-022-03",
+        "E2E-022-04",
+        "E2E-022-05",
+        "E2E-094-01",
+        "E2E-094-02",
+        "E2E-095-01",
+        "E2E-095-02"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Scan QR"
+      ],
+      "requirements": [
+        "E2E-022",
+        "E2E-094",
+        "E2E-095"
+      ],
+      "serial_markers": [
+        "QR MULTIFRAME OUT-OF-ORDER/DUPLICATE/MIXED/MISSING/COMPLETE PASS"
+      ],
+      "states": [
+        "MainMenu",
+        "ScanQR",
+        "ReviewTx"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/menu.rs::handle_root_touch",
+        "apps/signer-firmware/src/runtime/interactions/tx/transaction.rs::handle_anti_klepto_reveal_guide"
+      ],
+      "id": "connected-anti-klepto-signing",
+      "items": [
+        "E2E-045-01",
+        "E2E-045-02",
+        "E2E-045-03",
+        "E2E-046-01",
+        "E2E-046-02",
+        "E2E-046-03",
+        "E2E-046-04",
+        "E2E-095-01",
+        "E2E-095-02"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Scan QR",
+        "Confirm"
+      ],
+      "requirements": [
+        "E2E-045",
+        "E2E-046",
+        "E2E-095"
+      ],
+      "serial_markers": [
+        "ANTI-KLEPTO TRANSACTION-BINDING REJECT PASS",
+        "ANTI-KLEPTO COMMITMENT 2/2 PASS",
+        "ANTI-KLEPTO SESSION-MISMATCH/ROLLBACK PASS",
+        "ANTI-KLEPTO HOST-SECRET REJECT PASS",
+        "ANTI-KLEPTO REVEAL/SIGNED 2/2 PASS",
+        "ANTI-KLEPTO REPLAY REJECT PASS",
+        "ANTI-KLEPTO RTC/PERSISTENT FLOOR DEFERRED TO SECURITY HIL",
+        "ANTI-KLEPTO TRANCHE PASS"
+      ],
+      "states": [
+        "MainMenu",
+        "ScanQR",
+        "ReviewTx",
+        "ConfirmTx",
+        "ShowQR",
+        "Rejected",
+        "AntiKleptoRevealGuide"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/sd/common/routing.rs::handle_sd_touch",
+        "apps/signer-firmware/src/runtime/interactions/sd/imports/import_menu.rs::handle_sd_import_menu",
+        "apps/signer-firmware/src/runtime/interactions/sd/imports/file_browser.rs::handle_sd_file_list",
+        "apps/signer-firmware/src/runtime/interactions/sd/imports/file_browser.rs::handle_sd_delete_confirm"
+      ],
+      "hil_only_serial_markers": [
+        "SD IMPORT MENU REAL-CARD SCAN/BACK OWNER OK"
+      ],
+      "id": "connected-sd-browser-navigation",
+      "items": [
+        "E2E-058-01",
+        "E2E-059-01",
+        "E2E-059-02",
+        "E2E-059-03",
+        "E2E-093-01",
+        "E2E-093-02",
+        "E2E-093-03"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Transaction"
+      ],
+      "requirements": [
+        "E2E-058",
+        "E2E-059",
+        "E2E-093"
+      ],
+      "serial_markers": [
+        "SD IMPORT MENU REAL-CARD SCAN/BACK OWNER OK",
+        "SD FILE LIST PAGING/DELETE-CANCEL/BACK OK"
+      ],
+      "states": [
+        "SdImportMenu",
+        "SdFileList",
+        "SdDeleteConfirm",
+        "BackupRecoveryMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/kspt_export/content.rs::route_transaction_import",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/kspt_export/password.rs::handle_sd_kspt_encrypt_pass"
+      ],
+      "id": "connected-sd-transaction-import",
+      "items": [
+        "E2E-040-01",
+        "E2E-040-02",
+        "E2E-040-03",
+        "E2E-061-01",
+        "E2E-061-02",
+        "E2E-061-03",
+        "E2E-093-01",
+        "E2E-093-02",
+        "E2E-093-03"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Transaction"
+      ],
+      "requirements": [
+        "E2E-040",
+        "E2E-061",
+        "E2E-093"
+      ],
+      "serial_markers": [
+        "SD TX KSPT/PSKT REVIEW + INVALID REJECT PASS",
+        "SD ENCRYPTED TX WRONG/CORRECT PASSWORD ROUND-TRIP PASS"
+      ],
+      "states": [
+        "ReviewTx",
+        "Rejected",
+        "SdKsptEncryptPass"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/kpub.rs::handle_import_payload"
+      ],
+      "id": "connected-sd-text-import",
+      "items": [
+        "E2E-057-01",
+        "E2E-057-02",
+        "E2E-057-03",
+        "E2E-057-04",
+        "E2E-062-01",
+        "E2E-093-01",
+        "E2E-093-02",
+        "E2E-093-03"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-057",
+        "E2E-062",
+        "E2E-093"
+      ],
+      "serial_markers": [
+        "SD KPUB/DESCRIPTOR VALID + MALFORMED REJECT PASS",
+        "SD GENERIC UNKNOWN PAYLOAD REJECT PASS"
+      ],
+      "states": [
+        "ExportKpub",
+        "MultisigDescriptor"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/sd/common/overwrite.rs::handle_sd_overwrite_warning"
+      ],
+      "hil_only_serial_markers": [
+        "SD MEDIA READ-WRITE-DELETE OK",
+        "SD PHYSICAL SPI/FAT32 READ-WRITE VERIFIED"
+      ],
+      "id": "connected-sd-backup-crypto-overwrite",
+      "items": [
+        "E2E-031-01",
+        "E2E-031-02",
+        "E2E-031-03",
+        "E2E-031-04",
+        "E2E-031-05",
+        "E2E-060-01",
+        "E2E-060-02",
+        "E2E-060-03",
+        "E2E-093-01",
+        "E2E-093-02",
+        "E2E-093-03"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-031",
+        "E2E-060",
+        "E2E-093"
+      ],
+      "serial_markers": [
+        "SD MEDIA READ-WRITE-DELETE OK",
+        "SD DEVICE-BOUND SEED BACKUP WRONG/CORRECT PASSWORD ROUND-TRIP PASS",
+        "SD OVERWRITE CANCEL/CONFIRM ROUTING OK",
+        "SD PHYSICAL SPI/FAT32 READ-WRITE VERIFIED",
+        "SD WORKFLOWS TRANCHE PASS"
+      ],
+      "states": [
+        "PassphraseChoice",
+        "SdOverwriteWarning",
+        "SdKsptFilename",
+        "SdKsptEncryptAsk"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/menu/signing/multisig.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/menu/signing/multisig.rs::route_back",
+        "apps/signer-firmware/src/runtime/interactions/export/kpub.rs::handle_export_screen",
+        "apps/signer-firmware/src/runtime/interactions/export/kpub.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/tx/multisig_output.rs::handle_address",
+        "apps/signer-firmware/src/runtime/interactions/tx/multisig_output.rs::handle_address_qr",
+        "apps/signer-firmware/src/runtime/interactions/tx/multisig_output.rs::handle_save_prompt",
+        "apps/signer-firmware/src/runtime/interactions/tx/multisig_output.rs::handle_descriptor",
+        "apps/signer-firmware/src/runtime/interactions/tx/multisig_output.rs::open_index_picker"
+      ],
+      "id": "connected-multisig-create-sign",
+      "items": [
+        "E2E-044-01",
+        "E2E-044-02",
+        "E2E-044-03",
+        "E2E-055-01",
+        "E2E-055-02",
+        "E2E-055-03",
+        "E2E-056-01",
+        "E2E-056-02",
+        "E2E-056-03",
+        "E2E-056-04",
+        "E2E-057-01",
+        "E2E-057-02",
+        "E2E-057-03",
+        "E2E-057-04",
+        "E2E-087-01",
+        "E2E-087-02",
+        "E2E-087-03",
+        "E2E-087-04",
+        "E2E-089-01",
+        "E2E-089-02",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Multisig",
+        "Create Multisig",
+        "kpub Multisig QR"
+      ],
+      "requirements": [
+        "E2E-044",
+        "E2E-055",
+        "E2E-056",
+        "E2E-057",
+        "E2E-087",
+        "E2E-089",
+        "E2E-091"
+      ],
+      "serial_markers": [
+        "MULTISIG KPUB EXPORT/POPUP/BACK PASS",
+        "MULTISIG M/N MIN/MAX/CLAMP/START PASS",
+        "MULTISIG WALLET PICKER PAGING BOUNDARIES PASS",
+        "MULTISIG ADD-WALLET RETURN CONTINUATION PASS",
+        "MULTISIG WALLET PICKER NON-DESTRUCTIVE SELECTION PASS",
+        "MULTISIG DUPLICATE LOCAL COSIGNER REJECT PASS",
+        "MULTISIG SCANNED KPUB INVALID/DUPLICATE/VALID PASS",
+        "MULTISIG ADDRESS FAMILY/CHAIN/INDEX CONTROLS PASS",
+        "MULTISIG DESCRIPTOR INVALID-REJECT/EXPORT-IMPORT ROUND-TRIP PASS",
+        "MULTISIG REVIEW/SIGN THRESHOLD PASS",
+        "MULTISIG TRANCHE PASS"
+      ],
+      "states": [
+        "MultisigMenu",
+        "ExportKpub",
+        "ExportKpubPopup",
+        "MultisigChooseMN",
+        "MultisigAddKey",
+        "MultisigPickSeed",
+        "ScanQR",
+        "MultisigShowAddress",
+        "MultisigShowAddressQR",
+        "MultisigSaveAddrAsk",
+        "MultisigDescriptor",
+        "AddrIndexPicker",
+        "ShowQR",
+        "ReviewTx",
+        "ConfirmTx",
+        "MainMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/stego/mode.rs::handle_carrier_select",
+        "apps/signer-firmware/src/runtime/interactions/stego/export_security.rs::handle_prompt",
+        "apps/signer-firmware/src/runtime/interactions/stego/export_security.rs::handle_hint_choice",
+        "apps/signer-firmware/src/runtime/interactions/stego/export_security.rs::handle_custom_hint",
+        "apps/signer-firmware/src/runtime/interactions/stego/export_security.rs::handle_portable_password",
+        "apps/signer-firmware/src/runtime/interactions/stego/export_security.rs::clear_hint_state",
+        "apps/signer-firmware/src/runtime/interactions/stego/export_confirm/mod.rs::clear_hint",
+        "apps/signer-firmware/src/runtime/interactions/stego/export_confirm/mod.rs::clear_portable_secret"
+      ],
+      "id": "connected-steganography-export",
+      "items": [
+        "E2E-065-01",
+        "E2E-065-02",
+        "E2E-065-03",
+        "E2E-066-01",
+        "E2E-066-02",
+        "E2E-067-01",
+        "E2E-067-02",
+        "E2E-067-03",
+        "E2E-068-01",
+        "E2E-069-01",
+        "E2E-070-01",
+        "E2E-070-02",
+        "E2E-070-03",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04",
+        "E2E-093-01",
+        "E2E-093-02",
+        "E2E-093-03",
+        "E2E-095-01",
+        "E2E-095-02"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-065",
+        "E2E-066",
+        "E2E-067",
+        "E2E-068",
+        "E2E-069",
+        "E2E-070",
+        "E2E-091",
+        "E2E-093",
+        "E2E-095"
+      ],
+      "serial_markers": [
+        "STEGO ENTRY BACK/NO-SD/RAW-KEY/NO-MNEMONIC REJECT PASS",
+        "STEGO CARRIER/SECURITY DEVICE-BOUND+PORTABLE ROUTES PASS",
+        "STEGO JPEG PICKER PAGING/SELECT/BACK BOUNDARIES PASS",
+        "STEGO DESCRIPTION TXT EMPTY/OVERSIZED/VALID BOUNDARY PASS",
+        "STEGO DESCRIPTION EDIT/PREVIEW + PRESET/CUSTOM HINT PASS",
+        "STEGO PORTABLE PASSWORD INVALID/MISMATCH/CONFIRM/BACK PASS",
+        "STEGO FINAL REVIEW BACK/CANCEL OWNER/CLEAR PASS",
+        "STEGO DESCRIPTOR JPEG VALID/EXTRACT ROUND-TRIP PASS",
+        "STEGO PICTURE CAPACITY/EMBED/EXTRACT + LOW-CAPACITY REJECT PASS"
+      ],
+      "states": [
+        "StegoModeSelect",
+        "StegoSecuritySelect",
+        "StegoJpegPick",
+        "StegoJpegDescChoice",
+        "StegoJpegDescFile",
+        "StegoJpegDesc",
+        "StegoJpegDescPreview",
+        "StegoJpegPpAsk",
+        "StegoJpegPpInfo",
+        "StegoJpegPpEntry",
+        "StegoPortablePassword",
+        "StegoPortablePasswordConfirm",
+        "StegoJpegConfirm",
+        "StegoResult",
+        "BackupRecoveryMenu",
+        "MainMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/stego/import_selection/descriptor.rs::handle_choice",
+        "apps/signer-firmware/src/runtime/interactions/stego/import_decrypt.rs::handle_descriptor_entry",
+        "apps/signer-firmware/src/runtime/interactions/stego/import_decrypt.rs::handle_portable_password",
+        "apps/signer-firmware/src/runtime/interactions/stego/import_decrypt.rs::open_portable",
+        "apps/signer-firmware/src/runtime/interactions/stego/import_decrypt.rs::clear_import_secret"
+      ],
+      "id": "connected-steganography-restore",
+      "items": [
+        "E2E-071-01",
+        "E2E-071-02",
+        "E2E-071-03",
+        "E2E-071-04",
+        "E2E-071-05",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04",
+        "E2E-093-01",
+        "E2E-093-02",
+        "E2E-093-03",
+        "E2E-095-01",
+        "E2E-095-02",
+        "E2E-096-01",
+        "E2E-096-02",
+        "E2E-096-03",
+        "E2E-096-04"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-071",
+        "E2E-091",
+        "E2E-093",
+        "E2E-095",
+        "E2E-096"
+      ],
+      "serial_markers": [
+        "STEGO RESTORE PICKER/DESCRIPTOR TXT VALIDATION/BACK OWNERS PASS",
+        "STEGO DEVICE-BOUND JPEG HINT/RESTORE ROUND-TRIP PASS",
+        "STEGO PORTABLE WRONG-PASSWORD REJECT + CROSS-DEVICE RESTORE PASS",
+        "STEGO PHYSICAL SD/JPEG MEDIA HIL DEFERRED TO PERIPHERAL TRANCHE",
+        "STEGANOGRAPHY TRANCHE PASS"
+      ],
+      "states": [
+        "StegoImportPick",
+        "StegoImportDescChoice",
+        "StegoImportDescFile",
+        "StegoImportPass",
+        "StegoImportPortablePassword",
+        "StegoHintReveal",
+        "StegoHintPassphrase",
+        "SeedList",
+        "AdvancedRestoreMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/mod.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/mod.rs::handle_pure_warning",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/mod.rs::handle_pure_entry",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/mod.rs::handle_duress_edit",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/mod.rs::handle_pure_confirm",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/overview.rs::handle_warning",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/overview.rs::handle_time_lock_card",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/overview.rs::handle_weekly_card",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/overview.rs::handle_rtc_card"
+      ],
+      "id": "connected-security-policy-ui",
+      "items": [
+        "E2E-076-01",
+        "E2E-076-02",
+        "E2E-076-03",
+        "E2E-077-01",
+        "E2E-077-02",
+        "E2E-078-01",
+        "E2E-078-02",
+        "E2E-079-01",
+        "E2E-079-02",
+        "E2E-079-03",
+        "E2E-079-04",
+        "E2E-080-01",
+        "E2E-080-02",
+        "E2E-080-03",
+        "E2E-080-04",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04",
+        "E2E-095-01",
+        "E2E-095-02",
+        "E2E-096-01",
+        "E2E-096-02",
+        "E2E-096-03",
+        "E2E-096-04"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-076",
+        "E2E-077",
+        "E2E-078",
+        "E2E-079",
+        "E2E-080",
+        "E2E-091",
+        "E2E-095",
+        "E2E-096"
+      ],
+      "serial_markers": [
+        "SECURITY SAVED-WALLET/INTEGRITY FAIL-CLOSED PASS",
+        "SECURITY DURESS WARNING CANCEL PASS",
+        "SECURITY DURESS INVALID/MISMATCH REJECT PASS",
+        "SECURITY DURESS PERSISTENCE ERROR PASS",
+        "SECURITY DURESS CONFIRM/READ-ONLY PASS",
+        "SECURITY RTC INVALID/LOW-VOLTAGE/VERIFY PASS",
+        "SECURITY NO-SIGN-BEFORE INVALID/CANCEL/PERSIST/READ-ONLY PASS",
+        "SECURITY WEEKLY INVALID/CANCEL/PERSIST/READ-ONLY PASS"
+      ],
+      "states": [
+        "AdvancedFeatures",
+        "AdvancedDuressWarning",
+        "AdvancedDuressEntry",
+        "AdvancedDuressConfirm",
+        "AdvancedRtcEntry",
+        "AdvancedTimeLockWarning",
+        "AdvancedTimeLockEntry",
+        "AdvancedTimeLockConfirm",
+        "AdvancedWeeklyWarning",
+        "AdvancedWeeklyEntry",
+        "AdvancedWeeklyConfirm"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/tx.rs::handle_tx_touch"
+      ],
+      "id": "connected-security-policy-signing",
+      "items": [
+        "E2E-043-01",
+        "E2E-043-02",
+        "E2E-043-03",
+        "E2E-079-01",
+        "E2E-079-02",
+        "E2E-079-03",
+        "E2E-079-04",
+        "E2E-080-01",
+        "E2E-080-02",
+        "E2E-080-03",
+        "E2E-080-04",
+        "E2E-095-01",
+        "E2E-095-02",
+        "E2E-097-01",
+        "E2E-097-02",
+        "E2E-097-03",
+        "E2E-097-04",
+        "E2E-097-05",
+        "E2E-100-24",
+        "E2E-100-25"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-043",
+        "E2E-079",
+        "E2E-080",
+        "E2E-095",
+        "E2E-097",
+        "E2E-100"
+      ],
+      "serial_markers": [
+        "SECURITY SIGNING POLICY INTEGRITY/ROLLBACK/LOCK/WINDOW BOUNDARIES PASS",
+        "SECURITY SIGNING POLICY ACTUAL SIGN DENY/ALLOW PASS"
+      ],
+      "states": [
+        "ReviewTx",
+        "ConfirmTx",
+        "Rejected"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/pop_it.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/pop_it.rs::handle_prompt",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_owner_firmware",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/owner_firmware.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/owner_firmware.rs::confirm_edit"
+      ],
+      "id": "connected-pop-it-safe-simulation",
+      "items": [
+        "E2E-081-01",
+        "E2E-081-02",
+        "E2E-081-03",
+        "E2E-082-01",
+        "E2E-082-02",
+        "E2E-082-03",
+        "E2E-082-04",
+        "E2E-082-05",
+        "E2E-082-06",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04",
+        "E2E-097-01",
+        "E2E-097-02",
+        "E2E-097-03",
+        "E2E-097-04",
+        "E2E-097-05",
+        "E2E-082-07",
+        "E2E-082-08",
+        "E2E-082-12"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Owner Firmware",
+        "Enroll Owner Key"
+      ],
+      "requirements": [
+        "E2E-081",
+        "E2E-082",
+        "E2E-091",
+        "E2E-097"
+      ],
+      "serial_markers": [
+        "SECURITY POP-IT EXPLAIN/NO PASS",
+        "SECURITY POP-IT PHRASE/PREFLIGHT/ARM-FAIL PASS",
+        "SECURITY POP-IT SAFE SIMULATED SUCCESS PASS",
+        "SECURITY PERSISTENT FLASH/HMAC + PHYSICAL RTC/EFUSE HIL DEFERRED",
+        "SECURITY POLICIES TRANCHE PASS"
+      ],
+      "states": [
+        "AdvancedMenu",
+        "PopItPrompt",
+        "PopItExplain",
+        "PopItConfirm",
+        "OwnerFirmwareMenu",
+        "OwnerKeyWarning",
+        "OwnerKeyConfirm"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/seed.rs::handle_seed_touch",
+        "apps/signer-firmware/src/runtime/interactions/seed/bip85.rs::handle_index"
+      ],
+      "id": "connected-advanced-seed-tools",
+      "items": [
+        "E2E-033-01",
+        "E2E-034-01",
+        "E2E-034-02",
+        "E2E-034-03",
+        "E2E-034-04",
+        "E2E-035-01",
+        "E2E-035-02",
+        "E2E-036-01",
+        "E2E-087-01",
+        "E2E-087-02",
+        "E2E-087-03",
+        "E2E-087-04",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "BIP85 Child Wallet",
+        "BIP39 Last Word"
+      ],
+      "requirements": [
+        "E2E-033",
+        "E2E-034",
+        "E2E-035",
+        "E2E-036",
+        "E2E-087",
+        "E2E-091"
+      ],
+      "serial_markers": [
+        "ADVANCED BIP85 12/24 INDEX/BOUNDARY/DETERMINISM PASS",
+        "ADVANCED BIP39 LAST-WORD 12/24 KEYBOARD/CHECKSUM/BACK PASS"
+      ],
+      "states": [
+        "WalletAdvancedMenu",
+        "ChooseWordCount",
+        "Bip85Index",
+        "Bip85ShowWord",
+        "CalcLastWord",
+        "PassphraseChoice"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/export.rs::handle_export_touch",
+        "apps/signer-firmware/src/runtime/interactions/export/xprv.rs::handle_menu",
+        "apps/signer-firmware/src/runtime/interactions/export/private_key/index_input.rs::append_digit"
+      ],
+      "id": "connected-advanced-key-exports",
+      "items": [
+        "E2E-036-01",
+        "E2E-037-01",
+        "E2E-037-02",
+        "E2E-037-03",
+        "E2E-038-01",
+        "E2E-038-02",
+        "E2E-038-03",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04",
+        "E2E-095-01",
+        "E2E-095-02"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "XPrv Backup",
+        "Export Key"
+      ],
+      "requirements": [
+        "E2E-036",
+        "E2E-037",
+        "E2E-038",
+        "E2E-091",
+        "E2E-095"
+      ],
+      "serial_markers": [
+        "ADVANCED XPRV SHOW/ZEROIZE/NO-SD/RAW-KEY REJECT PASS",
+        "ADVANCED PRIVATE-KEY INDEX/HEX/RAW-KEY/ZEROIZE PASS"
+      ],
+      "states": [
+        "BackupRecoveryMenu",
+        "XprvExportMenu",
+        "ExportXprv",
+        "ExportPrivKeyIndex",
+        "ExportPrivKey"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/tx.rs::handle_tx_touch",
+        "apps/signer-firmware/src/runtime/interactions/menu/signing.rs::handle_pure"
+      ],
+      "id": "connected-sign-message-tools",
+      "items": [
+        "E2E-036-01",
+        "E2E-039-01",
+        "E2E-039-02",
+        "E2E-047-01",
+        "E2E-047-02",
+        "E2E-047-03",
+        "E2E-047-04",
+        "E2E-047-05",
+        "E2E-085-01",
+        "E2E-085-02",
+        "E2E-085-03",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04",
+        "E2E-095-01",
+        "E2E-095-02"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Sign Message"
+      ],
+      "requirements": [
+        "E2E-036",
+        "E2E-039",
+        "E2E-047",
+        "E2E-085",
+        "E2E-091",
+        "E2E-095"
+      ],
+      "serial_markers": [
+        "ADVANCED SIGN-MESSAGE TYPED EMPTY-REJECT/PREVIEW/BACK PASS",
+        "ADVANCED SIGN-MESSAGE QR EMPTY/CONTROL/OVERSIZE/VALID PASS",
+        "ADVANCED SIGN-MESSAGE SD CONTENT BOUNDARIES/PREVIEW PASS",
+        "ADVANCED SIGN-MESSAGE SIGN/RESULT-QR/NO-SD/BACK PASS",
+        "ADVANCED SIGN-MESSAGE CALLER RETURN-OWNER PASS"
+      ],
+      "states": [
+        "WalletAdvancedMenu",
+        "SingleSigMenu",
+        "SignMsgChoice",
+        "SignMsgType",
+        "SignMsgScan",
+        "SignMsgFile",
+        "SignMsgPreview",
+        "SignMsgResult",
+        "SignMsgResultQr"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/tx.rs::handle_tx_touch",
+        "apps/signer-firmware/src/runtime/interactions/menu/signing.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/tx/commit_reveal.rs::handle_secret_entry",
+        "apps/signer-firmware/src/runtime/interactions/tx/commit_reveal.rs::handle_preview",
+        "apps/signer-firmware/src/runtime/interactions/tx/commit_results.rs::clear_commit_result",
+        "apps/signer-firmware/src/runtime/interactions/tx/commit_results.rs::clear_plaintext"
+      ],
+      "id": "connected-commit-decrypt-secret-tools",
+      "items": [
+        "E2E-036-01",
+        "E2E-039-01",
+        "E2E-039-02",
+        "E2E-048-01",
+        "E2E-048-02",
+        "E2E-048-03",
+        "E2E-049-01",
+        "E2E-049-02",
+        "E2E-049-03",
+        "E2E-085-01",
+        "E2E-085-02",
+        "E2E-085-03",
+        "E2E-091-01",
+        "E2E-091-02",
+        "E2E-091-03",
+        "E2E-091-04",
+        "E2E-095-01",
+        "E2E-095-02",
+        "E2E-100-21"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Commit Secret",
+        "Decrypt Secret"
+      ],
+      "requirements": [
+        "E2E-036",
+        "E2E-039",
+        "E2E-048",
+        "E2E-049",
+        "E2E-085",
+        "E2E-091",
+        "E2E-095",
+        "E2E-100"
+      ],
+      "serial_markers": [
+        "ADVANCED COMMIT-SECRET EMPTY/LENGTH/PREVIEW/ENCRYPT/QR PASS",
+        "ADVANCED DECRYPT-SECRET MALFORMED/WRONG-KEY/ROUND-TRIP/QR PASS",
+        "ADVANCED SECRET-TOOLS SINGLE-SIG PAGING/RETURN-OWNER PASS",
+        "ADVANCED TOOLS PHYSICAL SD/RNG HIL DEFERRED TO PERIPHERAL TRANCHE",
+        "ADVANCED WALLET TOOLS TRANCHE PASS"
+      ],
+      "states": [
+        "WalletAdvancedMenu",
+        "SingleSigMenu",
+        "CommitRevealType",
+        "CommitRevealPreview",
+        "CommitRevealResult",
+        "CommitRevealResultQr",
+        "DecryptSecretScan",
+        "DecryptSecretResult",
+        "DecryptSecretResultQr"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "connected-global-audio-control",
+      "items": [
+        "E2E-075-01"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Audio"
+      ],
+      "requirements": [
+        "E2E-075"
+      ],
+      "serial_markers": [
+        "GLOBAL AUDIO TOGGLE/NEARBY-NOOP OK"
+      ],
+      "states": [
+        "SettingsMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/camera_loop/cycle.rs::handle_m5_outcome",
+        "apps/signer-firmware/src/runtime/interactions/camera_loop/decoder.rs::handle_decode_result",
+        "apps/signer-firmware/src/runtime/interactions/camera_loop/state.rs::leave_screen",
+        "apps/signer-firmware/src/runtime/interactions/camera_loop/touch_input.rs::route_camera_back",
+        "apps/signer-firmware/src/runtime/interactions/export.rs::handle_export_touch",
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::append_index_digit",
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::clear_index_input",
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::confirm_index",
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::handle_address_view",
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::handle_index_picker",
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::leave_index_picker",
+        "apps/signer-firmware/src/runtime/interactions/export/address.rs::step_address_index",
+        "apps/signer-firmware/src/runtime/interactions/export/kpub.rs::handle_export_screen",
+        "apps/signer-firmware/src/runtime/interactions/export/kpub.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/export/menus/mod.rs::handle_navigation_touch",
+        "apps/signer-firmware/src/runtime/interactions/export/menus/root.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/export/menus/seed.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/export/menus/seed.rs::handle_qr_export_menu",
+        "apps/signer-firmware/src/runtime/interactions/export/menus/seed.rs::handle_qr_export_pure",
+        "apps/signer-firmware/src/runtime/interactions/export/menus/seed.rs::handle_seed_backup_menu",
+        "apps/signer-firmware/src/runtime/interactions/export/menus/seed.rs::handle_seed_backup_pure",
+        "apps/signer-firmware/src/runtime/interactions/export/private_key.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/export/private_key/index_input.rs::append_digit",
+        "apps/signer-firmware/src/runtime/interactions/export/watch_only.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/export/xprv.rs::handle_menu",
+        "apps/signer-firmware/src/runtime/interactions/export/xprv.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/menu.rs::handle_menu_touch",
+        "apps/signer-firmware/src/runtime/interactions/menu.rs::handle_navigation_touch",
+        "apps/signer-firmware/src/runtime/interactions/menu.rs::handle_root_touch",
+        "apps/signer-firmware/src/runtime/interactions/menu.rs::handle_signing_feedback_touch",
+        "apps/signer-firmware/src/runtime/interactions/menu/import_export/menu.rs::handle_choice",
+        "apps/signer-firmware/src/runtime/interactions/menu/import_export/menu.rs::handle_choice_pure",
+        "apps/signer-firmware/src/runtime/interactions/menu/import_export/menu.rs::handle_import_menu",
+        "apps/signer-firmware/src/runtime/interactions/menu/import_export/menu.rs::handle_import_menu_pure",
+        "apps/signer-firmware/src/runtime/interactions/menu/import_export/menu.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/menu/import_export/mod.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary.rs::handle_main_menu",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary.rs::handle_navigation_touch",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary.rs::handle_root_touch",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::handle_menu",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::handle_wallet_details",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_advanced",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_back",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_backup_recovery",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_item",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_owner_firmware",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_wallet",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_wallet_advanced",
+        "apps/signer-firmware/src/runtime/interactions/menu/primary/production.rs::route_wallet_backup_methods",
+        "apps/signer-firmware/src/runtime/interactions/menu/seed_generation.rs::handle_entropy_recovery",
+        "apps/signer-firmware/src/runtime/interactions/menu/seed_generation.rs::handle_touch_entropy",
+        "apps/signer-firmware/src/runtime/interactions/menu/seed_generation.rs::handle_word_count",
+        "apps/signer-firmware/src/runtime/interactions/menu/seed_generation/additive.rs::handle_dice_choice",
+        "apps/signer-firmware/src/runtime/interactions/menu/seed_generation/additive.rs::handle_dice_count",
+        "apps/signer-firmware/src/runtime/interactions/menu/seed_generation/additive.rs::handle_touch_choice",
+        "apps/signer-firmware/src/runtime/interactions/menu/seed_tools.rs::handle_onboarding_dice",
+        "apps/signer-firmware/src/runtime/interactions/menu/seed_tools.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/menu/seed_tools/address.rs::open_with_return",
+        "apps/signer-firmware/src/runtime/interactions/menu/seed_tools/menu.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/menu/signing.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/menu/signing/multisig.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/menu/signing/multisig.rs::route_back",
+        "apps/signer-firmware/src/runtime/interactions/menu/signing/single_sig.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/onboarding.rs::handle_onboarding_touch",
+        "apps/signer-firmware/src/runtime/interactions/persistence/credential.rs::confirm_state",
+        "apps/signer-firmware/src/runtime/interactions/persistence/credential.rs::handle_credential_type",
+        "apps/signer-firmware/src/runtime/interactions/persistence/credential.rs::handle_setup_entry",
+        "apps/signer-firmware/src/runtime/interactions/persistence/credential.rs::handle_unlock",
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding.rs::handle_advanced_restore",
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding.rs::handle_mode_choice",
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding.rs::handle_restore_12_detected",
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding.rs::handle_seed_source_choice",
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding/finalize.rs::handle_finalize_choice",
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding/finalize.rs::handle_protection_choice",
+        "apps/signer-firmware/src/runtime/interactions/persistence/onboarding/recovery.rs::handle_recovery_acknowledgement",
+        "apps/signer-firmware/src/runtime/interactions/sd/backup/import.rs::handle_wallet_backup_file_list",
+        "apps/signer-firmware/src/runtime/interactions/sd/backup/import.rs::handle_wallet_backup_import_passphrase",
+        "apps/signer-firmware/src/runtime/interactions/sd/backup/seed.rs::handle_seed_backup_export_passphrase",
+        "apps/signer-firmware/src/runtime/interactions/sd/backup/seed.rs::handle_seed_backup_filename",
+        "apps/signer-firmware/src/runtime/interactions/sd/backup/seed.rs::handle_seed_backup_warning",
+        "apps/signer-firmware/src/runtime/interactions/sd/backup/xprv/export.rs::handle_sd_xprv_export_passphrase",
+        "apps/signer-firmware/src/runtime/interactions/sd/backup/xprv/export.rs::handle_sd_xprv_filename",
+        "apps/signer-firmware/src/runtime/interactions/sd/common/list_navigation.rs::handle_file_list_touch",
+        "apps/signer-firmware/src/runtime/interactions/sd/common/overwrite.rs::handle_sd_overwrite_warning",
+        "apps/signer-firmware/src/runtime/interactions/sd/common/routing.rs::handle_file_io",
+        "apps/signer-firmware/src/runtime/interactions/sd/common/routing.rs::handle_file_list",
+        "apps/signer-firmware/src/runtime/interactions/sd/common/routing.rs::handle_kpub_io",
+        "apps/signer-firmware/src/runtime/interactions/sd/common/routing.rs::handle_kspt_io",
+        "apps/signer-firmware/src/runtime/interactions/sd/common/routing.rs::handle_multisig_io",
+        "apps/signer-firmware/src/runtime/interactions/sd/common/routing.rs::handle_sd_touch",
+        "apps/signer-firmware/src/runtime/interactions/sd/common/routing.rs::handle_seed_backup_io",
+        "apps/signer-firmware/src/runtime/interactions/sd/common/routing.rs::handle_signature_io",
+        "apps/signer-firmware/src/runtime/interactions/sd/common/routing.rs::handle_xprv_io",
+        "apps/signer-firmware/src/runtime/interactions/sd/common/routing.rs::route_group",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/kpub.rs::handle_import_payload",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/kpub.rs::handle_sd_kpub_encrypt_ask",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/kpub.rs::handle_sd_kpub_file_list",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/kpub.rs::handle_sd_kpub_filename",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/kspt_export/content.rs::route_transaction_import",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/kspt_export/crypto.rs::open_current",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/kspt_export/crypto.rs::open_envelope",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/kspt_export/crypto.rs::open_legacy",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/kspt_export/filename.rs::handle_sd_kspt_encrypt_ask",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/kspt_export/filename.rs::handle_sd_kspt_filename",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/kspt_export/password.rs::handle_sd_kspt_encrypt_pass",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/multisig.rs::handle_sd_ms_addr_encrypt_ask",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/multisig.rs::handle_sd_ms_addr_filename",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/multisig.rs::handle_sd_ms_desc_encrypt_ask",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/multisig.rs::handle_sd_ms_desc_filename",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/qr.rs::handle_show_qr_mode_choice",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/qr.rs::handle_show_qr_popup",
+        "apps/signer-firmware/src/runtime/interactions/sd/exports/signature.rs::handle_sd_sig_filename",
+        "apps/signer-firmware/src/runtime/interactions/sd/imports/file_browser.rs::handle_sd_delete_confirm",
+        "apps/signer-firmware/src/runtime/interactions/sd/imports/file_browser.rs::handle_sd_file_list",
+        "apps/signer-firmware/src/runtime/interactions/sd/imports/import_menu.rs::handle_sd_import_menu",
+        "apps/signer-firmware/src/runtime/interactions/sd/imports/kspt_import.rs::handle_sd_kspt_file_list",
+        "apps/signer-firmware/src/runtime/interactions/seed.rs::handle_inventory_touch",
+        "apps/signer-firmware/src/runtime/interactions/seed.rs::handle_navigation_touch",
+        "apps/signer-firmware/src/runtime/interactions/seed.rs::handle_seed_touch",
+        "apps/signer-firmware/src/runtime/interactions/seed/bip85.rs::handle_index",
+        "apps/signer-firmware/src/runtime/interactions/seed/seed_list.rs::handle_add_wallet_choice",
+        "apps/signer-firmware/src/runtime/interactions/seed/seed_list/list.rs::handle_paging",
+        "apps/signer-firmware/src/runtime/interactions/seed/wallet_name.rs::handle_back",
+        "apps/signer-firmware/src/runtime/interactions/seed/wallet_name.rs::handle_submitted",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/clock.rs::handle_rtc_entry",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/credential.rs::handle_duress_entry",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/factory_reset.rs::handle_warning",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/mod.rs::handle_duress_edit",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/mod.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/mod.rs::handle_pure_confirm",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/mod.rs::handle_pure_entry",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/mod.rs::handle_pure_warning",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/mod.rs::handle_sd_warning_cancel",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/overview.rs::handle_overview",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/overview.rs::handle_rtc_card",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/overview.rs::handle_sd_warning",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/overview.rs::handle_time_lock_card",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/overview.rs::handle_warning",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/overview.rs::handle_weekly_card",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/owner_firmware.rs::confirm_edit",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/owner_firmware.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/pop_it.rs::handle_confirm",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/pop_it.rs::handle_prompt",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/pop_it.rs::handle_pure",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/time.rs::handle_rtc_read_error",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/time.rs::handle_time_lock_confirm",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/time.rs::handle_time_lock_entry",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/time.rs::handle_weekly_confirm",
+        "apps/signer-firmware/src/runtime/interactions/settings/advanced/time.rs::handle_weekly_entry",
+        "apps/signer-firmware/src/runtime/interactions/settings/audio.rs::handle_audio_settings",
+        "apps/signer-firmware/src/runtime/interactions/settings/camera.rs::handle_camera_settings",
+        "apps/signer-firmware/src/runtime/interactions/settings/display.rs::handle_display_settings",
+        "apps/signer-firmware/src/runtime/interactions/settings/menu.rs::handle_settings_menu",
+        "apps/signer-firmware/src/runtime/interactions/settings/menu.rs::open_m5stack_setting",
+        "apps/signer-firmware/src/runtime/interactions/settings/menu.rs::open_security",
+        "apps/signer-firmware/src/runtime/interactions/settings/menu.rs::open_setting",
+        "apps/signer-firmware/src/runtime/interactions/settings/mod.rs::handle_about_navigation",
+        "apps/signer-firmware/src/runtime/interactions/settings/mod.rs::handle_advanced_navigation",
+        "apps/signer-firmware/src/runtime/interactions/settings/mod.rs::handle_audio_settings_navigation",
+        "apps/signer-firmware/src/runtime/interactions/settings/mod.rs::handle_display_settings_navigation",
+        "apps/signer-firmware/src/runtime/interactions/settings/mod.rs::handle_sd_settings_navigation",
+        "apps/signer-firmware/src/runtime/interactions/settings/mod.rs::handle_settings_menu_navigation",
+        "apps/signer-firmware/src/runtime/interactions/settings/mod.rs::handle_settings_touch",
+        "apps/signer-firmware/src/runtime/interactions/settings/storage.rs::handle_locked_card",
+        "apps/signer-firmware/src/runtime/interactions/settings/storage.rs::handle_sd_card_settings",
+        "apps/signer-firmware/src/runtime/interactions/settings/storage.rs::handle_unlock_password",
+        "apps/signer-firmware/src/runtime/interactions/stego.rs::handle_stego_touch",
+        "apps/signer-firmware/src/runtime/interactions/stego/export_confirm/mod.rs::clear_hint",
+        "apps/signer-firmware/src/runtime/interactions/stego/export_confirm/mod.rs::clear_portable_secret",
+        "apps/signer-firmware/src/runtime/interactions/stego/export_confirm/mod.rs::confirm_export",
+        "apps/signer-firmware/src/runtime/interactions/stego/export_security.rs::clear_hint_state",
+        "apps/signer-firmware/src/runtime/interactions/stego/export_security.rs::handle_custom_hint",
+        "apps/signer-firmware/src/runtime/interactions/stego/export_security.rs::handle_hint_choice",
+        "apps/signer-firmware/src/runtime/interactions/stego/export_security.rs::handle_portable_password",
+        "apps/signer-firmware/src/runtime/interactions/stego/export_security.rs::handle_prompt",
+        "apps/signer-firmware/src/runtime/interactions/stego/import_decrypt.rs::clear_import_secret",
+        "apps/signer-firmware/src/runtime/interactions/stego/import_decrypt.rs::handle_descriptor_entry",
+        "apps/signer-firmware/src/runtime/interactions/stego/import_decrypt.rs::handle_portable_password",
+        "apps/signer-firmware/src/runtime/interactions/stego/import_decrypt.rs::open_device_bound",
+        "apps/signer-firmware/src/runtime/interactions/stego/import_decrypt.rs::open_portable",
+        "apps/signer-firmware/src/runtime/interactions/stego/import_selection/descriptor.rs::handle_choice",
+        "apps/signer-firmware/src/runtime/interactions/stego/import_selection/descriptor.rs::handle_file",
+        "apps/signer-firmware/src/runtime/interactions/stego/mode.rs::handle_carrier_select",
+        "apps/signer-firmware/src/runtime/interactions/stego/mode.rs::handle_security_select",
+        "apps/signer-firmware/src/runtime/interactions/support/keyboard.rs::handle_keyboard",
+        "apps/signer-firmware/src/runtime/interactions/support/keyboard.rs::handle_passphrase_keyboard",
+        "apps/signer-firmware/src/runtime/interactions/support/menu_selection.rs::handle_paged_menu_touch",
+        "apps/signer-firmware/src/runtime/interactions/tx.rs::handle_tx_touch",
+        "apps/signer-firmware/src/runtime/interactions/tx/commit_results.rs::clear_commit_result",
+        "apps/signer-firmware/src/runtime/interactions/tx/commit_results.rs::clear_plaintext",
+        "apps/signer-firmware/src/runtime/interactions/tx/commit_reveal.rs::handle_preview",
+        "apps/signer-firmware/src/runtime/interactions/tx/commit_reveal.rs::handle_secret_entry",
+        "apps/signer-firmware/src/runtime/interactions/tx/covenant_signing.rs::handle_key_result",
+        "apps/signer-firmware/src/runtime/interactions/tx/covenant_signing.rs::handle_known",
+        "apps/signer-firmware/src/runtime/interactions/tx/covenant_signing.rs::handle_opaque_confirm",
+        "apps/signer-firmware/src/runtime/interactions/tx/covenant_signing.rs::handle_opaque_warning",
+        "apps/signer-firmware/src/runtime/interactions/tx/covenant_signing.rs::handle_sign_result",
+        "apps/signer-firmware/src/runtime/interactions/tx/multisig_output.rs::handle_address",
+        "apps/signer-firmware/src/runtime/interactions/tx/multisig_output.rs::handle_address_qr",
+        "apps/signer-firmware/src/runtime/interactions/tx/multisig_output.rs::handle_descriptor",
+        "apps/signer-firmware/src/runtime/interactions/tx/multisig_output.rs::handle_save_prompt",
+        "apps/signer-firmware/src/runtime/interactions/tx/multisig_output.rs::open_index_picker",
+        "apps/signer-firmware/src/runtime/interactions/tx/private_swap.rs::handle_key",
+        "apps/signer-firmware/src/runtime/interactions/tx/private_swap.rs::handle_result",
+        "apps/signer-firmware/src/runtime/interactions/tx/private_swap.rs::handle_review",
+        "apps/signer-firmware/src/runtime/interactions/tx/transaction.rs::handle_anti_klepto_reveal_guide"
+      ],
+      "id": "qa-production-exhaustiveness-gate",
+      "items": [
+        "E2E-099-01",
+        "E2E-099-02",
+        "E2E-099-03",
+        "E2E-099-04",
+        "E2E-099-05"
+      ],
+      "level": "qa",
+      "menu_items": [
+        "About",
+        "Address",
+        "Advanced",
+        "Audio",
+        "BIP39 Last Word",
+        "BIP85 Child",
+        "BIP85 Child Wallet",
+        "Backup",
+        "Backup to SD",
+        "Calc Last Word",
+        "Cancel",
+        "Commit Secret",
+        "Compact SeedQR",
+        "CompactSeedQR",
+        "Confirm",
+        "Connect",
+        "Covenant Restore",
+        "Covenant Sign",
+        "Create Multisig",
+        "Decrypt Secret",
+        "Dice Seed",
+        "Display",
+        "Encrypt to SD",
+        "Encrypted SD Card",
+        "Enroll Owner Key",
+        "Export Key",
+        "Factory Reset",
+        "Firmware Update",
+        "Import Raw Key",
+        "Import Words",
+        "Import from SD",
+        "Inspect",
+        "Install from SD",
+        "Multisig",
+        "Multisig Address",
+        "Multisig Descriptor",
+        "New Seed",
+        "Owner Firmware",
+        "Plain Text QR",
+        "Plain-text SeedQR",
+        "Pop It!",
+        "Private Key",
+        "QR Export",
+        "Raw Private Key",
+        "Receive",
+        "Recovery",
+        "SD",
+        "Scan QR",
+        "Security",
+        "Seed / XPrv Backup",
+        "Seed Backup",
+        "SeedQR",
+        "SeedQR Backup",
+        "Settings",
+        "Show Seed Words",
+        "Show as QR",
+        "Sign Message",
+        "Sign TX",
+        "Signing Keys",
+        "Standard SeedQR",
+        "Steganographic",
+        "Steganography",
+        "Stego Import",
+        "Storage",
+        "Switch / Add Wallet",
+        "Touch Seed",
+        "Transaction",
+        "View Words",
+        "Wallet",
+        "Wallet Details",
+        "Watch-Only",
+        "Words",
+        "XPrv Backup",
+        "kpub (Watch-Only)",
+        "kpub Multisig QR",
+        "kpub as QR",
+        "kpub to SD",
+        "xprv Account"
+      ],
+      "requirements": [
+        "E2E-099"
+      ],
+      "serial_markers": [],
+      "states": [
+        "About",
+        "AddWalletChoice",
+        "AddrIndexPicker",
+        "AdvancedDuressConfirm",
+        "AdvancedDuressEntry",
+        "AdvancedDuressWarning",
+        "AdvancedFeatures",
+        "AdvancedMenu",
+        "AdvancedRestoreMenu",
+        "AdvancedRtcEntry",
+        "AdvancedSdStorageWarning",
+        "AdvancedTimeLockConfirm",
+        "AdvancedTimeLockEntry",
+        "AdvancedTimeLockWarning",
+        "AdvancedWeeklyConfirm",
+        "AdvancedWeeklyEntry",
+        "AdvancedWeeklyWarning",
+        "AntiKleptoRevealGuide",
+        "AudioSettings",
+        "BackupRecoveryMenu",
+        "Bip85Index",
+        "Bip85ShowWord",
+        "CalcLastWord",
+        "ChooseWordCount",
+        "CommitRevealPreview",
+        "CommitRevealResult",
+        "CommitRevealResultQr",
+        "CommitRevealType",
+        "ConfirmDeleteSeed",
+        "ConfirmTx",
+        "CovBackupName",
+        "CovenantKeyResult",
+        "CovenantKeyResultQr",
+        "CovenantSignOpaqueConfirm",
+        "CovenantSignOpaqueWarning",
+        "CovenantSignResult",
+        "CovenantSignResultQr",
+        "CovenantSignReview",
+        "DecryptSecretResult",
+        "DecryptSecretResultQr",
+        "DecryptSecretScan",
+        "DiceRoll",
+        "DisplaySettings",
+        "ExportChoice",
+        "ExportCompactSeedQR",
+        "ExportKpub",
+        "ExportKpubPopup",
+        "ExportPlainWordsQR",
+        "ExportPrivKey",
+        "ExportPrivKeyIndex",
+        "ExportSeedQR",
+        "ExportXprv",
+        "FactoryResetConfirm",
+        "FactoryResetWarning",
+        "FirmwareUpdateReady",
+        "ImportExportChoice",
+        "ImportMenu",
+        "ImportPrivKey",
+        "ImportWord",
+        "InspectUtxo",
+        "InspectUtxoSummary",
+        "KpubScannedPopup",
+        "MainMenu",
+        "MultisigAddKey",
+        "MultisigChooseMN",
+        "MultisigDescriptor",
+        "MultisigMenu",
+        "MultisigPickSeed",
+        "MultisigSaveAddrAsk",
+        "MultisigShowAddress",
+        "MultisigShowAddressQR",
+        "OwnerFirmwareMenu",
+        "OwnerInstallConfirm",
+        "OwnerInstallWarning",
+        "OwnerKeyConfirm",
+        "OwnerKeyWarning",
+        "PassphraseChoice",
+        "PassphraseEntry",
+        "PopItConfirm",
+        "PopItExplain",
+        "PopItPrompt",
+        "PrivateSwapKeyResult",
+        "PrivateSwapKeyResultQr",
+        "PrivateSwapResult",
+        "PrivateSwapResultQr",
+        "PrivateSwapReview",
+        "QrExportMenu",
+        "Rejected",
+        "RestoreWord",
+        "RestoreWord12Detected",
+        "ReviewTx",
+        "ScanQR",
+        "SdBackupWarning",
+        "SdCardSettings",
+        "SdCardUnlockPassword",
+        "SdDeleteConfirm",
+        "SdFileList",
+        "SdImportMenu",
+        "SdKpubEncryptAsk",
+        "SdKpubFileList",
+        "SdKpubFilename",
+        "SdKsptEncryptAsk",
+        "SdKsptEncryptPass",
+        "SdKsptFileList",
+        "SdKsptFilename",
+        "SdMsAddrEncryptAsk",
+        "SdMsAddrFilename",
+        "SdMsDescEncryptAsk",
+        "SdMsDescFilename",
+        "SdOverwriteWarning",
+        "SdSeedExportPassphrase",
+        "SdSeedFilename",
+        "SdSigFilename",
+        "SdWalletBackupFileList",
+        "SdWalletBackupImportPassphrase",
+        "SdXprvExportPassphrase",
+        "SdXprvFilename",
+        "SeedBackup",
+        "SeedBackupMenu",
+        "SeedEntropyUnavailable",
+        "SeedList",
+        "SeedQrGrid",
+        "SeedToolsMenu",
+        "SeedsMenu",
+        "SettingsMenu",
+        "ShowAddress",
+        "ShowAddressQR",
+        "ShowQR",
+        "ShowQrModeChoice",
+        "ShowQrPopup",
+        "SignMsgChoice",
+        "SignMsgFile",
+        "SignMsgPreview",
+        "SignMsgResult",
+        "SignMsgResultQr",
+        "SignMsgScan",
+        "SignMsgType",
+        "SignTxGuide",
+        "SigningKeysMenu",
+        "SingleSigMenu",
+        "StegoHintPassphrase",
+        "StegoHintReveal",
+        "StegoImportDescChoice",
+        "StegoImportDescFile",
+        "StegoImportPass",
+        "StegoImportPick",
+        "StegoImportPortablePassword",
+        "StegoJpegConfirm",
+        "StegoJpegDesc",
+        "StegoJpegDescChoice",
+        "StegoJpegDescFile",
+        "StegoJpegDescPreview",
+        "StegoJpegPick",
+        "StegoJpegPpAsk",
+        "StegoJpegPpEntry",
+        "StegoJpegPpInfo",
+        "StegoModeSelect",
+        "StegoPortablePassword",
+        "StegoPortablePasswordConfirm",
+        "StegoResult",
+        "StegoSecuritySelect",
+        "StorageCredentialType",
+        "StorageFinalizeChoice",
+        "StorageModeChoice",
+        "StoragePasswordConfirm",
+        "StoragePasswordEntry",
+        "StoragePinConfirm",
+        "StoragePinEntry",
+        "StorageProtectionChoice",
+        "StorageRecoveryAcknowledgement",
+        "StorageSdFailure",
+        "StorageSeedDiceChoice",
+        "StorageSeedDiceCountChoice",
+        "StorageSeedSourceChoice",
+        "StorageSeedTouchChoice",
+        "StorageSeedWordCountChoice",
+        "StorageUnlockPassword",
+        "StorageUnlockPin",
+        "TouchEntropy",
+        "WalletAdvancedMenu",
+        "WalletBackupMethodsMenu",
+        "WalletDetails",
+        "WalletNameEntry",
+        "WatchOnlyMenu",
+        "XprvExportMenu"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "connected-stealth-request-boundaries",
+      "items": [
+        "E2E-053-01",
+        "E2E-053-02",
+        "E2E-053-03",
+        "E2E-094-01",
+        "E2E-094-02",
+        "E2E-095-01",
+        "E2E-095-02"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-053",
+        "E2E-094",
+        "E2E-095"
+      ],
+      "serial_markers": [
+        "STEALTH REQUEST MIN/MAX/INVALID-COUNT/LENGTH PASS"
+      ],
+      "states": [
+        "ScanQR"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "hil-core-s3-startup-touch-rng",
+      "items": [
+        "E2E-001-01",
+        "E2E-001-02",
+        "E2E-001-03",
+        "E2E-001-04",
+        "E2E-001-05",
+        "E2E-001-06",
+        "E2E-001-07",
+        "E2E-001-08",
+        "E2E-001-09",
+        "E2E-001-10",
+        "E2E-001-11",
+        "E2E-001-12",
+        "E2E-001-13",
+        "E2E-001-14",
+        "E2E-001-15",
+        "E2E-001-16",
+        "E2E-001-17",
+        "E2E-001-18",
+        "E2E-001-19",
+        "E2E-001-20",
+        "E2E-001-21",
+        "E2E-001-22",
+        "E2E-001-23",
+        "E2E-001-24",
+        "E2E-001-25",
+        "E2E-001-26",
+        "E2E-001-27",
+        "E2E-001-28",
+        "E2E-001-29",
+        "E2E-001-30",
+        "E2E-001-31"
+      ],
+      "level": "hil",
+      "menu_items": [],
+      "requirements": [
+        "E2E-001"
+      ],
+      "serial_markers": [
+        "KASSIGNER_WORKFLOW_TESTS: TOUCH PROBE OK",
+        "KASSIGNER_WORKFLOW_HIL: RNG/IMU ENTROPY PROBE OK"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "connected-covenant-restore-protocol",
+      "items": [
+        "E2E-050-01",
+        "E2E-050-02",
+        "E2E-050-03",
+        "E2E-050-04",
+        "E2E-050-05",
+        "E2E-050-06",
+        "E2E-050-07",
+        "E2E-050-08",
+        "E2E-050-09",
+        "E2E-050-10",
+        "E2E-050-11",
+        "E2E-050-12",
+        "E2E-050-13",
+        "E2E-095-01",
+        "E2E-095-02"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-050",
+        "E2E-095"
+      ],
+      "serial_markers": [
+        "KASSIGNER_WORKFLOW_TESTS: COVENANT RESTORE RAW/HEX COVB/COVI BOUNDARIES PASS"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "connected-covenant-signing-protocol",
+      "items": [
+        "E2E-051-01",
+        "E2E-051-02",
+        "E2E-051-03",
+        "E2E-051-04",
+        "E2E-051-05",
+        "E2E-051-06",
+        "E2E-051-07",
+        "E2E-051-08",
+        "E2E-051-09",
+        "E2E-051-10",
+        "E2E-051-11",
+        "E2E-051-12",
+        "E2E-051-13",
+        "E2E-051-14",
+        "E2E-051-15",
+        "E2E-051-16",
+        "E2E-051-17",
+        "E2E-051-18",
+        "E2E-051-19",
+        "E2E-051-20",
+        "E2E-051-21",
+        "E2E-051-22",
+        "E2E-051-23",
+        "E2E-051-24",
+        "E2E-051-25",
+        "E2E-051-26",
+        "E2E-051-27",
+        "E2E-095-01",
+        "E2E-095-02"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-051",
+        "E2E-095"
+      ],
+      "serial_markers": [
+        "KASSIGNER_WORKFLOW_TESTS: COVENANT SIGN KEYINFO/KNOWN/BINDKNOWN/OPAQUE/BINDOPAQUE/REVEAL PASS"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "connected-private-swap-protocol",
+      "items": [
+        "E2E-052-01",
+        "E2E-052-02",
+        "E2E-052-03",
+        "E2E-052-04",
+        "E2E-052-05",
+        "E2E-052-06",
+        "E2E-052-07",
+        "E2E-052-08",
+        "E2E-052-09",
+        "E2E-052-10",
+        "E2E-052-11",
+        "E2E-052-12",
+        "E2E-052-13",
+        "E2E-052-14",
+        "E2E-052-15",
+        "E2E-095-01",
+        "E2E-095-02"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-052",
+        "E2E-095"
+      ],
+      "serial_markers": [
+        "KASSIGNER_WORKFLOW_TESTS: PRIVATE SWAP KEYINFO/BIND WIRE + MALFORMED REJECT PASS"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "qa-firmware-update-usb-security-contract",
+      "items": [
+        "E2E-083-03",
+        "E2E-083-04",
+        "E2E-083-05",
+        "E2E-083-06",
+        "E2E-083-07",
+        "E2E-083-08",
+        "E2E-083-09",
+        "E2E-083-10",
+        "E2E-083-11",
+        "E2E-083-12",
+        "E2E-083-13",
+        "E2E-083-14",
+        "E2E-083-16"
+      ],
+      "level": "qa",
+      "menu_items": [],
+      "requirements": [
+        "E2E-083"
+      ],
+      "serial_markers": [],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "connected-missing-key-wallet-fail-closed",
+      "items": [
+        "E2E-051-01",
+        "E2E-051-02",
+        "E2E-051-03",
+        "E2E-051-04",
+        "E2E-051-05",
+        "E2E-051-06",
+        "E2E-051-07",
+        "E2E-051-08",
+        "E2E-051-09",
+        "E2E-051-10",
+        "E2E-051-11",
+        "E2E-051-12",
+        "E2E-051-13",
+        "E2E-051-14",
+        "E2E-051-15",
+        "E2E-051-16",
+        "E2E-051-17",
+        "E2E-051-18",
+        "E2E-051-19",
+        "E2E-051-20",
+        "E2E-051-21",
+        "E2E-051-22",
+        "E2E-051-23",
+        "E2E-051-24",
+        "E2E-051-25",
+        "E2E-051-26",
+        "E2E-051-27",
+        "E2E-092-01",
+        "E2E-092-02",
+        "E2E-092-03",
+        "E2E-092-04",
+        "E2E-092-05",
+        "E2E-092-06",
+        "E2E-092-07",
+        "E2E-092-08"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-092",
+        "E2E-051"
+      ],
+      "serial_markers": [
+        "KASSIGNER_WORKFLOW_TESTS: MISSING MNEMONIC/RAW-HD SIGNING FAIL-CLOSED PASS"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "connected-unlock-navigation-guards",
+      "items": [
+        "E2E-013-01",
+        "E2E-013-02",
+        "E2E-013-03",
+        "E2E-013-04",
+        "E2E-013-05",
+        "E2E-013-06",
+        "E2E-013-07",
+        "E2E-013-08",
+        "E2E-013-09",
+        "E2E-013-10"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-013"
+      ],
+      "serial_markers": [
+        "KASSIGNER_WORKFLOW_TESTS: UNLOCK BACK/HOME GUARDS + RETRY BACKOFF PASS"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "connected-device-bound-sd-setup-routing",
+      "items": [
+        "E2E-064-01",
+        "E2E-064-02",
+        "E2E-064-03",
+        "E2E-064-04",
+        "E2E-064-05",
+        "E2E-064-06",
+        "E2E-064-07",
+        "E2E-064-08",
+        "E2E-064-09",
+        "E2E-064-10",
+        "E2E-064-11",
+        "E2E-064-12",
+        "E2E-064-13"
+      ],
+      "level": "connected",
+      "menu_items": [],
+      "requirements": [
+        "E2E-064"
+      ],
+      "serial_markers": [
+        "KASSIGNER_WORKFLOW_TESTS: DEVICE-BOUND SD SETUP/ACK/CANCEL ROUTING PASS"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/settings/mod.rs::handle_advanced_navigation"
+      ],
+      "id": "connected-firmware-update-usb-guidance",
+      "items": [
+        "E2E-083-01",
+        "E2E-083-02",
+        "E2E-083-15"
+      ],
+      "level": "connected",
+      "menu_items": [
+        "Firmware Update"
+      ],
+      "requirements": [
+        "E2E-083"
+      ],
+      "serial_markers": [
+        "KASSIGNER_WORKFLOW_TESTS: FIRMWARE UPDATE USB GUIDANCE PASS"
+      ],
+      "states": [
+        "FirmwareUpdateReady"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-01",
+      "items": [
+        "E2E-100-01"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-01",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Fresh device \u2192 create 12-word wallet \u2192 save with PIN \u2192 Receive. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-02",
+      "items": [
+        "E2E-100-02"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-02",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Fresh device \u2192 create 24-word wallet \u2192 password \u2192 backup \u2192 Receive. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-03",
+      "items": [
+        "E2E-100-03"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-03",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Fresh device \u2192 restore 12 words \u2192 unlock \u2192 sign transaction. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-04",
+      "items": [
+        "E2E-100-04"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-04",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Fresh device \u2192 restore 24 words + BIP39 passphrase \u2192 sign. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-05",
+      "items": [
+        "E2E-100-05"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-05",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Restore SeedQR \u2192 verify address. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-06",
+      "items": [
+        "E2E-100-06"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-06",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Restore encrypted SD backup \u2192 verify address. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-07",
+      "items": [
+        "E2E-100-07"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-07",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Import raw private key \u2192 Receive \u2192 sign supported operation. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-08",
+      "items": [
+        "E2E-100-08"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-08",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Create second wallet \u2192 switch between wallets \u2192 verify different addresses. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-09",
+      "items": [
+        "E2E-100-09"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-09",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Create wallet \u2192 Connect \u2192 export kpub. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-10",
+      "items": [
+        "E2E-100-10"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-10",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Create wallet \u2192 backup SeedQR \u2192 restore that backup \u2192 verify identical address. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-11",
+      "items": [
+        "E2E-100-11"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-11",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Create wallet \u2192 encrypted SD backup \u2192 delete wallet \u2192 restore backup \u2192 verify identical address. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-12",
+      "items": [
+        "E2E-100-12"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-12",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Create stego backup \u2192 delete wallet \u2192 stego restore \u2192 verify identical address. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-14",
+      "items": [
+        "E2E-100-14"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-14",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Scan valid transaction \u2192 inspect every UTXO \u2192 confirm \u2192 sign \u2192 result QR. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-15",
+      "items": [
+        "E2E-100-15"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-15",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Scan transaction \u2192 reject. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-16",
+      "items": [
+        "E2E-100-16"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-16",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Scan transaction with forged change \u2192 fail closed. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-17",
+      "items": [
+        "E2E-100-17"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-17",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Anti-klepto transaction \u2192 commitment \u2192 reveal \u2192 signed result. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-18",
+      "items": [
+        "E2E-100-18"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-18",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Sign typed message \u2192 result QR. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-19",
+      "items": [
+        "E2E-100-19"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-19",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Sign scanned message \u2192 result QR. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-20",
+      "items": [
+        "E2E-100-20"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-20",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Sign message loaded from SD \u2192 save signature to SD. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-22",
+      "items": [
+        "E2E-100-22"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-22",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Create multisig \u2192 mix local and scanned cosigners \u2192 address \u2192 descriptor \u2192 save. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-23",
+      "items": [
+        "E2E-100-23"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-23",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Restore/import multisig descriptor \u2192 reproduce same address. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-26",
+      "items": [
+        "E2E-100-26"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-26",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Enable device-bound SD storage \u2192 reboot with card \u2192 unlock. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-27",
+      "items": [
+        "E2E-100-27"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-27",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Enable device-bound SD storage \u2192 reboot without card \u2192 fail closed. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-28",
+      "items": [
+        "E2E-100-28"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-28",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Configure duress credential \u2192 reboot \u2192 exercise normal and duress credentials. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-29",
+      "items": [
+        "E2E-100-29"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-29",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Perform safe simulated Pop It! sequence. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-30",
+      "items": [
+        "E2E-100-30"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-30",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Perform verified firmware-update test using dedicated safe test image. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-user-journey-31",
+      "items": [
+        "E2E-100-31"
+      ],
+      "level": "manual-hil",
+      "menu_items": [],
+      "operator_checkpoints": [
+        {
+          "id": "production-user-journey-31",
+          "prompt": "On the physical production CoreS3, perform this as one contiguous journey without Developer/Workflow-Test UI: Reboot after all persistent changes and verify final expected device state. Attest PASS only after the expected final address/result/rejection is visibly verified."
+        }
+      ],
+      "requirements": [
+        "E2E-100"
+      ],
+      "states": [],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/menu/seed_generation.rs::handle_entropy_recovery"
+      ],
+      "id": "qa-mandatory-entropy-matrix",
+      "items": [
+        "E2E-004-01",
+        "E2E-004-02",
+        "E2E-004-03",
+        "E2E-004-04",
+        "E2E-004-05",
+        "E2E-004-06",
+        "E2E-004-07",
+        "E2E-004-08",
+        "E2E-004-09",
+        "E2E-004-10",
+        "E2E-004-11",
+        "E2E-004-12",
+        "E2E-004-13",
+        "E2E-004-14",
+        "E2E-004-15"
+      ],
+      "level": "qa",
+      "menu_items": [],
+      "requirements": [
+        "E2E-004"
+      ],
+      "serial_markers": [],
+      "states": [
+        "SeedEntropyUnavailable"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [
+        "apps/signer-firmware/src/runtime/interactions/export/menus/root.rs::handle_pure"
+      ],
+      "id": "qa-export-menu-routing-matrix",
+      "items": [
+        "E2E-054-01",
+        "E2E-054-02",
+        "E2E-054-03",
+        "E2E-054-04",
+        "E2E-054-05"
+      ],
+      "level": "qa",
+      "menu_items": [
+        "Seed Backup",
+        "Watch-Only",
+        "Signing Keys",
+        "Steganography"
+      ],
+      "requirements": [
+        "E2E-054"
+      ],
+      "serial_markers": [],
+      "states": [
+        "ExportChoice"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-firmware-update-usb-reboot",
+      "items": [
+        "E2E-083-17"
+      ],
+      "level": "manual-hil",
+      "menu_items": [
+        "Firmware Update"
+      ],
+      "operator_checkpoints": [
+        {
+          "id": "firmware-update-usb-reboot",
+          "prompt": "Flash a correctly signed test release through the supported USB host workflow, reboot the physical production-profile CoreS3, and attest PASS only after boot verification accepts the expected version/release/security identity."
+        }
+      ],
+      "requirements": [
+        "E2E-083"
+      ],
+      "states": [
+        "FirmwareUpdateReady"
+      ],
+      "status": "implemented"
+    },
+    {
+      "actions": [],
+      "id": "manual-hil-owner-authority",
+      "items": [
+        "E2E-082-09",
+        "E2E-082-10",
+        "E2E-082-11",
+        "E2E-100-32"
+      ],
+      "level": "manual-hil",
+      "menu_items": [
+        "Owner Firmware",
+        "Enroll Owner Key",
+        "Install from SD"
+      ],
+      "operator_checkpoints": [
+        {
+          "id": "owner-authority-enrollment",
+          "prompt": "On sacrificial production-profile CoreS3 hardware with Secure Boot still disabled, enroll a known owner RSA-3072 key from OWNERKEY.KAS. Verify official digest slot 0 and owner digest slot 1 match the expected keys, slot 2 is permanently closed, trusted-key revoke controls are protected, and a second/different enrollment is refused."
+        },
+        {
+          "id": "owner-authority-pop-it",
+          "prompt": "Enable Pop It! only after owner enrollment. Verify Secure Boot becomes hardware enforced, official vendor-signed firmware still boots, and owner-key enrollment is permanently unavailable afterward."
+        },
+        {
+          "id": "owner-authority-install",
+          "prompt": "Install an OWNERFW.BIN signed by the enrolled owner key. Verify exact owner-key acceptance, hardware anti-rollback enforcement, inactive-OTA selection only after full verification, rejection of an unrelated signing key, and preservation of the previously selected OTA after every failed install."
+        }
+      ],
+      "requirements": [
+        "E2E-082",
+        "E2E-100"
+      ],
+      "states": [
+        "OwnerFirmwareMenu",
+        "OwnerKeyWarning",
+        "OwnerKeyConfirm",
+        "OwnerInstallWarning",
+        "OwnerInstallConfirm"
+      ],
+      "status": "implemented"
+    }
+  ],
+  "schema": 2,
+  "workflow_e2e_physical_render_states": [
+    "About",
+    "AddWalletChoice",
+    "AdvancedFeatures",
+    "AdvancedMenu",
+    "AudioSettings",
+    "BackupRecoveryMenu",
+    "ConfirmDeleteSeed",
+    "ConfirmTx",
+    "ExportCompactSeedQR",
+    "ExportKpub",
+    "ExportPlainWordsQR",
+    "ExportSeedQR",
+    "InspectUtxo",
+    "InspectUtxoSummary",
+    "MainMenu",
+    "MultisigChooseMN",
+    "MultisigMenu",
+    "MultisigPickSeed",
+    "MultisigShowAddressQR",
+    "PassphraseChoice",
+    "PassphraseEntry",
+    "PopItPrompt",
+    "RestoreWord12Detected",
+    "ReviewTx",
+    "ScanQR",
+    "SdBackupWarning",
+    "SdCardSettings",
+    "SdImportMenu",
+    "SeedBackup",
+    "SeedList",
+    "SeedQrGrid",
+    "SeedsMenu",
+    "ShowAddress",
+    "ShowAddressQR",
+    "ShowQR",
+    "ShowQrModeChoice",
+    "StegoModeSelect",
+    "StegoResult",
+    "StorageCredentialType",
+    "StorageModeChoice",
+    "StoragePasswordEntry",
+    "StoragePinEntry",
+    "StorageRecoveryAcknowledgement",
+    "StorageSeedDiceChoice",
+    "StorageSeedSourceChoice",
+    "StorageSeedWordCountChoice",
+    "TouchEntropy",
+    "WalletAdvancedMenu",
+    "WalletBackupMethodsMenu",
+    "WalletDetails"
+  ]
+}

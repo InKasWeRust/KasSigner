@@ -1,0 +1,46 @@
+                    <!-- Load existing covenant panel -->
+                    <div id="cov-load-panel" class="card hidden">
+                        <p class="u-text-12px-text-text-dim-margin-0-0-12px-line-1-5">
+                            Load a covenant someone shared with you. Scan an invite QR or paste address and redeem script.
+                        </p>
+                        <button class="btn btn-outline u-full-width-mb-12px" id="btn-cov-load-scan">
+                            📷 Scan Covenant Invite QR
+                        </button>
+                        <button class="btn btn-outline u-full-width-mb-12px" id="btn-cov-load-file">
+                            📂 Load from Backup File
+                        </button>
+                        <input class="u-hidden" type="file" id="cov-load-file-input" accept=".covb,.cov">
+                        <label class="input-label">Covenant Address (P2SH)</label>
+                        <input type="text" id="cov-load-addr" class="input-text"
+                               placeholder="kaspatest:pr..." autocomplete="off" spellcheck="false">
+                        <label class="input-label">Redeem Script (hex)</label>
+                        <textarea id="cov-load-script" class="input-text input-textarea"
+                                  placeholder="6320...68" rows="3" autocomplete="off" spellcheck="false"></textarea>
+                        <label class="input-label">Covenant Type</label>
+                        <select id="cov-load-type" class="input-text">
+                            <optgroup label="Savings &amp; Time Locks">
+                                <option value="dms">Dead Man's Switch</option>
+                                <option value="additive">Piggy Bank</option>
+                                <option value="timelocked-savings">Time-Locked Savings</option>
+                            </optgroup>
+                            <optgroup label="Spending Controls">
+                                <option value="global-allowance">Allowance</option>
+                                <option value="merkle-whitelist">Merkle Whitelist</option>
+                                <option value="global-spending-limit">Spending Limit</option>
+                            </optgroup>
+                            <optgroup label="Multi-Party &amp; Conditional">
+                                <option value="escrow">Direct Channel</option>
+                                <option value="payjoin">PayJoin</option>
+                            </optgroup>
+                            <optgroup label="Advance &amp; PoC">
+                                <option value="commit-reveal">Commit-Reveal</option>
+                            </optgroup>
+                            <option value="other">Other</option>
+                        </select>
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-load-submit">
+                            Load Covenant
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-load-back">Back</button>
+                    </div>
+                </div>
+            </section>

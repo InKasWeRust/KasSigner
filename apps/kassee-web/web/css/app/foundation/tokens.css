@@ -1,0 +1,27 @@
+/* KasSee Web — Hardware-grade companion aesthetic
+ * Design language: crypto terminal meets refined wallet
+ * Palette: deep space #080c12, surface #111820, teal #49EACB, bone #d4d8de
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+:root {
+    --bg: #080c12;
+    --surface: #111820;
+    --surface-2: #18202b;
+    --border: #1e2a38;
+    --border-focus: #2a3a4e;
+    --teal: #49EACB;
+    --teal-glow: rgba(73, 234, 203, 0.15);
+    --teal-dim: #2ea88e;
+    --text: #d4d8de;
+    --text-dim: #6b7a8d;
+    --text-muted: #3d4d5e;
+    --danger: #e5534b;
+    --success: #3fb950;
+    --warning: #d29922;
+    --radius: 14px;
+    --radius-sm: 10px;
+    --mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    --sans: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+    --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);

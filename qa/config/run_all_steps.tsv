@@ -1,0 +1,50 @@
+# scope	category	workspace	step_id	description
+# `preflight.crap-check` is the full-QA first gate and is skipped by `make test`.
+# `preflight.core-ci` follows CRAP and runs pinned stable format, Clippy, the complete
+# strict `make test` profile, and git diff validation with a retained target/qa log.
+# `test` rows remain the exact public make-test catalog and are skipped by the outer
+# full-QA pass after preflight.core-ci succeeds so the nested test profile is not duplicated.
+# Remaining `qa` rows are additional non-hardware QA; `hardware` rows are opt-in only.
+qa	coverage	repository	preflight.crap-check	Fresh pinned-nightly branch coverage browser coverage and strict CRAP health analysis
+qa	preflight	repository	preflight.core-ci	Pinned stable format Clippy strict make-test and git-diff Core CI gate with retained log
+test	preflight	repository	preflight.cargo-resolution	Resolve and transactionally repair every locked Cargo workspace
+test	preflight	repository	preflight.repository-lockfiles	Validate every independent Cargo lock graph
+test	preflight	kassee-web	preflight.kassee-build	Build generated KasSee assets and the real WebAssembly package
+test	unit	shared-signer	unit.shared-signer	Rust unit and documentation tests
+test	unit	signer-firmware-core	unit.signer-firmware-core	Host-testable no_std firmware policy and device-decision tests
+test	unit	offline-signer	unit.offline-signer	Rust unit and documentation tests
+test	unit	online-watcher	unit.online-watcher	Rust unit and documentation tests
+test	unit	kassee-web	unit.kassee-web	WASM shell Rust unit tests
+test	unit	signer-firmware	unit.signer-firmware	Compile both boards with boot-time unit tests enabled
+test	unit	external-rqrr	unit.external-rqrr	No-std QR decoder unit tests
+test	unit	tools	unit.tools	Firmware tooling unit tests
+test	integration	shared-signer	integration.shared-signer-conformance	Protocol conformance test target
+test	integration	repository	integration.repository-layout	Repository and network-layout test target
+test	integration	offline-signer	integration.offline-signer-firmware-signing	Firmware-signing integration test
+test	integration	online-watcher	integration.online-watcher-source	Browser Rust and JavaScript source contracts
+test	integration	kassee-web	integration.kassee-web-generated	Generated HTML CSS Constellation and DOM contracts
+test	integration	kassee-web	integration.kassee-web-browser	Fast browser startup covenant and critical-path tests
+qa	static	repository	static.qa-orchestration-catalog	Validate public QA step ordering and explicit ownership of every registered test/check entrypoint
+qa	static	repository	unit.repository-python-qa	Python QA tooling policy and historical regression tests
+qa	static	repository	preflight.firmware-source-contracts	Validate firmware source compile contracts
+qa	static	repository	integration.repository-architecture	Repository architecture and lint-policy checks
+qa	static	signer-firmware	static.firmware-assurance-contracts	Firmware partition boot security recovery UI runtime and QEMU source contracts
+qa	security	repository	preflight.security-assurance	Formal security invariants test quality watcher-only policy irreversible-action policy and source evidence
+qa	coverage	repository	coverage.critical-branch-targets	Require refreshed critical branch floors and hard targets
+qa	integration	signer-firmware	integration.signer-firmware-builds	Firmware hardware and QEMU feature compile matrix
+qa	integration	signer-firmware	integration.signer-firmware-lints	Firmware hardware and QEMU warning lint and complexity matrix
+qa	integration	kassee-ios	unit.kassee-ios-core	Portable cross-platform iOS source architecture contracts
+qa	integration	kassee-android	unit.kassee-android-core	Portable Kotlin domain and transaction-boundary tests
+qa	integration	kassee-ios	integration.kassee-ios-quality	iOS architecture application tests and Swift CRAP checks without mutation
+qa	integration	kassee-android	integration.kassee-android-gradle	Android API 37 Gradle Debug unit tests through the verified toolchain bootstrap
+qa	integration	kassee-android	integration.kassee-android-quality	Android API 37 architecture CRAP and instrumentation checks without mutation
+qa	emulation	signer-firmware	emulation.signer-firmware-qemu	Boot ESP32-S3 QEMU and run all emulated hardware tests
+qa	interactive	repository	integration.real-node	Real KasSee public-node integration against the official resolver pool
+qa	interactive	repository	integration.funded-testnet-e2e	Interactive funded Kaspa testnet transaction E2E against a real public node
+qa	bench	shared-signer	bench.shared-signer-protocol-throughput	Protocol framing throughput benchmark
+qa	mutation	kassee-ios	mutation.kassee-ios	Enumerated iOS mutation suite on eligible macOS hosts
+qa	mutation	kassee-android	mutation.kassee-android	Enumerated Android mutation suite on eligible API-37 toolchains
+qa	mutation	repository	mutation.repository-security-fresh	Fresh candidate-certified cargo-mutants run with no development-result reuse
+qa	mutation	repository	mutation.repository-crypto-certification	Require 100 percent cryptographic mutation completeness from the fresh candidate run
+qa	fuzz	repository	fuzz.repository-security-targets	All registered security fuzz targets after every other non-hardware QA stage
+hardware	hardware	signer-firmware	hardware.signer-firmware-device	Flash and run all registered on-device ESP tests

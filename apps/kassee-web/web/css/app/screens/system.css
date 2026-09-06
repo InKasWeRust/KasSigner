@@ -1,0 +1,329 @@
+
+
+/* Component-owned styles migrated from one-use global utilities. */
+#balance-daa { font-size:11px; color:var(--text-muted); margin-top:4px; }
+#btn-broadcast-welcome { font-size:13px; margin-top:6px; }
+#btn-copy-kspt { display:none; margin-top:8px; font-size:12px; }
+#btn-logo { cursor:pointer; }
+#qr-tx-info { display:none; text-align:left; margin-top:16px; padding:0 8px; max-height:50vh; overflow-y:auto; }
+#select-network { appearance:auto; cursor:pointer; }
+#swap-alert-banner { display:none; position:fixed; top:0; left:0; right:0; z-index:9999; background:#e6a817; color:#000; padding:12px 16px; font-size:13px; line-height:1.4; text-align:center; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,0.3); }
+#verify-address { font-size:13px; line-height:1.8; }
+.explorer-network-icon { filter:brightness(0.7); }
+.settings-custom-node { margin-top:10px; }
+.settings-network-help { margin-top:0; text-align:left; font-size:11px; }
+.settings-security-note { margin-top:0; text-align:left; font-size:10px; line-height:1.4; }
+.verify-format-help { margin-top:12px; font-size:11px; color:var(--text-muted); }
+.welcome-import-prompt { text-align:center; margin-bottom:18px; }
+
+.welcome-startup-status {
+    margin: -8px 0 14px;
+    min-height: 18px;
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.5;
+    text-align: center;
+}
+.welcome-startup-status[data-state="ready"] { color: var(--success); }
+.welcome-startup-status[data-state="warning"] { color: var(--warning); }
+.welcome-startup-status[data-state="error"] { color: var(--danger); }
+.welcome-import-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.welcome-saved-kpubs {
+    margin-bottom: 12px;
+}
+
+.welcome-saved-kpubs-label {
+    margin: 0 0 8px;
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.welcome-kpub-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: min(34vh, 280px);
+    padding-right: 4px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+
+.welcome-kpub-entry {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-width: 0;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+}
+
+.welcome-kpub-entry:hover,
+.welcome-kpub-entry:focus-visible {
+    border-color: var(--teal-dim);
+    background: var(--surface-2);
+    outline: none;
+}
+
+.welcome-kpub-copy {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.welcome-kpub-name {
+    overflow: hidden;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.welcome-kpub-network {
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 9px;
+    text-transform: uppercase;
+}
+
+.welcome-kpub-load-label {
+    flex: 0 0 auto;
+    color: var(--teal);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* ─── kpub Management ─── */
+.kpub-manager-form h3,
+.kpub-manager-list-card h3 {
+    margin: 0;
+    font-size: 16px;
+    color: var(--text);
+}
+
+.kpub-manager-note {
+    margin: 8px 0 4px;
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.kpub-manager-form-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.kpub-manager-form-heading > div {
+    min-width: 0;
+}
+
+.kpub-manager-form-heading .btn-link {
+    width: auto;
+    min-width: max-content;
+    padding: 4px 0;
+}
+
+.kpub-import-methods {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.kpub-import-methods .btn {
+    min-height: 44px;
+}
+
+.kpub-manager-startup-toggle {
+    margin: 4px 0 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.kpub-manager-toggle-label {
+    margin: 0 0 2px;
+}
+
+.kpub-manager-toggle-help {
+    margin: 0;
+    text-align: left;
+    font-size: 10px;
+    line-height: 1.4;
+}
+
+#btn-use-current-kpub {
+    margin-top: 10px;
+}
+
+.kpub-manager-list-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.kpub-manager-current-status {
+    margin: 5px 0 0;
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.kpub-manager-count {
+    min-width: 28px;
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--teal);
+    font-family: var(--mono);
+    font-size: 11px;
+    text-align: center;
+}
+
+.kpub-saved-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: min(48vh, 430px);
+    margin-top: 16px;
+    padding-right: 4px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+
+.kpub-entry {
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    cursor: pointer;
+    transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.kpub-entry:hover,
+.kpub-entry:focus-visible {
+    border-color: var(--teal-dim);
+    background: var(--surface-2);
+    outline: none;
+}
+
+.kpub-entry.is-active {
+    border-color: var(--teal-dim);
+    box-shadow: 0 0 0 2px var(--teal-glow);
+}
+
+.kpub-entry-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.kpub-entry-name {
+    margin: 0;
+    color: var(--text);
+    font-size: 14px;
+    overflow-wrap: anywhere;
+}
+
+.kpub-entry-network {
+    flex: 0 0 auto;
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 9px;
+    text-transform: uppercase;
+}
+
+.kpub-entry-key {
+    margin: 8px 0 0;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.kpub-entry-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 19px;
+    margin-top: 9px;
+}
+
+.kpub-entry-badge {
+    padding: 3px 7px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-dim);
+    font-size: 9px;
+}
+
+.kpub-entry-badge.is-active {
+    border-color: var(--teal-dim);
+    color: var(--teal);
+}
+
+.kpub-entry-badge.is-startup {
+    border-color: #8a6d1f;
+    color: var(--warning);
+}
+
+.kpub-entry-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.kpub-entry-actions .btn {
+    padding: 10px 8px;
+    font-size: 11px;
+}
+
+.kpub-empty-state {
+    margin: 16px 0 0;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.5;
+    text-align: center;
+}
+
+.kpub-empty-state.hidden {
+    display: none;
+}
+
+.kpub-manager-load-button {
+    width: 100%;
+    margin-top: 16px;
+}
+
+@media (max-width: 420px) {
+    .kpub-import-methods,
+    .kpub-entry-actions {
+        grid-template-columns: 1fr;
+    }
+}

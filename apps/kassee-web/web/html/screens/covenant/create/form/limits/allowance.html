@@ -1,0 +1,66 @@
+
+                        <!-- Allowance fields -->
+                        <div id="cov-fields-allowance" class="hidden">
+                            <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                Set an allowance for a beneficiary. They can withdraw up to the max per TX,
+                                with a cooldown between withdrawals. Optionally lock funds until a start date.
+                                Only the beneficiary can withdraw.
+                            </p>
+                            <label class="input-label">Beneficiary (single address or x-only)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-allowance-bene-pk" class="input-text u-grow-mb-0"
+                                       placeholder="kaspatest:... single address or x-only hex" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-allowance-bene"
+                                        title="Scan beneficiary single address QR">📷</button>
+                            </div>
+                            <label class="input-label">Max Withdrawal per TX (KAS)</label>
+                            <input type="number" id="cov-allowance-max" class="input-text"
+                                   placeholder="10" step="0.00000001" min="0">
+                            <label class="input-label">Cooldown Between Withdrawals</label>
+                            <select id="cov-allowance-period" class="input-text">
+                                <option value="3600">1 Hour</option>
+                                <option value="21600">6 Hours</option>
+                                <option value="43200">12 Hours</option>
+                                <option value="86400" selected>24 Hours</option>
+                                <option value="604800">7 Days</option>
+                                <option value="2592000">30 Days</option>
+                                <option value="custom">Custom...</option>
+                            </select>
+                            <div id="cov-allowance-custom-wrap" class="hidden u-mt-8px">
+                                <div class="u-display-flex-gap-4px-align-text-center">
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">YEARS</div>
+                                        <input type="number" id="cov-allow-years" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="99">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">MONTHS</div>
+                                        <input type="number" id="cov-allow-months" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="11">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">DAYS</div>
+                                        <input type="number" id="cov-allow-days" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="30">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">HOURS</div>
+                                        <input type="number" id="cov-allow-hours" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="23">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">MINS</div>
+                                        <input type="number" id="cov-allow-mins" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="59">
+                                    </div>
+                                </div>
+                            </div>
+                            <input type="hidden" id="cov-allowance-seq" value="">
+                            <label class="input-label">Start Date (optional)</label>
+                            <input type="datetime-local" id="cov-allowance-start" class="input-text u-color-scheme-dark">
+                            <p class="u-text-10px-text-text-muted-margin-4px-0-0">
+                                Leave empty for immediate access. Set a date to lock funds until then (vesting).
+                            </p>
+                            <p id="cov-allowance-summary">
+                                Withdraw up to ? KAS every 24 hours. Uses OP_CHECKSEQUENCEVERIFY.
+                            </p>
+                        </div>
+
+                        <!-- Vesting fields -->
+
+                        <!-- Treasury fields -->

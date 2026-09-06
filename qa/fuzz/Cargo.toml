@@ -1,0 +1,88 @@
+[package]
+name = "kassigner-fuzz"
+version = "2.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+shared-signer = { path = "../../crates/shared-signer" }
+signer-firmware-core = { path = "../../crates/signer-firmware-core" }
+kassigner-protocol = { path = "../../crates/kassigner-protocol", default-features = false }
+offline-signer = { path = "../../crates/offline-signer" }
+
+[[bin]]
+name = "unwrap_qr_payload"
+path = "unwrap_qr_payload.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+resolver = "2"
+
+[[bin]]
+name = "qr_frame_roundtrip"
+path = "qr_frame_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "account_key_canonical"
+path = "account_key_canonical.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "firmware_protocol_parsing"
+path = "firmware_protocol_parsing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "compact_kspt_roundtrip"
+path = "compact_kspt_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "compact_kspt_parser"
+path = "compact_kspt_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "std_pskt_parser"
+path = "std_pskt_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bip32_derivation"
+path = "bip32_derivation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "stego_picture_parser"
+path = "stego_picture_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "firmware_external_inputs"
+path = "firmware_external_inputs.rs"
+test = false
+doc = false
+bench = false

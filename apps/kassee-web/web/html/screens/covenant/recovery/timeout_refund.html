@@ -1,0 +1,19 @@
+                    <!-- Timeout refund sub-screen (time-locked escrow) -->
+                    <div id="cov-timeout-panel" class="card hidden">
+                        <label class="input-label">Covenant Address (P2SH)</label>
+                        <input type="text" id="cov-timeout-addr" class="input-text"
+                               placeholder="kaspatest:pr..." autocomplete="off" spellcheck="false">
+                        <label class="input-label">Redeem Script (hex)</label>
+                        <textarea id="cov-timeout-script" class="input-text input-textarea"
+                                  placeholder="6320...68" rows="2" autocomplete="off" spellcheck="false"></textarea>
+                        <label class="input-label">Locktime (DAA score)</label>
+                        <input type="number" id="cov-timeout-locktime" class="input-text"
+                               placeholder="Same value used at creation" min="1" step="1">
+                        <label class="input-label">Refund Destination Address</label>
+                        <input type="text" id="cov-timeout-dest" class="input-text"
+                               placeholder="kaspatest:qq... (must match Alice's address in script)" autocomplete="off" spellcheck="false">
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-timeout-create">
+                            Create Timeout Refund TX
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-timeout-back">Back</button>
+                    </div>

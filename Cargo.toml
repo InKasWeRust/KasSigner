@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/kassigner-protocol",
+    "crates/kassigner-sdk",
+    "crates/offline-signer",
+    "crates/online-watcher",
+    "crates/shared-signer",
+    "crates/signer-firmware-core",
+]
+exclude = [
+    "apps/signer-firmware",
+    "apps/kassee-web",
+    "tools",
+    "qa",
+    "qa/fuzz",
+    "external/rqrr-nostd",
+]
+
+[profile.dev]
+opt-level = "s"
+overflow-checks = true
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+overflow-checks = true

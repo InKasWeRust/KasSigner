@@ -1,0 +1,41 @@
+
+                        <!-- Shipment-escrow fields -->
+                        <div id="cov-fields-ship-escrow" class="hidden">
+                            <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                Buyer-funded escrow with seller, deliverer, and arbiter.<br>
+                                You are the buyer. Payouts go to each party's address (from pubkey).
+                            </p>
+                            <label class="input-label">Seller Pubkey (hex)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-ship-seller-pk" class="input-text u-grow-mb-0"
+                                       placeholder="32-byte xonly pubkey hex" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-ship-seller"
+                                        title="Scan QR">📷</button>
+                            </div>
+                            <label class="input-label">Deliverer Pubkey (hex)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-ship-deliverer-pk" class="input-text u-grow-mb-0"
+                                       placeholder="32-byte xonly pubkey hex" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-ship-deliverer"
+                                        title="Scan QR">📷</button>
+                            </div>
+                            <label class="input-label">Arbiter Pubkey (hex)</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-ship-arbiter-pk" class="input-text u-grow-mb-0"
+                                       placeholder="32-byte xonly pubkey hex" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-ship-arbiter"
+                                        title="Scan QR">📷</button>
+                            </div>
+                            <label class="input-label">Product Price (KAS)</label>
+                            <input type="number" id="cov-ship-product" class="input-text" step="0.00000001" min="0"
+                                   placeholder="e.g. 1.0" autocomplete="off">
+                            <label class="input-label">Delivery Fee (KAS)</label>
+                            <input type="number" id="cov-ship-fee" class="input-text" step="0.00000001" min="0"
+                                   placeholder="e.g. 0.2" autocomplete="off">
+                            <label class="input-label">Pickup Deadline (DAA score)</label>
+                            <input type="text" id="cov-ship-cltv1" class="input-text"
+                                   placeholder="no-pickup after this refunds buyer" autocomplete="off" spellcheck="false">
+                            <label class="input-label">Delivery Deadline (DAA score)</label>
+                            <input type="text" id="cov-ship-cltv2" class="input-text"
+                                   placeholder="no-delivery after this pays workers" autocomplete="off" spellcheck="false">
+                        </div>

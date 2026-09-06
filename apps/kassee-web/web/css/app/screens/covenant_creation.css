@@ -1,0 +1,38 @@
+
+
+/* Component-owned styles migrated from one-use global utilities. */
+#btn-cov-cr-scan-commitment { width:100%; margin-bottom:4px; font-size:13px; }
+#btn-cov-res-consolidate { width:100%; margin-bottom:8px; font-size:12px; display:none; }
+#btn-tv-split { width:100%; margin-bottom:8px; background:var(--warning); }
+#cov-allowance-summary { font-size:10px; color:var(--text-muted); margin:8px 0 0; }
+#cov-cr-hash-display { font-size:11px; color:#f5a623; margin-bottom:8px; word-break:break-all; font-family:monospace; }
+#cov-res-attest-text { font-size:11px; color:var(--text-secondary); background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-bottom:8px; word-break:break-word; line-height:1.4; display:none; }
+#cov-result-addr { word-break:break-all; font-size:13px; margin-bottom:8px; cursor:pointer; }
+#cov-result-balance { font-size:14px; color:var(--text-primary); margin-bottom:12px; text-align:center; display:none; }
+#cov-result-extra { font-size:12px; color:var(--text-secondary); margin-bottom:12px; }
+#cov-result-script { word-break:break-all; font-size:11px; margin-bottom:8px; cursor:pointer; }
+#cov-result-txid { word-break:break-all; font-size:11px; cursor:pointer; color:var(--teal); }
+#cov-result-txid-wrap { display:none; margin-bottom:12px; }
+#cov-ship-state { font-size:12px; color:var(--text-dim); margin:8px 0; line-height:1.5; }
+#cov-ship-status { font-size:11px; color:var(--text-dim); margin:10px 0 0; }
+#cov-watcher-status { font-size:10px; color:var(--text-muted); text-align:center; margin-bottom:6px; display:none; }
+#cr-ct-close { color:var(--text-dim); font-size:12px; margin-top:16px; cursor:pointer; }
+#tv-log { margin-top:12px; max-height:120px; overflow-y:auto; font-family:monospace; font-size:10px; color:var(--text-dim); background:var(--card-bg); border:1px solid var(--border); border-radius:6px; padding:8px; display:none; }
+#tv-step-airgap { margin-top:16px; padding-top:12px; border-top:1px solid var(--border); }
+.commit-reveal-decrypt-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.commit-reveal-decrypt-qr { background:#fff; border-radius:8px; padding:12px; display:inline-block; width:240px; height:240px; }
+.commit-reveal-decrypt-title { color:var(--teal); font-size:14px; margin-bottom:12px; }
+.covenant-invite-details { text-align:center; font-size:12px; color:var(--text-dim); margin:8px 0; }
+.covenant-menu-actions { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+.covenant-menu-tabs { display:flex; gap:8px; margin-bottom:16px; }
+.covenant-utxo-amount { color:var(--text-primary); }
+.covenant-utxo-checkbox { width:18px; height:18px; flex-shrink:0; }
+.covenant-utxo-loading { color:var(--text-dim); font-size:12px; }
+.covenant-utxo-option { display:flex; align-items:center; gap:8px; padding:8px; margin-bottom:4px; background:var(--bg-card); border-radius:8px; cursor:pointer; font-size:13px; }
+.covenant-utxo-outpoint { color:var(--text-dim); font-size:10px; }
+.piggy-result-action { font-size:13px; padding:8px 10px; border:1px solid; border-radius:6px; margin:6px 0; }
+.shipment-pickup-label { font-size:11px; color:var(--text-muted); margin:10px 0 4px; }
+.shipment-transit-label { font-size:11px; color:var(--text-muted); margin:14px 0 4px; }
+.spending-limit-warning { font-size:11px; color:var(--warning); margin:4px 0 0; line-height:1.4; }
+.tagged-vault-help { font-size:11px; color:var(--text-dim); margin:4px 0 0; line-height:1.4; }
+.tagged-vault-warning { font-size:11px; color:var(--warning); margin:4px 0 12px; line-height:1.4; }

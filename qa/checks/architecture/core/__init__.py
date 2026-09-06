@@ -1,0 +1,1 @@
+"""Core repository-structure checks."""

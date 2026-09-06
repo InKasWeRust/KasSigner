@@ -1,0 +1,47 @@
+                    <!-- Shipment-escrow operate sub-screen -->
+                    <div id="cov-ship-panel" class="card hidden">
+                        <label class="input-label">Covenant Address (P2SH)</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-ship-addr" class="input-text u-grow-mb-0"
+                                   placeholder="kaspatest:pr..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-ship-addr"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <label class="input-label">Redeem Script (hex)</label>
+                        <textarea id="cov-ship-script" class="input-text input-textarea"
+                                  placeholder="redeem script hex (encodes parties, amounts, deadlines)" rows="2"
+                                  autocomplete="off" spellcheck="false"></textarea>
+                        <div id="cov-ship-state"></div>
+
+                        <div id="cov-ship-s0-actions">
+                            <div class="shipment-pickup-label">At pickup (state 0):</div>
+                            <button class="btn btn-primary u-full-width" id="btn-cov-ship-pickup">
+                                Confirm Pickup (deliverer)
+                            </button>
+                            <button class="btn btn-outline u-full-width-mt-6px" id="btn-cov-ship-s0-arb">
+                                Arbiter: Refund Buyer
+                            </button>
+                            <button class="btn btn-outline u-full-width-mt-6px" id="btn-cov-ship-s0-timeout">
+                                Timeout: Refund Buyer
+                            </button>
+                        </div>
+
+                        <div id="cov-ship-s1-actions">
+                            <div class="shipment-transit-label">In transit (state 1):</div>
+                            <button class="btn btn-primary u-full-width" id="btn-cov-ship-delivery">
+                                Confirm Delivery (buyer)
+                            </button>
+                            <button class="btn btn-outline u-full-width-mt-6px" id="btn-cov-ship-s1-award">
+                                Arbiter: Pay Workers
+                            </button>
+                            <button class="btn btn-outline u-full-width-mt-6px" id="btn-cov-ship-s1-arb-refund">
+                                Arbiter: Refund Buyer
+                            </button>
+                            <button class="btn btn-outline u-full-width-mt-6px" id="btn-cov-ship-s1-timeout">
+                                Timeout: Pay Workers
+                            </button>
+                        </div>
+
+                        <div id="cov-ship-status"></div>
+                        <button class="btn btn-back" id="btn-cov-ship-back">Back</button>
+                    </div>

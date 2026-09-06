@@ -1,0 +1,26 @@
+                    <!-- Merkle whitelist spend sub-screen -->
+                    <div id="cov-mw-spend-panel" class="card hidden">
+                        <input type="hidden" id="cov-mw-addr">
+                        <input type="hidden" id="cov-mw-script">
+                        <label class="input-label">Whitelisted Addresses</label>
+                        <textarea id="cov-mw-spend-addresses" class="input-text input-textarea"
+                                  placeholder="kaspatest:qq...&#10;kaspatest:qq...&#10;kaspatest:qq..." rows="4" autocomplete="off" spellcheck="false" readonly></textarea>
+                        <label class="input-label">Destination (must be in whitelist)</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-mw-dest" class="input-text u-grow-mb-0"
+                                   placeholder="kaspatest:qq..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-mw-dest"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <label class="input-label">Amount (KAS)</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="number" id="cov-mw-amount" class="input-text u-grow-mb-0"
+                                   placeholder="e.g. 5.0" min="0" step="any" autocomplete="off">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-mw-max"
+                                    title="Use max spendable">Max</button>
+                        </div>
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-mw-spend-create">
+                            Spend to Whitelisted Address
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-mw-spend-back">Back</button>
+                    </div>

@@ -1,0 +1,40 @@
+                    <!-- Persistent Vault Withdraw sub-screen -->
+
+                    <!-- ZK proof spend sub-screen -->
+
+                    <!-- RISC0 proof spend sub-screen -->
+
+                    <!-- ZK Price Oracle (Model B) — ambient read + ask-for-new -->
+                    <div id="cov-oracle-mb-panel" class="card hidden">
+                        <div class="oracle-price-header">
+                            <div class="oracle-market-label">KAS / USD</div>
+                            <div id="oracle-mb-price">—</div>
+                            <div id="oracle-mb-age">reading the chain…</div>
+                        </div>
+                        <div class="oracle-source-note">Pyth + Wormhole · proven on-chain · pull oracle</div>
+
+                        <div class="oracle-fee-panel">
+                            <div class="oracle-fee-help">Fee (higher confirms faster when the network is busy)</div>
+                            <div class="oracle-fee-options">
+                                <button type="button" class="omb-fee-btn u-grow-text-13px-padding-8px-0-bg-bg" data-omb-fee="1">1 KAS</button>
+                                <button type="button" class="omb-fee-btn u-grow-text-13px-padding-8px-0-bg-bg" data-omb-fee="2">2 KAS</button>
+                                <button type="button" class="omb-fee-btn u-grow-text-13px-padding-8px-0-bg-bg" data-omb-fee="3">3 KAS</button>
+                            </div>
+                            <input id="input-omb-fee-custom" type="number" inputmode="decimal" min="1" step="0.1" placeholder="custom KAS (min 1)">
+                        </div>
+
+                        <button class="btn btn-primary u-full-width-mt-4px" id="btn-oracle-mb-ask">Ask for new price (≈1 KAS)</button>
+                        <div id="oracle-mb-ask-status"></div>
+
+                        <div class="oracle-proof-metadata">
+                            <div>oracle: <span id="oracle-mb-addr">—</span></div>
+                            <div>roll tx: <span id="oracle-mb-rolltx">—</span></div>
+                        </div>
+                        <button class="btn btn-back" id="btn-oracle-mb-back">Back</button>
+                    </div>
+
+                    <!-- RISC0 BRIDGE withdrawal sub-screen (KIP-21) -->
+
+                    <!-- Groth16-wrap bridge withdrawal sub-screen (KIP-21 Step 1) -->
+
+                    <!-- Supply chain advance sub-screen -->

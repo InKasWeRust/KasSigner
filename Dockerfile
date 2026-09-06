@@ -1,315 +1,257 @@
-# KasSigner - Air-gapped offline signing device for Kaspa
-# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
-# License: GPL-3.0
+# KasSigner — reproducible v2.0.0 release build
 #
-# ════════════════════════════════════════════════════════════════════
-#  Reproducible release build
-# ════════════════════════════════════════════════════════════════════
+# The supported reproducible-build path is Docker-only. The convenience runner:
+#   ./scripts/linux/build/reproducible-build.sh
+# provisions the pinned toolchain image, performs this build, and exports the
+# artifacts. No release build step flashes or contacts a hardware device.
 #
-#   Toolchain image first (once):
-#     docker build --platform linux/amd64 -f Dockerfile.base \
-#       -t kassigner-toolchain:v3 .
+# Manual toolchain image build:
+#   docker build --platform linux/amd64 -f Dockerfile.base -t kassigner-toolchain:v3 .
+# Manual verifier export (unsigned images):
+#   DOCKER_BUILDKIT=1 docker build --platform linux/amd64 --target artifacts \
+#     --output type=local,dest=release .
+# Manual maintainer export (signed + unsigned images):
+#   DOCKER_BUILDKIT=1 docker build --platform linux/amd64 --target artifacts \
+#     --secret id=signkey,src=/path/to/dev_signing_key.bin \
+#     --output type=local,dest=release .
 #
-#   Verifier (no key) - builds the three UNSIGNED images:
-#     docker build --platform linux/amd64 -t kassigner-build .
-#
-#   Maintainer (with key) - builds all six, unsigned then signed:
-#     docker build --platform linux/amd64 \
-#       --secret id=signkey,src=/path/to/dev_signing_key.bin \
-#       -t kassigner-build .
-#
-#   Then:
-#     docker run --rm kassigner-build
-#
-# ── Six configurations ──────────────────────────────────────────────
-#
-#   Waveshare          unsigned / signed    OV2640 / OV5640 auto-detect
-#   Waveshare AF       unsigned / signed    AF module, H+V orientation flip
-#   M5Stack CoreS3     unsigned / signed
-#
-# Each converges independently. Unsigned images are built first, so a run
-# without a key still produces a complete, useful result.
-#
-# ── Why every image here is a `production` build ────────────────────
-#
-# `FIRMWARE_SIGNATURE` is a Rust `const`, and consts have no storage: they
-# exist only where they are used. Its only use is inside `verify_signature()`,
-# which a development build never reaches, so the compiler discards the
-# function and the 64 bytes with it. Measured 2026-08-03: signed and unsigned
-# DEV builds are byte-identical and contain no signature at all. Only a
-# `production` build embeds it.
-#
-# Development builds are for developers, via `cargo run`. They are not release
-# artifacts and no hashes are published for them.
-#
-# ── Signed and unsigned differ ──────────────────────────────────────
-#
-# The two have DIFFERENT code-segment hashes. The unsigned image is the
-# COMPLETE firmware built from the same source; the only inputs that differ
-# are the signature bytes, the signed flag and the embedded hash
-# (features/verify.rs, firmware_signed). Those constants shift the compiler's
-# output, so a byte-diff of signed against unsigned is NOT confined to the
-# signature region; the comparison that matters is unsigned against unsigned.
-# A verifier compares their build against the published UNSIGNED hash for the
-# same target, and that hash stands for the real firmware, not a stub.
-#
-# Unsigned images run in production mode with no valid signature and halt at
-# boot. They exist to be hashed, not flashed.
-#
-# ── Convergence ─────────────────────────────────────────────────────
-#
-# The firmware embeds a hash of its own code segment, so writing the hash
-# changes the thing being hashed. The build iterates until it settles.
-#
-# FIVE passes, with an explicit check that the last two agree. Measured:
-# signed settles at pass 2, unsigned at pass 3. Three passes was the previous
-# assumption and was never verified - a configuration needing four would have
-# shipped a binary whose embedded hash did not match its own code, which in a
-# production build HALTS AT BOOT. The assertion turns that into a failed
-# build instead of a dead device.
-#
-# ── Outputs ─────────────────────────────────────────────────────────
-#
-# Four per target, twelve in total:
-#
-#   kassigner-waveshare.bin                 signed, app-only      FLASH THIS
-#   kassigner-waveshare-full.bin            signed, full flash    FLASH THIS
-#   kassigner-waveshare-unsigned.bin        unsigned, app-only    verify only
-#   kassigner-waveshare-unsigned-full.bin   unsigned, full flash  verify only
-#
-# and the same four for -waveshare-af- and -m5stack-.
-#
-# The unsigned images are how a third party checks that the published signed
-# binaries were built from this source: they build unsigned and compare
-# against the published UNSIGNED hashes. Do not flash them - an unsigned
-# production image has no valid signature and halts at boot.
-#
-# Flash (full image, new devices):
-#   python3 -m esptool --port <PORT> --baud 460800 write_flash 0x0 <name>-full.bin
-# Flash (app only):
-#   python3 -m esptool --port <PORT> --baud 460800 write_flash 0x10000 <name>.bin
-#
-# NOTE: production firmware gates the USB Serial/JTAG peripheral a second or
-# two into boot. To reflash, enter download mode first - unplug USB, hold
-# BOOT, plug USB in, release BOOT. See docs/BUILD_FLASH_GUIDE.md.
-
-FROM --platform=linux/amd64 kassigner-toolchain:v3
+# Six independently converged configurations produce twelve firmware images:
+# signed/unsigned x app-only/full-flash x Waveshare/Waveshare-AF/M5Stack.
+FROM --platform=linux/amd64 kassigner-toolchain:v3 AS builder
 
 SHELL ["/bin/bash", "-c"]
-
 WORKDIR /build/KasSigner
 
-# ════════════════════════════════════════════════════
-#  Copy only code folders (no docs, no gh-pages assets)
-# ════════════════════════════════════════════════════
-COPY bootloader/ bootloader/
-COPY core/ core/
-COPY kassee/ kassee/
-COPY rqrr_nostd/ rqrr_nostd/
+COPY Cargo.toml Cargo.lock ./
+COPY apps/ apps/
+COPY crates/ crates/
+COPY external/ external/
+COPY qa/ qa/
 COPY tools/ tools/
-# No root rust-toolchain.toml: each crate carries its own pin, because the
-# firmware wants the Xtensa toolchain and the host crates want 1.85.0. A
-# single root pin made `cargo` in core/, kassee/ and tools/ resolve `esp`,
-# which is why gen-hash was built by the Xtensa compiler and why
-# `cd core && cargo test` failed on any machine without it.
-
+ARG KASSIGNER_GIT_COMMIT=
+ENV KASSIGNER_GIT_COMMIT=${KASSIGNER_GIT_COMMIT}
 ENV SOURCE_DATE_EPOCH=0
+ENV TZ=UTC
+ENV LC_ALL=C
+ENV LANG=C
+ENV CARGO_INCREMENTAL=0
 
-# Install espflash for image generation
-RUN source /root/esp-env.sh && \
-    cargo install espflash --version 3.3.0
+# Capture immutable source inputs before five-pass convergence intentionally
+# rewrites apps/signer-firmware/src/firmware_hash.rs.
+RUN find Cargo.toml Cargo.lock apps crates external qa tools \
+        -type f \
+        ! -path '*/target/*' \
+        ! -path 'apps/signer-firmware/src/firmware_hash.rs' \
+        -print0 \
+    | sort -z \
+    | xargs -0 sha256sum \
+    > /build/SOURCE-SHA256SUMS
 
-# ════════════════════════════════════════════════════
-#  Verify KasSee WASM compiles (no output retained)
-# ════════════════════════════════════════════════════
-RUN source /root/esp-env.sh && \
-    rustup target add wasm32-unknown-unknown --toolchain 1.85.0 && \
-    cd kassee && \
-    cargo build --target wasm32-unknown-unknown --release 2>&1 | tail -3 && \
-    echo "============================================" && \
-    echo "  KasSee WASM build verified" && \
-    echo "============================================"
+# Verify the browser companion using the pinned host Rust toolchain. Firmware
+# release artifacts are produced below with the pinned ESP toolchain.
+RUN source /etc/kassigner/toolchains.env && \
+    rustup target list --toolchain "$KASSIGNER_REPRO_HOST_RUST" --installed | grep -qx wasm32-unknown-unknown && \
+    cd apps/kassee-web && \
+    cargo "+$KASSIGNER_REPRO_HOST_RUST" build --offline --locked --target wasm32-unknown-unknown --release
 
-# ════════════════════════════════════════════════════
-#  Core crate host tests (same code the device boots)
-# ════════════════════════════════════════════════════
-# The security-critical half of the firmware tests on the host toolchain the
-# image already carries. Seconds of cost; a failing vector stops the release
-# build here instead of shipping.
-RUN cd core && cargo test --release 2>&1 | tail -5 && cd ..
+RUN source /etc/kassigner/toolchains.env && \
+    cargo "+$KASSIGNER_REPRO_HOST_RUST" build --offline --locked --manifest-path tools/Cargo.toml --bin gen-hash --release
 
-# Build gen-hash tool (uses host toolchain, not Xtensa)
-RUN cargo build --manifest-path tools/Cargo.toml --bin gen-hash --release 2>&1 | tail -1
-
-# ════════════════════════════════════════════════════
-#  Convergence driver
-# ════════════════════════════════════════════════════
-#
-#   converge.sh <label> <out-basename> <sign:0|1> <cargo-args...>
-#
-# Five build/hash passes, fail if the last two disagree, then one final build
-# from the converged firmware_hash.rs, then the image(s).
-#
-# sign=1 with no key mounted SKIPS the target rather than failing, so a
-# verifier without the key still gets a complete unsigned build.
-#
-# PSRAM mode is passed by the caller, not set globally: octal is correct for
-# Waveshare and must NOT be applied to M5Stack.
-#
+# converge.sh <label> <output-basename> <board> <signed:0|1> <cargo arguments...>
+# Five build/hash passes are mandatory. Generated hash/signature bytes live in
+# flash rodata rather than executable code, so passes two through five must all
+# agree. One final build is then made from the converged firmware_hash.rs. Board-specific
+# partition policy is applied to every image-generation pass and final image.
 RUN cat > /usr/local/bin/converge.sh <<'SCRIPT' && chmod +x /usr/local/bin/converge.sh
 #!/bin/bash
 set -euo pipefail
-
 LABEL="$1"; shift
 OUT="$1"; shift
-SIGN="$1"; shift
-
+BOARD="$1"; shift
+SIGNED="$1"; shift
+source /etc/kassigner/toolchains.env
 source /root/esp-env.sh
 cd /build/KasSigner
 
-if [ "${SIGN}" = "1" ]; then
-    if [ ! -f /run/secrets/signkey ]; then
-        echo ""
-        echo "  SKIPPED: ${LABEL} (signed) - no signing key mounted"
+python3 tools/build/firmware/board_layout.py check --board "${BOARD}"
+mapfile -t BOARD_ESPFLASH_ARGS < <(
+    python3 tools/build/firmware/board_layout.py espflash-args --board "${BOARD}"
+)
+FULL_FLASH_ARGS=("${BOARD_ESPFLASH_ARGS[@]}")
+if [[ " ${FULL_FLASH_ARGS[*]} " != *" --flash-size "* ]]; then
+    FULL_FLASH_ARGS+=(--flash-size 16mb)
+fi
+
+if [[ "${SIGNED}" == "1" ]]; then
+    if [[ ! -f /run/secrets/signkey ]]; then
+        echo "SKIPPED: ${LABEL} signed build — no signing key mounted"
         exit 0
     fi
-    KEYARG=(/run/secrets/signkey)
-    MODE="signed"
+    KEY_SIZE=$(stat -c '%s' /run/secrets/signkey)
+    [[ "${KEY_SIZE}" == "32" ]] || {
+        echo "BUILD FAILED: signing key must be exactly 32 bytes; got ${KEY_SIZE}"
+        exit 1
+    }
+    KEY_ARGS=(/run/secrets/signkey)
+    MODE=signed
 else
-    KEYARG=()
-    MODE="unsigned"
+    KEY_ARGS=()
+    MODE=unsigned
 fi
 
-echo ""
-echo "════════════════════════════════════════════════"
-echo "  ${LABEL} (${MODE}) - 5-pass convergence"
-echo "════════════════════════════════════════════════"
-
-PREV=""
-PREV_PREV=""
-for pass in 1 2 3 4 5; do
-    ( cd bootloader && cargo build --release "$@" 2>&1 | tail -1 )
-    espflash save-image --chip esp32s3 \
-        bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-        "/build/${OUT}-p${pass}.bin" 2>&1 | grep -v INFO || true
-    cargo run --manifest-path tools/Cargo.toml --bin gen-hash --release -- \
-        "/build/${OUT}-p${pass}.bin" "${KEYARG[@]}" >/dev/null 2>&1
-    H=$(grep FIRMWARE_HASH_HEX bootloader/src/firmware_hash.rs | sed 's/.*= "//; s/".*//')
-    echo "  pass ${pass}: ${H}"
-    PREV_PREV="${PREV}"
-    PREV="${H}"
+printf '\n%s\n' "${LABEL} (${MODE}) — five-pass convergence"
+HASHES=()
+for PASS in 1 2 3 4 5; do
+    (cd apps/signer-firmware && cargo build --offline --locked --release "$@")
+    PASS_IMAGE="/build/${OUT}-pass${PASS}.bin"
+    espflash save-image --chip esp32s3 "${BOARD_ESPFLASH_ARGS[@]}" \
+        apps/signer-firmware/target/xtensa-esp32s3-none-elf/release/kassigner-firmware \
+        "${PASS_IMAGE}" 2>&1 | sed '/INFO/d'
+    cargo "+$KASSIGNER_REPRO_HOST_RUST" run --offline --locked --manifest-path tools/Cargo.toml --bin gen-hash --release -- \
+        "${PASS_IMAGE}" "${KEY_ARGS[@]}" >/dev/null
+    HASH=$(tools/build/firmware/build_with_hash.sh --read-generated-hash \
+        apps/signer-firmware/src/firmware_hash.rs) || {
+        echo "BUILD FAILED: failed to read generated EXPECTED_FIRMWARE_HASH"
+        exit 1
+    }
+    HASHES+=("${HASH}")
+    echo "  pass ${PASS}: ${HASH}"
 done
 
-if [ "${PREV_PREV}" != "${PREV}" ]; then
-    echo ""
-    echo "  BUILD FAILED: ${LABEL} (${MODE}) did not converge."
-    echo "  Pass 4 and pass 5 produced different code-segment hashes."
-    echo "  Raise the pass count. Do NOT ship this binary: in a production"
-    echo "  build the embedded hash would not match the running code, and the"
-    echo "  device halts at boot."
+if [[ "${HASHES[1]}" != "${HASHES[2]}" || "${HASHES[2]}" != "${HASHES[3]}" || "${HASHES[3]}" != "${HASHES[4]}" ]]; then
+    echo "BUILD FAILED: ${LABEL} ${MODE} did not converge on passes 2 through 5"
     exit 1
 fi
-echo "  CONVERGED: ${PREV}"
 
-# The shipped image must be compiled from the converged firmware_hash.rs,
-# so one more build after the final gen-hash write.
-( cd bootloader && cargo build --release "$@" 2>&1 | tail -1 )
-
-# Both images for both modes. The unsigned pair exists so a verifier can
-# reproduce and compare EITHER published artifact - app-only or full-flash -
-# not just one of them. They are for hashing, not for flashing: an unsigned
-# production image has no valid signature and halts at boot.
-espflash save-image --chip esp32s3 \
-    bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-    "/build/${OUT}.bin" 2>&1 | grep -v INFO || true
-espflash save-image --chip esp32s3 --merge --flash-size 16mb \
-    bootloader/target/xtensa-esp32s3-none-elf/release/kassigner-bootloader \
-    "/build/${OUT}-full.bin" 2>&1 | grep -v INFO || true
-
-echo "${PREV}" > "/build/${OUT}.codehash"
-grep -E "Segment size|Signed:" bootloader/src/firmware_hash.rs | sed 's/^/ /'
-rm -f /build/${OUT}-p*.bin
+(cd apps/signer-firmware && cargo build --offline --locked --release "$@")
+ELF=apps/signer-firmware/target/xtensa-esp32s3-none-elf/release/kassigner-firmware
+espflash save-image --chip esp32s3 "${BOARD_ESPFLASH_ARGS[@]}" "${ELF}" "/build/${OUT}.bin" 2>&1 | sed '/INFO/d'
+python3 tools/build/firmware/verify_image_hash.py \
+    "/build/${OUT}.bin" apps/signer-firmware/src/firmware_hash.rs
+espflash save-image --chip esp32s3 --merge "${FULL_FLASH_ARGS[@]}" "${ELF}" \
+    "/build/${OUT}-full.bin" 2>&1 | sed '/INFO/d'
+printf '%s\n' "${HASHES[4]}" > "/build/${OUT}.codehash"
+rm -f "/build/${OUT}-pass"*.bin
+echo "  CONVERGED: ${HASHES[4]}"
 SCRIPT
 
-# ════════════════════════════════════════════════════
-#  UNSIGNED - built first, so a keyless run is still complete
-# ════════════════════════════════════════════════════
-
+# Unsigned builds come first so any verifier can reproduce the complete public
+# comparison set without possessing the private release signing key. Production
+# images execute boot-time known-answer tests; skip-tests is prohibited.
 RUN --mount=type=secret,id=signkey,required=false \
     ESP_HAL_CONFIG_PSRAM_MODE=octal \
-    converge.sh "Waveshare" "kassigner-waveshare-unsigned" 0 \
-        --features production
-
-# `ov5640-af` is not only autofocus: it applies the H+V orientation flip that
-# the AF module needs. Without it that camera renders upside down, whether or
-# not the AF solder modification has been done. Hence a separate image.
+    converge.sh "Waveshare" "kassigner-waveshare-unsigned" waveshare 0 \
+        --no-default-features --features waveshare,production
 RUN --mount=type=secret,id=signkey,required=false \
     ESP_HAL_CONFIG_PSRAM_MODE=octal \
-    converge.sh "Waveshare AF" "kassigner-waveshare-af-unsigned" 0 \
-        --features production,ov5640-af
-
+    converge.sh "Waveshare AF" "kassigner-waveshare-af-unsigned" waveshare-af 0 \
+        --no-default-features --features waveshare,production,ov5640-af
 RUN --mount=type=secret,id=signkey,required=false \
-    converge.sh "M5Stack" "kassigner-m5stack-unsigned" 0 \
+    converge.sh "M5Stack" "kassigner-m5stack-unsigned" m5stack 0 \
         --no-default-features --features m5stack,production
 
-# ════════════════════════════════════════════════════
-#  SIGNED - skipped entirely when no key is mounted
-# ════════════════════════════════════════════════════
-
 RUN --mount=type=secret,id=signkey,required=false \
     ESP_HAL_CONFIG_PSRAM_MODE=octal \
-    converge.sh "Waveshare" "kassigner-waveshare" 1 \
-        --features production
-
+    converge.sh "Waveshare" "kassigner-waveshare" waveshare 1 \
+        --no-default-features --features waveshare,production
 RUN --mount=type=secret,id=signkey,required=false \
     ESP_HAL_CONFIG_PSRAM_MODE=octal \
-    converge.sh "Waveshare AF" "kassigner-waveshare-af" 1 \
-        --features production,ov5640-af
-
+    converge.sh "Waveshare AF" "kassigner-waveshare-af" waveshare-af 1 \
+        --no-default-features --features waveshare,production,ov5640-af
 RUN --mount=type=secret,id=signkey,required=false \
-    converge.sh "M5Stack" "kassigner-m5stack" 1 \
+    converge.sh "M5Stack" "kassigner-m5stack" m5stack 1 \
         --no-default-features --features m5stack,production
 
-# Stub tripwire. `firmware_signed()` reads FIRMWARE_SIGNED through
-# `read_volatile` so the optimiser cannot prove an unsigned build dead and
-# delete the wallet (the first 1.0.7 build shipped 244-271 kB stubs this
-# way). The guarantee is asserted here on every release: each unsigned app
-# image must be full-sized, and where its signed pair exists the two must
-# be within 64 KiB. A compiler that ever defeats the barrier fails the
-# build instead of publishing a hash that proves nothing.
-RUN set -e; cd /build; \
-    for u in kassigner-*-unsigned.bin; do \
-        [ -f "$u" ] || continue; \
-        us=$(stat -c%s "$u"); \
-        if [ "$us" -lt 800000 ]; then \
-            echo "TRIPWIRE: $u is $us bytes: a stub, not the firmware"; exit 1; \
-        fi; \
-        sgn="${u%-unsigned.bin}.bin"; \
-        if [ -f "$sgn" ]; then \
-            ss=$(stat -c%s "$sgn"); d=$((ss - us)); \
-            [ "$d" -lt 0 ] && d=$((0 - d)); \
-            if [ "$d" -gt 65536 ]; then \
-                echo "TRIPWIRE: $u and $sgn differ by $d bytes"; exit 1; \
-            fi; \
-        fi; \
-    done; \
-    echo "stub tripwire: all unsigned images full-sized"
+# Canonical signed KSFU v3 update manifests bind the complete release identity,
+# not just the app hash. They are emitted only when the offline Schnorr release
+# key is mounted, matching the signed firmware artifact set above.
+RUN --mount=type=secret,id=signkey,required=false \
+    set -euo pipefail; \
+    if [[ -f /run/secrets/signkey ]]; then \
+      source /etc/kassigner/toolchains.env; \
+      source apps/signer-firmware/release-policy.env; \
+      cargo "+$KASSIGNER_REPRO_HOST_RUST" run --offline --locked --manifest-path tools/Cargo.toml --bin gen-update-manifest --release -- \
+        /build/kassigner-waveshare.bin /run/secrets/signkey waveshare 2.0.0 "$KASSIGNER_UPDATE_SEQUENCE" "$KASSIGNER_SECURITY_VERSION" none /build/kassigner-waveshare-update.ksfu; \
+      cargo "+$KASSIGNER_REPRO_HOST_RUST" run --offline --locked --manifest-path tools/Cargo.toml --bin gen-update-manifest --release -- \
+        /build/kassigner-waveshare-af.bin /run/secrets/signkey waveshare-af 2.0.0 "$KASSIGNER_UPDATE_SEQUENCE" "$KASSIGNER_SECURITY_VERSION" none /build/kassigner-waveshare-af-update.ksfu; \
+    fi
 
-# ════════════════════════════════════════════════════
-#  Report
-# ════════════════════════════════════════════════════
+# Assemble every release artifact and provenance manifest inside Docker. The
+# host-side runner only asks BuildKit to export this directory; it does not
+# compile firmware, calculate release hashes, or synthesize manifests itself.
+RUN set -euo pipefail; \
+    mkdir -p /release; \
+    cp /build/kassigner-*.bin /release/; \
+    cp /build/kassigner-*.codehash /release/; \
+    find /build -maxdepth 1 -type f -name 'kassigner-*-update.ksfu' -exec cp {} /release/ \; ; \
+    cp apps/signer-firmware/partitions/m5stack-cores3.csv /release/kassigner-m5stack-partitions.csv; \
+    cp /build/SOURCE-SHA256SUMS /release/SOURCE-SHA256SUMS; \
+    cp /opt/kassigner/input/BUILD-INPUT-SHA256SUMS /release/BUILD-INPUT-SHA256SUMS; \
+    cp /opt/kassigner/input/BUILD-INPUT-MANIFEST.json /release/BUILD-INPUT-MANIFEST.json; \
+    cd /release; \
+    find . -maxdepth 1 -type f \( -name '*.bin' -o -name '*.codehash' -o -name '*.csv' -o -name '*.ksfu' \) \
+        -printf '%f\n' \
+        | sort \
+        | xargs sha256sum \
+        > SHA256SUMS; \
+    source /etc/kassigner/toolchains.env; \
+    HOST_RUST="$(rustc +"$KASSIGNER_REPRO_HOST_RUST" --version)"; \
+    ESP_RUST="$(source /root/esp-env.sh && rustc --version)"; \
+    ESPFLASH_VERSION="$(source /root/esp-env.sh && espflash --version | head -1)"; \
+    [[ "$ESPFLASH_VERSION" == *"$KASSIGNER_ESPFLASH_VERSION"* ]] || { echo "BUILD FAILED: espflash version drift: $ESPFLASH_VERSION"; exit 1; }; \
+    BUILD_COMMIT="${KASSIGNER_GIT_COMMIT:-source-archive}"; \
+    M5_PARTITION_SHA="$(sha256sum kassigner-m5stack-partitions.csv | awk '{print $1}')"; \
+    SIGNED_IMAGES="$(find . -maxdepth 1 -type f -name 'kassigner-*.bin' ! -name '*-unsigned*' | wc -l | tr -d '[:space:]')"; \
+    printf '%s\n' \
+        'KasSigner reproducible firmware build' \
+        'format-version=2' \
+        'builder=docker' \
+        'platform=linux/amd64' \
+        'toolchain-image=kassigner-toolchain:v3' \
+        "source-date-epoch=${SOURCE_DATE_EPOCH}" \
+        "build-commit=${BUILD_COMMIT}" \
+        "host-rust=${HOST_RUST}" \
+        "esp-rust=${ESP_RUST}" \
+        "espflash=${ESPFLASH_VERSION}" \
+        "espflash-policy=${KASSIGNER_ESPFLASH_VERSION}" \
+        'unsigned-images=6' \
+        "signed-images=${SIGNED_IMAGES}" \
+        'firmware-targets=waveshare,waveshare-af,m5stack' \
+        'release-modes=app-only,full-flash' \
+        'hash-convergence=5-pass;passes-2-through-5-must-match;identity-bytes=flash-rodata-static' \
+        'final-codehash-verification=required;address+length+sha256' \
+        'm5stack-partition-table=kassigner-m5stack-partitions.csv' \
+        'm5stack-update-manifest=not-emitted-by-normal-release;secure-provisioning-is-separate' \
+        "m5stack-partition-table-sha256=${M5_PARTITION_SHA}" \
+        'm5stack-ota-apps=ota_0:0x10000+0x200000,ota_1:0x210000+0x200000' \
+        'm5stack-persistent-state=offset:0xFFC000,size:0x4000' \
+        'hardware-flashing=never' \
+        > BUILD-MANIFEST.txt; \
+    printf '{\n  "artifacts": [\n' > ARTIFACT-MANIFEST.json; \
+    FIRST=1; \
+    while IFS= read -r FILE; do \
+        HASH="$(sha256sum "$FILE" | awk '{print $1}')"; \
+        SIZE="$(stat -c '%s' "$FILE")"; \
+        if [[ "$FIRST" == "0" ]]; then printf ',\n' >> ARTIFACT-MANIFEST.json; fi; \
+        printf '    {"file":"%s","sha256":"%s","size":%s}' "$FILE" "$HASH" "$SIZE" >> ARTIFACT-MANIFEST.json; \
+        FIRST=0; \
+    done < <(find . -maxdepth 1 -type f \( -name '*.bin' -o -name '*.codehash' -o -name '*.csv' -o -name '*.ksfu' \) -printf '%f\n' | sort); \
+    printf '\n  ],\n  "format_version": 1\n}\n' >> ARTIFACT-MANIFEST.json; \
+    sha256sum ARTIFACT-MANIFEST.json BUILD-MANIFEST.txt SOURCE-SHA256SUMS \
+        BUILD-INPUT-SHA256SUMS BUILD-INPUT-MANIFEST.json \
+        > MANIFEST-SHA256SUMS
+
+# BuildKit exports this stage directly to the caller-selected host directory.
+# It contains only Docker-produced release artifacts and deterministic manifests.
+FROM scratch AS artifacts
+COPY --from=builder /release/ /
+
+# Preserve the historical inspectable image target for maintainers who build
+# Dockerfile manually without --target artifacts.
+FROM builder AS image
 CMD bash -c '\
-    echo "════════════════════════════════════════════════"; \
-    echo "  KasSigner build complete"; \
-    echo "════════════════════════════════════════════════"; \
-    echo ""; \
-    echo "-- code-segment hashes (compare with the device boot screen) --"; \
-    for f in /build/*.codehash; do \
-        printf "  %-36s %s\n" "$(basename $f .codehash)" "$(cat $f)"; \
-    done; \
-    echo ""; \
-    echo "-- file hashes --"; \
-    for f in /build/*.bin; do \
-        printf "  %s  %s\n" "$(sha256sum $f | cut -d" " -f1)" "$(basename $f)"; \
-    done; \
-    echo ""'
+    echo "KasSigner reproducible build outputs"; \
+    echo "-- code-segment hashes --"; \
+    for f in /release/*.codehash; do printf "%-42s %s\n" "$(basename "$f")" "$(cat "$f")"; done; \
+    echo "-- image SHA-256 hashes --"; \
+    cat /release/SHA256SUMS'

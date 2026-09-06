@@ -1,0 +1,48 @@
+/* utxo diagram */
+.utxo-s { font-family:'IBM Plex Mono',monospace; font-size:11px; fill:#5a6b52; }
+    .utxo-h { font-family:'Noto Serif',serif; font-size:13px; font-weight:400; fill:#c8d4bc; }
+    .utxo-t-teal   { fill:#5DCAA5; font-family:'IBM Plex Mono',monospace; font-size:10px; }
+    .utxo-t-amber  { fill:#EF9F27; font-family:'IBM Plex Mono',monospace; font-size:10px; }
+    .utxo-t-coral  { fill:#F0997B; font-family:'IBM Plex Mono',monospace; font-size:10px; }
+    .utxo-t-blue   { fill:#85B7EB; font-family:'IBM Plex Mono',monospace; font-size:10px; }
+    .utxo-t-purple { fill:#AFA9EC; font-family:'Noto Serif',serif; font-size:13px; font-weight:400; }
+    .utxo-b-teal   { fill:#0a1e16; stroke:#1D9E75; stroke-width:0.8; }
+    .utxo-b-gray   { fill:#0f1410; stroke:#2a3a2a; stroke-width:0.8; }
+    .utxo-b-purple { fill:#110e1e; stroke:#534AB7; stroke-width:0.8; }
+    .utxo-b-blue   { fill:#0c1e2c; stroke:#378ADD; stroke-width:0.8; }
+    .utxo-b-amber  { fill:#1a1408; stroke:#BA7517; stroke-width:0.8; }
+    .utxo-chip-a   { fill:#1a1408; stroke:#BA7517; stroke-width:0.6; }
+    .utxo-chip-c   { fill:#1a0e08; stroke:#993C1D; stroke-width:0.6; }
+    .utxo-chip-t   { fill:#0a1e16; stroke:#1D9E75; stroke-width:0.6; }
+    .utxo-conn     { fill:none; stroke-width:1.5; }
+    .utxo-ut       { opacity:0; transition: opacity 0.7s ease; }
+    .utxo-ut.on    { opacity:1; }
+
+/* security diagram */
+.security-s2 { font-family:'IBM Plex Mono',monospace; font-size:10px; fill:#5a6b52; }
+    .security-h2 { font-family:'Noto Serif',serif; font-size:12px; font-weight:400; fill:#c8d4bc; }
+    .security-atk  { fill:#1a0a08; stroke:#993C1D; stroke-width:0.8; }
+    .security-def  { fill:#0a1e16; stroke:#1D9E75; stroke-width:0.8; }
+    .security-blk  { fill:#0f1410; stroke:#3fb950; stroke-width:1; }
+    .security-usr  { fill:#1a1408; stroke:#BA7517; stroke-width:0.8; }
+    .security-t-red    { fill:#F0997B; font-family:'IBM Plex Mono',monospace; font-size:10px; }
+    .security-t-green  { fill:#5DCAA5; font-family:'IBM Plex Mono',monospace; font-size:10px; }
+    .security-t-amber  { fill:#EF9F27; font-family:'IBM Plex Mono',monospace; font-size:10px; }
+    .security-astep2   { opacity:0; transition: opacity 0.7s ease; }
+    .security-astep2.on { opacity:1; }
+
+/* chain diagram */
+.chain-s { font-family:'IBM Plex Mono',monospace; font-size:11px; fill:#5a6b52; }
+    .chain-h { font-family:'Noto Serif',serif; font-size:13px; font-weight:400; fill:#c8d4bc; }
+    .chain-t-teal   { fill:#5DCAA5; font-family:'IBM Plex Mono',monospace; font-size:10px; }
+    .chain-t-amber  { fill:#EF9F27; font-family:'IBM Plex Mono',monospace; font-size:10px; }
+    .chain-t-coral  { fill:#F0997B; font-family:'IBM Plex Mono',monospace; font-size:10px; }
+    .chain-t-purple { fill:#AFA9EC; font-family:'Noto Serif',serif; font-size:13px; font-weight:400; }
+    .chain-b-teal   { fill:#0a1e16; stroke:#1D9E75; stroke-width:0.8; }
+    .chain-b-gray   { fill:#0f1410; stroke:#2a3a2a; stroke-width:0.8; }
+    .chain-b-purple { fill:#110e1e; stroke:#534AB7; stroke-width:0.8; }
+    .chain-chip-a   { fill:#1a1408; stroke:#BA7517; stroke-width:0.6; }
+    .chain-chip-c   { fill:#1a0e08; stroke:#993C1D; stroke-width:0.6; }
+    .chain-conn     { fill:none; stroke-width:1.5; }
+    .chain-astep    { opacity:0; transition: opacity 0.7s ease; }
+    .chain-astep.on { opacity:1; }

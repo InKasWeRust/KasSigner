@@ -1,6 +1,5 @@
 # Build artifacts
-bootloader/target/
-kassee/web/pkg/
+**/target/
 *.bin
 *.elf
 *.map
@@ -14,7 +13,7 @@ dev_signing_key.bin
 .git/
 .github/
 
-# Documentation (not needed for build verification)
+# Documentation and local artifacts not needed for build verification
 docs/
 screenshots/
 *.log
@@ -22,13 +21,17 @@ screenshots/
 # GitHub Pages assets
 pkg/
 
-# Non-code files (copied explicitly in Dockerfile)
+# Non-code files copied explicitly when needed
 README.md
 CHANGELOG.md
 CODE_OF_CONDUCT.md
 CONTRIBUTING.md
 SECURITY.md
 LICENSE
+install.sh
 Makefile
 Dockerfile
 Dockerfile.base
+qa/fuzz/Cargo.lock
+release/
+release.tmp.*/

@@ -1,0 +1,1 @@
+export const DONATE_ADDRESS = 'kaspa:qqz0xdq9tu92hgraa89rcmae23f8h09zzzsy4f4agvasmsw3958cza0mv7x86';

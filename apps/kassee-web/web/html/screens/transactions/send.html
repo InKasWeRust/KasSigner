@@ -1,0 +1,66 @@
+            <!-- Send screen -->
+            <section id="screen-send" class="screen">
+                <div class="screen-content">
+                    <h2>Send KAS</h2>
+                    <div id="send-balance-ref" class="send-balance-ref"></div>
+                    <div class="card">
+                        <label class="input-label">Destination Address</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="input-dest" class="input-text u-grow-mb-0"
+                                   placeholder="kaspa:..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-scan-dest"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <div id="send-amount-wrap">
+                        <label class="input-label">Amount (KAS)</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="input-amount" class="input-text u-grow-mb-0"
+                                   placeholder="0.0" inputmode="decimal" autocomplete="off">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-send-max"
+                                   >Max</button>
+                        </div>
+                        </div>
+                        <label class="input-label">Fee</label>
+                        <div class="fee-cards">
+                            <button class="fee-card" id="btn-fee-low">
+                                <div class="fee-card-label">Low</div>
+                                <div class="fee-card-amount" id="fee-low-amount">2,500</div>
+                                <div class="fee-card-time" id="fee-low-time"></div>
+                            </button>
+                            <button class="fee-card fee-card-active" id="btn-fee-normal">
+                                <div class="fee-card-label">Normal</div>
+                                <div class="fee-card-amount" id="fee-normal-amount">5,000</div>
+                                <div class="fee-card-time" id="fee-normal-time"></div>
+                            </button>
+                            <button class="fee-card" id="btn-fee-priority">
+                                <div class="fee-card-label">Priority</div>
+                                <div class="fee-card-amount" id="fee-priority-amount">10,000</div>
+                                <div class="fee-card-time" id="fee-priority-time"></div>
+                            </button>
+                        </div>
+                        <input type="number" id="input-fee" class="input-text"
+                               value="10000" step="1" min="10000">
+                        <button class="btn btn-link u-text-12px-padding-4px-0-mb-8px-align-text-left" id="btn-toggle-utxos">
+                            Select UTXOs manually ▸
+                        </button>
+                        <div id="send-utxo-advanced" class="hidden">
+                            <div class="utxo-detail" id="send-utxo-summary">0 manually selected</div>
+                            <label class="input-label" for="send-utxo-sort">UTXO order</label>
+                            <select id="send-utxo-sort" class="input-text">
+                                <option value="amount-desc">Largest first</option>
+                                <option value="amount-asc">Largest last</option>
+                                <option value="daa-desc">Most recent first</option>
+                                <option value="daa-asc">Most recent last</option>
+                            </select>
+                            <label class="input-label" for="send-utxo-limit">Maximum selected UTXOs</label>
+                            <input type="number" id="send-utxo-limit" class="input-text" min="1" max="32" step="1" value="8">
+                            <div class="utxo-detail">Click individual UTXOs below to choose the exact outpoints to spend. If none are selected, KasSee uses automatic selection. Default automatic selection is 8. KasSee reads the connected KasSigner SDK capability ceiling (32 inputs for the v2 reference signer) and will not construct a standard send above that hardware limit. Larger UTXO sets should be consolidated first.</div>
+                            <div id="send-utxo-list" class="address-list"></div>
+                        </div>
+                        <button class="btn btn-primary" id="btn-create-tx">
+                            Create Transaction
+                        </button>
+                        <button class="btn btn-back" id="btn-send-back">Back</button>
+                    </div>
+                </div>
+            </section>

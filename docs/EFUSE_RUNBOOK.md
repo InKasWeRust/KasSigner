@@ -1,516 +1,281 @@
-<!-- KasSigner: Air-gapped offline signing device for Kaspa -->
+<!-- KasSigner — Air-gapped offline signing device for Kaspa -->
 <!-- Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me) -->
 <!-- License: GPL-3.0-only -->
 
-# KasSigner: eFuse Secure Boot Runbook
+# KasSigner — ESP32-S3 eFuse / Secure Boot Runbook
 
-**WARNING: eFuse operations are IRREVERSIBLE. A mistake here can permanently brick the board. Read this entire document before touching any commands.**
+> **IRREVERSIBLE OPERATIONS.** ESP32-S3 eFuses are one-time programmable. A wrong key purpose, digest, revocation bit, protection bit, encryption setting, or download-mode setting can permanently remove recovery/update options. Rehearse every destructive policy on a sacrificial CoreS3 first.
 
-## Overview
+KasSigner pins **ESP-IDF v6.0.2** in `qa/config/toolchains.env` and **esptool/espsecure/espefuse 5.3.1** in `apps/signer-firmware/release-policy.env`. For an actual burn, those pinned ESP32-S3 tool semantics and the captured pre-burn eFuse state are the source of truth. Never copy a key-block number or burn sequence from another ESP32 family.
 
-The ESP32-S3 has two independent security layers that use eFuses:
+This document describes **four distinct firmware/profile classes**. They must not be conflated:
 
-1. **Secure Boot v2**: ROM bootloader verifies the second-stage bootloader signature (RSA-3072 or ECDSA). Second-stage bootloader verifies the app signature.
-2. **Flash Encryption**: all flash contents are encrypted with an AES-128/256 XTS key. Prevents reading firmware from flash.
+| Firmware | Pop It!/Owner UI | Automatic eFuse provisioning at ordinary boot | Secure Boot authority after provisioning |
+|---|---|---|---|
+| `make release` / normal `m5stack,production` | **Not compiled** | **None** | None added by the firmware |
+| Development (`make flash`) | Present as simulation | **None** | None; simulation never burns eFuses |
+| `m5stack,secure-provisioning` | Present | **None until explicit Owner/Pop It action** | Vendor digest 0, optionally owner digest 1 |
+| `m5stack,secure-owner-only` | Present | **None until explicit Owner/Pop It action** | **Owner digest 0 only; vendor is not trusted** |
 
-KasSigner also has a **software-level** Schnorr signature check (the `features/verify.rs` + `firmware_hash.rs` system). This is independent of and complementary to the hardware secure boot.
+The `secure-owner-only` profile restores the original KasSigner ownership model: the purchaser/operator supplies the RSA-3072 key and, after explicit enrollment and Pop It, that key is the **sole hardware Secure Boot authority**. The newer `secure-provisioning` profile is an addition that supports vendor authority plus an optional independent owner authority.
 
-## Architecture
+The automated `secure-provisioning` and `secure-owner-only` profiles are **CoreS3-only** and the firmware feature policy rejects them on other board profiles. The external/manual reference later in this runbook explains ESP32-S3 eFuse semantics; it is not a claim that an unqualified board has passed KasSigner's production HIL process.
 
-```
-┌─────────────────────────────────────────────────┐
-│  ROM Bootloader (in silicon, immutable)          │
-│  Reads SECURE_BOOT_EN eFuse                      │
-│  Verifies 2nd-stage bootloader with RSA-3072     │
-│  Key digest stored in eFuse BLOCK_KEY0           │
-└───────────────────┬─────────────────────────────┘
-                    │ signature OK
-                    ▼
-┌─────────────────────────────────────────────────┐
-│  2nd-stage bootloader (esp-bootloader-esp-idf)   │
-│  Verifies app partition signature                │
-│  RSA-3072 signature appended to binary           │
-└───────────────────┬─────────────────────────────┘
-                    │ signature OK
-                    ▼
-┌─────────────────────────────────────────────────┐
-│  KasSigner App                                   │
-│  Software Schnorr verify (firmware_hash.rs)       │
-│  This is our OWN additional layer                │
-└─────────────────────────────────────────────────┘
-```
+## 1. Security layers and what they mean
 
-## Board Profiles
+ESP32-S3 Secure Boot v2 uses RSA-PSS/RSA-3072 signatures. The ROM authenticates the second-stage bootloader from public-key digest(s) in eFuse, and the Secure-Boot-enabled second-stage bootloader authenticates applications. ESP32-S3 supports three Secure Boot digest indices, numbered 0 through 2.
 
-Every eFuse in this runbook is chip-level and identical on both boards. Both are
-ESP32-S3 with 16 MB flash and **no USB-to-UART bridge**: the USB-C connector goes
-straight to the chip's native USB, D- on GPIO19 and D+ on GPIO20 on both. Both
-have working RST and BOOT buttons, and the download-mode sequence is the same on
-each: unplug USB, hold BOOT, plug USB in, release.
+Flash Encryption is separate. It protects selected flash contents from straightforward plaintext extraction. Hardware anti-rollback (`SECURE_VERSION`) is separate again. KasSigner's ordinary release additionally uses an application-level Schnorr signature, but that software signature is **not** a substitute for an immutable ROM trust root.
 
-| | Waveshare ESP32-S3-Touch-LCD-2 | M5Stack CoreS3 Lite |
+The owner-only provisioning image intentionally does **not** depend on the vendor Schnorr private key. Before Pop It there is no immutable vendor root to claim: the image still performs its generated code-hash/flow checks, while the special signed bootloader verifies the exact bootloader and application RSA signatures against the owner's selected RSA key before any owner-only Secure Boot transition is committed. After Pop It, hardware Secure Boot is authoritative.
+
+## 2. Key policies
+
+### Dual-authority profile: `secure-provisioning`
+
+If the owner enrolls an owner key before Pop It, the intended final Secure Boot digest policy is:
+
+| Digest index | State | Authority |
 |---|---|---|
-| PSRAM | octal (`ESP_HAL_CONFIG_PSRAM_MODE=octal`) | quad (no env var) |
-| Build | `--features production` | `--no-default-features --features m5stack,production` |
-| Artifacts | `kassigner-waveshare*.bin` | `kassigner-m5stack*.bin` |
+| 0 | live and protected | vendor RSA-3072 Secure Boot key |
+| 1 | live and protected | enrolled owner RSA-3072 key |
+| 2 | revoked | none |
 
-Nothing else about provisioning differs. Every command in Steps 0 through 9 is
-byte-identical between the two; only the image filenames change.
+The profile also permits Pop It without owner enrollment. In that case Secure Boot is vendor-only and owner enrollment is permanently closed afterward.
 
-### Identify the board before every burn
+### Owner-only profile: `secure-owner-only`
 
-Both boards enumerate as `/dev/cu.usbmodem*` and look alike to the tooling. An
-eFuse burned into the wrong unit cannot be undone. Read the MAC first, every
-time:
+The intended final Secure Boot digest policy is:
 
-```bash
-python3 -m esptool --port <PORT> chip_id
-```
-
-Record the MAC of each unit as you provision it, and keep that record outside
-the repository.
-
-### Note on stale screens
-
-The display panel holds the last frame written to it. Every `espefuse` invocation drives
-the chip into download mode, where the app never runs, so the panel keeps
-displaying whatever it was showing. A UI frozen mid-boot after a burn is almost
-always a stale frame, not a broken device. Confirm with the boot line rather than
-the screen: `boot:0x2b (SPI_FAST_FLASH_BOOT)` is running normally,
-`boot:0x0 (DOWNLOAD(USB/UART0))` is parked in download mode.
-
-## Pre-flight Checklist
-
-Before ANY eFuse operation:
-
-- [ ] Board boots and runs KasSigner correctly
-- [ ] `python3 -m espefuse summary` shows all security eFuses at default (0)
-- [ ] Signing key generated and backed up to 3+ offline locations
-- [ ] Flash encryption key generated (if using flash encryption)
-- [ ] Signed bootloader + signed app both verified on a TEST board first
-- [ ] You understand: **there is no undo**
-
-## Step 0: Read Current eFuse State
-
-```bash
-# Check what's already burned (should all be zero/default on a fresh board)
-python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 summary
-
-# Key fields to verify are at defaults:
-#   SECURE_BOOT_EN = False
-#   SPI_BOOT_CRYPT_CNT = 0
-#   All KEY_PURPOSE_0..5 = 0 (User purposes)
-#   All SECURE_BOOT_KEY_REVOKE0..2 = False
-```
-
-**STOP if any security eFuse is already set.** That board has been touched before.
-
-## Step 1: Generate RSA-3072 Signing Key
-
-This is the key that the ROM bootloader will use to verify firmware. It is DIFFERENT from KasSigner's Schnorr signing key (which is our software-level check).
-
-```bash
-# Generate RSA-3072 private key for Secure Boot v2
-python3 -m espsecure generate_signing_key --version 2 --scheme rsa3072 \
-    secure_boot_v2_key.pem
-
-# BACK THIS UP IMMEDIATELY:
-#   - USB drive in a safe
-#   - Second USB drive in a different location
-#   - Paper printout in sealed envelope
-#
-# If you lose this key, you can NEVER update firmware on this board.
-```
-
-**Optional but recommended:** Generate a second key for redundancy.
-
-```bash
-python3 -m espsecure generate_signing_key --version 2 --scheme rsa3072 \
-    secure_boot_v2_key_backup.pem
-```
-
-## Step 2: Generate Public Key Digest
-
-```bash
-# Primary key
-python3 -m espsecure digest_sbv2_public_key \
-    --keyfile secure_boot_v2_key.pem \
-    --output digest0.bin
-
-# Backup key (if using)
-python3 -m espsecure digest_sbv2_public_key \
-    --keyfile secure_boot_v2_key_backup.pem \
-    --output digest1.bin
-```
-
-## Step 3: Burn Key Digest to eFuse
-
-**THIS IS IRREVERSIBLE. Triple-check the file paths.**
-
-```bash
-# Burn primary key digest to BLOCK_KEY0
-python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
-    burn_key BLOCK_KEY0 digest0.bin SECURE_BOOT_DIGEST0
-
-# If using backup key, burn to BLOCK_KEY1
-python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
-    burn_key BLOCK_KEY1 digest1.bin SECURE_BOOT_DIGEST1
-```
-
-You will be prompted to type `BURN` to confirm.
-
-## Step 4: Revoke Unused Key Slots
-
-Any unused SECURE_BOOT_DIGEST slot MUST be revoked. If you used only digest0:
-
-```bash
-# Revoke unused slots (if only using 1 key)
-python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
-    burn_efuse SECURE_BOOT_KEY_REVOKE1
-
-python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
-    burn_efuse SECURE_BOOT_KEY_REVOKE2
-
-# If using 2 keys (digest0 + digest1), only revoke slot 2:
-# python3 -m espefuse --port ... burn_efuse SECURE_BOOT_KEY_REVOKE2
-```
-
-## Step 5: Build and Sign Firmware
-
-Two images sit in the ROM chain and both must carry an RSA-3072 signature: the
-second-stage bootloader at `0x0` and the app at `0x10000`. Signing is per image,
-so the merged `-full.bin` cannot be signed as a unit, and the bootloader has to
-come out of it at its exact length first. `tools/extract_bootloader.py` walks the
-ESP image header and segment table to find where the bootloader ends, because the
-trailing `0xFF` padding up to `0x8000` would otherwise be signed with it and push
-the signature sector over the partition table.
-
-The examples below use the M5Stack artifact names. Substitute `waveshare` or
-`waveshare-af` for the other boards.
-
-```bash
-# Docker produces both, per board:
-#   kassigner-m5stack.bin        app only, for 0x10000
-#   kassigner-m5stack-full.bin   bootloader + partition table + app
-
-# Pull the second-stage bootloader out at its exact length. This prints its
-# SHA-256 and confirms the signed size stays clear of 0x8000; it refuses to
-# write the file if it does not.
-python3 tools/extract_bootloader.py kassigner-m5stack-full.bin
-
-# Sign the bootloader
-python3 -m espsecure sign_data --version 2 --keyfile secure_boot_v2_key.pem \
-    --output kassigner-m5stack-bootloader-signed.bin \
-    kassigner-m5stack-bootloader.bin
-
-# Sign the app
-python3 -m espsecure sign_data --version 2 --keyfile secure_boot_v2_key.pem \
-    --output kassigner-m5stack-signed.bin \
-    kassigner-m5stack.bin
-
-# If using a backup key, append a second signature to each
-python3 -m espsecure sign_data --version 2 --keyfile secure_boot_v2_key_backup.pem \
-    --append_signatures \
-    --output kassigner-m5stack-signed.bin kassigner-m5stack-signed.bin
-```
-
-## Step 6: Flash Signed Firmware BEFORE Enabling Secure Boot
-
-**CRITICAL ORDER: Flash first, THEN enable secure boot.** If you enable secure boot before flashing signed firmware, the board will refuse to boot and is bricked.
-
-On a board that has never held a KasSigner image, write the merged image once so
-the partition table at `0x8000` is in place:
-
-```bash
-python3 -m esptool --port /dev/cu.usbmodem* --baud 460800 \
-    write_flash 0x0 kassigner-m5stack-full.bin
-```
-
-Then overwrite the two signed images over the top:
-
-```bash
-python3 -m esptool --port /dev/cu.usbmodem* --baud 460800 write_flash \
-    0x0     kassigner-m5stack-bootloader-signed.bin \
-    0x10000 kassigner-m5stack-signed.bin
-```
-
-**This is the gate.** Secure boot is not enabled yet, so a signed image that the
-chain would reject still boots here, and anything that goes wrong is still
-recoverable. Confirm on the monitor that the device reaches the UI and that
-`Code segment hash: OK` appears, then power-cycle and confirm it a second time.
-The signature block adds 4 KiB in front of nothing the running firmware reads, so
-a board that boots signed-but-unenforced will boot the same way enforced.
-
-```bash
-espflash monitor --port /dev/cu.usbmodem* --no-stub
-```
-
-Do not continue to Step 7 from a board you have not just watched boot.
-
-## Step 7: Enable Secure Boot
-
-**POINT OF NO RETURN. After this, only signed firmware will boot.**
-
-```bash
-python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
-    burn_efuse SECURE_BOOT_EN
-```
-
-## Step 8: Lock Down Security eFuses (Production)
-
-For production boards, additional eFuses should be burned to prevent attacks:
-
-```bash
-# Disable JTAG (prevents debug probe access)
-python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
-    burn_efuse DIS_PAD_JTAG
-    
-python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
-    burn_efuse DIS_USB_JTAG
-
-# Disable direct boot (force secure boot path)
-python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
-    burn_efuse DIS_DIRECT_BOOT
-
-# Enable secure download mode (restricts what UART download can do)
-# NOT RECOMMENDED, and untested on this hardware. Read the note below in full
-# before you consider it. Skipping this line costs you nothing on KasSigner.
-python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
-    burn_efuse ENABLE_SECURITY_DOWNLOAD
-```
-
-**On `ENABLE_SECURITY_DOWNLOAD`, and why it is the weakest item in this step.**
-It restricts UART download mode to flash writes: no reading flash back, no
-memory access, no stub upload. Signed firmware can still be flashed, which is
-the update path this device needs.
-
-What it defends is flash readout by someone holding the board. On KasSigner
-that surface is close to empty: the firmware is public, there is no persistent
-key storage, keys live in RAM and die at power-off, and only the public key
-digest is in eFuse. The private signing key never touches the device. What is
-actually worth stealing sits on the SD card, and no eFuse protects that.
-
-It has also **not been verified on this hardware**. Every other fuse in this
-step has. If you burn it, expect to need `--no-stub` for flashing as well as
-for monitoring, and confirm the update path on a sacrificial board first.
-
-**The recommendation is: do not burn it.** eFuses are one-way. This one buys a
-defence against a readout of a flash whose contents are already published,
-while risking the ability to update the device at all, on a fuse nobody here
-has tested end to end. That trade is not worth making on a board holding your
-keys. It stays documented rather than removed so that anyone who has already
-burned it knows what to expect, and so the reasoning is on the record if it is
-ever tested properly; until someone has confirmed a full flash-and-update cycle
-on a sacrificial board, treat this line as an experiment and not as part of the
-runbook.
-
-**DO NOT burn `DIS_USB_SERIAL_JTAG`.** It is deliberately left unburned. Note the two fuse names differ by one word and do very different things:
-
-| eFuse | ESP32-S3 TRM Table 5-1 | Effect |
+| Digest index | State | Authority |
 |---|---|---|
-| `DIS_USB_JTAG` | "whether the function of usb_serial_jtag that switch usb to jtag is disabled" | Closes the JTAG debug path. **Serial console still works.** Burned above. |
-| `DIS_USB_SERIAL_JTAG` | "whether usb_serial_jtag function is disabled" | Disables the **whole** peripheral. No console, no flashing over USB, permanently. |
+| 0 | live; revoke control protected | **owner RSA-3072 key** |
+| 1 | **revoked** | none |
+| 2 | **revoked** | none |
 
-`DIS_USB_JTAG` above is what closes USB JTAG. Burning `DIS_USB_SERIAL_JTAG` as well would additionally remove the only interface for signed firmware updates and for reading boot diagnostics, and it cannot be undone.
+There is **no vendor Secure Boot digest** in this policy. Pop It is blocked until the owner key has been explicitly enrolled. Enrollment verifies that `OWNERKEY.KAS` matches the RSA key that signed the special owner-only bootloader/application, burns that digest as `SECURE_BOOT_DIGEST0`, revokes digest indices 1 and 2, and protects the digest-0 revoke control. This is irreversible and is the restored original owner-only behavior.
 
-This matches `KasSigner_Security_Architecture.pdf` section 3 (eFuse Hardening), which lists the production configuration as `DIS_PAD_JTAG = True`, `DIS_USB_JTAG = True`, `DIS_USB_SERIAL_JTAG = False` ("USB Serial preserved", by design), and KasSigner-Specific Note 3 below, which recommends preserving UART download with `ENABLE_SECURITY_DOWNLOAD`. Earlier revisions of this runbook burned it here, contradicting both.
+A Secure Boot digest index is not the same thing as a fixed physical `BLOCK_KEYn`. ESP-IDF may place a digest into a free eligible key block and assign that block the corresponding `SECURE_BOOT_DIGESTn` purpose. Record the actual block allocation from the device rather than assuming `DIGEST0 == BLOCK_KEY0`.
 
-**Step 8 is required, not optional.** `DIS_PAD_JTAG` and `DIS_USB_JTAG` are what remove debug access to a device holding key material. A board with Secure Boot burned but JTAG left open is not hardened.
+## 3. Nothing destructive happens merely because the special firmware boots
 
-**DO NOT burn `DIS_DOWNLOAD_MODE` unless you are absolutely sure.** This permanently prevents any firmware updates via UART, even signed ones. Only do this for final production units where OTA is the only update path, and KasSigner has no OTA since it is air-gapped.
+Both special provisioning profiles are designed so they can be flashed and used normally for as long as desired before provisioning. Ordinary boot, reset, wallet use, and navigation must not automatically initialize Flash Encryption, enable Secure Boot, switch ROM Download mode, or advance hardware anti-rollback eFuses.
 
-The reason it is safe to leave open is worth stating: **Secure Boot does not close download mode, and it does not need to.** Verified on a provisioned board, 2026-08-03: with `SECURE_BOOT_EN`, `DIS_PAD_JTAG` and `DIS_USB_JTAG` all burned, every download-mode fuse read `False` and the board flashed normally. Flashing stays open because it must; what Secure Boot enforces is that only firmware signed with the burned key digest will *run*. An attacker can write whatever they like and the ROM refuses to execute it.
+The only application actions allowed to request irreversible transitions are explicit, typed user actions:
 
-That is also what anchors the software verification in `features/verify.rs`. The hash, the signature and the public key all live inside the image being checked, so on their own they cannot stop someone who replaced the image and removed the check. The ROM check happens first and cannot be removed.
+- **Owner Firmware → Enroll Owner Key** — may burn the profile's Secure Boot digest/revocation policy while Secure Boot is still disabled.
+- **Pop It!** — after typed `POP IT`, may initialize/enable release-mode Flash Encryption, switch to Secure Download mode, enable Secure Boot v2, and permit later hardware anti-rollback advancement.
 
-**Note the interaction with production firmware.** A `production` build gates the USB Serial/JTAG peripheral a second or two into boot, so download mode is the only way back into a running device. Burning `DIS_DOWNLOAD_MODE` on a board running production firmware leaves no recovery path at all. See `BUILD_FLASH_GUIDE.md`.
+The Rust application does not directly write these eFuses. It records a checksummed one-shot command and software-resets. The specially built ESP-IDF second-stage bootloader performs final image/key/state checks and owns the irreversible operation. The command is consumed so old consent cannot be replayed on later ordinary boots.
 
-## Optional: Flash Encryption
+The special bootloader is compiled with Secure Boot v2 support (`CONFIG_SECURE_BOOT=y` and `CONFIG_SECURE_BOOT_V2_ENABLED=y`), but KasSigner patches the ESP-IDF startup path so those build-time settings do **not** authorize an ordinary pre-Pop boot to burn provisioning eFuses. Application images are secure-padded by `tools/build/firmware/secure_pad_v2.py` before RSA-PSS signing and verification.
 
-Flash encryption prevents reading firmware from the flash chip. This must be done BEFORE enabling secure boot if combining both features (the eFuse write-protection ordering matters).
+## 4. Build the special provisioning artifacts — no hardware is touched
 
-```bash
-# Generate flash encryption key
-python3 -m espsecure generate_flash_encryption_key flash_encrypt_key.bin
+These commands build/sign files only. They do not flash a board and do not burn eFuses. The public `make` targets dispatch to native Windows PowerShell or POSIX tooling; they are intentionally separate from `make release` and `make flash-release`.
 
-# Burn flash encryption key
-python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
-    burn_key BLOCK_KEY2 flash_encrypt_key.bin XTS_AES_128_KEY
+### Dual authority
 
-# Enable flash encryption (permanently)
-python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
-    burn_efuse SPI_BOOT_CRYPT_CNT 0x7
-
-# Disable manual encryption in download mode
-python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 \
-    burn_efuse DIS_DOWNLOAD_MANUAL_ENCRYPT
-```
-
-**Order matters if combining Secure Boot + Flash Encryption:**
-1. Burn flash encryption key FIRST (needs read-protection)
-2. Read-protect the flash encryption key block
-3. Burn secure boot key digest
-4. Write-protect RD_DIS (locks read-protection settings)
-5. Enable secure boot
-6. Enable flash encryption
-
-## Decision Matrix: What to Enable
-
-| Threat | Secure Boot | Flash Encryption | Both |
-|--------|-------------|-----------------|------|
-| Malicious firmware flash | Protected | Not protected | Protected |
-| Firmware readout/cloning | Not protected | Protected | Protected |
-| JTAG debug attack | Needs DIS_PAD_JTAG + DIS_USB_JTAG (Step 8) | Needs DIS_PAD_JTAG + DIS_USB_JTAG | Needs DIS_PAD_JTAG + DIS_USB_JTAG |
-| Boot-time tampering | Protected | Not protected | Protected |
-
-**Recommendation for KasSigner:** Start with Secure Boot only. Flash encryption adds complexity (encrypted flashing workflow) and the primary threat model is firmware tampering, not firmware cloning.
-
-## Recovery: What If Something Goes Wrong
-
-**There is no recovery from a bricked eFuse configuration.** That's why this document exists.
-
-If secure boot is enabled and the signing key is lost:
-- The board is permanently bricked
-- It cannot be reflashed
-- It cannot be recovered
-- Buy a new board
-
-If flash encryption is enabled and the encryption key is lost:
-- New firmware cannot be encrypted for this board
-- The board is permanently bricked
-
-## Verification After Burn
+Keep the vendor RSA Secure Boot key and the 32-byte vendor Schnorr release key offline/outside the repository:
 
 ```bash
-# Confirm secure boot is active
-python3 -m espefuse --port /dev/cu.usbmodem* --chip esp32s3 summary | grep -E "SECURE_BOOT|KEY_PURPOSE|KEY_REVOKE"
-
-# Expected output (with 1 key):
-#   SECURE_BOOT_EN = True
-#   KEY_PURPOSE_0 = SECURE_BOOT_DIGEST0
-#   SECURE_BOOT_KEY_REVOKE1 = True
-#   SECURE_BOOT_KEY_REVOKE2 = True
+make secure-provisioning \
+  SECURE_BOOT_KEY=/secure/vendor-secure-boot-rsa3072.pem \
+  SIGNING_KEY=/secure/vendor-schnorr-release.key \
+  SECURE_DIR=target/secure-provisioning
 ```
 
-## Verify the Key Before Burning It
+The produced special application uses the `m5stack,secure-provisioning` feature profile. The bootloader/application RSA signatures are bound to the selected vendor Secure Boot key. Optional owner enrollment later adds the independent owner digest as slot 1.
 
-The public key digest is deterministic from the pem, so a board already
-provisioned with that key is an oracle for whether you hold the right one.
-Regenerate the digest and compare it against the burned block on a working
-device:
+### Owner only — restored original ownership model
+
+Generate/hold the owner's RSA-3072 key outside the repository. For example, using the pinned Espressif tooling:
 
 ```bash
-python3 -m espsecure digest_sbv2_public_key \
-    --keyfile secure_boot_v2_key.pem --output digest0.bin
-xxd digest0.bin
-
-# on an already-provisioned board
-python3 -m espefuse --port <PORT> --chip esp32s3 summary | grep -A4 BLOCK_KEY0
+espsecure generate-signing-key --version 2 --scheme rsa3072 owner-secure-boot.pem
 ```
 
-A byte-for-byte match proves the pem is the one that board enforces, and that
-one signed release will run on both. A mismatch means the wrong pem, and is the
-cheapest possible place to find that out.
+Then prepare the owner-only chain:
 
-## Signed Images Are Not Reproducible
+```bash
+make secure-owner-only \
+  OWNER_KEY=/secure/owner-secure-boot.pem \
+  SECURE_DIR=target/secure-owner-only
+```
 
-Secure Boot V2 signs with RSA-PSS, which uses a random salt. Signing the same
-input twice produces different bytes and a different SHA-256 both times. This is
-correct behaviour, not a build problem.
+This path:
 
-Track hashes of the **inputs**, never of the signed outputs. The reproducible
-artifacts are `kassigner-<board>.bin` and `kassigner-<board>-full.bin`;
-`*-signed.bin` files are not reproducible and publishing their hashes would be
-meaningless.
+1. builds `m5stack,secure-owner-only` without a vendor Schnorr signing key;
+2. signs the special second-stage bootloader and special application with the **owner RSA key**;
+3. derives the exact owner Secure Boot v2 public-key digest;
+4. writes `OWNERKEY.KAS` containing that digest plus integrity metadata; and
+5. records `TRUST-POLICY=owner-only` / `AUTHORITY-MODE=owner-only` in the artifact set.
 
-## Target Configuration
+Use a dedicated output directory for each trust policy. The preparation wrapper refuses to reuse an output directory whose `TRUST-POLICY` names the other mode, and owner-only preparation refuses a directory containing a stale vendor-authorized KSFU manifest.
 
-The same configuration applies to both boards. Every eFuse below is chip-level;
-nothing here differs between Waveshare and M5Stack CoreS3 Lite.
+It intentionally does **not** emit a vendor-Schnorr KSFU manifest. After owner-only provisioning, application updates are owner-authorized and can be produced through `make owner-firmware OWNER_KEY=/secure/owner-secure-boot.pem` for the SD `OWNERFW.BIN` path.
 
-| eFuse | Target | Why |
-|---|---|---|
-| `SECURE_BOOT_EN` | True | ROM verifies bootloader and app on every boot |
-| `KEY_PURPOSE_0` | `SECURE_BOOT_DIGEST0`, `R/-` | the one live digest slot, write-protected |
-| `KEY_PURPOSE_1..5` | `USER` | unassigned |
-| `SECURE_BOOT_KEY_REVOKE0` | False | the slot holding your key |
-| `SECURE_BOOT_KEY_REVOKE1` | True | unused slot, closed |
-| `SECURE_BOOT_KEY_REVOKE2` | True | unused slot, closed |
-| `DIS_PAD_JTAG` | True | closes the physical JTAG pins |
-| `DIS_USB_JTAG` | True | closes the USB-to-JTAG switch path |
-| `DIS_USB_SERIAL_JTAG` | False | **by design.** Preserves console and flashing |
-| `DIS_DOWNLOAD_MODE` | False | preserves the signed-update path |
-| `DIS_USB_SERIAL_JTAG_DOWNLOAD_MODE` | False | preserves the signed-update path |
-| `DIS_USB_OTG_DOWNLOAD_MODE` | False | preserves the signed-update path |
-| `SPI_BOOT_CRYPT_CNT` | Disable | flash encryption not used, see Decision Matrix |
-| `ENABLE_SECURITY_DOWNLOAD` | False | not verified on this hardware, see Step 8 |
+The private RSA key is never copied into `OWNERKEY.KAS`, firmware, or the device.
 
-One digest slot with the other two revoked is the recommended configuration. A
-second slot holding the same key buys nothing: it does not survive a key
-compromise, since both digests are the same key, and it leaves a live slot that
-the revokes would otherwise have closed.
+## 5. Preflight before any irreversible action
 
-**Key rotation is not available under this configuration.** `KEY_PURPOSE_0` is
-write-protected by the burn and the remaining slots are revoked, so a
-provisioned board enforces one key for its lifetime. If the signing key is ever
-compromised or lost, provisioned units are retired, not re-keyed. That is the
-deliberate trade for a device holding key material: no path exists for an
-attacker to install their own trust root either.
+Before owner enrollment or Pop It:
 
-### Revoking unused slots is not optional
+- Verify the exact target is the intended ESP32-S3 CoreS3 and record its identity.
+- Boot the exact special provisioning bootloader/application repeatedly and verify normal use does not alter eFuse state.
+- Capture `espefuse --chip esp32s3 --port PORT summary` before the first burn.
+- Stop if any security eFuse/key purpose differs from the policy you intended.
+- Back up every private key needed by the selected policy and verify the backups can be restored.
+- Decide all required key-block consumers first, including Flash Encryption and Device-bound-storage `HMAC_UP` keys.
+- Provision any key that must become read-protected **before** the final Secure Boot/`RD_DIS` protection sequence can prevent later read protection.
+- Never mix the in-device Pop It workflow with a partially completed external-manual Secure Boot workflow unless a sacrificial-board procedure explicitly validates that mixed state.
 
-Secure Boot V2 accepts a signature matching any of three digest slots. With an
-unused slot left unrevoked, someone who can write eFuses installs their own
-public key digest in a free key block, points it at that slot, signs firmware
-with their private key, and the ROM accepts it as legitimate. Your digest stays
-intact in slot 0 and is completely bypassed.
+Host-side eFuse commands in repository procedures must pass through `qa/checks/release/irreversible_action_ack.py`, which requires interactive acknowledgement and exact target re-entry. Read-only inspection does not need that wrapper.
 
-Burning `SECURE_BOOT_KEY_REVOKE1` and `SECURE_BOOT_KEY_REVOKE2` is what makes
-slot 0 the only door. A board with `SECURE_BOOT_EN` burned and a slot left open
-is not provisioned.
+## 6. On-device dual-authority sequence
 
-## Confirmed on Hardware
+1. Flash the prepared dual-authority special boot chain by the tested HIL/manufacturing process.
+2. Use it normally and verify eFuses remain unchanged.
+3. If independent owner firmware is desired, create `OWNERKEY.KAS`/`OWNERFW.BIN` from the owner's RSA key and choose **Settings → Advanced → Owner Firmware → Enroll Owner Key**.
+4. Read the irreversible warning and type `ENROLL OWNER`.
+5. After reboot, verify the device reports owner authority enrolled. The bootloader should have established vendor digest 0, owner digest 1, revoked digest 2, and protected the trusted revoke controls.
+6. When ready, choose **Settings → Advanced → Pop It!**, read the warning, and type `POP IT`.
+7. The bootloader re-validates its configured RSA authority and current selected application before performing the request-gated irreversible security transition.
 
-Full Secure Boot V2 provisioning run end to end on both Waveshare
-ESP32-S3-Touch-LCD-2 and M5Stack CoreS3 Lite. The observations below are chip-level
-and applied identically to both.
+If step 3 is skipped, dual-authority Pop It explicitly allows vendor-only provisioning and permanently closes later owner enrollment.
 
-Signed images boot on an unprovisioned board, which is what makes the whole path
-testable while still reversible. Under enforcement the ROM prints
-`Valid secure boot key blocks: 0` and `secure boot verification succeeded` before
-the second-stage bootloader banner; neither line appears with `SECURE_BOOT_EN`
-unburned, so their absence before the burn is expected rather than a fault.
+## 7. On-device owner-only sequence
 
-Burning `DIS_PAD_JTAG` and `DIS_USB_JTAG` left the USB Serial console and the
-download path intact. After all burns, `esptool chip_id` connects, loads the
-stub, and reports the MAC. Signed firmware updates still work.
+1. Flash the special bootloader/application generated with `--owner-only` and the intended owner RSA private key.
+2. Use the device normally for as long as desired. Verify no provisioning eFuse changes occur merely from boot/use.
+3. Put the generated `OWNERKEY.KAS` on SD.
+4. Choose **Settings → Advanced → Owner Firmware → Enroll Owner Key**.
+5. Read the warning that this owner key will be the **sole** Secure Boot authority and type `ENROLL OWNER`.
+6. The bootloader verifies the running bootloader/application against the same expected owner RSA key and verifies that the enrollment record matches it. It also refuses owner-only conversion if digest slot 1 or 2 already contains a live alternate Secure Boot authority; it will not silently revoke a previously trusted key. Only then may it burn owner digest 0, revoke empty digest indices 1 and 2, and protect digest 0's revoke control.
+7. Reboot and verify the owner-only digest/revocation state before proceeding.
+8. Choose **Settings → Advanced → Pop It!** and type `POP IT` only when ready for the remaining irreversible hardware transition. **Owner-only Pop It refuses to continue unless owner enrollment is already present.** There is no “Continue Without It” path.
+9. The bootloader again verifies the boot chain against the owner key, then performs the request-gated Flash Encryption / Secure Download / Secure Boot transition.
+10. After Secure Boot is active, prove an owner-signed `OWNERFW.BIN` is accepted and an image signed only by the vendor or an unrelated RSA key is rejected.
 
-The second-stage bootloader extracted from a merged image measured roughly 21 KB
-across four segments, signing to 28672 bytes and leaving headroom below the
-partition table at `0x8000`. `extract_bootloader.py` reports the exact figures
-and refuses to write the file if the signed size would reach `0x8000`.
+After this sequence, the vendor does not possess a hardware-authorized signing key unless the owner independently chose to give the vendor their private key. Normal vendor release firmware cannot satisfy the owner-only Secure Boot root by itself.
 
-## eFuse Budget
+## 8. What Pop It commits
 
-The ESP32-S3 has 6 key blocks (BLOCK_KEY0 through BLOCK_KEY5). Plan allocation:
+For either special profile, Pop It is the final security transition and is separate from owner enrollment. The patched bootloader keeps ESP-IDF's irreversible startup paths deferred until the one-shot request is present.
 
-| Block | Purpose | Key Type |
-|-------|---------|----------|
-| BLOCK_KEY0 | Secure Boot primary key digest | SECURE_BOOT_DIGEST0 |
-| BLOCK_KEY1 | Secure Boot backup key digest | SECURE_BOOT_DIGEST1 |
-| BLOCK_KEY2 | Flash encryption key (if used) | XTS_AES_128_KEY |
-| BLOCK_KEY3 | Available | - |
-| BLOCK_KEY4 | Available | - |
-| BLOCK_KEY5 | Available | - |
+During a valid Pop It request it:
 
-## KasSigner-Specific Notes
+1. verifies the installed second-stage bootloader and selected application against the profile's exact expected RSA authority;
+2. in owner-only mode, verifies the sole-owner digest policy is already enrolled;
+3. initializes/enables Flash Encryption in the configured Release Mode if it is not already enabled;
+4. consumes the one-shot Pop It request;
+5. switches ROM UART into Secure Download mode where supported/configured;
+6. permanently enables Secure Boot v2; and
+7. allows hardware anti-rollback advancement only after Secure Boot is hardware-enabled.
 
-1. **Two signing systems coexist.** Hardware secure boot (RSA-3072, verified by ROM) and software Schnorr verify (verified by our code in `features/verify.rs`). Both must pass for the app to run on a `production` build.
+Any failure aborts the sequence; however, eFuse operations are intrinsically non-transactional, so power loss during an irreversible transition is why sacrificial-board testing and stable power are mandatory.
 
-2. **The `esp-bootloader-esp-idf` crate** provides a pre-built second-stage bootloader. For secure boot, this bootloader binary must also be signed.
+## 9. Owner firmware after Pop It
 
-3. **No OTA.** KasSigner is air-gapped, so firmware updates require physical USB access. If `DIS_DOWNLOAD_MODE` is burned, the board cannot be updated at all. Leave UART download enabled. `ENABLE_SECURITY_DOWNLOAD` narrows it further and still allows signed firmware flashing, but see the note in Step 8 before burning it.
+`make owner-firmware OWNER_KEY=/secure/owner.pem` creates the owner-authorized update without inheriting or embedding any `KASSIGNER_SIGNING_KEY` from the caller's environment:
 
-4. **Test on a sacrificial board first.** Keep a spare of whichever board you are provisioning, and burn that one first. Never experiment on the primary development board.
+- `OWNERKEY.KAS` — public Secure Boot digest + integrity metadata;
+- `OWNERFW.BIN` — Secure-Boot-v2-padded application signed by that RSA key; and
+- hashes for transfer verification.
 
-5. **Artifact names differ per board.** `kassigner-m5stack.bin` and `kassigner-m5stack-full.bin` for CoreS3 Lite, `kassigner-waveshare*` and `kassigner-waveshare-af*` for the others. The RSA key and every eFuse command are board-independent; only the images change.
+For dual-authority devices, the bootloader requires `OWNERFW.BIN` to match **owner digest 1**. For owner-only devices, it requires **owner digest 0**. The staged image must also satisfy image-format, hash, OTA, and anti-rollback policy before it is selected.
+
+Owner firmware is application firmware. This SD workflow does not replace the second-stage bootloader.
+
+## 10. External/manual owner-only Secure Boot reference
+
+The original repository documented an external process where the user generated the Secure Boot key, burned it as digest 0, revoked unused digest slots, signed the bootloader/application, then enabled Secure Boot. That ownership property is preserved by `secure-owner-only`; the on-device workflow adds guarded consent and exact-image checks.
+
+For a deliberately external/manual policy, current Espressif tooling provides the `burn-key-digest` command family. A representative guarded command is:
+
+```bash
+python3 qa/checks/release/irreversible_action_ack.py \
+  --action "Burn owner Secure Boot digest 0" \
+  --device PORT -- \
+  espefuse --chip esp32s3 --port {device} \
+    burn-key-digest BLOCK_KEYn owner-secure-boot.pem SECURE_BOOT_DIGEST0
+```
+
+Choose `BLOCK_KEYn` from the actual free-block allocation; do not assume a fixed physical block. `burn-key-digest` programs the public-key digest with the Secure Boot digest purpose and protects the key material/purpose according to the tool's policy. The digest itself must remain readable to Secure Boot hardware.
+
+The original manual runbook also allowed an **optional second owner-held backup RSA key** in digest 1. That remains an external/manual owner-only variant (both live authorities are controlled by the owner), but the automated `secure-owner-only` profile deliberately implements the stricter one-key final policy used by the original runbook's recommended locked-down configuration: owner digest 0 is live and digest indices 1 and 2 are revoked. Do not expect the automated profile to leave a backup slot open.
+
+With exactly one intended owner key, the unused Secure Boot digest indices must be closed:
+
+```bash
+python3 qa/checks/release/irreversible_action_ack.py \
+  --action "Revoke unused Secure Boot digest 1" --device PORT -- \
+  espefuse --chip esp32s3 --port {device} burn-efuse SECURE_BOOT_KEY_REVOKE1
+
+python3 qa/checks/release/irreversible_action_ack.py \
+  --action "Revoke unused Secure Boot digest 2" --device PORT -- \
+  espefuse --chip esp32s3 --port {device} burn-efuse SECURE_BOOT_KEY_REVOKE2
+```
+
+Only after the exact signed bootloader/application and all other required key provisioning have been verified should an external procedure enable Secure Boot:
+
+```bash
+python3 qa/checks/release/irreversible_action_ack.py \
+  --action "Permanently enable Secure Boot v2" --device PORT -- \
+  espefuse --chip esp32s3 --port {device} burn-efuse SECURE_BOOT_EN
+```
+
+Do not use these manual commands on a board already being provisioned by the in-device owner/Pop It workflow unless the HIL procedure specifically calls for it.
+
+## 11. Flash Encryption, HMAC storage, debug and download eFuses
+
+Device-bound wallet storage may require one independently generated 256-bit key in a free eligible block with purpose `HMAC_UP`, read-protected. Flash Encryption consumes its own eligible key block(s), depending on the configured XTS mode. Settle the complete key-block allocation before burning anything.
+
+When using an external combined Secure Boot + Flash Encryption workflow, follow the pinned ESP-IDF v6.0.2 ESP32-S3 ordering rather than manually inventing `SPI_BOOT_CRYPT_CNT` values. Keys needing read protection must be provisioned before Secure Boot's final protection of relevant read-disable controls.
+
+Debug/download lockdown is product-policy-specific. Relevant ESP32-S3 controls include pad JTAG disable, USB-JTAG disable, direct-boot disable, and Secure Download mode. Do not burn `DIS_DOWNLOAD_MODE` as a generic hardening shortcut: it can remove the ROM recovery path entirely. The special Pop It flow uses Secure Download mode rather than automatically disabling ROM download mode.
+
+Once Secure Download mode is active, arbitrary host `espefuse` access is intentionally restricted. Capture complete pre-lock evidence first.
+
+## 12. Required sacrificial-board evidence
+
+For **each** special profile that will be shipped/provisioned, prove at minimum:
+
+- repeated ordinary pre-Pop boots do not change provisioning eFuses;
+- malformed/substituted enrollment records fail;
+- wrong RSA bootloader/application authority fails the irreversible preflight;
+- owner enrollment occurs only after explicit typed confirmation;
+- the exact digest/revocation policy matches the selected profile;
+- Pop It occurs only after explicit typed confirmation;
+- Secure Boot and Flash Encryption are active afterward;
+- a one-byte-modified/unsigned/wrong-key application is rejected;
+- lower-security-version application images are rejected by the boot chain;
+- a valid owner application is accepted at the correct owner digest index; and
+- the previously selected OTA application remains bootable after a rejected staged owner image.
+
+For **owner-only**, additionally prove:
+
+- digest 0 equals the expected owner key;
+- digest indices 1 and 2 are revoked;
+- no vendor digest is trusted;
+- Pop It cannot bypass owner enrollment; and
+- a vendor-only signed application is rejected after hardware enforcement.
+
+For **dual authority**, separately prove the vendor+owner case and the deliberate vendor-only Pop It case.
+
+See `qa/release/M5STACK_SECURITY_HIL.md` for the release-evidence checklist.
+
+## 13. Verification record and recovery consequences
+
+Before lockdown, retain a full eFuse summary plus hashes of the exact bootloader, partition table, application, trust-policy marker, and enrollment record used. The record must identify actual physical key-block allocation, key purposes, Secure Boot digest index/revocation states, Flash Encryption state, `SECURE_VERSION`, and the approved debug/download posture.
+
+There is no general recovery from an incorrect eFuse configuration:
+
+- If every private key corresponding to a live Secure Boot digest is lost, existing valid firmware can continue to boot but new authorized firmware cannot be produced for that trust root.
+- In **owner-only** mode, loss of the sole owner key removes future owner-authorized updates; the vendor cannot rescue the device with a separate vendor signing key because no vendor digest is trusted.
+- In **owner-only** mode, compromise of the sole owner key is likewise serious: the configured sole authority is permanent under this policy because digest 0's revoke control is protected and unused authority slots are closed.
+- In **dual-authority** mode, loss of the owner key still leaves vendor-authorized applications available; loss of the vendor key may still leave owner-authorized applications available. The configured protected trusted authorities cannot be silently removed by later application firmware.
+- Loss of required Flash Encryption/HMAC/recovery keys can make procedures depending on those keys impossible.
+- Permanently disabling download mode can eliminate physical recovery even when a signing key still exists.
+
+Treat the owner-only private key as a long-term device ownership credential and maintain verified offline backups before enrollment.

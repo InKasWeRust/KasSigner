@@ -1,0 +1,126 @@
+            <!-- Stealth Addresses screen -->
+            <section id="screen-stealth" class="screen">
+                <div class="screen-content">
+                    <h2 class="u-text-accent-teal">Stealth Addresses</h2>
+                    <p class="subtitle">Privacy through unlinkable one-time addresses</p>
+
+                    <!-- Stealth menu -->
+                    <div id="stealth-menu" class="card">
+                        <button class="btn btn-primary u-full-width-mb-8px" id="btn-stealth-meta">
+                            My Stealth Meta-Address
+                        </button>
+                        <button class="btn btn-secondary u-full-width-mb-8px" id="btn-stealth-send">
+                            Send to Stealth Address
+                        </button>
+                        <button class="btn btn-secondary u-full-width-mb-8px" id="btn-stealth-scan">
+                            Scan for Stealth Payments
+                        </button>
+                        <p class="stealth-menu-help">
+                            Stealth addresses let anyone pay you without linking<br>
+                            the payment to your public address. Zero firmware changes<br>
+                            needed — the device signs normally.
+                        </p>
+                    </div>
+
+                    <!-- Generate meta-address panel -->
+                    <div id="stealth-meta-panel" class="card hidden">
+                        <h3 class="u-text-accent-teal-margin-0-0-8px">Your Stealth Meta-Address</h3>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-12px-line-1-4">
+                            Share this publicly. Anyone with it can send you<br>
+                            private payments that only you can detect.
+                        </p>
+                        <div id="stealth-meta-qr" class="qr-container"></div>
+                        <div id="stealth-meta-hex" class="address-display"></div>
+                        <button class="btn btn-outline u-mt-8px-full-width" id="btn-stealth-meta-copy">
+                            Copy Meta-Address
+                        </button>
+                        <p class="stealth-announcement-note">
+                            Announcement address:<br>
+                            <span id="stealth-announce-addr"></span>
+                        </p>
+                        <button class="btn btn-back" id="btn-stealth-meta-back">Back</button>
+                    </div>
+
+                    <!-- Send to stealth panel -->
+                    <div id="stealth-send-panel" class="card hidden">
+                        <h3 class="u-text-accent-teal-margin-0-0-8px">Send to Stealth Address</h3>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-12px-line-1-4">
+                            Paste or scan the receiver's stealth meta-address.<br>
+                            KasSee will derive a one-time address for the payment.
+                        </p>
+                        <label class="input-label">Stealth Meta-Address (128 hex)</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="stealth-send-meta" class="input-text u-grow-mb-0"
+                                   placeholder="128-char hex (scan_pubkey || spend_pubkey)" autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-stealth-scan-meta"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <label class="input-label">Amount (KAS)</label>
+                        <input type="number" id="stealth-send-amount" class="input-text"
+                               placeholder="Amount in KAS" min="0.0001" step="0.0001">
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-stealth-send-go">
+                            Generate Stealth Payment
+                        </button>
+                        <div id="stealth-send-result" class="hidden u-mt-12px">
+                            <p class="stealth-payment-label">One-time payment address:</p>
+                            <div id="stealth-send-addr" class="address-display"></div>
+                            <p class="stealth-ephemeral-label">Ephemeral R (announce this):</p>
+                            <div id="stealth-send-r" class="address-display"></div>
+                            <label class="input-label u-mt-8px">Fee</label>
+                            <div class="fee-cards">
+                                <button class="fee-card" id="btn-sf-low">
+                                    <div class="fee-card-label">Low</div>
+                                    <div class="fee-card-amount" id="sf-low-amount">2,500</div>
+                                    <div class="fee-card-time" id="sf-low-time"></div>
+                                </button>
+                                <button class="fee-card fee-card-active" id="btn-sf-normal">
+                                    <div class="fee-card-label">Normal</div>
+                                    <div class="fee-card-amount" id="sf-normal-amount">5,000</div>
+                                    <div class="fee-card-time" id="sf-normal-time"></div>
+                                </button>
+                                <button class="fee-card" id="btn-sf-priority">
+                                    <div class="fee-card-label">Priority</div>
+                                    <div class="fee-card-amount" id="sf-priority-amount">10,000</div>
+                                    <div class="fee-card-time" id="sf-priority-time"></div>
+                                </button>
+                            </div>
+                            <input type="number" id="input-sf-fee" class="input-text"
+                                   value="10000" step="1" min="1">
+                            <button class="btn btn-primary u-mt-8px-full-width" id="btn-stealth-send-pay">
+                                Send Payment + Announce R
+                            </button>
+                        </div>
+                        <button class="btn btn-back" id="btn-stealth-send-back">Back</button>
+                    </div>
+
+                    <!-- Scan for payments panel -->
+                    <div id="stealth-scan-panel" class="card hidden">
+                        <h3 class="u-text-accent-teal-margin-0-0-8px">Scan for Stealth Payments</h3>
+                        <p class="u-text-11px-text-text-dim-margin-0-0-12px-line-1-4">
+                            Fetches announcements from the stealth announcement address,<br>
+                            sends R values to your device via QR for ECDH scanning,<br>
+                            then checks which one-time pubkeys have UTXOs.
+                        </p>
+                        <p class="stealth-scan-window-note">
+                            Scans approx. the last ~15 minutes on-chain. Live scan keeps watching new blocks after.
+                        </p>
+                        <button class="btn btn-primary u-full-width-mb-8px" id="btn-stealth-fetch-announcements">
+                            1. Fetch Announcements
+                        </button>
+                        <div id="stealth-scan-status"></div>
+                        <button class="btn btn-secondary hidden u-full-width-mb-8px" id="btn-stealth-show-scan-qr">
+                            2. Show QR for Device Scan
+                        </button>
+                        <button class="btn btn-secondary hidden u-full-width-mb-8px" id="btn-stealth-scan-result-qr">
+                            3. Scan Device Response QR
+                        </button>
+                        <div id="stealth-scan-results" class="hidden u-mt-8px">
+                            <p class="stealth-results-heading">Found stealth payments:</p>
+                            <div class="u-text-11px" id="stealth-found-list"></div>
+                        </div>
+                        <button class="btn btn-back" id="btn-stealth-scan-back">Back</button>
+                    </div>
+
+                    <button class="btn btn-back" id="btn-stealth-back">Back to Dashboard</button>
+                </div>
+            </section>

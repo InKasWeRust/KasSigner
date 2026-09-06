@@ -1,0 +1,1 @@
+"""KasSee web architecture checks."""

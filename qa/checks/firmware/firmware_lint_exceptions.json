@@ -1,0 +1,13 @@
+{
+  "policy": "Every firmware lint exception is item-scoped, justified, and review-locked. Crate/file-wide allows and dead_code/unused_imports allows are forbidden.",
+  "exceptions": [
+    {
+      "path": "apps/signer-firmware/src/runtime/event_loop/runner.rs",
+      "item": "run",
+      "lints": [
+        "clippy::cognitive_complexity"
+      ],
+      "reason": "Clippy scores four focused event-loop macro stages after expansion as one function even though touch, dispatch, frame, and camera policy remain separately owned modules."
+    }
+  ]
+}

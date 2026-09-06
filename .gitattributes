@@ -1,15 +1,12 @@
-*.txt linguist-vendored
-*.sh linguist-vendored
-*.py linguist-vendored
-*.sh linguist-vendored
-Dockerfile linguist-vendored
-Dockerfile.base linguist-vendored
-Makefile linguist-vendored
-*.txt linguist-vendored
-kassee/web/lib/*.js linguist-vendored
-kassee/web/js/*.js linguist-vendored
-kassee/web/css/*.css linguist-vendored
-kassee/web/*.html linguist-vendored
-kassee/web/constellation/*.html linguist-vendored
-kassee/web/pkg/*.js linguist-vendored
-kassee/web/pkg/*.d.ts linguist-vendored
+# Keep generated/vendor-heavy trees classified consistently in repository browsers.
+apps/kassee-web/web/lib/** linguist-vendored
+apps/kassee-web/web/constellation/** linguist-generated
+
+# Text normalization.
+* text=auto
+*.sh text eol=lf
+*.rs text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf

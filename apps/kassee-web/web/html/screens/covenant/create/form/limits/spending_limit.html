@@ -1,0 +1,54 @@
+
+                        <!-- Spending Limit fields -->
+                        <div id="cov-fields-splimit" class="hidden">
+                            <p class="u-text-12px-text-text-dim-margin-0-0-12px-line-1-5">
+                                Lock your funds behind a hard spending limit. You can withdraw up to the max amount,
+                                then must wait the cooldown before the next withdrawal. No bypass, no override.
+                            </p>
+                            <label class="input-label">Max withdrawal per TX (KAS)</label>
+                            <input type="number" id="cov-splimit-max" class="input-text"
+                                   placeholder="e.g. 100" min="0.00000001" step="any">
+                            <p class="spending-limit-warning">
+                                Set this to 0.1 KAS or more. Withdrawals under ~0.1 KAS are uneconomical: a small
+                                output carries a high storage-mass fee that can exceed the amount you withdraw.
+                            </p>
+                            <label class="input-label">Cooldown between withdrawals</label>
+                            <select id="cov-splimit-preset" class="input-text">
+                                <option value="" disabled selected>Choose cooldown period...</option>
+                                <option value="86400">1 Day</option>
+                                <option value="604800">7 Days</option>
+                                <option value="2592000">30 Days</option>
+                                <option value="7776000">90 Days</option>
+                                <option value="15552000">180 Days</option>
+                                <option value="31536000">1 Year</option>
+                                <option value="custom">Custom...</option>
+                            </select>
+                            <div id="cov-splimit-custom-wrap" class="hidden u-mt-8px">
+                                <div class="u-display-flex-gap-4px-align-text-center">
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">YEARS</div>
+                                        <input type="number" id="cov-splimit-years" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="99">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">MONTHS</div>
+                                        <input type="number" id="cov-splimit-months" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="11">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">DAYS</div>
+                                        <input type="number" id="cov-splimit-days" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="30">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">HOURS</div>
+                                        <input type="number" id="cov-splimit-hours" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="23">
+                                    </div>
+                                    <div class="u-grow">
+                                        <div class="u-text-9px-text-text-dim-mb-2px">MINS</div>
+                                        <input type="number" id="cov-splimit-mins" class="input-text u-align-text-center-text-16px-padding-8px-2px" value="0" min="0" max="59">
+                                    </div>
+                                </div>
+                            </div>
+                            <input type="hidden" id="cov-splimit-cooldown" value="">
+                            <p class="u-text-10px-text-text-muted-margin-4px-0-0">
+                                Once created, these limits cannot be changed or bypassed.
+                            </p>
+                        </div>

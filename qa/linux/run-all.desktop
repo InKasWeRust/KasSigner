@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Run All KasSigner Tests
+Comment=Open a terminal and run the complete KasSigner repository test suite
+Terminal=true
+Exec=bash -c 'desktop_file="$1"; desktop_file="${desktop_file#file://}"; qa_dir=$(dirname "$desktop_file"); chmod +x "$qa_dir/run-all.sh" "$qa_dir/run-all.desktop"; exec "$qa_dir/run-all.sh" --pause' bash %k
+Icon=utilities-terminal
+Categories=Development;
+StartupNotify=true

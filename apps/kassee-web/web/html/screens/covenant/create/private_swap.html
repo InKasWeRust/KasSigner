@@ -1,0 +1,68 @@
+                    <!-- Private Swap v2 — transaction-sighash-bound adaptor signatures -->
+                    <div id="cov-private-swap-panel" class="card hidden">
+                        <div id="private-swap-hub">
+                            <h3 class="u-mb-4px">Private Swap</h3>
+                            <p class="u-text-11px-dim u-line-14">
+                                Atomic swap via adaptor signatures. No hashlock, no preimage, and no shared on-chain link. KasSigner binds every pre-signature to the exact claim transaction.
+                            </p>
+                            <button class="btn btn-primary u-full-width-mb-8px" id="btn-private-swap-create">Create Private Swap</button>
+                            <button class="btn btn-outline u-full-width-mb-8px" id="btn-private-swap-join">Join (Scan Invite)</button>
+                            <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-resume">Resume Active Swap</button>
+                            <button class="btn btn-link btn-back" id="btn-private-swap-back">Back</button>
+                        </div>
+
+                        <div id="private-swap-create" class="hidden">
+                            <h3 class="u-mb-8px">Create Private Swap</h3>
+                            <label class="input-label">Amount you lock (KAS)</label>
+                            <input type="text" id="private-swap-create-amount" class="input-text" inputmode="decimal" placeholder="10">
+                            <label class="input-label u-mt-8px">Your refund time (must be later than Bob's)</label>
+                            <input type="datetime-local" id="private-swap-create-datetime" class="input-text">
+                            <button class="btn btn-primary u-full-width-mt-8px" id="btn-private-swap-create-key">1. Allocate isolated swap key on KasSigner</button>
+                            <button class="btn btn-link btn-back" id="btn-private-swap-create-back">Back</button>
+                        </div>
+
+                        <div id="private-swap-join" class="hidden">
+                            <h3 class="u-mb-8px">Join Private Swap</h3>
+                            <div id="private-swap-offer-summary" class="cov-result u-mb-8px"></div>
+                            <label class="input-label">Amount you lock (KAS)</label>
+                            <input type="text" id="private-swap-join-amount" class="input-text" inputmode="decimal" placeholder="10">
+                            <label class="input-label u-mt-8px">Your refund time (must be earlier than Alice's)</label>
+                            <input type="datetime-local" id="private-swap-join-datetime" class="input-text">
+                            <button class="btn btn-primary u-full-width-mt-8px" id="btn-private-swap-join-key">1. Allocate isolated swap key on KasSigner</button>
+                            <button class="btn btn-link btn-back" id="btn-private-swap-join-back">Back</button>
+                        </div>
+
+                        <div id="private-swap-dashboard" class="hidden">
+                            <div class="u-flex-between-center u-mb-8px">
+                                <h3 class="u-m-0">Private Swap v2</h3>
+                                <span id="private-swap-role" class="badge"></span>
+                            </div>
+                            <div id="private-swap-status" class="cov-result u-mb-8px"></div>
+                            <div class="cov-result u-mb-8px">
+                                <div class="cov-result-label">Your funded covenant</div>
+                                <div class="cov-result-value u-break-all-text-10px" id="private-swap-my-address">Not built yet</div>
+                                <div class="cov-result-label u-mt-4px">Counterparty funded covenant</div>
+                                <div class="cov-result-value u-break-all-text-10px" id="private-swap-counter-address">Not received yet</div>
+                            </div>
+                            <div id="private-swap-actions">
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-share-offer">2. Show Offer QR</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-scan-response">3. Scan Bob Response</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-share-response">2. Show Bob Response QR</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-scan-final">3. Scan Alice Final QR</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-bind">Bind claim key to counterparty covenant</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-share-final">Show Final Handshake QR</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-scan-device">Scan KasSigner Response</button>
+                                <button class="btn btn-primary u-full-width-mb-8px hidden" id="btn-private-swap-fund">Fund Your Side</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-presign">Prepare Exact Claim Adaptor Signature</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-share-presig">Share Alice Pre-Signature QR</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-scan-presig">Scan Alice Pre-Signature QR</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-share-ready">Bob: Show Ready Acknowledgement</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-scan-ready">Alice: Scan Bob Ready Acknowledgement</button>
+                                <button class="btn btn-primary u-full-width-mb-8px hidden" id="btn-private-swap-complete">Alice: Complete + Claim Bob Funds</button>
+                                <button class="btn btn-primary u-full-width-mb-8px hidden" id="btn-private-swap-bob-claim">Bob: Extract Secret + Claim Alice Funds</button>
+                                <button class="btn btn-outline u-full-width-mb-8px hidden" id="btn-private-swap-refund">Owner Refund (after timeout)</button>
+                            </div>
+                            <button class="btn btn-link btn-back" id="btn-private-swap-dashboard-back">Back</button>
+                            <button class="btn btn-link" id="btn-private-swap-clear">Clear Private Swap</button>
+                        </div>
+                    </div>

@@ -1,0 +1,28 @@
+            <!-- Welcome / Import screen -->
+            <section id="screen-welcome" class="screen active">
+                <div class="screen-content">
+                    <h2>Welcome to KasSee</h2>
+                    <p class="subtitle">Watch-only companion for KasSigner</p>
+                    <div class="card">
+                        <p class="welcome-import-prompt">Load your <strong>kpub</strong> from KasSigner to start.</p>
+                        <p id="kassee-startup-status" class="welcome-startup-status" role="status" aria-live="polite">
+                            Initializing the KasSee security engine…
+                        </p>
+                        <div id="welcome-saved-kpubs" class="welcome-saved-kpubs hidden">
+                            <p class="welcome-saved-kpubs-label">Saved kpubs</p>
+                            <div id="welcome-kpub-list" class="welcome-kpub-list" role="list"></div>
+                        </div>
+                        <div class="welcome-import-actions">
+                            <button class="btn btn-primary" id="btn-scan-kpub">Load kpub</button>
+                        </div>
+                        <div class="divider">other tools</div>
+                        <button class="btn btn-outline u-text-13px" id="btn-multisig-welcome">
+                            Multisig Spend
+                        </button>
+                        <button class="btn btn-outline" id="btn-broadcast-welcome">
+                            Broadcast TX
+                        </button>
+                    </div>
+                </div>
+            </section>
+

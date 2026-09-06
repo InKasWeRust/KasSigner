@@ -1,0 +1,120 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0
+#
+# ~45,000 lines of bare-metal no_std Rust. No operating system.
+# No vendor libraries in the signing path.
+
+[package]
+name = "kassigner-firmware"
+version = "2.0.0"
+edition = "2021"
+authors = ["KasSigner Team"]
+license = "GPL-3.0-only"
+
+[features]
+default = ["waveshare"]
+waveshare = ["esp-println/jtag-serial"]
+ov2640-wide = ["waveshare"]
+m5stack = ["esp-println/jtag-serial", "dep:bmi2"]
+qemu = ["esp-println/uart"]
+qemu-tests = ["qemu", "verbose-boot"]
+# OV5640 autofocus firmware loader — enable when the AF-capable module is installed.
+# Pulls in ov5640_af_fw.rs (3726-byte MCU blob) and activates load_af_firmware().
+af = []
+# OV5640-AF module: enables AF firmware + flips camera H/V for the AF module's
+# physical orientation. Use this instead of bare `af` when the AF module is
+# installed on a Waveshare board.
+ov5640-af = ["waveshare", "af"]
+production = ["silent"]
+# Compile-time gate for the Pop It!/owner-authority UI and request staging.
+# Normal release builds intentionally do not enable this feature.
+provisioning-ui = []
+# Special CoreS3 profile that may stage explicit irreversible boot-control requests.
+secure-provisioning-core = ["production", "m5stack", "provisioning-ui"]
+# Vendor + optional owner dual-authority provisioning profile.
+secure-provisioning = ["secure-provisioning-core"]
+# Original-style owner-only provisioning profile: the owner RSA key becomes the
+# sole hardware Secure Boot authority; no vendor digest remains trusted.
+secure-owner-only = ["secure-provisioning-core"]
+# Owner-built production application. Hardware Secure Boot owner RSA authorization
+# is the external release authority; the embedded TEST key remains self-integrity only.
+owner-firmware = ["production", "m5stack"]
+silent = []
+verbose-boot = ["offline-signer/verbose-boot"]
+skip-tests = ["offline-signer/skip-tests"]
+screenshot = []
+mirror = ["screenshot"]
+test-psram = []
+# Dedicated opt-in image used by qa/linux/run-all.sh --hardware.
+hardware-tests = ["verbose-boot", "test-psram", "developer-ui", "argon2-bench"]
+# Developer-only on-device workflow E2E menu/hooks. Never production.
+developer-ui = []
+workflow-tests = ["developer-ui", "provisioning-ui"]
+# Host-supervised image: auto-runs every workflow contract at boot.
+workflow-test-auto = ["workflow-tests"]
+# CoreS3 connected HIL image: keep auto-run semantics but initialize real optional peripherals.
+workflow-runtime-auto = ["workflow-test-auto"]
+workflow-hil-auto = ["workflow-runtime-auto"]
+# Developer/QA-only diagnostics. feature_policy.rs forbids these in production/silent builds.
+diagnostics = ["verbose-boot", "developer-ui"]
+# E-12 measurement: capture exactly the camera bytes mixed by the seed path and
+# write ENTCAP<tag>.BIN to SD for offline NIST SP 800-90B analysis. Never ship.
+e12-capture = ["diagnostics"]
+sentinel-scan = ["diagnostics"]
+rng-probe = ["diagnostics"]
+wdev-capture = ["diagnostics"]
+sha-bench = ["diagnostics"]
+argon2-bench = ["diagnostics"]
+imu-dump = ["diagnostics", "waveshare"]
+icon-browser = ["diagnostics"]
+cam640 = ["diagnostics", "waveshare"]
+boot-kats-full = ["diagnostics"]
+
+[dependencies]
+esp-hal = { version = "1.0", features = ["esp32s3", "unstable", "psram"] }
+esp-backtrace = { version = "0.15", features = ["esp32s3", "panic-handler", "println"] }
+esp-println = { version = "0.13", default-features = false, features = ["esp32s3"] }
+esp-alloc = "0.7"
+esp-bootloader-esp-idf = { version = "0.2", features = ["esp32s3"] }
+esp32s3 = { version = "0.30", features = ["rt"] }
+rqrr = { path = "../../external/rqrr-nostd", default-features = false }
+offline-signer = { path = "../../crates/offline-signer" }
+shared-signer = { path = "../../crates/shared-signer" }
+signer-firmware-core = { path = "../../crates/signer-firmware-core" }
+kassigner-protocol = { path = "../../crates/kassigner-protocol", default-features = false }
+
+# Display — ST7789 instead of ILI9342C (mipidsi supports both)
+mipidsi = "0.9"
+embedded-hal-bus = "0.3"
+static_cell = "2.1"
+embedded-hal = "1.0"
+bmi2 = { version = "=0.1.2", optional = true }
+embedded-graphics = "0.8"
+embedded-iconoir = { version = "0.2", default-features = false, features = ["24px"] }
+
+# Crypto
+sha2 = { version = "0.10", default-features = false }
+heapless = "0.8"
+k256 = { version = "0.13.4", default-features = false, features = ["arithmetic", "ecdsa", "schnorr"] }
+aes-gcm = { version = "0.10.3", default-features = false, features = ["aes"] }
+blake2 = { version = "0.10.6", default-features = false }
+
+[patch.crates-io]
+serde_yaml = { path = "../../external/serde-yaml-ng-adapter" }
+
+[workspace]
+resolver = "2"
+
+[profile.dev]
+opt-level = "s"
+overflow-checks = true
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+overflow-checks = true
+
+[profile.release.package.kassigner-firmware]
+opt-level = "z"

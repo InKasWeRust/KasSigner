@@ -1,0 +1,186 @@
+/* ─── Buttons ─── */
+
+.btn {
+    display: block;
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition);
+    text-align: center;
+    letter-spacing: 0.3px;
+}
+
+.btn:active {
+    transform: scale(0.98);
+}
+
+.btn-primary {
+    background: var(--teal-dim);
+    color: var(--bg);
+    box-shadow: 0 2px 10px rgba(46, 168, 142, 0.2);
+}
+
+.btn-primary:hover {
+    background: var(--teal);
+    box-shadow: 0 4px 16px rgba(46, 168, 142, 0.3);
+}
+
+.btn-secondary {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+    border-color: var(--border-focus);
+    background: #1d2736;
+}
+
+.btn-outline {
+    background: transparent;
+    color: var(--teal);
+    border: 1px solid var(--teal-dim);
+}
+
+.btn-outline:hover {
+    background: var(--teal-glow);
+    border-color: var(--teal);
+}
+
+.btn-link {
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 13px;
+    font-weight: 500;
+    padding: 10px;
+}
+
+.btn-link:hover {
+    color: var(--text);
+}
+
+.btn-back {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 13px 14px;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: #fff;
+    border: 1px solid #60a5fa;
+    font-size: 14px;
+    font-weight: 700;
+    box-shadow: 0 3px 12px rgba(37, 99, 235, 0.32);
+}
+
+.btn-back::before {
+    content: '←';
+    font-size: 17px;
+    line-height: 1;
+}
+
+.btn-back:hover {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: #fff;
+    border-color: #93c5fd;
+    box-shadow: 0 5px 18px rgba(37, 99, 235, 0.32);
+}
+
+.btn-back:focus-visible {
+    outline: 3px solid rgba(96, 165, 250, 0.48);
+    outline-offset: 2px;
+}
+
+.btn-back[id$='-back-top'] {
+    margin-top: 0;
+    margin-bottom: 14px;
+}
+
+.btn-danger {
+    color: var(--danger);
+}
+
+.btn-large {
+    padding: 16px;
+    font-size: 16px;
+}
+
+.actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.divider {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-family: var(--mono);
+    letter-spacing: 1px;
+    margin: 14px 0;
+    position: relative;
+}
+
+.divider::before, .divider::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 38%;
+    height: 1px;
+    background: var(--border);
+}
+
+.divider::before { left: 0; }
+.divider::after { right: 0; }
+
+/* Shared navigation footer: Back and Home split the footprint of the old Back button. */
+.back-home-row {
+    display: flex;
+    width: 100%;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.back-home-row-top {
+    margin-top: 0;
+    margin-bottom: 14px;
+}
+
+.back-home-row .btn-back,
+.back-home-row .btn-home-nav {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    margin: 0;
+}
+
+.btn-home-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 13px 14px;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border-focus);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.btn-home-nav::before {
+    content: '⌂';
+    font-size: 17px;
+    line-height: 1;
+}
+
+.btn-home-nav:hover {
+    border-color: var(--teal);
+    background: var(--teal-glow);
+}

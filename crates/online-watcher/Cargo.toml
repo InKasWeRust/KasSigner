@@ -1,0 +1,78 @@
+# KasSee Web — Watch-only companion wallet for KasSigner
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0
+#
+# Pure Rust → WASM. Zero C dependencies. No ring, no rustls, no tokio.
+# Browser provides WebSocket (TLS handled natively) and crypto.getRandomValues.
+
+[package]
+name = "online-watcher"
+version = "2.0.0"
+edition = "2021"
+description = "KasSee Web — browser-based watch-only wallet for air-gapped KasSigner"
+license = "GPL-3.0-only"
+repository = "https://github.com/InKasWeRust/KasSigner"
+keywords = ["kaspa", "wallet", "wasm", "covenant", "watch-only"]
+categories = ["cryptography::cryptocurrencies", "wasm"]
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+default = ["browser-api"]
+browser-api = []
+# KasSee enables the authored browser API surface by default; the standalone
+# KasSigner protocol/wallet SDK crates disable it and link only reusable protocol logic.
+
+[dependencies]
+shared-signer = { version = "=2.0.0", path = "../shared-signer" }
+kassigner-protocol = { version = "=2.0.0", path = "../kassigner-protocol", features = ["kassee-compat"] }
+# WASM bindings
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "console",
+    "WebSocket",
+    "CloseEvent",
+    "MessageEvent",
+    "BinaryType",
+    "Event",
+    "Window",
+] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Pure Rust crypto (no C, no ring)
+k256 = { version = "0.13", features = ["ecdsa", "arithmetic"] }
+sha2 = "0.10"
+hmac = "0.12"
+
+# Blake2b for Kaspa hashing
+blake2b_simd = "1"
+
+# Blake3 for KCC20 oracle message hashing (matches engine OpBlake3). Pure Rust for wasm.
+blake3 = { version = "1", default-features = false }
+
+# QR generation (pure Rust). KasSee consumes QrCode module colors and hand-renders
+# SVG; qrcode's default `image`/`svg`/`pic` renderers are intentionally disabled.
+qrcode = { version = "0.14.1", default-features = false }
+
+# Hex encoding
+hex = "0.4"
+
+# Browser/WASM cryptographic randomness for live covenant salts and anti-klepto host secrets.
+getrandom = { version = "0.2", features = ["js"] }
+
+# Arkworks Groth16/BN254 — matches Kaspa OP_ZK_PRECOMPILE wire serialization.
+ark-bn254 = { version = "0.5", default-features = false, features = ["curve"] }
+ark-groth16 = { version = "0.5", default-features = false, features = ["std"] }
+ark-relations = { version = "0.5", default-features = false, features = ["std"] }
+ark-serialize = { version = "0.5", default-features = false, features = ["std"] }
+ark-std = { version = "0.5", default-features = false, features = ["std"] }
+ark-snark = { version = "0.5", default-features = false }
+
+[dev-dependencies]
+offline-signer = { version = "=2.0.0", path = "../offline-signer" }

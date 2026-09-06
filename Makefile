@@ -1,57 +1,129 @@
-# KasSigner : Air-gapped offline signing device for Kaspa
+# KasSigner — Air-gapped offline signing device for Kaspa
 # Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
 # License: GPL-3.0
 #
+# GNU Make is the small public developer interface. Detailed QA/build steps
+# live under scripts/, tools/, and qa/ and are orchestrated internally.
 
-.PHONY: firmware firmware-dev firmware-m5 firmware-mirror core-test kassee kassee-wasm all clean help
+include qa/config/toolchains.env
 
-## Device firmware: Waveshare ESP32-S3-Touch-LCD-2 (default)
-firmware:
-	cd bootloader && ESP_HAL_CONFIG_PSRAM_MODE=octal cargo build --release
+ifeq ($(OS),Windows_NT)
+PYTHON ?= python
+else
+PYTHON ?= python3
+endif
 
-## Device firmware: Waveshare (dev build, skip self-tests)
-firmware-dev:
-	cd bootloader && ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release --features skip-tests
+MAKE_TASK := $(PYTHON) scripts/common/lib/make_tasks.py
 
-## Device firmware: M5Stack CoreS3 Lite
-firmware-m5:
-	cd bootloader && cargo run --release --no-default-features --features m5stack
+FUZZ_PASSES ?= 100000
+STRICT_LOCKFILES ?=
+BOARD ?= m5stack
+PORT ?=
+HARDWARE_TIMEOUT ?= 240
+WORKFLOW_TIMEOUT ?= 480
+RESUME_FROM ?=
+RELEASE_DIR ?= release
+SIGNING_KEY ?=
+REFRESH_INPUTS ?=
+OWNER_KEY ?=
+OWNER_DIR ?= target/owner-firmware
+SECURE_BOOT_KEY ?=
+SECURE_DIR ?=
 
-## Device firmware: Waveshare with live display mirror
-firmware-mirror:
-	cd bootloader && ESP_HAL_CONFIG_PSRAM_MODE=octal cargo run --release --features waveshare,mirror,skip-tests
+.PHONY: kassee sdk ios ios-release ios-test ios-qa android android-release android-test android-qa \
+	firmware flash flash-release secure-provisioning secure-owner-only firmware-mirror owner-firmware test-hardware workflow-e2e workflow-hil \
+	firmware-qemu-setup firmware-qemu firmware-qemu-test test qa release release-readiness clean help
 
-## Host tests for the security-critical core crate (no hardware, no Xtensa)
-core-test:
-	cd core && cargo test
-
-## KasSee companion wallet, native type check (standard Rust, any platform)
+# KASSEE / SDK
 kassee:
-	cd kassee && cargo build --release
+	$(MAKE_TASK) entrypoint kassee-web-build
 
-## KasSee companion wallet, the real WASM artifact (needs wasm-pack)
-kassee-wasm:
-	cd kassee && RUSTUP_TOOLCHAIN=stable ./build.sh
+sdk:
+	$(MAKE_TASK) entrypoint sdk-build
 
-## Build both (firmware requires Xtensa toolchain)
-all: firmware kassee
+# IOS — real Xcode operations; these fail clearly outside macOS/Xcode.
+ios:
+	$(MAKE_TASK) ios build
 
-## Clean all build artifacts
+ios-release:
+	$(MAKE_TASK) ios release
+
+ios-test:
+	$(MAKE_TASK) ios test
+
+ios-qa:
+	$(MAKE_TASK) ios qa
+
+# ANDROID — real Gradle/API-37 operations.
+android:
+	$(MAKE_TASK) android build
+
+android-release:
+	$(MAKE_TASK) android release
+
+android-test:
+	$(MAKE_TASK) android test
+
+android-qa:
+	$(MAKE_TASK) android qa
+
+# FIRMWARE / DEVICE
+firmware:
+	$(MAKE_TASK) firmware "$(BOARD)"
+
+flash:
+	$(MAKE_TASK) flash "$(BOARD)" "$(PORT)"
+
+flash-release:
+	$(MAKE_TASK) flash-release "$(BOARD)" "$(PORT)" "$(RELEASE_DIR)"
+
+secure-provisioning:
+	$(MAKE_TASK) secure-release dual "$(SECURE_DIR)" "$(SECURE_BOOT_KEY)" "$(SIGNING_KEY)"
+
+secure-owner-only:
+	$(MAKE_TASK) secure-release owner-only "$(SECURE_DIR)" "$(OWNER_KEY)" ""
+
+firmware-mirror:
+	$(MAKE_TASK) firmware mirror
+
+owner-firmware:
+	$(MAKE_TASK) owner-firmware "$(OWNER_DIR)" "$(OWNER_KEY)"
+
+test-hardware:
+	$(MAKE_TASK) test-hardware "$(BOARD)" "$(PORT)" "$(HARDWARE_TIMEOUT)" "$(STRICT_LOCKFILES)"
+
+workflow-e2e:
+	$(MAKE_TASK) workflow-e2e "$(BOARD)" "$(PORT)" "$(WORKFLOW_TIMEOUT)" "$(RESUME_FROM)"
+
+workflow-hil:
+	$(MAKE_TASK) workflow-hil "$(BOARD)" "$(PORT)" "$(WORKFLOW_TIMEOUT)" "$(RESUME_FROM)"
+
+firmware-qemu-setup:
+	$(MAKE_TASK) entrypoint qemu-setup
+
+firmware-qemu:
+	$(MAKE_TASK) entrypoint qemu-build
+
+firmware-qemu-test:
+	$(MAKE_TASK) entrypoint qemu-test
+
+# COMMON QA
+test:
+	$(MAKE_TASK) test "$(STRICT_LOCKFILES)"
+
+qa:
+	$(MAKE_TASK) qa "$(FUZZ_PASSES)" "$(STRICT_LOCKFILES)" "$(RESUME_FROM)"
+
+# RELEASE
+release:
+	$(MAKE_TASK) release "$(RELEASE_DIR)" "$(SIGNING_KEY)" "$(REFRESH_INPUTS)"
+
+release-readiness:
+	$(MAKE_TASK) entrypoint release-readiness
+
+# OTHER
 clean:
-	cd bootloader && cargo clean
-	cd core && cargo clean
-	cd kassee && cargo clean
-	cd tools && cargo clean
+	$(MAKE_TASK) clean
 
-## Help
 help:
-	@echo "KasSigner build targets:"
-	@echo "  make firmware         Waveshare firmware (release)"
-	@echo "  make firmware-dev     Waveshare firmware (dev, skip tests)"
-	@echo "  make firmware-m5      M5Stack firmware"
-	@echo "  make firmware-mirror  Waveshare with display mirror"
-	@echo "  make core-test        Host tests for the core crate"
-	@echo "  make kassee           KasSee native type check"
-	@echo "  make kassee-wasm      KasSee WASM build (wasm-pack)"
-	@echo "  make all              Build firmware + kassee"
-	@echo "  make clean            Clean all build artifacts"
+	@$(MAKE_TASK) help

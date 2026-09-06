@@ -1,0 +1,40 @@
+                        <!-- Human-attested Oracle-v1 covenant fields -->
+                        <div id="cov-fields-oracle-v1" class="hidden">
+                            <p class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                Release to a beneficiary only after the selected oracle signs an exact
+                                human-readable attestation. The owner can refund after the timeout.
+                                KasSigner signs the covenant's exact 32-byte commitment with an isolated per-covenant key; wallet SIGN HASH remains disabled.
+                            </p>
+                            <label class="input-label">Beneficiary Pubkey / Address</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-oracle-v1-bene" class="input-text u-grow-mb-0"
+                                       placeholder="Kaspa address or 32-byte x-only pubkey" autocomplete="off" spellcheck="false">
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0"
+                                        id="btn-cov-scan-oracle-v1-bene" title="Scan QR">📷</button>
+                            </div>
+                            <label class="input-label">Oracle Covenant Key</label>
+                            <div class="u-display-flex-gap-8px-align-start">
+                                <input type="text" id="cov-oracle-v1-pubkey" class="input-text u-grow-mb-0"
+                                       placeholder="Scan isolated covenant-key response" readonly>
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0"
+                                        id="btn-cov-oracle-v1-key-request" title="Show covenant-key request">KEY QR</button>
+                                <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0"
+                                        id="btn-cov-scan-oracle-v1-key" title="Scan covenant-key response">📷</button>
+                            </div>
+                            <input type="hidden" id="cov-oracle-v1-key-id" value="">
+                            <div class="u-text-11px-text-text-dim-margin-0-0-8px-line-1-4">
+                                KasSee creates a unique covenant-key request. The oracle scans it on KasSigner under
+                                <b>Single Signature → Covenant Sign</b> and returns the isolated key QR.
+                                This key cannot spend ordinary wallet funds.
+                            </div>
+                            <label class="input-label">Release Statement</label>
+                            <textarea id="cov-oracle-v1-statement" class="input-text input-textarea" maxlength="190"
+                                      placeholder="e.g. Release after shipment is confirmed delivered"></textarea>
+                            <p class="u-text-10px-text-text-muted-margin-4px-0-0">
+                                KasSee adds a unique request ID and locks this exact statement into the covenant.
+                                The oracle later signs exactly that displayed statement.
+                            </p>
+                            <label class="input-label">Owner Refund Timeout</label>
+                            <input type="datetime-local" id="cov-oracle-v1-datetime" class="input-text u-color-scheme-dark">
+                            <input type="hidden" id="cov-oracle-v1-locktime" value="">
+                        </div>

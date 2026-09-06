@@ -4,152 +4,163 @@
 
 # Security Policy
 
-KasSigner is an air-gapped offline signing device that handles cryptographic keys and transaction signing. It is NOT a hardware wallet. It has no secure element and no persistent key storage. All keys exist in RAM only and are destroyed on power-off. Security is the project's highest priority.
+KasSigner handles wallet secrets and transaction authorization on consumer ESP32-S3 hardware. It is an **experimental offline signing device**, not a secure-element hardware wallet. Security-sensitive changes must fail closed, preserve on-device review, and remain reproducible/testable.
 
 ## Supported Versions
 
-Only the latest release receives security updates. The current release is **1.0.7**.
+The maintained source line is **2.0.0**. Published 1.x history is retained in [CHANGELOG.md](CHANGELOG.md); security fixes are developed on the maintained line and should not be assumed to be backported to every historical release.
 
-Supported hardware:
-
-| Platform | Supported |
-|----------|-----------|
-| Waveshare ESP32-S3-Touch-LCD-2 | Yes |
-| M5Stack CoreS3 Lite | Yes |
+Hardware code targets M5Stack CoreS3/CoreS3 Lite and Waveshare ESP32-S3-Touch-LCD-2 variants. **M5Stack CoreS3, KasSee Web, Android, and the iOS app on macOS Sonoma/Xcode 16.2 with an iPhone 16 Pro Simulator have been tested.** Waveshare/other ESP32-S3 hardware variants remain physical-qualification gaps. Signed iOS Release plus physical-device smoke remains release evidence rather than an unresolved application-support gap. See the validation warning in [README.md](README.md).
 
 ## Reporting a Vulnerability
 
-**Do NOT open a public GitHub issue for security vulnerabilities.**
+**Do not open a public issue for an undisclosed security vulnerability.**
 
-If you discover a security vulnerability, please report it responsibly:
-
-1. **Email:** Send details to **kassigner@proton.me** with subject line `[SECURITY]`
-2. **Include:** description of the vulnerability, steps to reproduce, potential impact, and suggested fix (if any)
-3. **Response timeline:** acknowledgment within 48 hours, initial assessment within 7 days, fix or mitigation plan within 30 days
-4. **Fix and credit:** we confirm and assess the report, develop and test a fix, release it and credit the reporter unless anonymity is requested
+Email **kassigner@proton.me** with subject `[SECURITY]` and include the affected version/build, reproducible steps or proof, impact, and any proposed mitigation. The project will acknowledge, assess, fix/mitigate, and coordinate disclosure as quickly as practical; no fixed response time is a security guarantee.
 
 ## Security Model
 
-Security is not a single feature. It is a series of independent walls. An attacker must defeat all of them. Not just one.
+### Layer 1 - Offline authorization boundary
 
-### Layer 1: Air-gap
+The firmware does not operate a wallet network stack. Transaction/watch data is exchanged through QR and SD workflows; touch/display is the human approval boundary. Development/provisioning USB/serial paths are separate from normal wallet operation and production policy restricts diagnostic/debug combinations.
 
-No network stack. WiFi and Bluetooth radios are never initialized. At boot the modem clocks are gated and the wireless power domain is switched off. USB OTG disabled. JTAG closed by eFuse. Data moves only through QR codes (camera and display) and SD card.
+### Layer 2 - Wallet key lifecycle
 
-### Layer 2: Volatile keys
+Users choose one of two hardware wallet-session modes:
 
-All key material lives in SRAM only. Mnemonic, master key, derived keys, signing nonces. All volatile. Power off and SRAM decays in milliseconds. The panic handler wipes RAM even on a crash. Nothing is stored in flash. Nothing is persisted anywhere.
+- **Always Start Fresh** - wallet slots remain RAM-only and are not restored after power loss.
+- **Device-bound wallet storage** - authenticated ciphertext is persisted and unlocked with the user's PIN/password plus the non-exportable/read-protected ESP32-S3 HMAC eFuse capability.
 
-### Layer 3: Hardware Secure Boot
+The mnemonic recovery words, together with the optional BIP39 passphrase, remain the permanent portable recovery path. Device-bound ciphertext is not a replacement for recovery words.
 
-On a provisioned unit the ESP32-S3 ROM, immutable silicon, verifies an RSA-3072 firmware signature against a key digest burned permanently into eFuse before any code runs. Only firmware signed with the matching private key can execute. This is a silicon-level guarantee.
+### Layer 3 - Hardware Secure Boot and owner authority
 
-The eFuse operation is **one-time and irreversible**: once Secure Boot is enabled and the key digest is burned it cannot be changed or disabled, and a lost signing key means the board can never be reflashed.
+ESP32-S3 Secure Boot v2 can anchor the boot chain in eFuse with RSA-3072. The normal CoreS3 release does not contain eFuse-provisioning UI or request logic. Two separate opt-in production provisioning profiles expose **Pop It!** as the user-controlled irreversible transition: `secure-provisioning` keeps the vendor RSA authority and can optionally add an independent owner authority, while `secure-owner-only` restores the original sole-owner model in which the owner RSA key is digest 0 and no vendor Secure Boot authority remains trusted. Neither special profile performs irreversible Flash Encryption, Secure Boot, or anti-rollback eFuse transitions during ordinary boot/use; those changes are deferred until explicit Owner/Pop It consent. Development firmware simulates this path and cannot arm production eFuse operations. Provisioning must therefore be rehearsed on sacrificial hardware and every private key required by the selected policy must remain offline. See [docs/security/POP_IT_SECURE_BOOT.md](docs/security/POP_IT_SECURE_BOOT.md) and [docs/EFUSE_RUNBOOK.md](docs/EFUSE_RUNBOOK.md).
 
-See [docs/EFUSE_RUNBOOK.md](docs/EFUSE_RUNBOOK.md) for the eFuse procedure.
+### Layer 4 - Software firmware verification
 
-### Layer 4: Software firmware verification
+KasSigner also verifies software build identity/hash/signature evidence at boot. This catches corruption and participates in production attestation, but software self-verification is not by itself a silicon root of trust because the verifier and its key material are part of the image. Hardware Secure Boot is the stronger anchor.
 
-Independent of Secure Boot. The firmware computes its own SHA-256 hash at every boot and verifies a Schnorr signature against the developer's public key embedded at build time. In a `production` build a tampered binary fails verification and halts boot; development builds report the result and continue. Hash convergence (the Docker build iterates up to five passes and asserts the last two agree) ensures the embedded hash is self-consistent.
+### Layer 5 - Rust memory safety and secret handling
 
-Note the limit of this layer on its own: the hash, the signature and the public key all live inside the image being checked, so it detects accidental corruption and casual tampering, not an attacker who replaced the firmware and removed the check.
+The firmware signing path is bare-metal `no_std` Rust. `unsafe` is confined to hardware/MMIO, volatile zeroization, and reviewed low-level memory construction/access boundaries. Repository checks reject new broad suppressions and track zeroization, signing-state authorization, parser bounds, and critical source contracts. Rust memory safety reduces common memory-corruption classes; it does not prove absence of logic, side-channel, compiler, or hardware faults.
 
-Secure Boot is the root of trust; this layer is defense in depth under it, and the developer public key it carries is never what stops a hostile image from executing. Verify what you flash with [docs/REPRODUCIBLE_BUILD.md](docs/REPRODUCIBLE_BUILD.md); trust what runs to the eFuse digest.
+### Layer 6 - Authenticated backup/storage
 
-### Layer 5: Rust memory safety
+Current device-bound persistence and current SD seed/XPrv backups use purpose/domain-separated AES-256-GCM with a credential-derived component and the device HMAC eFuse capability. They **work only with the KasSigner device that created them** and are expected to fail authentication on another signer.
 
-100% Rust, `no_std`. The compiler rules out buffer overflows, use-after-free, null dereferences, uninitialized reads, double frees and data races before the code runs. Malicious input triggers a panic and a RAM wipe, never code execution. Integer overflow checks stay enabled in release builds.
+Current JPEG steganographic backup has two modes:
 
-`unsafe` is confined to four roles, and the signing and hashing code itself contains none:
+- **Device-bound (recommended)** - protected by the creating device's eFuse HMAC capability.
+- **Portable Backup** - complete cross-device recovery requires **JPEG + password**. Current Portable payloads use versioned Argon2id v=19 password stretching and AES-256-GCM. The JPEG carries the non-secret KDF parameters, random salt, nonce, ciphertext/tag, and carrier metadata needed by another KasSigner; those parameters are authenticated as AEAD associated data. Because the format is self-contained, possession of the JPEG permits offline password guesses. Argon2id raises the cost of each guess but does not make weak passwords safe.
 
-- MMIO register access in the hardware drivers
-- volatile reads and writes where the optimiser must not elide the access: `write_volatile` in the zeroization routines (a safe write can be optimised away), and the `read_volatile` of `FIRMWARE_SIGNED` that keeps the unsigned image whole (a hint like `black_box` licenses LTO to delete the wallet from unsigned builds)
-- building the large transaction struct on the heap, so it does not overflow the stack
-- the two seams where the firmware hands the hardware-free `core/` crate a logger and an entropy source as function pointers (`core/src/log.rs`, `core/src/entropy.rs`); each carries a SAFETY comment and has a single writer
+See [docs/security/STEGANOGRAPHY.md](docs/security/STEGANOGRAPHY.md).
 
-### Layer 6: Encrypted backup
+### Layer 7 - Session-bound QR transport
 
-SD card backups are protected by AES-256-GCM with a key stretched from the backup password by PBKDF2 (see Cryptographic Primitives for the round count and why). Salt and nonce are per file. Nothing on the card is usable without the password.
+Current multi-frame QR transport uses a versioned 96-bit session identifier, fragment metadata/conflict checks, and a final payload digest. Foreign frames cannot silently replace or contaminate an active assembly. Legacy sessionless framing is not a current signing path.
 
-### Layer 7: Steganographic hiding
+### Layer 8 - Reproducible builds and QA
 
-The encrypted seed hides inside an ordinary JPEG photograph. The device writes it to the SD card, and from there the photo can live anywhere a photo lives, indistinguishable from every other one. Two carriers are available, EXIF metadata and the image's own compressed data, which fail on opposite operations, and the photo's caption doubles as the encryption password. See [docs/STEGANOGRAPHY.md](docs/STEGANOGRAPHY.md) for the full design.
+The repository pins build/QA toolchains and provides reproducible Docker release builds. QA includes mutation testing, crypto-domain mutation requirements, fuzzing, branch coverage, CRAP/complexity checks, architecture/source inventory gates, browser behavioral coverage, and security control-evidence contracts. These controls reduce software risk; they are not a substitute for independent review or physical validation.
 
-### Layer 8: BIP39 passphrase
-
-The optional 25th word derives a completely separate wallet. An attacker who recovers the 24 words, from a card, a backup or a photo, reaches only the decoy wallet; the real one needs the passphrase as well, and the passphrase is never stored on the device or in any backup it writes.
-
-## Build and Boot Integrity
-
-### Reproducible builds
-
-Anyone can verify that a binary was built from the published source code. The repository contains a Dockerfile that freezes every component of the build. Exact Ubuntu version, exact Rust compiler, every dependency pinned in `Cargo.lock`. Run `docker build` on any machine and compare the SHA-256 hash to the one published in the release.
-
-See [docs/REPRODUCIBLE_BUILD.md](docs/REPRODUCIBLE_BUILD.md) for details.
-
-The published unsigned hash stands for the complete firmware. The unsigned image is built from the same source as the signed one; the only inputs that differ are the embedded signature, the signed flag and the hash. Verification always compares unsigned against unsigned (a byte-diff of signed against unsigned is not confined to the signature region, since those constants shift the compiler's output). Before 1.0.7 the unsigned image was not the firmware at all: the compiler could prove an unsigned `production` build never reached the wallet and deleted most of it, so rebuilding it verified a stub rather than the firmware anyone runs.
-
-### Boot-time known-answer tests
-
-On every power-on, before anything else is usable, the firmware checks its cryptographic primitives against published answers and refuses to boot if any of them disagree (`app/boot_test.rs`, `run_crypto_kats`). Crypto has no natural failure signal: a wrong derivation still gives a valid-looking key and a wrong sighash still signs cleanly, so this is the check that catches a broken build before it can touch funds. It cannot be compiled out of a shipped image (`main.rs` makes that a build error). The set: five BIP39 vectors, four storage-encryption vectors, a BIP32 vector, two Schnorr vectors, a 45' multisig address produced by an independent implementation, 30 transaction sighash vectors taken from the rusty-kaspa 2.0.1 consensus tests covering all six sighash types and both transaction versions, and a health-checked draw from the hardware RNG. Measured at boot: 30/30 sighash in 326 ms on M5Stack CoreS3 Lite and 149 ms on Waveshare, full KAT set 2054 ms and 2080 ms respectively. Every entropy source, what it feeds, what was measured against SP 800-90B and what is only health-checked at runtime, is recorded in [docs/ENTROPY.md](docs/ENTROPY.md).
-
-### Testing the crypto yourself
-
-Everything above runs on a host as well as on the device. The key derivation,
-the transaction parsers, sighash, Schnorr and the storage encryption are a
-separate crate, `core/`, with no peripheral access and no `esp-hal`, so a
-reviewer needs no ESP hardware and no Xtensa toolchain: `cd core && cargo test`
-runs the same boot-time known-answer tests listed above,
-the FAT32 layer against an in-memory card image, and a mutation loop over
-every parser. [core/README.md](core/README.md) explains what is in the crate,
-what deliberately is not, and how to run the coverage-guided fuzzer. A
-reproducer submitted as a failing test in that crate is the most useful form
-a report can take.
+See [docs/development/REPRODUCIBLE_BUILD.md](docs/development/REPRODUCIBLE_BUILD.md) and `qa/release/README.md`.
 
 ## KasSee Security Boundary
 
-KasSee is the browser-based watch-only companion and the project's test bench: new device features, covenant designs and ideas are tried there first. It is not the product. KasSigner speaks PSKB and QR and works with any watch-only wallet that does the same.
+KasSee runs on an online browser/device and is **not** the trusted spending display. It should not receive wallet spending private keys. A compromised browser, OS, extension, network path, or node may alter displayed data or the unsigned transaction it constructs. The signer must independently parse/review the actual payload and the user must verify the device screen before approval.
 
-KasSee runs in the user's browser, OS and network and is **not a security boundary**. A phishing clone can show one address and put another in the QR; malware can rewrite a transaction in memory. The WASM is built from the same open source and is reproducible, which raises the bar, but the final check is always: **verify on the KasSigner screen**. The device shows what is in the transaction data, not what the browser claims.
+Public node use also leaks queried addresses/IP/network metadata to the node operator. Run your own node when that privacy/trust trade-off matters.
 
-For covenants the device does not decode semantics. It shows the destination and amount of every output, and first checks that the redeem script the host supplied hashes to the P2SH commitment being spent, so a substituted script cannot vouch for itself. The trust anchor is the covenant address you verified out of band at creation, matched against what the device displays.
+The Android and iOS applications are platform shells around the same KasSee runtime rather than independent wallet implementations. Native shell security (app lock, permissions, WebView/WKWebView policy, decoy/privacy cover) does not make the online device a spending-key trust boundary.
 
-For 45' multisig, the descriptor is a second secret: a seed alone cannot find or spend the funds, so back up seed and descriptor. When a transaction claims an output as change, the device tries to reproduce it from a descriptor that already reproduces one of the inputs; if it cannot, the claim is shown as unverified, and if the descriptor contradicts it, the device refuses to sign. A 44' and a 45' kpub are byte-identical in form, so the multisig key export is a separately labelled action from the watch-only one. The full scheme is written up in [KIP: Multisig Wallet Conventions for Kaspa](https://github.com/kaspanet/kips/pull/39/commits/ec5db96).
+## Backward-Compatible Recovery Boundary
 
-Stealth payments, where a payer derives a one-time address from your published stealth keys, started life here. Scanning uses a view key separate from the spend key.
+KasSigner retains only narrowly scoped compatibility needed to recover current wallet ownership without reopening retired signing protocols.
 
-By default KasSee connects to a public Kaspa node, whose operator can see which addresses belong together, the balance and your IP. For privacy, run your own node and point KasSee at it in Settings.
+Password-only wallet-secret containers are **not** part of this exception. Historical password-only seed/XPrv/recovery containers are **intentionally unsupported**. Current device-bound seed/XPrv backup is a distinct authenticated format and does not act as a legacy reader.
+
+Approved/current recovery behavior:
+
+- Historical Base58 kpub text is accepted only by an isolated decode-only adapter and immediately normalized to the canonical current representation; current software does not emit Base58 kpub.
+- Imported account XPrvs preserve the metadata required to reproduce their expected account serialization and receive/change chains.
+- The **mnemonic recovery words** plus optional BIP39 passphrase are the permanent cross-device master recovery backup.
+- Device-bound wallet storage and device-bound SD backups are convenience storage and **work only with the KasSigner device that created them**; copying ciphertext to another device is expected to fail.
+- Current JPEG Portable mode is a password-only, self-contained Argon2id/AES-256-GCM format whose recovery contract is **JPEG + password**; it does not restore the historical Base64/password-only decoder or the unreleased development password-plus-recovery-key format.
+- Current Oracle-v1, ZK Crowdfunding, Private Swap v2, KSPT v4, and session-bound QR use new current protocols. Historical raw-hash Oracle/Crowdfunding, adaptor-v1, KSSN v1, sessionless QR, and legacy KSPT transaction-session formats are not resumed or signed.
+
+Users recover wallet material and rebuild unfinished historical transactions in the current format rather than exposing the current signer to obsolete transaction/session parsers.
+
+## Covenant-Signing Boundary
+
+Generic wallet-key `SIGN HASH` is retired. Human-readable wallet message signing remains domain-separated. Third-party covenant commitments use **`COVENANT SIGN`**, which derives mnemonic-only isolated covenant keys and keeps the KasSigner safety envelope separate from the exact external 32-byte commitment.
+
+Recognized schemes are recomputed/validated on-device. Opaque/custom requests require stronger warning/confirmation and still use the isolated covenant hierarchy. The ordinary wallet-spending key hierarchy does not receive generic caller-selected-digest authority.
+
+See [docs/protocol/COVENANT_SIGN.md](docs/protocol/COVENANT_SIGN.md).
+
+## Private Swap Boundary
+
+Private Swap v2 restores the adaptor-signature privacy goal without restoring historical adaptor-v1. Adaptor pre-signatures are bound to exact canonical Kaspa `SIGHASH_ALL` claim transactions, use isolated swap-only claim/binding/adaptor branches, and participate in host-assisted anti-klepto nonce binding. Completed on-chain claims are ordinary BIP340 transaction signatures; CLTV owner refunds remain the failure path. The protocol does not use an HTLC/hashlock preimage or shared on-chain protocol hash.
+
+## What KasSigner Does NOT Protect Against
+
+- Lab-grade physical attacks, invasive probing, voltage/clock glitching, EM/power/cache/bus side channels, or fault injection unless separately demonstrated by hardware evidence.
+- A compromised compiler/toolchain that still reproduces across all builders used by the user.
+- Weak Portable-backup passwords. A self-contained Portable JPEG necessarily permits offline password guesses; Argon2id makes each guess more expensive but password strength still matters.
+- Social engineering or disclosure of mnemonic/passphrase/PIN/password.
+- A compromised companion browser/OS before the signer parses and the user reviews the actual transaction.
+- Bugs in hardware variants that have not yet completed physical qualification, or mobile behavior not covered by the signed physical-device release-evidence matrix.
+
+## Known Limitations and Audit Status
+
+The v1.0.5 history records an external/source security audit that produced 40 findings and drove substantial hardening. The 2.0.0 source tree also has extensive repository-owned source review and automated assurance.
+
+The source repository does not embed the completed external audit/HIL records required by `qa/release/README.md`; those records are artifact- and hardware-bound release evidence kept outside Git. Repository-generated `current-control-evidence.json`, mutation results, coverage, fuzzing, and related checks are project-owned engineering evidence, not third-party certification. KasSigner therefore does not claim formal verification or independent certification merely because repository QA passes.
 
 ## Cryptographic Primitives
 
-| Purpose | Algorithm | Standard |
-|---------|-----------|----------|
-| Seed generation | BIP39 mnemonic | BIP-0039 |
-| Key derivation | BIP32 HD keys | BIP-0032 |
-| Child mnemonics | BIP85 | BIP-0085 |
-| Seed derivation | PBKDF2-HMAC-SHA512 (2048 rounds) | BIP-0039 / RFC 8018 |
-| Backup password stretching | PBKDF2-HMAC-SHA256 (100,000 rounds, per-file salt) | RFC 8018 |
-| Transaction signing | Schnorr (secp256k1), BIP-340 tagged challenge | BIP-0340 / Kaspa spec |
-| Transaction hashing | Keyed Blake2b-256 | Kaspa consensus |
-| Backup encryption (SD and stego) | AES-256-GCM, per-file salt and nonce | NIST SP 800-38D |
-| Payload encryption (ECIES) | ECDH + BLAKE2B-256 + AES-256-GCM | SEC 1 / RFC 7693 / NIST SP 800-38D |
-| Shared-secret derivation | ECDH (secp256k1) | SEC 1 |
-| Hashing | SHA-256, HMAC-SHA512, BLAKE2b, RIPEMD-160 (kpub fingerprint) | FIPS 180-4, RFC 2104, RFC 7693, ISO/IEC 10118-3 |
-| Firmware verification | SHA-256 + Schnorr | Custom |
-| Constant-time ops | Fixed-time compare, XOR masking, constant-time BIP32 scalar comparison and reduction | Side-channel mitigation |
+| Purpose | Primitive / boundary |
+|---|---|
+| Mnemonic / recovery | BIP39, optional BIP39 passphrase |
+| HD derivation | BIP32 Kaspa account paths |
+| Child mnemonics | BIP85 |
+| Transaction/message signatures | secp256k1 Schnorr / BIP340-compatible challenge rules as required by Kaspa/current protocol |
+| Transaction hashing | Kaspa consensus hashing / keyed Blake2b where required |
+| Credential stretching | Argon2id v=19 for current KasSigner-owned password formats; PBKDF2 only for BIP39 and explicitly versioned deployed-legacy readers |
+| Authenticated encryption | AES-256-GCM with purpose/domain separation |
+| Stealth / ECIES-style flows | secp256k1 ECDH + protocol KDF/AEAD |
+| Firmware identity | SHA-256 + Schnorr software evidence; optional RSA-3072 Secure Boot v2 hardware chain |
+| Constant-time boundaries | fixed-time comparisons and reviewed scalar/key operations where required |
 
-The backup KDF is PBKDF2-HMAC-SHA256 at 100,000 rounds by decision, not by default. Raising the count six-fold buys under three bits against an attacker on rented GPUs while costing the user seconds on a handheld; what protects a backup is the per-file salt and the strength of the password and passphrase. The container reserves a KDF id so a memory-hard replacement can ship without breaking old backups.
+Exact constants/format versions are source-of-truth in the current implementation and protocol docs; this table intentionally avoids duplicating volatile implementation constants.
 
-## Reviews and Known Limitations
+## Assurance Policy
 
-KasSigner has been through several security reviews since v1.0.5, the external ones by [KodinglsFun](https://x.com/KodinglsFun). Every finding was checked against the source; see [CHANGELOG.md](CHANGELOG.md) for the fixes that shipped, credited there against the release they landed in. Several claims from the reviews were refuted from the code, with the reasoning published rather than the finding quietly dropped.
+Current source policy includes:
 
-The project has not been reviewed by an independent professional security firm; a formal third-party audit is a goal for a future release. Community review is welcome, and `core/src/wallet/`, `core/src/crypto/`, `bootloader/src/hw/sd_backup.rs` and `bootloader/src/features/stego*.rs` are where it counts most.
+- >=92% viable-mutant kill rate for the global critical mutation gate.
+- 100% viable non-equivalent kill requirement for the explicitly enumerated host-testable crypto/key/signing mutation domain, with zero allowed timeouts.
+- 90% host/critical-domain branch targets in the current coverage policy.
+- Pinned fuzz/toolchain inputs, CRAP/complexity checks, architecture/source inventory gates, browser behavioral coverage, and test-quality evidence checks.
+- Separate release-readiness evidence for independent review, clean builders, HIL/fused hardware, physical entropy, signing custody, fault/update testing, and other claims that source tests cannot establish.
 
-### What KasSigner does not protect against
+These numbers describe repository gates, not a probability that the system is secure.
 
-- **Lab-grade physical attacks**: an attacker with decapping equipment, an electron microscope or voltage glitching gear may extract secrets from the ESP32-S3 while it is powered on. This is inherent to consumer microcontrollers.
-- **Compromised build environment**: if the Rust toolchain or dependencies are backdoored, the binary may contain exfiltration paths. Always build from source and verify with reproducible Docker builds.
-- **Social engineering**: if you reveal your seed, EXIF password, or 25th word to an attacker, the device cannot protect you.
-- **Compromised companion device**: if the device running KasSee is compromised, transaction details could be manipulated before QR encoding. Always verify amounts and addresses on the KasSigner screen before signing.
+## Responsible Disclosure
 
+1. Report privately to the security email above.
+2. The project confirms and scopes the issue.
+3. A fix/mitigation and regression evidence are developed.
+4. Affected users receive an update path.
+5. Details and credit are coordinated after users have reasonable time to update, unless immediate disclosure is necessary.
+
+## eFuse / Secure Boot Notes
+
+ESP32-S3 eFuse changes can be irreversible. Losing a production signing key or burning the wrong purpose/protection bits can permanently prevent updates or destroy the intended security boundary. Never use copied commands from an old guide without validating them against the current source/toolchain and sacrificial hardware.
+
+See [docs/EFUSE_RUNBOOK.md](docs/EFUSE_RUNBOOK.md).
+
+## Bug Bounty
+
+There is currently no formal paid bug-bounty program. Responsible security researchers may be credited unless anonymity is requested.

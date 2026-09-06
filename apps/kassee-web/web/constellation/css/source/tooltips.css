@@ -1,0 +1,48 @@
+/* tool tips */
+.tool-tip {
+  position: relative;
+  color: var(--teal);
+  border-bottom: 1px dotted var(--teal-dim);
+  cursor: help;
+  transition: color 0.2s;
+}
+.tool-tip:hover { color: var(--teal-pale); }
+.tool-tip .tip-box {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max(220px, 40vw);
+  max-width: 340px;
+  padding: 14px 16px;
+  background: #0a0f0a;
+  border: 1px solid var(--teal-dim);
+  border-radius: 8px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 300;
+  line-height: 1.7;
+  color: var(--ink);
+  letter-spacing: 0;
+  text-transform: none;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 600;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+}
+.tool-tip:hover .tip-box,
+.tool-tip.active .tip-box {
+  opacity: 1;
+  pointer-events: auto;
+}
+.tip-box::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--teal-dim);
+}

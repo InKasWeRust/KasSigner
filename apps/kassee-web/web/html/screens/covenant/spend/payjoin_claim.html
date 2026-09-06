@@ -1,0 +1,22 @@
+                    <!-- PayJoin claim sub-screen -->
+                    <div id="cov-payjoin-claim-panel" class="card hidden">
+                        <p class="u-text-11px-text-text-dim-margin-0-0-12px-line-1-4">
+                            Claim the PayJoin covenant. Your wallet will automatically
+                            add a mixing input. Enter the destination for the funds.
+                        </p>
+                        <!-- Hidden: auto-filled from invite -->
+                        <input type="hidden" id="cov-payjoin-claim-addr">
+                        <textarea class="u-hidden" id="cov-payjoin-claim-script"></textarea>
+                        <input type="hidden" id="cov-payjoin-claim-mix-addr">
+                        <label class="input-label">Destination Address</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-payjoin-claim-dest" class="input-text u-grow-mb-0"
+                                   placeholder="kaspatest:qq..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-payjoin-claim-dest"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-payjoin-claim-create">
+                            Claim PayJoin Covenant
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-payjoin-claim-back">Back</button>
+                    </div>

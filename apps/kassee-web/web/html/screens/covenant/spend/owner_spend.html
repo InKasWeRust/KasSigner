@@ -1,0 +1,33 @@
+                    <!-- Owner spend sub-screen -->
+                    <div id="cov-owner-panel" class="card hidden">
+                        <div class="u-text-11px-text-text-dim-margin-0-0-10px-line-1-4" id="cov-owner-help"></div>
+                        <div class="u-hidden">
+                            <input type="text" id="cov-owner-addr">
+                            <textarea id="cov-owner-script"></textarea>
+                        </div>
+                        <label class="input-label">Destination Address</label>
+                        <div class="u-display-flex-gap-8px-align-start">
+                            <input type="text" id="cov-owner-dest" class="input-text u-grow-mb-0"
+                                   placeholder="kaspatest:qq..." autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline u-width-auto-padding-13px-16px-no-shrink-mt-0" id="btn-cov-scan-owner-dest"
+                                    title="Scan QR">📷</button>
+                        </div>
+                        <label class="input-label">Amount (KAS) — leave empty to sweep all</label>
+                        <input type="text" id="cov-owner-amount" class="input-text"
+                               placeholder="Empty = sweep all" autocomplete="off" spellcheck="false" inputmode="decimal">
+                        <div class="u-mt-8px" id="cov-owner-fee-picker">
+                            <label class="input-label u-text-10px">Fee Level</label>
+                            <div class="u-display-flex-gap-4px">
+                                <button class="btn btn-outline cov-fee-btn u-grow-padding-6px-text-11px" data-cov-fee="low">Low</button>
+                                <button class="btn btn-outline cov-fee-btn cov-fee-active u-grow-padding-6px-text-11px" data-cov-fee="normal">Normal</button>
+                                <button class="btn btn-outline cov-fee-btn u-grow-padding-6px-text-11px" data-cov-fee="priority">Priority</button>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary u-mt-12px-full-width" id="btn-cov-owner-create">
+                            Create Owner Spend TX
+                        </button>
+                        <button class="btn btn-outline u-hidden-full-width-action" id="btn-cov-owner-consolidate">
+                            Consolidate UTXOs
+                        </button>
+                        <button class="btn btn-back" id="btn-cov-owner-back">Back</button>
+                    </div>

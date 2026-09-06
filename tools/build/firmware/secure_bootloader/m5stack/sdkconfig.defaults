@@ -1,0 +1,37 @@
+# KasSigner M5Stack CoreS3 production bootloader profile.
+# Security properties are fail-closed after the user-owned Pop It transition and are asserted by QA.
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Secure Boot v2 / RSA-3072. The private-key path is injected only into a
+# temporary build copy by build.sh and is never stored in the repository.
+CONFIG_SECURE_BOOT=y
+CONFIG_SECURE_BOOT_V2_ENABLED=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y
+# KasSigner gates Flash Encryption and Secure Boot behind explicit Pop It;
+# never allow ESP-IDF first-boot provisioning to bypass user consent.
+# CONFIG_SECURE_BOOT_FLASH_ENC_KEYS_BURN_TOGETHER is not set
+
+# Flash Encryption production profile.
+CONFIG_SECURE_FLASH_ENC_ENABLED=y
+CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y
+
+# Hardware anti-rollback. ESP32-S3 has a 16-bit SECURE_VERSION field.
+# The security version itself is injected from release-policy.env by build.sh.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=y
+CONFIG_BOOTLOADER_APP_SEC_VER_SIZE_EFUSE_FIELD=16
+
+# Pre-Pop download posture. Both special provisioning profiles must be usable
+# indefinitely without *any* automatic eFuse burn. Therefore ESP-IDF's startup
+# option that permanently switches ROM Download Mode is deliberately disabled.
+# The patched bootloader explicitly switches to Secure Download mode only while
+# servicing the user's authenticated Pop It request, immediately before the
+# final Secure Boot v2 commit.
+CONFIG_SECURE_INSECURE_ALLOW_DL_MODE=y
+# CONFIG_SECURE_ENABLE_SECURE_ROM_DL_MODE is not set
+# CONFIG_SECURE_DISABLE_ROM_DL_MODE is not set

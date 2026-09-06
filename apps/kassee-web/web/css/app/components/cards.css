@@ -1,0 +1,62 @@
+/* ─── Cards ─── */
+
+.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px;
+    margin-top: 16px;
+}
+
+.balance-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px 24px;
+    text-align: center;
+    margin-bottom: 20px;
+    position: relative;
+    overflow: hidden;
+}
+
+.balance-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--teal), transparent);
+}
+
+.balance-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 8px;
+}
+
+.balance-amount {
+    font-family: var(--mono);
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--teal);
+    margin-bottom: 4px;
+    letter-spacing: -0.5px;
+    text-shadow: 0 0 30px var(--teal-glow);
+}
+
+.balance-sub {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+}
+
+.balance-info {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 10px;
+}
