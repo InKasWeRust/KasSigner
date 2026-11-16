@@ -1,0 +1,1 @@
+{"id":7,"method":"getFeeEstimate","params":{"estimate":{"lowBuckets":[{"estimatedSeconds":0.0004072,"feerate":100.0}],"normalBuckets":[{"estimatedSeconds":0.0004072,"feerate":100.0},{"estimatedSeconds":0.0004072,"feerate":100.0}],"priorityBucket":{"estimatedSeconds":0.0004072,"feerate":100.0}}}}

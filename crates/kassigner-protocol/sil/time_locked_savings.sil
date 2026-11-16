@@ -1,0 +1,34 @@
+// KasSigner — Air-gapped offline signing device for Kaspa
+// Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+// KasSigner card: Time-Locked Savings, version 1.
+//
+// Coins sent here wait until `unlockAt`, a UTC time in milliseconds: a
+// spend's lock time must reach it, and consensus takes the spend once the
+// network's median time is past that lock time. Until then nobody, the
+// owner included, can move them; then the owner or the recovery wallet,
+// either alone, can. With no recovery wallet, `recovery` holds the
+// owner's key. Every value is state, so all cards share one template, known
+// by its hash.
+
+pragma silverscript ^0.1.0;
+
+contract TimeLockedSavings(pubkey initOwner, pubkey initRecovery, temporal initUnlockAt) {
+    pubkey owner = initOwner;
+    pubkey recovery = initRecovery;
+    temporal unlockAt = initUnlockAt;
+
+    entry claim(sig ownerSig) {
+        require(tx.time >= unlockAt);
+        require(checkSig(ownerSig, owner));
+    }
+
+    entry recover(sig recoverySig) {
+        require(tx.time >= unlockAt);
+        require(checkSig(recoverySig, recovery));
+    }
+}

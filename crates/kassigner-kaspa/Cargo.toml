@@ -1,0 +1,85 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+#
+# LEVEL 0. No format here was designed by us.
+
+[package]
+name = "kassigner-kaspa"
+version.workspace = true
+edition = "2021"
+license = "MPL-2.0"
+repository = "https://github.com/InKasWeRust/KasSigner"
+description = "Kaspa consensus rules and adopted standards, no_std, restated for KasSigner"
+keywords = ["kaspa", "consensus", "no-std", "signing"]
+categories = ["cryptography::cryptocurrencies", "no-std"]
+# The workspace's floor: 1.95, for esp-hal. The conformance harness below
+# needs 1.91; this crate's own code far less.
+rust-version.workspace = true
+
+# Not published: an app takes the SDK, and what it is built from, from the
+# GitHub release or from this repository at the release's tag.
+publish = false
+
+[dependencies]
+# Every dependency is no_std and, but for blake3, already in the signing
+# firmware.
+blake2 = { version = "0.11", default-features = false }
+# BIP32 public derivation: a child point is the parent plus a scalar times
+# the generator. No key material; no signing API used or re-exported.
+k256 = { version = "0.14", default-features = false, features = ["arithmetic", "schnorr"] }
+sha2 = { version = "0.11", default-features = false }
+ripemd = { version = "0.2", default-features = false }
+hmac = { version = "0.13", default-features = false }
+# Pulled in by k256; this crate holds no key material. One exact version
+# across the tree: 1.9.0, the first the RustCrypto 0.11 line accepts (`aes`
+# 0.9 asks for 1.9).
+zeroize = { version = "=1.9.0", default-features = false }
+# BLAKE3: KCC-1's hash (`src/kcc/`) and version 1's transaction id
+# (`src/sighash.rs`), new on a device for cov++. Pinned to the version
+# rusty-kaspa locks at the pin, so consensus and this crate hash with the
+# same code. No `std`; `pure` keeps its build script from compiling C or
+# assembly: portable Rust on the S3 and the P4, Rust's intrinsics on a host.
+blake3 = { version = "=1.8.7", default-features = false, features = ["pure"] }
+
+[dev-dependencies]
+# The source of truth, for host-side conformance only: dev-dependencies never
+# reach a device build.
+#
+# Pinned by rev, the commit tag `v2.1.0` points at: a tag can move, a commit
+# cannot. Not from crates.io: a published crate is a packaged copy, and the
+# commit is what every rule here was read from.
+#
+# Upstream uses edition 2024. A cargo too old to parse its manifests reports
+# "no matching package named kaspa-consensus-core found": a toolchain problem.
+kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "01b532e8b553523216471682649693af92f0fd16" }
+kaspa-hashes = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "01b532e8b553523216471682649693af92f0fd16" }
+kaspa-addresses = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "01b532e8b553523216471682649693af92f0fd16" }
+kaspa-txscript = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "01b532e8b553523216471682649693af92f0fd16" }
+kaspa-bip32 = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "01b532e8b553523216471682649693af92f0fd16" }
+kaspa-wallet-pskt = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "01b532e8b553523216471682649693af92f0fd16" }
+# The WASM SDK's transaction JSON (`src/safe_json.rs`), checked against the
+# serializer behind `serializeToSafeJSON` and `deserializeFromSafeJSON`.
+kaspa-consensus-client = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "01b532e8b553523216471682649693af92f0fd16" }
+# The library upstream signs with: BIP340 checked against a second
+# implementation.
+secp256k1 = { version = "0.29.0", features = ["global-context", "rand-std"] }
+# The wRPC (`src/wrpc/`), checked against the node's request and response
+# types and serializers at the same rev, and the framing crate at the version
+# that rev locks. `serde_json` and `borsh` read and write what those derives
+# make.
+kaspa-rpc-core = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "01b532e8b553523216471682649693af92f0fd16" }
+workflow-rpc = { version = "=0.18.0", default-features = false }
+workflow-serializer = "=0.18.0"
+serde = "1"
+serde_json = "1"
+borsh = "1"
+# SilverScript, our covenant language, and its ABI crate: `src/kcc/` is
+# checked against what the compiler makes of a program. 1.0.1 builds on
+# rusty-kaspa 2.1.0 from crates.io, a second copy of the pin, and pulls RISC
+# Zero's crates; host-side tests only.
+silverscript-lang = "=1.0.1"
+silverscript-abi = "=1.0.1"

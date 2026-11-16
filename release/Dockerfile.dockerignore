@@ -1,0 +1,16 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# What `release/Dockerfile` leaves out of the build context: build output,
+# the SDK's packages a `build.sh` left here, and the P4 fork's six crate
+# folders, which `fork.sh` makes again in the build (the script and its
+# patch go in).
+
+.git
+**/target
+release-out*
+crates/kassigner-sdk-wasm/pkg
+crates/kassigner-sdk-wasm/pkg-watch
+crates/kassigner-sdk-ffi/out
+firmware/kassigner-hal-esp32p4/esp-hal-fork/esp-*

@@ -1,0 +1,29 @@
+{
+  "abandon12": {
+    "words": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    "indices": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3],
+    "kpub44": "kpub2JXpdok4yzBUdLiywgMbE36ixpEnffDhG31kJpRextvhpBQgBJVPcQJ7A99JryUvi8JNBcnzGoiu4qbGcvCfpY1T2RWndCaUjJqhwDSUNw8",
+    "kpub45": "kpub2JKepGqGb3usUsEfD7JgwbFZav8Nu2z4dBZQ42hg8JUGnCbLUb9phbpZW2TQuk2DmayefGMiVzCK7EL9hPbr2K2vVzSk8SpuUwwqTLq8y14",
+    "xprv44": "kprv65YUEJDB9cdBQreWqeparu9zQnQJGCVqtp69WS23QZPiwP5XdmB94bydJsK37ehzbYWXYroSZupcW5zKAjyJbeqojEKVTBXJdJN5tdBtM6k",
+    "receive": ["kaspa:qqd6e65yefepe9wk0m9vuxdufxd80sphy67gwwd0vdaumzdt4tc9s3qt0lqeh", "kaspa:qp6r0d88yj4fazlj057wc35245jfgs87n9jn6nahfg223996dfukvgpgq6pcp", "kaspa:qrjld004k4aa5m4savjndusd56jk739pl5d90y6j4xuw2dyyjqrx6aqflp9ak"],
+    "change": ["kaspa:qqnkyg4hha30lnjystpugz42yh3paurdylxfrsshk3jfstgy95elu2a8l3jcs", "kaspa:qzs0tzq7c6atuvu7zsu3g6ln9lxmqvcxgspn57rrkp5ttcgy88prchay8zt9q"]
+  },
+  "abandon24": {
+    "words": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
+    "indices": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 102],
+    "kpub44": "kpub2JSci5UuMxrpZk5KV8UhQ5j4eBYe4WmgahxirQ1jcdjatLr1jJg5YoYpHmByYFHvJBPVubmdvXbQG4Gmy2koq9bYBLFYoGvD5NSrCCffFAr",
+    "kpub45": "kpub2JG8myov28wfetFRquaJtuTJpL3jhYnBhu2V6ZuwHnDqPBAoyqgJKkQiba4wLfU9JcsNBBoBTm7zPtk1Nv4Nn36tUkoZWGUXjWn1aJCajdW",
+    "xprv44": "kprv65TGJZx1XbJXMFzrP6wh2wnL69i9f43qDV3841c84JCc1YWsBmMq11ELSWVvY7cJafoT6pPF3vksbLsey8J89rEyhcV1fiHTCA8zUtiYTJM",
+    "receive": ["kaspa:qz20g2ugrrm629fnnvmfjpsjlx9zu2f2zj828wwpv9gvxcnajl0qs36s8hfkl", "kaspa:qpp5c48p4ryt4v7nufd44udfddgn9yt2ddac0sk6w4pprajx8ftjs4x358jsx", "kaspa:qptqpm3emzmhksmhpd5enzj8r346nzc8j0zr68j8p9lumpdazpflkqvclj8dp"],
+    "change": ["kaspa:qzgzpqdcut3vxe8emcnngyfa29de90mqape8yrr0t0khly4h4fdn5pv5y042r", "kaspa:qz3l6ml2nra9lw53p730qk90zvahm02hfm0v7rtt59hyg5p2f3y4w3ac53gs2"]
+  },
+  "zoo12": {
+    "words": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong",
+    "indices": [2047, 2047, 2047, 2047, 2047, 2047, 2047, 2047, 2047, 2047, 2047, 2037],
+    "kpub44": "kpub2KRR6B2ZqoWwMjQms2su5vAxMb2v3k6kg5KrwKQBFeRx3udyXXhq7UfwMR9NGHFoNajESaDya3CeP1f4tqLB67YDZ7Ks82ffFLDMghUVZkh",
+    "kpub45": "kpub2HgQUMVzkWe8YCDJDEg5zdMAiKnFE3inHgrv7VRUCxKanfXpGnPpSut8MQUHYBcSFKxDhNJKCFJTy6BSdUhXKd1VbrFdFRrJ2thq3ZJfPUU",
+    "xprv44": "kprv66S4gfVg1Rxe9FLJm1LtinEDoZCReHNuJrQG8vzZhJtyB7JpyzPaZgMTW7kL3TZijhTedYd5jZCw58PnzUYWQNvWN5Xp61sbpqJoaQxNDS9",
+    "receive": ["kaspa:qp8junh7a32a374wkh7yrac9jl7x3sf4hl5pw3xvlvkpymutt3dus6zzy0xzf", "kaspa:qq5mmdfs4kucdk73wntm42mlcc4xxgctapv3cwlqq73lmpwpn4dqxjq7wttr5", "kaspa:qp6pdmruj3y76pa78dfw02f34mutlmrmjqwjv5x7vcpgmypzccsh7j8fhrs35"],
+    "change": ["kaspa:qqeyrk9hr572tzv3xhfg8zcf8pjypqx2dmjrap5ld8he6wlv5a3jcj5l8grn7", "kaspa:qqz6w3m4pw5fjg02j3j8hfn6kjq7nmcuh9dsx25unslfj8lnzczu65nd8tcsp"]
+  }
+}

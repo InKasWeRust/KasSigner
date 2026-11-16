@@ -1,0 +1,32 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+#
+# The SDK for a host with an allocator: `kassigner-sdk` with its buffers
+# inside and plain values out. Level 3, as the SDK; nothing of level 2 is
+# in its tree. What `kassigner-sdk-wasm` and `kassigner-sdk-ffi` wrap, and
+# what a Rust app links.
+
+[package]
+name = "kassigner-sdk-host"
+version.workspace = true
+edition = "2021"
+license = "MPL-2.0"
+repository = "https://github.com/InKasWeRust/KasSigner"
+description = "KasSigner's companion SDK over owned buffers: the layer its bindings wrap, and what a Rust app links."
+keywords = ["kaspa", "kassigner", "hardware-wallet", "air-gap"]
+categories = ["cryptography::cryptocurrencies"]
+rust-version.workspace = true
+
+# Not published: an app takes the SDK, and what it is built from, from the
+# GitHub release or from this repository at the release's tag.
+publish = false
+
+[dependencies]
+kassigner-kaspa = { path = "../kassigner-kaspa", version = "1.1.0" }
+kassigner-protocol = { path = "../kassigner-protocol", version = "1.1.0" }
+kassigner-qr = { path = "../kassigner-qr", version = "1.1.0" }
+kassigner-sdk = { path = "../kassigner-sdk", version = "1.1.0" }

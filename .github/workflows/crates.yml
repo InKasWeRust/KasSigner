@@ -1,0 +1,420 @@
+# Format, tests and lint for crates/ and firmware/, and the SDK's two
+# packages: for the browser, built for wasm32, which only that target
+# proves; native, with bindings, which only a generated binding proves.
+#
+# The `chain` job is the local verification chain, run the same way:
+#   fmt    cargo fmt --all -- --check
+#   tests  cargo test-all
+#   clippy cargo clippy-all        (-D warnings)
+# The aliases are the root .cargo/config.toml's; they turn on the ESP32-S3
+# crate's `waveshare`, `m5stack` and `decode` features so its host tests run
+# too. Steps stop at the first failure.
+#
+# Deny, not warn: a warning nobody has to act on is one nobody acts on.
+#
+# Pinned to Rust 1.95.0, which the local `esp195` toolchain is built from, so
+# CI uses the same compiler and lints. Raise it with the workspace's
+# `rust-version` and the local toolchain, never by tracking stable: a lint
+# seen here and not where the release is built is a disagreement, not a check.
+#
+# Every job that resolves the workspace runs `fork.sh` first: until it has
+# made the P4's esp-hal fork, which the root manifest patches in, no cargo
+# command resolves.
+#
+# Outside actions are pinned to a commit, their version beside it: a tag
+# can be moved, a commit cannot. The token is read-only and no checkout
+# keeps it; a run a newer push has overtaken is cancelled.
+#
+# A pull request runs once: a push starts a run only on `main`, where a
+# merged change lands, and a branch is checked by its pull request.
+name: crates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chain:
+    name: fmt, tests, clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
+        with:
+          components: rustfmt, clippy
+      - name: esp-hal fork for the ESP32-P4
+        run: sh firmware/kassigner-hal-esp32p4/esp-hal-fork/fork.sh
+      # `--all` checks vendor/rqrr too, a path dependency of kassigner-qr, with
+      # the root rustfmt.toml.
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Tests
+        run: cargo test-all
+      - name: Clippy
+        run: cargo clippy-all
+
+  fuzz:
+    name: every reader of outside bytes, fuzzed
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
+      - name: esp-hal fork for the ESP32-P4
+        run: sh firmware/kassigner-hal-esp32p4/esp-hal-fork/fork.sh
+      # The fuzz tests under `testkit/mutate.rs`'s loop, at `FUZZ_SCALE`'s
+      # default of 1: a fixed number of inputs a target, the same on every
+      # machine, so a run here is the run anyone repeats. A failure prints
+      # the input in hex. Longer runs are by hand, with `FUZZ_SCALE`.
+      - name: Fuzz
+        run: cargo fuzz-all
+
+  i686:
+    name: the readers of outside bytes on a 32-bit target
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
+        with:
+          targets: i686-unknown-linux-gnu
+      # The 32-bit C library and the linker's 32-bit support, for the test
+      # binaries and the C in the test dependencies (secp256k1).
+      - name: 32-bit libraries
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends gcc-multilib
+      - name: esp-hal fork for the ESP32-P4
+        run: sh firmware/kassigner-hal-esp32p4/esp-hal-fork/fork.sh
+      # The units are 32-bit: an index or a length that wraps only where
+      # `usize` is 32 bits passes every 64-bit run, as an EXIF directory at
+      # 0xFFFF_FFFF once did. The crates that read what a code, a file or a
+      # card hands over run their tests here, fuzz tests included
+      # (`--include-ignored`); `--tests` leaves out the doc examples, as
+      # `fuzz-all` does.
+      - name: Tests and fuzz tests, 32-bit
+        run: >-
+          cargo test --locked --tests --target i686-unknown-linux-gnu
+          -p kassigner-kaspa -p kassigner-protocol -p kassigner-qr
+          -p kassigner-jpeg -p kassigner-fat32 -p kassigner-crypto
+          -- --include-ignored
+
+  wasm:
+    name: kassigner-sdk-wasm, the browser package
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
+        with:
+          targets: wasm32-unknown-unknown
+      - name: esp-hal fork for the ESP32-P4
+        run: sh firmware/kassigner-hal-esp32p4/esp-hal-fork/fork.sh
+      # Exactly the lock's `wasm-bindgen` version: `build.sh` refuses any
+      # other.
+      - name: wasm-bindgen
+        run: |
+          v="$(awk '/^name = "wasm-bindgen"$/ { getline; sub(/^version = "/, ""); sub(/"$/, ""); print; exit }' Cargo.lock)"
+          cargo install wasm-bindgen-cli --version "$v" --locked
+      # `wasm-opt` at the version `build.sh` pins and requires, from
+      # Binaryen's release, checked against its SHA-256.
+      - name: wasm-opt
+        run: |
+          v="$(awk -F= '/^WASM_OPT=/ { print $2; exit }' crates/kassigner-sdk-wasm/build.sh)"
+          f="binaryen-version_$v-x86_64-linux.tar.gz"
+          curl -sSLO "https://github.com/WebAssembly/binaryen/releases/download/version_$v/$f"
+          echo "2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489  $f" | sha256sum -c
+          tar -xzf "$f"
+          echo "$PWD/binaryen-version_$v/bin" >> "$GITHUB_PATH"
+      - name: Build the package
+        run: sh crates/kassigner-sdk-wasm/build.sh
+      # The watch-only package, the crate without `transactions`: what
+      # kassigner.org serves. Its check also fails if anything a transaction
+      # is built or sent with is in it. Then its host tests, which the chain
+      # above does not run: it builds with the default features.
+      - name: Build the watch-only package
+        run: sh crates/kassigner-sdk-wasm/build.sh watch
+      - name: The watch-only package's host tests
+        run: cargo test --locked -p kassigner-sdk-wasm --no-default-features
+
+  ffi:
+    name: kassigner-sdk-ffi, the native library and its bindings (${{ matrix.os }})
+    # Both check the Python binding and, on a JVM, the Kotlin one; the Mac
+    # also compiles and runs the Swift one, with its own Swift.
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
+      - name: esp-hal fork for the ESP32-P4
+        run: sh firmware/kassigner-hal-esp32p4/esp-hal-fork/fork.sh
+      # JNA, which the Kotlin binding loads the library through, at a fixed
+      # release from its own repository, checked against its SHA-256.
+      - name: JNA, for the Kotlin check
+        run: |
+          v=5.19.1
+          curl -sSL -o "$RUNNER_TEMP/jna.jar" "https://github.com/java-native-access/jna/raw/$v/dist/jna.jar"
+          echo "4fb141dd8ef6b0585ffceea4bc49602fbc6312fa977e2c488794ea3e6aafecae  $RUNNER_TEMP/jna.jar" | shasum -a 256 -c
+          echo "JNA_JAR=$RUNNER_TEMP/jna.jar" >> "$GITHUB_ENV"
+      # Builds the library, generates the Swift, Kotlin and Python bindings,
+      # and runs the Python one, the Kotlin one, and on a Mac the Swift one,
+      # over the SDK's and the node vectors. `build.sh` skips the Python
+      # check where `python3` is missing and the Kotlin one where `kotlinc`,
+      # `java` or the jar is, so the last two lines make a runner without
+      # them a failure, not a skip.
+      - name: Build, generate, check
+        shell: bash
+        run: |
+          sh crates/kassigner-sdk-ffi/build.sh | tee "$RUNNER_TEMP/ffi.log"
+          grep -q 'through Python: the round holds' "$RUNNER_TEMP/ffi.log"
+          grep -q 'through Kotlin: the round holds' "$RUNNER_TEMP/ffi.log"
+
+  notices:
+    name: the SDK packages' and the firmware's third-party notices, current
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
+      - name: esp-hal fork for the ESP32-P4
+        run: sh firmware/kassigner-hal-esp32p4/esp-hal-fork/fork.sh
+      - name: cargo-about
+        run: cargo install cargo-about --version 0.8.2 --locked
+      # A dependency added or moved changes what an app ships with the SDK,
+      # or what a release ships beside the firmware, so the notices must be
+      # regenerated before it can merge.
+      - name: Notices match the lock
+        run: sh release/notices.sh --check
+
+  vendor:
+    name: vendor/rqrr
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: vendor/rqrr
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # 1.85.0, not stable or the workspace's version
+      # (vendor/rqrr/rust-toolchain.toml): clippy runs over this fork with
+      # -D warnings, so a new lint would break the build over code nobody
+      # here maintains. The fork was last verified clean at 1.85.0; raise it
+      # only with a clippy run over it.
+      - uses: dtolnay/rust-toolchain@cfcaf53ba4c621917ec7f78a66bff7a8848ddad4 # 1.85.0
+        with:
+          components: clippy
+      - name: Build (release, as the firmware consumes it)
+        run: cargo build --release
+      # Dev profile: its overflow checks make the arithmetic trap tests bite.
+      - name: Tests
+        run: cargo test
+      # No -A unknown_lints: only this pinned clippy reads the allows here,
+      # nothing esp-based. The 12 allows in upstream's code stay, or every
+      # upstream merge would conflict; lib.rs explains the fork's own 4.
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      # No fmt step: the chain job checks it through kassigner-qr.
+
+  no_std:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
+        with:
+          targets: riscv32imafc-unknown-none-elf
+      - name: esp-hal fork for the ESP32-P4
+        run: sh firmware/kassigner-hal-esp32p4/esp-hal-fork/fork.sh
+      # A bare-metal build catches a std path or an allocator assumption a
+      # host build cannot. Each crate that declares `#![no_std]`, by name,
+      # from the root: run from a folder with no manifest, cargo would build
+      # the whole workspace and stop on the signer's `compile_error!`. The
+      # SDK's packages for apps (`-host`, `-wasm`, `-ffi`) use the standard
+      # library, and a folder may hold no crate yet: each is skipped, with a
+      # message. `kassigner-hal` and `kassigner-fw` are the firmware's crates
+      # that no board ties to a chip; the board crates are not built here.
+      - name: no_std build
+        run: |
+          for c in crates/*/ firmware/kassigner-hal/ firmware/kassigner-fw/; do
+            name="$(basename "$c")"
+            if [ ! -f "$c/Cargo.toml" ]; then
+              echo "== $name: no Cargo.toml, not a crate yet, skipped"
+              continue
+            fi
+            if ! grep -qs '^#!\[no_std\]' "$c/src/lib.rs"; then
+              echo "== $name: uses the standard library, skipped"
+              continue
+            fi
+            echo "== $name"
+            cargo build -p "$name" --target riscv32imafc-unknown-none-elf
+          done
+
+  p4:
+    name: the P4 signer, built as the release builds it
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # The release's compiler, not the other jobs': esp-rs's Rust 1.95.0.0
+      # and its source, the two downloads `release/Dockerfile` names, each
+      # checked against the SHA-256 written there and installed as there.
+      # Upstream Rust 1.95.0 refuses esp-hal's start of the P4's second core
+      # (`fscsr x0`, in a naked function compiled into the P4 crate), which
+      # esp-rs's build accepts. Read from the Dockerfile, not written again
+      # here, so a new compiler for the release is a new one for this job;
+      # its folder goes first on the path, ahead of the runner's own Rust.
+      - name: esp-rs's Rust, as the release build fetches it
+        run: |
+          fetch() { curl -sSfL -o "$2" "$1" && echo "$3  $2" | sha256sum -c -; }
+          awk '/fetch https:\/\/github\.com\/esp-rs\/rust-build\// { url = $3; getline; print url, $1, $2 }' \
+            release/Dockerfile > "$RUNNER_TEMP/rust.list"
+          test "$(wc -l < "$RUNNER_TEMP/rust.list")" -eq 2
+          cd "$RUNNER_TEMP"
+          while read -r url file sum; do fetch "$url" "$file" "$sum"; done < rust.list
+          tar xf rust.tar.xz
+          tar xf rust-src.tar.xz
+          ./rust-nightly-x86_64-unknown-linux-gnu/install.sh --destdir="$RUNNER_TEMP/esp" --prefix= \
+            --components=rustc,rust-std-x86_64-unknown-linux-gnu,cargo > /dev/null
+          ./rust-src-nightly/install.sh --destdir="$RUNNER_TEMP/esp" --prefix= > /dev/null
+          echo "$RUNNER_TEMP/esp/bin" >> "$GITHUB_PATH"
+      - name: The compiler in use
+        run: rustc --version && cargo --version
+      - name: esp-hal fork for the ESP32-P4
+        run: sh firmware/kassigner-hal-esp32p4/esp-hal-fork/fork.sh
+      # A green host run does not prove the device build: its features and
+      # target differ. This is `release/build.sh`'s P4 build, the images
+      # left to the release: from the signer's folder, whose
+      # `.cargo/config.toml` adds the linker script and flags. The build
+      # date is the release's.
+      - name: Build
+        working-directory: firmware/kassigner-signer
+        env:
+          SOURCE_DATE_EPOCH: "0"
+        run: >-
+          cargo build --locked --release --features p4
+          --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc
+
+  s3:
+    name: the ${{ matrix.board }} signer, built as the release builds it
+    # The two S3 units, each its own build: they share a target and differ
+    # by feature, and one failing does not stop the other.
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [m5stack, waveshare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # As the P4 job: the release's compiler, read from `release/Dockerfile`
+      # and checked against the SHA-256 written there. The S3 is Xtensa, so
+      # this job takes a third download from the same place, Espressif's
+      # GCC, whose linker the Xtensa target names.
+      - name: esp-rs's Rust and Espressif's GCC, as the release build fetches them
+        run: |
+          fetch() { curl -sSfL -o "$2" "$1" && echo "$3  $2" | sha256sum -c -; }
+          awk '/fetch https:\/\/github\.com\/(esp-rs\/rust-build|espressif\/crosstool-NG)\// { url = $3; getline; print url, $1, $2 }' \
+            release/Dockerfile > "$RUNNER_TEMP/tools.list"
+          test "$(wc -l < "$RUNNER_TEMP/tools.list")" -eq 3
+          cd "$RUNNER_TEMP"
+          while read -r url file sum; do fetch "$url" "$file" "$sum"; done < tools.list
+          tar xf rust.tar.xz
+          tar xf rust-src.tar.xz
+          tar xf gcc.tar.xz
+          ./rust-nightly-x86_64-unknown-linux-gnu/install.sh --destdir="$RUNNER_TEMP/esp" --prefix= \
+            --components=rustc,rust-std-x86_64-unknown-linux-gnu,cargo > /dev/null
+          ./rust-src-nightly/install.sh --destdir="$RUNNER_TEMP/esp" --prefix= > /dev/null
+          echo "$RUNNER_TEMP/esp/bin" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP/xtensa-esp-elf/bin" >> "$GITHUB_PATH"
+      - name: The compiler and the linker in use
+        run: rustc --version && cargo --version && xtensa-esp32s3-elf-gcc --version
+      - name: esp-hal fork for the ESP32-P4
+        run: sh firmware/kassigner-hal-esp32p4/esp-hal-fork/fork.sh
+      # `release/build.sh`'s build of this board, the images left to the
+      # release: from the signer's folder, whose `.cargo/config.toml` adds
+      # the linker script and flags. The build date is the release's.
+      - name: Build
+        working-directory: firmware/kassigner-signer
+        env:
+          SOURCE_DATE_EPOCH: "0"
+          BOARD: ${{ matrix.board }}
+        run: >-
+          cargo build --locked --release --features "$BOARD"
+          --target xtensa-esp32s3-none-elf -Z build-std=core,alloc
+
+  deny:
+    name: dependencies, against advisories, licences and sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
+      - name: esp-hal fork for the ESP32-P4
+        run: sh firmware/kassigner-hal-esp32p4/esp-hal-fork/fork.sh
+      # cargo-deny at a fixed version, from its release, checked against its
+      # SHA-256. What it checks, and what it accepts, is the root deny.toml.
+      - name: cargo-deny
+        run: |
+          v=0.20.2
+          d="cargo-deny-$v-x86_64-unknown-linux-musl"
+          curl -sSLO "https://github.com/EmbarkStudios/cargo-deny/releases/download/$v/$d.tar.gz"
+          echo "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f  $d.tar.gz" | sha256sum -c
+          tar -xzf "$d.tar.gz"
+          "./$d/cargo-deny" check
+
+  scripts:
+    name: the workflow and the shell scripts, linted
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # Every shell script the repository holds; ShellCheck comes with the
+      # runner.
+      - name: ShellCheck
+        run: git ls-files -z '*.sh' | xargs -0 shellcheck
+      # actionlint at a fixed version, from its release, checked against its
+      # SHA-256. It runs ShellCheck over each `run:` as well.
+      - name: actionlint
+        run: |
+          v=1.7.12
+          f="actionlint_${v}_linux_amd64.tar.gz"
+          curl -sSLO "https://github.com/rhysd/actionlint/releases/download/v$v/$f"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $f" | sha256sum -c
+          tar -xzf "$f" actionlint
+          ./actionlint

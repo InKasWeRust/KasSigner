@@ -1,0 +1,114 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# LEVEL 3. HAL implementations that belong to the SoC rather than to a board.
+
+[package]
+name = "kassigner-hal-esp32s3"
+version.workspace = true
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/InKasWeRust/KasSigner"
+description = "KasSigner HAL implementations for the ESP32-S3 itself"
+rust-version.workspace = true
+
+publish = false
+
+[dependencies]
+kassigner-hal = { path = "../kassigner-hal", version = "1.1.0" }
+
+# `BlockDevice` and FAT32 are level 0: someone else's format, not hardware.
+kassigner-fat32 = { path = "../../crates/kassigner-fat32", version = "1.1.0" }
+kassigner-protocol = { path = "../../crates/kassigner-protocol", version = "1.1.0" }
+
+# The panel driver both units use, generic over its interface: `panel` names
+# no concrete SPI type and needs no esp-hal.
+mipidsi = "0.9"
+embedded-graphics-core = "0.4"
+embedded-hal = "1.0"
+
+# The core-1 decode worker's way into the vendored decoder: the guard over
+# its shared accumulator, so nothing calls `rqrr` directly.
+kassigner-qr = { path = "../../crates/kassigner-qr", version = "1.1.0", optional = true }
+
+[target.'cfg(target_arch = "xtensa")'.dependencies]
+# esp-hal for each unit's `bring_up()`, which returns drivers of esp-hal's
+# types: it lives in the board crate so the binary names no board, and a new
+# board is a new crate. Xtensa only: a host build and the host tests see none
+# of these. Its `xtensa_lx` gives the decode worker CCOUNT (`decode_core`'s
+# `systick`), so the crate needs no copy of its own.
+esp-hal = { version = "=1.2.2", features = ["esp32s3", "unstable"] }
+embedded-hal-bus = "=0.3.0"
+static_cell = "=2.1.1"
+
+[features]
+default = []
+# The Waveshare ESP32-S3-Touch-LCD-2 unit.
+waveshare = []
+# The M5Stack CoreS3 unit.
+m5stack = []
+# A source written out raw for offline measurement: the module and the two
+# examples that call it. Never in a shipped image.
+capture = []
+# The panic probe's hook: the core-1 decode worker panics at its next job
+# when asked, to watch a core-1 panic stop the unit. For `kassigner-signer`'s
+# `panic_probe` example only; nothing that ships turns it on.
+panic-probe = []
+# The stack probe (`m5-stackprobe`, `ws-stackprobe` in `kassigner-signer`):
+# `stack::probe`, and the decode worker noting each job's depth. Nothing that
+# ships turns it on.
+stack-probe = []
+# Which source a capture example takes; with none set, the camera's
+# frame-to-frame delta, which is what a seed mixes.
+cap_rng = []
+cap_touch = []
+cap_imu = []
+# The two halves of the QR version sweep: one unit shows a ladder of versions
+# and margins, a second facing it reports what its camera read.
+cap_qr = []
+cap_qr_read = []
+# The QR decoders: the core-1 worker, and each unit's decoder over it. Apart
+# from the unit features, so the rest of the crate builds and checks without
+# `rqrr`.
+decode = ["dep:kassigner-qr"]
+
+# ── The M5 hardware test binary ─────────────────────────────────────────────
+#
+# `examples/m5_hwtest.rs`, for the device only. The esp crates it needs beyond
+# `esp-hal` (console, allocator, app descriptor) are dev-dependencies below,
+# so they never reach a crate that depends on this one, and target-gated, so a
+# host build compiles none of them.
+#
+# Cargo still resolves them for this crate's tests. esp-hal 1.2 declares
+# `rust-version = "1.95"`, the workspace floor, so the host toolchain and the
+# Xtensa one are both 1.95 or newer.
+#
+# Versions are pinned exactly, to those already proven on the units.
+
+[[example]]
+name = "m5_hwtest"
+required-features = ["m5stack", "decode"]
+
+# The same test for the Waveshare; its octal PSRAM is set in the example.
+[[example]]
+name = "waveshare_hwtest"
+required-features = ["waveshare", "decode"]
+
+# The release profile (`opt-level = "z"`, LTO, one codegen unit, overflow
+# checks on) is in `../../Cargo.toml`: cargo honours `[profile]` only in the
+# root manifest. The device examples build under it.
+
+[target.'cfg(target_arch = "xtensa")'.dev-dependencies]
+esp-backtrace = { version = "=0.20.0", features = ["esp32s3", "println"] }
+esp-println = { version = "=0.18.0", default-features = false, features = ["esp32s3", "jtag-serial", "critical-section"] }
+esp-alloc = { version = "=0.11.0", features = ["esp32s3"] }
+esp-bootloader-esp-idf = { version = "=0.6.0", features = ["esp32s3"] }
+
+[[example]]
+name = "m5_capture"
+required-features = ["m5stack", "capture", "decode"]
+
+[[example]]
+name = "waveshare_capture"
+required-features = ["waveshare", "capture", "decode"]

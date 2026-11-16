@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 230" width="920" height="230" role="img" aria-labelledby="t d" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title id="t">How a signer works</title>
+  <desc id="d">Your watch-only wallet hands the unsigned transaction data to KasSigner as QR codes or on an SD card. KasSigner, offline, signs after you confirm and hands the signed data back the same way. Your wallet finishes the transaction and sends it to the Kaspa network.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#70c7ba"/>
+    </marker>
+  </defs>
+  <rect width="920" height="230" rx="14" fill="#0a1413"/>
+
+  <g stroke-width="1.5" stroke="#2e4a45" fill="#0f1d1b">
+    <rect x="20" y="70" width="170" height="90" rx="10"/>
+    <rect x="500" y="70" width="170" height="90" rx="10"/>
+    <rect x="730" y="70" width="170" height="90" rx="10"/>
+  </g>
+  <rect x="260" y="62" width="170" height="106" rx="10" fill="#0b2a25" stroke="#70c7ba" stroke-width="2.5"/>
+
+  <g text-anchor="middle" fill="#ffffff" font-size="18" font-weight="700">
+    <text x="105" y="108">Your wallet</text>
+    <text x="345" y="108">KasSigner</text>
+    <text x="585" y="108">Your wallet</text>
+    <text x="815" y="108">Kaspa network</text>
+  </g>
+  <g text-anchor="middle" fill="#a9c4bf" font-size="14">
+    <text x="105" y="134">watch-only: kpub only</text>
+    <text x="345" y="134" fill="#70c7ba">offline · you confirm</text>
+    <text x="585" y="134">finishes the transaction</text>
+    <text x="815" y="134">your own node, or any</text>
+  </g>
+
+  <g stroke="#70c7ba" stroke-width="2.5" marker-end="url(#a)">
+    <line x1="196" y1="115" x2="254" y2="115"/>
+    <line x1="436" y1="115" x2="494" y2="115"/>
+    <line x1="676" y1="115" x2="724" y2="115"/>
+  </g>
+
+  <g text-anchor="middle" font-size="14" font-weight="700" fill="#ffffff">
+    <text x="225" y="40">unsigned</text>
+    <text x="465" y="40">signed</text>
+    <text x="700" y="40">send</text>
+  </g>
+  <g stroke="#2e4a45" stroke-width="1.2">
+    <line x1="225" y1="48" x2="225" y2="104"/>
+    <line x1="465" y1="48" x2="465" y2="104"/>
+    <line x1="700" y1="48" x2="700" y2="104"/>
+  </g>
+  <text x="460" y="204" text-anchor="middle" font-size="14" fill="#a9c4bf">In and out as QR codes on a screen, or a file on an SD card. Never a cable, never a network.</text>
+</svg>

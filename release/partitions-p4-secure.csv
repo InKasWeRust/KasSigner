@@ -1,0 +1,15 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# The partition table a provisioned P4 takes at 0xC000: its signed Secure
+# Boot bootloader runs from 0x2000 to 0xA000, over 0x8000, where other units
+# have their table (see `release/bootloader-esp32p4/sdkconfig.defaults`).
+# The same partitions, the app at 0x10000 where the firmware is built to run,
+# but no `nvs`: only 0x2000 is left before `phy_init`, and ESP-IDF's
+# partition tool refuses a writable NVS under 0x3000. The firmware uses
+# neither.
+#
+# Name,     Type, SubType, Offset,  Size,     Flags
+phy_init,   data, phy,     0xf000,  0x1000,
+factory,    app,  factory, 0x10000, 0xfa0000,

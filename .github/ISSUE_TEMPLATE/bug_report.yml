@@ -1,0 +1,67 @@
+name: Bug report
+description: Something on a unit, or in the SDK, does not work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never post your words, a SeedQR, a backup, a passphrase, or a photo of a screen showing one.** No one helping you will ever need them.
+
+        A security vulnerability does not go here. Email kassigner@proton.me with the subject `[SECURITY]`: see [SECURITY.md](https://github.com/InKasWeRust/KasSigner/blob/main/SECURITY.md).
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - M5Stack CoreS3
+        - Waveshare ESP32-S3-Touch-LCD-2
+        - Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5
+        - SDK for Rust (kassigner-sdk, kassigner-sdk-host)
+        - SDK for the browser (kassigner-sdk-wasm)
+        - SDK for Swift, Kotlin or Python (kassigner-sdk-ffi)
+
+  - type: input
+    id: version
+    attributes:
+      label: Version and hash
+      description: On a unit, as its boot screen shows them. For the SDK, the version or the commit.
+      placeholder: "v1.1.0, Hash: xxxxxxxx...yyyyyyyy"
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you did
+      description: Step by step, from switching on.
+      placeholder: |
+        1.
+        2.
+        3.
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened instead
+      description: The exact words on the screen help most.
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Console log
+      description: >-
+        A `diag` build logs what the unit was doing (CONTRIBUTING.md, "On a unit").
+        It can show your kpub and the addresses and amounts you reviewed: not secrets, but private.
+        Remove what you do not want public.
+      render: text
+
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: Before you submit
+      options:
+        - label: This report holds no words, SeedQR, backup or passphrase, and no photo of one.

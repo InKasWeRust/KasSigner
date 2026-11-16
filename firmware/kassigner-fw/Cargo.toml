@@ -1,0 +1,64 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# LEVEL 3. The portable firmware: what the device does, written against the
+# HAL traits rather than against a board.
+
+[package]
+name = "kassigner-fw"
+version.workspace = true
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/InKasWeRust/KasSigner"
+description = "KasSigner firmware logic, portable across boards"
+rust-version.workspace = true
+
+# Not published: the product, not a library to build on.
+publish = false
+
+[dependencies]
+kassigner-hal = { path = "../kassigner-hal", version = "1.1.0" }
+
+# The device's wiping, one mechanism for it (`crate::wipe`).
+zeroize = { version = "=1.9.0", default-features = false }
+kassigner-kaspa = { path = "../../crates/kassigner-kaspa", version = "1.1.0" }
+
+# The only crate holding a secret. `kassigner-sdk` must never depend on it,
+# even by an unreviewed later edit: `kassigner-sdk/tests/no_keys.rs` checks
+# that at every test run.
+kassigner-crypto = { path = "../../crates/kassigner-crypto", version = "1.1.0" }
+
+kassigner-protocol = { path = "../../crates/kassigner-protocol", version = "1.1.0" }
+
+# FAT32 and its block device, for Settings' SD Card: card work in a session
+# is the same on every unit.
+kassigner-fat32 = { path = "../../crates/kassigner-fat32", version = "1.1.0" }
+
+# The QR encoder, for every code a screen shows. The decoder is the units',
+# through `kassigner-hal`; the tests use this crate's to read a code back. A
+# plain dependency, not optional: a build without it would never be made,
+# and its tests could stop compiling unseen.
+kassigner-qr = { path = "../../crates/kassigner-qr", version = "1.1.0" }
+
+[dev-dependencies]
+# The companion's side, for the end-to-end tests in `tests/sdk.rs`: what
+# the SDK builds, the unit signs. A test dependency only: neither crate's
+# shipping code depends on the other.
+kassigner-sdk = { path = "../../crates/kassigner-sdk", version = "1.1.0" }
+# The SDK's host layer, which every binding wraps: the same round through
+# it, answered here by a unit.
+kassigner-sdk-host = { path = "../../crates/kassigner-sdk-host", version = "1.1.0" }
+# Rasterises `assets/fonts/` into `src/ui/gen/`, in `tests/ui_assets.rs`
+# only. SIMD off, so the tables come out the same on every machine.
+fontdue = { version = "0.9.4", default-features = false, features = ["hashbrown"] }
+# Writes a kpub file in the oldest layout, `KAS\x03`, in `tests/flow/kpubs.rs`
+# only: units before the per-file salt wrote it, nothing in the tree does.
+# The cipher `kassigner-crypto` opens it with, at its version.
+aes-gcm = { version = "0.11", default-features = false, features = ["aes"] }
+
+[features]
+# The stack probe's builds only (`m5-stackprobe`, `ws-stackprobe`): no
+# scrub runs, so the stack keeps how deep each flow went for the probe to
+# read. Never in a shipped image; the probe runs with the abandon test seeds.
+stack-probe = []

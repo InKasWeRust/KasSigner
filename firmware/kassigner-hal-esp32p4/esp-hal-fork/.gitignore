@@ -1,0 +1,9 @@
+# The six crates `fork.sh` fetches from crates.io and patches: made, not
+# committed. Run `sh firmware/kassigner-hal-esp32p4/esp-hal-fork/fork.sh` once
+# after a clone, before any cargo command.
+/esp-hal/
+/esp-rom-sys/
+/esp-config/
+/esp-sync/
+/esp-metadata-generated/
+/esp-riscv-rt/

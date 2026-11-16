@@ -1,0 +1,38 @@
+name: Proposal
+description: A change you want to make or see, before anyone writes the code.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For anything bigger than a fix, agree on the approach here first, so no one spends days on code that cannot be merged.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: The change, as you would explain it to someone holding a unit.
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: The problem it solves, and for whom.
+
+  - type: textarea
+    id: how
+    attributes:
+      label: How
+      description: Where in the tree it would go, and anything you have already tried.
+
+  - type: checkboxes
+    id: fits
+    attributes:
+      label: It fits the project
+      description: What will not be merged, however well it is done (CONTRIBUTING.md, "Before you start").
+      options:
+        - label: Kaspa only.
+        - label: Nothing that turns on a radio, or moves data over a cable.
+        - label: Nothing written to the unit's flash.
+        - label: No rules of our own on top of Kaspa's.
+        - label: No telemetry, accounts, or anything that reports home.

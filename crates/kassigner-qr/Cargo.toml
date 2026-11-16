@@ -1,0 +1,37 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+#
+# LEVEL 0. No format here was designed by us.
+
+[package]
+name = "kassigner-qr"
+version.workspace = true
+edition = "2021"
+license = "MPL-2.0"
+repository = "https://github.com/InKasWeRust/KasSigner"
+description = "QR encoding and decoding for KasSigner, no_std, ISO/IEC 18004"
+keywords = ["qr", "no-std", "iso18004"]
+categories = ["encoding", "no-std"]
+rust-version.workspace = true
+
+# Not published: an app takes the SDK, and what it is built from, from the
+# GitHub release or from this repository at the release's tag.
+publish = false
+
+[dependencies]
+# The vendored decoder, a crate of its own because its licence is not this
+# one's (MIT or Apache-2.0, and ISC for quirc's part).
+rqrr = { path = "../../vendor/rqrr", default-features = false }
+
+# An encode's buffers and a matrix can hold a SeedQR's secret. Pinned to
+# the version the rest of the tree uses; no `derive`.
+zeroize = { version = "=1.9.0", default-features = false }
+
+[dev-dependencies]
+# A reference encoder, host only: our encoder checked against another
+# implementation, not only against our own decoder.
+qrcode = { version = "0.14", default-features = false }

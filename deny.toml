@@ -1,0 +1,59 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# cargo-deny over what the workspace ships: every unit's firmware and the
+# SDK's packages, every feature on, every target. Dev dependencies are left
+# out: rusty-kaspa's test tree never reaches a unit or an app. CI runs
+# `cargo deny check` (the `deny` job); a new advisory fails it until it is
+# dealt with.
+
+[graph]
+all-features = true
+exclude-dev = true
+
+[advisories]
+# A vulnerability always fails. An unmaintained crate fails too, unless it is
+# one of these: each has no maintained version to move to, and none is in
+# the code that signs or encrypts.
+unmaintained = "all"
+yanked = "deny"
+ignore = [
+    { id = "RUSTSEC-2026-0374", reason = "basic-toml: under uniffi's binding generator, kassigner-sdk-ffi's build only" },
+    { id = "RUSTSEC-2024-0436", reason = "paste: a macro esp-hal expands at compile time; none of it is in the image" },
+    { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml: under serde_yaml in esp-config, the esp crates' build scripts only" },
+]
+
+[licenses]
+# The SDK's notices accept the same (release/about.toml).
+allow = [
+    "MPL-2.0",
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unlicense",
+]
+confidence-threshold = 0.8
+# GPL-3.0-or-later for our own firmware crates alone, not for a dependency.
+exceptions = [
+    { allow = ["GPL-3.0-or-later"], crate = "kassigner-crypto" },
+    { allow = ["GPL-3.0-or-later"], crate = "kassigner-fat32" },
+    { allow = ["GPL-3.0-or-later"], crate = "kassigner-fw" },
+    { allow = ["GPL-3.0-or-later"], crate = "kassigner-hal" },
+    { allow = ["GPL-3.0-or-later"], crate = "kassigner-hal-esp32p4" },
+    { allow = ["GPL-3.0-or-later"], crate = "kassigner-hal-esp32s3" },
+    { allow = ["GPL-3.0-or-later"], crate = "kassigner-signer" },
+]
+
+[bans]
+# The esp crates bring two or three versions of several crates: shown, not
+# failed.
+multiple-versions = "warn"
+
+[sources]
+# crates.io only; the esp-hal fork is a path, made by fork.sh.
+unknown-registry = "deny"
+unknown-git = "deny"

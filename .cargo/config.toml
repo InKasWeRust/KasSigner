@@ -1,0 +1,25 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# Workspace-wide aliases. `test-all` and `clippy-all` turn on
+# `kassigner-hal-esp32s3`'s `waveshare`, `m5stack` and `decode` features;
+# plain `cargo test --workspace` leaves them off and skips their tests.
+#
+# `fuzz-all` runs only the fuzz tests: every reader of outside bytes, under
+# the mutation loop in `testkit/mutate.rs`. They are the tree's only ignored
+# tests, so `--ignored` selects exactly them; `--tests` keeps out the doc
+# examples, one of which is ignored for another reason.
+#
+# All three take `--locked`: they build from `Cargo.lock` as committed, and
+# a lock that no longer matches the manifests stops them instead of being
+# rewritten. A dependency is moved on purpose, with `cargo update -p`.
+#
+# Device builds run from `firmware/kassigner-signer` or a board crate's
+# folder, whose `.cargo/config.toml` adds the target and its aliases;
+# cargo merges config upward, so both files apply there.
+
+[alias]
+test-all = "test --locked --workspace --features kassigner-hal-esp32s3/waveshare,kassigner-hal-esp32s3/m5stack,kassigner-hal-esp32s3/decode"
+clippy-all = "clippy --locked --workspace --all-targets --features kassigner-hal-esp32s3/waveshare,kassigner-hal-esp32s3/m5stack,kassigner-hal-esp32s3/decode -- -D warnings"
+fuzz-all = "test --locked --workspace --tests --features kassigner-hal-esp32s3/waveshare,kassigner-hal-esp32s3/m5stack,kassigner-hal-esp32s3/decode -- --ignored"

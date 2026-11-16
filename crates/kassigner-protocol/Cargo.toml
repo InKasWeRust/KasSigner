@@ -1,0 +1,54 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+#
+# LEVEL 1. Our formats. Every line here is a decision of ours.
+
+[package]
+name = "kassigner-protocol"
+version.workspace = true
+edition = "2021"
+license = "MPL-2.0"
+repository = "https://github.com/InKasWeRust/KasSigner"
+description = "KasSigner wire formats: KSPT, framing, container, descriptor, profiles"
+keywords = ["kaspa", "kassigner", "no-std", "wire-format"]
+categories = ["encoding", "no-std"]
+rust-version.workspace = true
+
+# Not published: an app takes the SDK, and what it is built from, from the
+# GitHub release or from this repository at the release's tag.
+publish = false
+
+[dependencies]
+# Depends downward only. No Kaspa rule is restated here.
+kassigner-kaspa = { path = "../kassigner-kaspa", version = "1.1.0" }
+# JPEG and EXIF, for the steganography carriers.
+kassigner-jpeg = { path = "../kassigner-jpeg", version = "1.1.0" }
+
+# The reassembler clears what it held, which can be a seed. One exact
+# version across the tree; no `derive`.
+zeroize = { version = "=1.9.0", default-features = false }
+
+# Frame 0 carries the first four bytes of its payload's SHA-256, so a reader
+# never joins two transmissions (`frame.rs`). `zeroize`, as `kassigner-crypto`
+# has it: the payload hashed can be a seed.
+sha2 = { version = "0.11", default-features = false, features = ["zeroize"] }
+
+[dev-dependencies]
+# Host-side tests of the cards (`src/card/`) only. The same pins as
+# `kassigner-kaspa`'s, which gives their reasons, so `Cargo.lock` gains no
+# package.
+#
+# rusty-kaspa at the commit tag `v2.1.0` points at: a card's spends run
+# through its script engine, signed by the library upstream signs with.
+kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "01b532e8b553523216471682649693af92f0fd16" }
+kaspa-addresses = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "01b532e8b553523216471682649693af92f0fd16" }
+kaspa-txscript = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "01b532e8b553523216471682649693af92f0fd16" }
+secp256k1 = { version = "0.29.0", features = ["global-context", "rand-std"] }
+# SilverScript 1.0.1 and its ABI crate: each card's source in `sil/`
+# compiles to the bytes in `src/card/`.
+silverscript-lang = "=1.0.1"
+silverscript-abi = "=1.0.1"

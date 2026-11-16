@@ -1,0 +1,128 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# LEVEL 4. The program that ships, the only crate that may depend on both a
+# board crate and the portable flow: wiring them together is its job. As a
+# binary, nothing can use it; it owns `main`, the panic handler, and the
+# settings in `.cargo/config.toml`. It decides nothing: every rule lives in a
+# crate below, tested without a board, where here it could only be tested on
+# a unit.
+
+[package]
+name = "kassigner-signer"
+# Set once in the root `Cargo.toml`. `esp_app_desc!()` puts it in the image
+# descriptor, which the bootloader and espflash report.
+version.workspace = true
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/InKasWeRust/KasSigner"
+description = "The KasSigner firmware: one binary per unit"
+rust-version.workspace = true
+
+publish = false
+
+[dependencies]
+kassigner-fw = { path = "../kassigner-fw", version = "1.1.0" }
+kassigner-hal = { path = "../kassigner-hal", version = "1.1.0" }
+kassigner-crypto = { path = "../../crates/kassigner-crypto", version = "1.1.0" }
+kassigner-protocol = { path = "../../crates/kassigner-protocol", version = "1.1.0" }
+# `kassigner-kaspa` is optional, below, for the probes only: the binary
+# reaches Kaspa's rules through `kassigner-fw`, the way the levels run.
+# `kassigner-fat32` is not a dependency: the board crate owns the card.
+
+# For drawing a reply back as QR frames on the unit's screen.
+kassigner-qr = { path = "../../crates/kassigner-qr", version = "1.1.0" }
+# For the seed and search probes only: the paths they derive at.
+kassigner-kaspa = { path = "../../crates/kassigner-kaspa", version = "1.1.0", optional = true }
+# For the search probe only: the curve, to time its base-point
+# multiplication with and without tables.
+k256 = { version = "0.14", default-features = false, features = ["arithmetic"], optional = true }
+
+# The drivers, pulled in by the unit feature: a host build compiles none.
+kassigner-hal-esp32s3 = { path = "../kassigner-hal-esp32s3", version = "1.1.0", optional = true }
+kassigner-hal-esp32p4 = { path = "../kassigner-hal-esp32p4", version = "1.1.0", optional = true }
+
+# The device build only: target-gated, so `cargo test --workspace` on a
+# laptop resolves these and compiles none of them.
+[target.'cfg(target_arch = "xtensa")'.dependencies]
+esp-hal = { version = "=1.2.2", features = ["esp32s3", "unstable"] }
+# No `esp-backtrace`: its panic handler is behind a feature off by default,
+# so this binary writes its own.
+esp-println = { version = "=0.18.0", default-features = false, features = ["esp32s3", "jtag-serial", "critical-section"] }
+esp-alloc = { version = "=0.11.0", features = ["esp32s3"] }
+esp-bootloader-esp-idf = { version = "=0.6.0", features = ["esp32s3"] }
+# The board crates own the bus, the panel and their statics, so
+# `embedded-hal`, `embedded-hal-bus` and `mipidsi` are not named here, and
+# `static_cell` only for the decode probe, below.
+
+# The P4 build. esp-println is `uart`: this board's native USB port does not
+# enumerate, and the console is UART0 on GPIO 37 and 38. The heap is PSRAM,
+# as on the S3 units (`heap.rs`).
+[target.'cfg(target_arch = "riscv32")'.dependencies]
+esp-hal = { version = "=1.2.2", features = ["esp32p4", "unstable"] }
+esp-println = { version = "=0.18.0", default-features = false, features = ["esp32p4", "uart", "critical-section"] }
+esp-alloc = { version = "=0.11.0", features = ["esp32p4"] }
+esp-bootloader-esp-idf = { version = "=0.6.0", features = ["esp32p4"] }
+
+[features]
+default = []
+# The M5Stack CoreS3 unit.
+m5stack = ["dep:kassigner-hal-esp32s3", "kassigner-hal-esp32s3/m5stack", "kassigner-hal-esp32s3/decode"]
+# The Waveshare ESP32-S3-Touch-LCD-2 unit.
+waveshare = ["dep:kassigner-hal-esp32s3", "kassigner-hal-esp32s3/waveshare", "kassigner-hal-esp32s3/decode"]
+# The Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5 unit, RISC-V, on the esp-hal fork.
+# Without the board crate's `unstable`, which makes its register-level
+# modules public for its own hardware tests (`p4-hwtest` turns it on
+# there): nothing here reaches into them.
+p4 = ["dep:kassigner-hal-esp32p4"]
+
+# Says on the console bring-up's measurements and what the user is doing:
+# screens, review pages, kpubs, codes read, timings. For the bench, through
+# `m5-diag`, `ws-diag` and `p4-diag`; the shipping build says only the boot,
+# the checks and what went wrong.
+diag = []
+
+# The seed probe, one file for all three units. It derives receive address
+# 0's private key itself, to search for what derivation leaves.
+seedprobe = ["dep:kassigner-kaspa"]
+
+# The search probe: what one address costs to derive, with and without the
+# curve's tables.
+searchprobe = ["dep:kassigner-kaspa", "dep:k256"]
+# Turns on `k256`'s precomputed base-point tables for everything in the
+# image, built at first use under a critical section. No shipping build turns
+# it on.
+k256-tables = ["dep:k256", "k256/critical-section"]
+
+# The panic probe, one file for all three units: it plants a marker, panics
+# on core 0 (`panicprobe1`: on core 1, the decoder's, through the board
+# crate's `panic-probe` hook), and says what the panic left. Never shipped.
+panicprobe = ["kassigner-hal-esp32s3?/panic-probe", "kassigner-hal-esp32p4?/panic-probe"]
+panicprobe1 = ["panicprobe"]
+# How deep the main stack and core 1's go: no stack scrub, the stacks read
+# every five seconds. `m5-stackprobe`, `ws-stackprobe`; with the abandon test
+# seeds only, never shipped.
+stackprobe = ["kassigner-fw/stack-probe", "kassigner-hal-esp32s3?/stack-probe"]
+# The watchdog probe: the main loop stops feeding the watchdog 20 s after
+# arming it and spins, so the watchdog resets the chip; the boot after says
+# why and clears the stack and PSRAM. `m5-wdtprobe`, `ws-wdtprobe`,
+# `p4-wdtprobe`; never shipped.
+wdtprobe = []
+
+# The decode probe's frame, in internal RAM without `unsafe`: examples only,
+# and only on a unit. Already in the lock through the board crates.
+[target.'cfg(any(target_arch = "xtensa", target_arch = "riscv32"))'.dev-dependencies]
+static_cell = "=2.1.1"
+
+[[example]]
+name = "seed_probe"
+required-features = ["seedprobe"]
+
+[[example]]
+name = "search_probe"
+required-features = ["searchprobe"]
+
+[[example]]
+name = "panic_probe"
+required-features = ["panicprobe"]

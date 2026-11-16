@@ -1,0 +1,145 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# The workspace: one lockfile, one `target/` and one `cargo test` for the
+# fifteen crates, the device's and the SDK's.
+#
+# # Folders and levels
+#
+#   crates/     0  kassigner-kaspa, kassigner-fat32, kassigner-qr,
+#                  kassigner-jpeg
+#               1  kassigner-protocol
+#               2  kassigner-crypto
+#               3  kassigner-sdk (a wallet's side: levels 0 and 1 only),
+#                  kassigner-sdk-host (the SDK over owned buffers),
+#                  kassigner-sdk-wasm, kassigner-sdk-ffi (its bindings)
+#   firmware/   3  kassigner-hal, kassigner-hal-esp32s3, kassigner-hal-esp32p4,
+#                  kassigner-fw
+#               4  kassigner-signer
+#
+# A level says what a crate may hold: 0 someone else's specification, 1 this
+# project's design, 2 key material, 3 the board layer and the flow, 4 the
+# program. A crate may depend on its own level and those below, never above.
+#
+# A folder says why a crate exists: `crates/` would be useful with no device
+# in the world (a desktop tool or the SDK could use any of it); `firmware/`
+# exists because there is one. So `kassigner-fw`, the device's behaviour, is
+# there though it runs on a laptop.
+#
+# `kassigner-sdk`, what an app links to work with a unit, never reaches
+# level 2. Its bindings (`wasm-bindgen` for the
+# browser; a C ABI for Swift, Kotlin and Python) are members, so the host
+# lints and tests cover them; each builds its package with a `build.sh`.
+#
+# # Licenses
+#
+# Two, by crate:
+#
+#   MPL-2.0           kassigner-kaspa, kassigner-qr, kassigner-jpeg,
+#                     kassigner-protocol, kassigner-sdk, kassigner-sdk-host,
+#                     kassigner-sdk-wasm, kassigner-sdk-ffi: the SDK and
+#                     everything it is built from
+#   GPL-3.0-or-later  kassigner-crypto, kassigner-fat32 and everything under
+#                     firmware/
+#
+# MPL-2.0 lets any app link the SDK, where GPL-3 would make the whole app
+# GPL-3, and keeps changes to these files public; each MPL crate carries
+# `LICENSE` and a notice in every file. It combines with the GPL (section
+# 3.3), so the GPL firmware links these crates, as long as no file carries
+# MPL's "Incompatible With Secondary Licenses" notice. A GPL crate may
+# depend on an MPL one, never the reverse: `kassigner-sdk/tests/no_keys.rs`
+# checks that the SDK reaches neither the firmware nor `kassigner-crypto`,
+# which holds the seed. `vendor/rqrr` keeps its own: MIT or Apache-2.0, and
+# ISC.
+#
+# # Toolchain
+#
+# Every crate declares `rust-version = "1.95"` (`[workspace.package]`), one
+# floor for the tree: esp-hal 1.2, under `kassigner-hal-esp32s3`, declares it
+# and cargo enforces it, so the Xtensa toolchain must be the fork of 1.95 or
+# newer (`espup install --toolchain-version 1.95.0.0`). The rest needs less;
+# rusty-kaspa, for `kassigner-kaspa`'s conformance tests, declares 1.91 at
+# the pinned rev.
+#
+# # Building for the device
+#
+# Host builds run from here, device builds from `firmware/kassigner-signer`
+# or a board crate's folder, whose `.cargo/config.toml` adds the targets,
+# linker arguments and flashing aliases; cargo reads config upward, so a
+# host build never sees them.
+#
+# `vendor/rqrr`, a path dependency of `kassigner-qr`, is not a member: it is
+# not ours and keeps the `allow`s upstream needs, and `cargo test` and
+# `cargo clippy` here are for this project's code.
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/kassigner-kaspa",
+    "crates/kassigner-qr",
+    "crates/kassigner-protocol",
+    "crates/kassigner-crypto",
+    "crates/kassigner-fat32",
+    "crates/kassigner-jpeg",
+    "crates/kassigner-sdk",
+    "crates/kassigner-sdk-host",
+    "crates/kassigner-sdk-wasm",
+    "crates/kassigner-sdk-ffi",
+    "firmware/kassigner-hal",
+    "firmware/kassigner-fw",
+    "firmware/kassigner-hal-esp32s3",
+    "firmware/kassigner-hal-esp32p4",
+    "firmware/kassigner-signer",
+]
+exclude = ["vendor/rqrr", "firmware/kassigner-hal-esp32p4/esp-hal-fork"]
+
+# ── The esp-hal fork, for the ESP32-P4 ───────────────────────────────────────
+#
+# The P4 units are rev1.3 silicon, ROM ECO2, which upstream esp-hal refuses
+# and mis-serves in five places, each named in `fork.sh`. That script, in
+# `firmware/kassigner-hal-esp32p4/esp-hal-fork/`, fetches the six crates below
+# by version, checks each SHA-256 against the crates.io index, and applies
+# `eco2-fix.patch`; the folders are gitignored. Run it once after a clone,
+# before any cargo command (the Docker build does): until then nothing in the
+# workspace resolves.
+#
+# Six entries: esp-hal depends on its siblings, and esp-rom-sys declares
+# `links`, which cargo permits once; esp-println, esp-backtrace and the
+# bootloader crate stay on crates.io. Cargo reads a patch table only here and
+# applies it to every member, but every hunk is P4-only by file or `cfg`, so
+# the S3 builds get the same esp-hal 1.2.2 as from crates.io. The folder is
+# outside the workspace, so `fmt` and `clippy` skip it.
+[patch.crates-io]
+esp-hal                = { path = "firmware/kassigner-hal-esp32p4/esp-hal-fork/esp-hal" }
+esp-rom-sys            = { path = "firmware/kassigner-hal-esp32p4/esp-hal-fork/esp-rom-sys" }
+esp-config             = { path = "firmware/kassigner-hal-esp32p4/esp-hal-fork/esp-config" }
+esp-sync               = { path = "firmware/kassigner-hal-esp32p4/esp-hal-fork/esp-sync" }
+esp-metadata-generated = { path = "firmware/kassigner-hal-esp32p4/esp-hal-fork/esp-metadata-generated" }
+esp-riscv-rt           = { path = "firmware/kassigner-hal-esp32p4/esp-hal-fork/esp-riscv-rt" }
+
+[workspace.package]
+# The release's version, for every crate: the signer's image, the SDK (which
+# reports it) and the libraries both are built from.
+version = "1.1.0"
+rust-version = "1.95"
+
+# The device image's profile (cargo honours profiles only here).
+# `opt-level = "z"`, LTO and one codegen unit: size binds everything on the
+# ESP32-S3 (16 MB of flash, 512 KB of internal RAM). `overflow-checks` stays
+# on: on a signing device an overflow is a bug to stop on, not a value to
+# wrap.
+#
+# "z" itself matters twice: the M5 card driver's bit-banged data path has no
+# delays, so its clock is what the optimiser makes of the loop, tested at
+# this level; and at `opt-level = 3` LLVM's vectorisers build code from
+# rqrr's `block_syndromes` that some Xtensa backends cannot select
+# ("Cannot select: v4i1 = BUILD_VECTOR").
+#
+# Host `--release` builds get it too; `cargo test` uses the dev profile.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = false
+overflow-checks = true

@@ -1,0 +1,36 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# For building this crate's examples for the device; applies only when the
+# target is the ESP32-S3, so host builds and tests are untouched.
+#
+# Link arguments: esp-hal's linker script, and the app descriptor the ESP-IDF
+# second-stage bootloader looks for, which the linker would otherwise discard.
+
+[target.xtensa-esp32s3-none-elf]
+runner = "espflash flash --monitor"
+rustflags = [
+    "-C", "link-arg=-Tlinkall.x",
+    "-C", "link-arg=-u",
+    "-C", "link-arg=esp_app_desc",
+]
+
+[alias]
+m5-hwtest = "run --release --example m5_hwtest --features m5stack,decode --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+# Each example states its PSRAM mode (quad on the M5, octal on the Waveshare):
+# no environment variable needed.
+ws-hwtest = "run --release --example waveshare_hwtest --features waveshare,decode --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+# One source per run: each takes the console for itself.
+m5-capture-cam = "run --release --example m5_capture --features m5stack,capture,decode --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+m5-capture-rng = "run --release --example m5_capture --features m5stack,capture,decode,cap_rng --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+m5-capture-touch = "run --release --example m5_capture --features m5stack,capture,decode,cap_touch --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+m5-capture-imu = "run --release --example m5_capture --features m5stack,capture,decode,cap_imu --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+m5-capture-qr = "run --release --example m5_capture --features m5stack,capture,decode,cap_qr --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+m5-capture-qr-read = "run --release --example m5_capture --features m5stack,capture,decode,cap_qr_read --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-capture-cam = "run --release --example waveshare_capture --features waveshare,capture,decode --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-capture-rng = "run --release --example waveshare_capture --features waveshare,capture,decode,cap_rng --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-capture-touch = "run --release --example waveshare_capture --features waveshare,capture,decode,cap_touch --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-capture-imu = "run --release --example waveshare_capture --features waveshare,capture,decode,cap_imu --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-capture-qr = "run --release --example waveshare_capture --features waveshare,capture,decode,cap_qr --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-capture-qr-read = "run --release --example waveshare_capture --features waveshare,capture,decode,cap_qr_read --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"

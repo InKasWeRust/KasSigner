@@ -1,0 +1,40 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# cargo-about's configuration for the SDK packages' third-party notices,
+# written and checked by `notices.sh` beside this file. `accepted`: the
+# permissive licenses a compiled-in crate may carry, no GPL (also checked by
+# `kassigner-sdk/tests/no_keys.rs`). Any other stops the generation: a new
+# license in what an app links is a decision, not a dependency update.
+
+accepted = [
+    "MPL-2.0",
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unlicense",
+]
+
+# The packages' targets: the browser and the native library's platforms.
+# A crate used on any of these is listed; one used only elsewhere is not.
+targets = [
+    "wasm32-unknown-unknown",
+    "aarch64-apple-darwin",
+    "aarch64-apple-ios",
+    "aarch64-linux-android",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+
+# Only what is compiled into a package: no dev- or build-only crates.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+# The SDK's own crates are listed too, under MPL-2.0, which also ships as
+# `LICENSE` beside the notices: every workspace crate is unpublished
+# (`publish = false`), so unpublished ones are not skipped.
+ignore-transitive-dependencies = false
+private = { ignore = false }

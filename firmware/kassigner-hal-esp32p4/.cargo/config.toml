@@ -1,0 +1,28 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# Device builds for the ESP32-P4 board. Cargo merges config upward, so the
+# workspace aliases still apply here and this file adds the target. The P4 is
+# RISC-V and needs no Xtensa fork, but builds with the `esp195` toolchain and
+# `-Z build-std` so one toolchain serves all three boards.
+
+[target.riscv32imafc-unknown-none-elf]
+# --no-stub is required: the flash stub fails to attach on this silicon.
+runner = "espflash flash --monitor --no-stub"
+rustflags = ["-C", "link-arg=-Tlinkall.x", "-C", "force-frame-pointers"]
+
+[env]
+# esp-hal's min-chip-revision of 300 for the P4 is a policy barrier, not
+# missing code: lifting it plus the fixes in `esp-hal-fork/` is all rev1.3
+# needs.
+ESP_HAL_CONFIG_MIN_CHIP_REVISION = "0"
+# L2 cache size: leave the default ("256KB"). On ECO2 it only moves the RAM
+# origin; the ceiling that matters is the fork's memory.x, 0x4FFA0000, as
+# the top 128 KB of L2MEM is unbacked (measured on the unit). `p4_hwtest`
+# checks the stack stays below it.
+
+[alias]
+p4-hwtest = "run --release --example p4_hwtest --features unstable --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
+p4-unit = "run --release --example p4_unit --features unstable --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
+p4-entropy = "run --release --example p4_entropy --features unstable --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"

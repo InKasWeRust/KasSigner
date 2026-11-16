@@ -1,0 +1,25 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# LEVEL 3. Board traits and the pin maps behind them.
+
+[package]
+name = "kassigner-hal"
+version.workspace = true
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/InKasWeRust/KasSigner"
+description = "KasSigner hardware abstraction: board traits and pin maps"
+rust-version.workspace = true
+
+# Not published: a board map is a product detail.
+publish = false
+
+[dependencies]
+# For `drbg`: SHA-256 conditions the seed (the same crate the seed pool and
+# BIP39 use, with its `zeroize` feature on); `zeroize` wipes key, block and
+# seed, as this crate forbids the `unsafe` volatile writes a hand-rolled wipe
+# needs.
+sha2 = { version = "0.11", default-features = false, features = ["zeroize"] }
+zeroize = { version = "=1.9.0", default-features = false }

@@ -1,0 +1,35 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# cargo-about's configuration for the firmware's third-party notices,
+# written and checked by `notices.sh` beside this file. `about.toml` is the
+# SDK packages', kept apart so its rule against GPL is not loosened here.
+# `accepted`: the licenses a crate compiled into the firmware may carry.
+# Any other stops the generation: a new license in what the units run is a
+# decision, not a dependency update.
+
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unlicense",
+]
+
+# The units' targets: the S3 boards' and the P4's. A crate used on either is
+# listed; one used only elsewhere is not.
+targets = [
+    "xtensa-esp32s3-none-elf",
+    "riscv32imafc-unknown-none-elf",
+]
+
+# Only what is compiled into the firmware: no dev- or build-only crates.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+# The workspace's own crates are skipped (every one is `publish = false`):
+# they are KasSigner's code, under the license the notices' header names.
+ignore-transitive-dependencies = false
+private = { ignore = true }

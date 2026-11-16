@@ -1,0 +1,12 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# The partition table of every release image, for 16 MB of flash: espflash
+# 4.6.0's default for that size and the layout v1.0.7's units already have,
+# written down so the table is the repository's, not a tool's default.
+#
+# Name,     Type, SubType, Offset,  Size,     Flags
+nvs,        data, nvs,     0x9000,  0x6000,
+phy_init,   data, phy,     0xf000,  0x1000,
+factory,    app,  factory, 0x10000, 0xfa0000,

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/InKasWeRust/KasSigner/blob/main/SECURITY.md
+    about: Never in a public issue. Email kassigner@proton.me with the subject [SECURITY].

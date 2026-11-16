@@ -1,0 +1,14 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# Every file is checked out exactly as it was committed, on every machine:
+# git converts no line endings in this repository, whatever `core.autocrlf`
+# says. The release build must read the same bytes wherever it is cloned,
+# and some files hold bytes a conversion would change: the third-party
+# notices keep the Windows line endings of upstream licenses, which
+# `release/notices.sh --check` compares byte for byte, and the test vectors
+# and screen images are binary data git can mistake for text.
+#
+# Diffs are unaffected: git still shows a text file's changes as text.
+* -text

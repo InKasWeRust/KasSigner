@@ -1,0 +1,1 @@
+{"id":7,"method":"submitTransaction","error":{"code":0,"message":"Rejected transaction 3c8548b8810dde4e3ef0f5288d5eea22dd5cb5db503507ccec0facd8470ffd22: transaction 3c8548b8810dde4e3ef0f5288d5eea22dd5cb5db503507ccec0facd8470ffd22 is an orphan where orphan is disallowed","data":null}}

@@ -1,0 +1,48 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+#
+# The SDK for a browser: `kassigner-sdk-host` behind `wasm-bindgen`.
+# Level 3, as the SDK; nothing of level 2 is in its tree. A workspace
+# member, so `test-all` and `clippy-all` cover it on the host; `build.sh`
+# builds the package for `wasm32-unknown-unknown`.
+
+[package]
+name = "kassigner-sdk-wasm"
+version.workspace = true
+edition = "2021"
+license = "MPL-2.0"
+repository = "https://github.com/InKasWeRust/KasSigner"
+description = "KasSigner's companion SDK for JavaScript and TypeScript, as WebAssembly."
+keywords = ["kaspa", "kassigner", "wasm", "hardware-wallet", "air-gap"]
+categories = ["cryptography::cryptocurrencies", "wasm"]
+rust-version.workspace = true
+
+# Not published: an app takes the SDK, and what it is built from, from the
+# GitHub release or from this repository at the release's tag.
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# `transactions`, on by default: everything that builds a request, checks a
+# reply, merges, finishes or submits a transaction ([`request`], [`reply`],
+# [`bundle`], `Node.submitTransaction`, `Rates`). Without it
+# (`--no-default-features`, `build.sh watch`) the package only watches:
+# imports, addresses, coins, signed messages, cards, codes and a node's
+# reads. kassigner.org serves that one, so the site holds no code that can
+# make or send a transaction.
+[features]
+default = ["transactions"]
+transactions = []
+
+[dependencies]
+kassigner-sdk-host = { path = "../kassigner-sdk-host", version = "1.1.0" }
+# The boundary. `js-sys` for what wasm-bindgen does not carry on its own:
+# the array of byte arrays a merge takes, and a wRPC message or request
+# as bytes in a value that may also be a string.
+wasm-bindgen = "0.2.100"
+js-sys = "0.3.77"

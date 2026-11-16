@@ -1,0 +1,60 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# LEVEL 2. Key material lives here and nowhere else.
+
+[package]
+name = "kassigner-crypto"
+version.workspace = true
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/InKasWeRust/KasSigner"
+description = "KasSigner key material: BIP39, BIP32 private derivation, BIP85, signing"
+rust-version.workspace = true
+
+# Not published: the only crate holding a seed. `cargo tree -p kassigner-sdk`
+# must never list it, and `kassigner-sdk/tests/no_keys.rs` checks that at
+# every test run.
+publish = false
+
+[dependencies]
+# The public half of BIP32, address encoding, signature verification.
+kassigner-kaspa = { path = "../kassigner-kaspa", version = "1.1.0" }
+# The container's framing, parsed at level 1; the password and plaintext
+# stay here.
+kassigner-protocol = { path = "../kassigner-protocol", version = "1.1.0" }
+
+# `zeroize` so the ECIES key derivation's hasher, which absorbs the ECDH
+# secret, wipes its state on drop.
+blake2 = { version = "0.11", default-features = false, features = ["zeroize"] }
+
+hmac = { version = "0.13", default-features = false, features = ["zeroize"] }
+sha2 = { version = "0.11", default-features = false, features = ["zeroize"] }
+pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
+# The curve arithmetic alone: BIP340 is this crate's own (`sign`).
+k256 = { version = "0.14", default-features = false, features = ["arithmetic"] }
+# The container's cipher, AES-256-GCM. `zeroize` reaches all of it: the
+# GHASH key aes-gcm derives, aes's round keys (software backend included),
+# and through ghash, polyval's key and state. `tests/container.rs` checks
+# the round keys by type.
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "zeroize"] }
+# The container's `kdf_id = 2`: Argon2id over memory the caller passes, so
+# no allocator, `password-hash` or PHC strings; its parameters are constants
+# of the id, never read from a card. `zeroize` so the blocks can be wiped.
+argon2 = { version = "0.6", default-features = false, features = ["zeroize"] }
+# No `derive`: a proc macro in the key-material crate's graph is one more
+# dependency to vet, and wipes written by hand show what is cleared. One
+# exact version across the tree: 1.9.0, the first the RustCrypto 0.11 line
+# accepts.
+zeroize = { version = "=1.9.0", default-features = false }
+
+[dev-dependencies]
+# Upstream at kassigner-kaspa's pin, the commit tag `v2.1.0` points at:
+# derivation and signing are checked against it, not against ourselves.
+kaspa-bip32 = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "01b532e8b553523216471682649693af92f0fd16" }
+secp256k1 = { version = "0.29", features = ["global-context"] }
+hex = "0.4"
+pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
+hmac = { version = "0.13", default-features = false }
+sha2 = { version = "0.11", default-features = false }

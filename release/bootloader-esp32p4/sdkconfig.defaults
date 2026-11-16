@@ -1,0 +1,77 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# The P4's Secure Boot bootloader as the release build makes it, unsigned,
+# for each owner to sign with their own key: ESP-IDF v6.1's `hello_world`
+# project built with these settings, all the repository holds of it.
+#
+# The S3's settings (`release/bootloader-esp32s3/sdkconfig.defaults`) plus
+# what the P4 needs, marked below, checked against ESP-IDF v6.1's Kconfig
+# files; the rest is ESP-IDF's default.
+
+CONFIG_IDF_TARGET="esp32p4"
+
+# ── The chip revision ────────────────────────────────────────────────────────
+# The unit is rev 1.3 (ROM "esp32p4-eco2-20240710"). ESP-IDF v6.1 builds for
+# rev 3.0 and up unless told otherwise, and the families are incompatible:
+# `ESP32P4_SELECTS_REV_LESS_V3` picks rev 0.0 to 1.99, and a minimum of rev
+# 1.0 refuses chips older than those checked. esp-hal raises the same
+# barrier, lifted in the firmware's build.
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP32P4_REV_MIN_100=y
+
+# ── The board ────────────────────────────────────────────────────────────────
+# DIO, 40 MHz, 16 MB: what the unit's current bootloader reports at boot.
+#
+# CHANGED from the S3: the partition table at 0xC000. The P4's ROM loads the
+# bootloader from 0x2000, and this one, 0x7000 unsigned and 0x8000 signed,
+# reaches 0xA000, so ESP-IDF refuses a table at 0x8000 ("Bootloader binary
+# size 0x7000 bytes is too large for partition table offset 0x8000").
+# Fitting would need 0x5000 unsigned; silent assertions only bring it to
+# 0x5790. 0xC000 is where ESP-IDF's Secure Boot and flash encryption examples
+# put it, leaving two sectors to grow; the table is
+# `release/partitions-p4-secure.csv`, the app still at 0x10000. The full
+# image for a blank P4 keeps espflash's plain bootloader and its table at
+# 0x8000.
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_40M=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_OFFSET=0xC000
+
+# ── Secure Boot V2, RSA ──────────────────────────────────────────────────────
+# The ROM checks this bootloader's signature, and the bootloader checks the
+# app's at every boot. The P4 also has ECDSA, but below rev 3.0 only P-256
+# (P-384 needs rev 3.0, `SECURE_BOOT_ECDSA_KEY_LEN_384_BITS`); RSA-3072 is
+# what the S3 has, so one owner's key signs for both.
+CONFIG_SECURE_BOOT=y
+CONFIG_SECURE_BOOT_V2_ENABLED=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+
+# Signed by the owner outside the build: no key enters it, and its output is
+# unsigned.
+# CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES is not set
+
+# None of Secure Boot's weakening options: on a blank chip the first boot
+# burns the JTAG disables, revokes the slots no signature fills, disables
+# direct boot and locks the read protection (ESP-IDF v6.1's
+# `esp32p4/secure_boot_secure_features.c`, the S3's list).
+# CONFIG_SECURE_BOOT_INSECURE is not set
+
+# Aggressive revoke off, as on the S3. No flash encryption.
+# CONFIG_SECURE_BOOT_ENABLE_AGGRESSIVE_KEY_REVOKE is not set
+# CONFIG_SECURE_FLASH_ENC_ENABLED is not set
+
+# On a blank chip the first boot burns Secure Download, so a unit it
+# provisions has no hole open; flashing still works.
+CONFIG_SECURE_ENABLE_SECURE_ROM_DL_MODE=y
+
+# ── Logging and size ─────────────────────────────────────────────────────────
+# No output, as on the S3: the smallest bootloader that keeps every check.
+CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y
+
+# ── Reproducible ─────────────────────────────────────────────────────────────
+# No build date, time or paths in the binary, so every Docker build gives
+# the same bytes.
+# CONFIG_BOOTLOADER_COMPILE_TIME_DATE is not set
+CONFIG_APP_REPRODUCIBLE_BUILD=y

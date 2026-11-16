@@ -1,0 +1,60 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# The S3's Secure Boot bootloader as the release build makes it, unsigned,
+# for each owner to sign with their own key: ESP-IDF v6.1's `hello_world`
+# project built with these settings, all the repository holds of it.
+#
+# The provisioned units' bootloader settings (from its sdkconfig.h), with
+# two changes marked below; the rest is ESP-IDF's default. Anyone can build
+# it with their own copy, changed as they choose.
+
+CONFIG_IDF_TARGET="esp32s3"
+
+# ── The board ────────────────────────────────────────────────────────────────
+# DIO, 40 MHz, 16 MB, the partition table at 0x8000: the units' layout and
+# `release/partitions.csv`'s.
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_40M=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+
+# ── Secure Boot V2, RSA ──────────────────────────────────────────────────────
+# The ROM checks this bootloader's signature, and the bootloader checks the
+# app's at every boot (`SECURE_SIGNED_ON_BOOT`, on with Secure Boot).
+# RSA-3072 is the S3's only scheme.
+CONFIG_SECURE_BOOT=y
+CONFIG_SECURE_BOOT_V2_ENABLED=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+
+# Signed by the owner outside the build: no key enters it, and its output is
+# unsigned.
+# CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES is not set
+
+# None of Secure Boot's weakening options (JTAG kept, digest slots left
+# unrevoked, and the rest): on a blank chip the first boot burns the JTAG
+# disables and revokes the slots no signature fills.
+# CONFIG_SECURE_BOOT_INSECURE is not set
+
+# Aggressive revoke off, as on the provisioned units. No flash encryption.
+# CONFIG_SECURE_BOOT_ENABLE_AGGRESSIVE_KEY_REVOKE is not set
+# CONFIG_SECURE_FLASH_ENC_ENABLED is not set
+
+# CHANGED from the units' bootloader ("Enabled (not recommended)"): on a
+# blank chip the first boot burns Secure Download, so a unit it provisions
+# has no hole open and its verification screen says Verified OK; flashing
+# still works. Where Secure Boot is already on, as on the units, it burns
+# nothing and this changes nothing.
+CONFIG_SECURE_ENABLE_SECURE_ROM_DL_MODE=y
+
+# ── Logging and size ─────────────────────────────────────────────────────────
+# No output, so the signed bootloader, from 0x0, ends below the partition
+# table at 0x8000: the units' is 0x7000 bytes.
+CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y
+
+# ── Reproducible ─────────────────────────────────────────────────────────────
+# CHANGED from the units' bootloader: no build date, time or paths in the
+# binary, so every build gives the same bytes; the bootloader works the same.
+# CONFIG_BOOTLOADER_COMPILE_TIME_DATE is not set
+CONFIG_APP_REPRODUCIBLE_BUILD=y

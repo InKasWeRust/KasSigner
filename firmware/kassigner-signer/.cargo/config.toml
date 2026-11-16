@@ -1,0 +1,88 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# For building the firmware for a unit. Host builds and tests are untouched:
+# everything below applies only when the target is the ESP32-S3 or the P4.
+#
+# The link arguments: esp-hal's linker script, and `-u` to keep the app
+# descriptor the ESP-IDF second-stage bootloader reads to decide this is an
+# application (`esp_app_desc!` in `src/device/mod.rs`).
+
+[target.xtensa-esp32s3-none-elf]
+runner = "espflash flash --monitor"
+rustflags = [
+    "-C", "link-arg=-Tlinkall.x",
+    "-C", "link-arg=-u",
+    "-C", "link-arg=esp_app_desc",
+    # `sha2` 0.11's compact software SHA-2, not its default fully unrolled
+    # one, whose 64-bit rounds spill on a 32-bit core built for size. On the
+    # M5's boot self-test BIP39's PBKDF2 takes 0.48 s against 13.59 s
+    # unrolled, a sighash 25 ms against 56. Same digests either way (the
+    # self-test's known answers pass on both). Host builds keep the default.
+    "--cfg", 'sha2_backend_soft="compact"',
+]
+
+# The P4 is RISC-V. --no-stub: the flash stub fails to attach on this
+# silicon. esp-hal sets a chip-revision floor of 3.0 on the P4 as a policy
+# barrier; this rev 1.3 silicon needs it lifted, in `[env]` below.
+[target.riscv32imafc-unknown-none-elf]
+runner = "espflash flash --monitor --no-stub"
+rustflags = [
+    "-C", "link-arg=-Tlinkall.x",
+    "-C", "force-frame-pointers",
+    # The compact software SHA-2, as for the S3, also a 32-bit core: BIP39
+    # takes 0.28 s with it on the P4's boot self-test.
+    "--cfg", 'sha2_backend_soft="compact"',
+]
+
+[env]
+ESP_HAL_CONFIG_MIN_CHIP_REVISION = "0"
+
+[alias]
+p4 = "run --release --features p4 --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
+m5 = "run --release --features m5stack --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+# The PSRAM mode is stated per unit in `heap.rs` (quad on the M5, octal on
+# the Waveshare), so no environment variable goes in front of these.
+ws = "run --release --features waveshare --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+# The same three with the bench's console: measurements and what the user is
+# doing, which the shipping build does not say.
+p4-diag = "run --release --features p4,diag --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
+m5-diag = "run --release --features m5stack,diag --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-diag = "run --release --features waveshare,diag --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+# The seed probe, one example for the three units: it stores a fixed seed,
+# derives from it, scrubs, and sweeps the stack and PSRAM for what is left.
+m5-seedprobe = "run --release --example seed_probe --features m5stack,seedprobe --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-seedprobe = "run --release --example seed_probe --features waveshare,seedprobe --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+p4-seedprobe = "run --release --example seed_probe --features p4,seedprobe --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
+m5-panicprobe = "run --release --example panic_probe --features m5stack,panicprobe --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+m5-panicprobe1 = "run --release --example panic_probe --features m5stack,panicprobe1 --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-panicprobe = "run --release --example panic_probe --features waveshare,panicprobe --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-panicprobe1 = "run --release --example panic_probe --features waveshare,panicprobe1 --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+p4-panicprobe = "run --release --example panic_probe --features p4,panicprobe --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
+p4-panicprobe1 = "run --release --example panic_probe --features p4,panicprobe1 --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
+m5-stackprobe = "run --release --features m5stack,stackprobe --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-stackprobe = "run --release --features waveshare,stackprobe --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+# The watchdog probe: the loop stops feeding the watchdog 20 s after arming
+# it, and the watchdog then resets the chip. Never shipped.
+m5-wdtprobe = "run --release --features m5stack,wdtprobe --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-wdtprobe = "run --release --features waveshare,wdtprobe --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+p4-wdtprobe = "run --release --features p4,wdtprobe --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
+# The UI probe, one example for the three units: the brand screens drawn a
+# band at a time, with what each took and the memory drawing them uses.
+m5-ui = "run --release --example ui_probe --features m5stack --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-ui = "run --release --example ui_probe --features waveshare --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+p4-ui = "run --release --example ui_probe --features p4 --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
+# The decode probe, one example for the three units: the same frames decoded
+# the same way on each, to compare the QR decoder before and after a change.
+m5-decode = "run --release --example decode_probe --features m5stack --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-decode = "run --release --example decode_probe --features waveshare --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+p4-decode = "run --release --example decode_probe --features p4 --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
+# The search probe: one address's derivation timed each way, with the
+# curve's precomputed tables off and on.
+m5-search = "run --release --example search_probe --features m5stack,searchprobe --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-search = "run --release --example search_probe --features waveshare,searchprobe --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+p4-search = "run --release --example search_probe --features p4,searchprobe --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
+m5-search-tables = "run --release --example search_probe --features m5stack,searchprobe,k256-tables --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-search-tables = "run --release --example search_probe --features waveshare,searchprobe,k256-tables --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+p4-search-tables = "run --release --example search_probe --features p4,searchprobe,k256-tables --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"

@@ -1,0 +1,19 @@
+# Pins the toolchain for the vendored decoder: not the compiler that builds
+# it, but the LINT SET.
+#
+# This crate is a fork of someone else's, and CI runs clippy over it with
+# -D warnings. Every clippy release adds lints: useful on code we maintain,
+# but here a build green one day fails the next over a style rule nobody
+# here chose, in a file nobody here should edit.
+#
+# Without this file the crate gets eight errors, all `manual_is_multiple_of`
+# and `manual_div_ceil`, lints newer than 1.85; fixing them would take the
+# fork further from upstream.
+#
+# 1.85.0 is the version the crate was last verified clean at. Raise it with
+# a clippy run, not incidentally.
+#
+# The file name has a HYPHEN: rustup silently ignores rust_toolchain.toml.
+
+[toolchain]
+channel = "1.85.0"

@@ -1,0 +1,66 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+
+[package]
+name = "kassigner-hal-esp32p4"
+version.workspace = true
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/InKasWeRust/KasSigner"
+description = "KasSigner HAL implementations for the ESP32-P4 (Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5, rev1.3 / ROM ECO2)"
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+kassigner-hal = { path = "../kassigner-hal", version = "1.1.0" }
+kassigner-protocol = { path = "../../crates/kassigner-protocol", version = "1.1.0" }
+kassigner-qr = { path = "../../crates/kassigner-qr", version = "1.1.0" }
+# The card's block device and CSD arithmetic, shared with the S3 units.
+kassigner-fat32 = { path = "../../crates/kassigner-fat32", version = "1.1.0" }
+
+# ── The device layer ─────────────────────────────────────────────────────────
+#
+# RISC-V only, so host builds and tests see none of it. esp-hal resolves to
+# the fork under `esp-hal-fork/` through the root manifest's patch table. The
+# PAC is a direct dependency as esp-hal's re-export is `pub(crate)`; its
+# version range is the fork's, so cargo links one copy. The ST7796 driver
+# and the hardware test draw with `embedded-graphics`.
+[target.'cfg(target_arch = "riscv32")'.dependencies]
+esp-hal = { version = "=1.2.2", features = ["esp32p4", "unstable"] }
+esp32p4 = { version = "0.3", features = ["critical-section"] }
+embedded-graphics = { version = "0.8", default-features = false }
+static_cell = "=2.1.1"
+
+[features]
+default = []
+# Register-level modules made `pub`, for the examples.
+unstable = []
+# The panic probe's hooks: the core-1 decode worker panics at its next job
+# when the probe asks, and `stack` gains the probe's readers. For
+# `kassigner-signer`'s `panic_probe` example; never on in a shipped build.
+panic-probe = []
+
+[[example]]
+name = "p4_hwtest"
+required-features = ["unstable"]
+
+# The board behind the traits, driven as the signer drives it.
+[[example]]
+name = "p4_unit"
+required-features = ["unstable"]
+
+# The noise source checked: restart words across cold boots, whether
+# `enable()` took, and a mebibyte capture for the SP 800-90B assessment.
+[[example]]
+name = "p4_entropy"
+required-features = ["unstable"]
+
+# The examples' console and app descriptor, dev-only so no dependent crate
+# gets them. esp-println must be `uart`: the default probes USB_SERIAL_JTAG,
+# and this board's native USB port does not enumerate.
+[target.'cfg(target_arch = "riscv32")'.dev-dependencies]
+esp-backtrace = { version = "=0.20.0", features = ["esp32p4", "panic-handler", "println"] }
+esp-bootloader-esp-idf = { version = "=0.6.0", features = ["esp32p4"] }
+esp-println = { version = "=0.18.0", default-features = false, features = ["esp32p4", "uart"] }
+esp-alloc = { version = "=0.11.0", features = ["esp32p4"] }

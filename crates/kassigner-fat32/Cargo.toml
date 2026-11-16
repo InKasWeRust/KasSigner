@@ -1,0 +1,23 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# LEVEL 0. No format here was designed by us.
+
+[package]
+name = "kassigner-fat32"
+version.workspace = true
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/InKasWeRust/KasSigner"
+description = "FAT32 over a block device for KasSigner, no_std"
+keywords = ["fat32", "no-std", "filesystem", "sd"]
+categories = ["filesystem", "no-std"]
+rust-version.workspace = true
+
+# Not published: the units' card driver, not a library to build on.
+publish = false
+
+[dependencies]
+
+[dev-dependencies]

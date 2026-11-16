@@ -1,0 +1,37 @@
+# KasSigner — Air-gapped offline signing device for Kaspa
+# Copyright (C) 2025-2026 KasSigner Project (kassigner@proton.me)
+# License: GPL-3.0-or-later
+#
+# What is made or left behind; the esp-hal fork's folder has its own.
+
+# Keys, wherever they land: no signing or Secure Boot key belongs in this
+# tree, and a copy dropped into it by mistake must never reach a commit.
+*.pem
+*.key
+
+# Build output: the workspace's, and that of any crate built on its own.
+target/
+
+# The SDK's browser package and native library with bindings, each built by
+# its crate's `build.sh`; the checks beside them are committed.
+crates/kassigner-sdk-wasm/pkg/
+crates/kassigner-sdk-wasm/pkg-watch/
+crates/kassigner-sdk-ffi/out/
+
+# The release build's output (`release/Dockerfile`) and its second run's.
+release-out*/
+
+# Python's bytecode caches, wherever a Python module is imported.
+__pycache__/
+
+# Logs of a test or build run: they carry the paths of the machine that
+# made them.
+*.log
+
+# Editing copies: `flow.rs.bak`, `flow.rs.bak2` and on.
+*.bak
+*.bak[0-9]
+*.bak[0-9][0-9]
+
+# macOS Finder's per-folder files.
+.DS_Store

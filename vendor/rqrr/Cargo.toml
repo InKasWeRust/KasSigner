@@ -1,0 +1,14 @@
+[package]
+name = "rqrr"
+edition = "2021"
+version = "0.10.1-nostd"
+description = "QR code detection and decoding - no_std fork for KasSigner"
+license = "(MIT OR Apache-2.0) AND ISC"
+
+[dependencies]
+# KASSIGNER: GF arithmetic is in `src/galois.rs`; `zeroize`, at the
+# version the whole tree pins, wipes the decoded bytes on drop.
+zeroize = { version = "=1.9.0", default-features = false }
+
+[features]
+default = []

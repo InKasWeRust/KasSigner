@@ -1,0 +1,245 @@
+diff -ruN a/esp-hal/ld/esp32p4/memory.x b/esp-hal/ld/esp32p4/memory.x
+--- a/esp-hal/ld/esp32p4/memory.x
++++ b/esp-hal/ld/esp32p4/memory.x
+@@ -4,6 +4,14 @@
+    fixed at 0x4FFAE000 to leave the v3.x ROM BSS/stack region (top
+    ~72 KB of L2MEM) untouched.
+ 
++   KASSIGNER ECO2 FIX (rev1.3, ROM esp32p4-eco2-20240710): on this silicon
++   the top 128 KB of L2MEM, 0x4FFA0000..0x4FFC0000, is not backed: writes
++   are dropped and reads return zero. Upstream's ceiling, 0x4FFADFC0, lies
++   inside it, so the main stack's locals read back as zero once evicted
++   from L1; the ceiling here is 0x4FFA0000. The ORIGIN stays as upstream
++   has it: the bottom 256 KB is real RAM, but the ROM and bootloader run
++   there.
++
+    CONFIG numbers follow TRM Figure 7.3-2 (HP L2MEM Address Layout):
+ 
+      CONFIG   ESP_HAL_CONFIG_L2_CACHE_SIZE   L2 cache    L2 RAM ORIGIN
+@@ -26,13 +34,20 @@
+ 
+ MEMORY
+ {
+-    RAM : ORIGIN = 0x4FF00000 + RESERVED_L2_CACHE, LENGTH = 0xADFC0 - RESERVED_L2_CACHE
++    /* KASSIGNER ECO2 FIX: ceiling 0x4FFA0000, not 0x4FFADFC0. See above.
++       LENGTH is 0xA0000 (the ceiling minus 0x4FF00000) less the cache. */
++    RAM : ORIGIN = 0x4FF00000 + RESERVED_L2_CACHE, LENGTH = 0xA0000 - RESERVED_L2_CACHE
+ 
+     /* Memory available after the 2nd stage bootloader finishes.
+        Upper bound is __stack_app = 0x4ffbefc0.
+        Source: esp-idf C:\_Espressif\esp-idf\components\bootloader\subproject\main\ld\esp32p4\bootloader.memory.ld.in
++
++       KASSIGNER ECO2 FIX: on ECO2 all of it, 0x4FFA0000..0x4FFBEFC0, lies
++       in the unbacked top 128 KB, so it is given no length: a section
++       placed in it fails the link rather than losing its writes. Nothing
++       is placed there today.
+     */
+-    dram2_seg ( RW ): ORIGIN = ORIGIN(RAM) + LENGTH(RAM), len = 0x4ffbefc0 - (ORIGIN(RAM) + LENGTH(RAM))
++    dram2_seg ( RW ): ORIGIN = ORIGIN(RAM) + LENGTH(RAM), len = 0
+ 
+     /* External flash (XIP via cache); +0x20 skips the IDF app image header. */
+     ROM : ORIGIN = 0x40000000 + 0x20, LENGTH = 0x400000 - 0x20
+diff -ruN a/esp-rom-sys/ld/esp32p4/rom-functions.x b/esp-rom-sys/ld/esp32p4/rom-functions.x
+--- a/esp-rom-sys/ld/esp32p4/rom-functions.x
++++ b/esp-rom-sys/ld/esp32p4/rom-functions.x
+@@ -1,7 +1,47 @@
+ INCLUDE "rom/esp32p4.rom.api.ld"
+-INCLUDE "rom/esp32p4.rom.eco5.ld"
++/* KASSIGNER ECO2 FIX -- the ECO5 jump table REPLACED by the ECO0 one.
++ *
++ * esp32p4.rom.eco5.ld is the table for chips whose ROM is at ECO 5 or above,
++ * which is silicon revision 3.x. These units are ECO2, so the table beside
++ * it is theirs: esp32p4.rom.ld, the one ESP-IDF links when the chip revision
++ * is below 3.0.
++ *
++ * Diffed, the two tables share 456 symbols and disagree about 237 of them.
++ * The build worked anyway because the handful esp-hal calls on this chip --
++ * ets_delay_us, ets_update_cpu_frequency, the uart_tx routines,
++ * software_reset, ets_set_appcpu_boot_addr, Cache_WriteBack_Addr and
++ * Cache_Invalidate_Addr -- happen to sit at the same address in both. That
++ * is luck, not compatibility: ets_efuse_read and every crc routine do not,
++ * and one wrong binding is already in the tree, unused --
++ * rtc_clk_xtal_freq_get reaching ets_clk_get_xtal_freq at 0x4fc00550 where
++ * this ROM has it at 0x4fc0055c.
++ *
++ * The failure mode is the one this patch already documents below: the chip
++ * jumps into whatever routine occupies that address and runs it, silently,
++ * exactly as __udivdi3 did.
++ */
++INCLUDE "rom/esp32p4.rom.ld"
+-INCLUDE "rom/esp32p4.rom.eco5.libgcc.ld"
+-INCLUDE "rom/esp32p4.rom.eco5.rvfp.ld"
++/* KASSIGNER ECO2 FIX -- libgcc ROM routines REMOVED.
++ *
++ * esp32p4.rom.eco5.libgcc.ld states: "Compatible with ROM where ECO version
++ * equal or greater to 5." This chip runs ECO2 (rom_eco_version = 2), so all
++ * 75 of its symbols resolve to WRONG addresses.
++ *
++ * riscv32imafc has no 64-bit divide instruction, so `u64 / u64` calls
++ * __udivdi3 -- which landed in the wrong ROM routine and returned
++ * `sum - count` instead of `sum / count`. Silently. With plausible numbers.
++ * 32-bit division is a hardware `divu` and was always fine, which is what
++ * made it so hard to spot.
++ *
++ * For a signing device this is a correctness hazard, not a nuisance: u64
++ * and u128 arithmetic is exactly what key handling and amount maths use.
++ *
++ * With this INCLUDE removed, compiler_builtins provides the routines in
++ * software. Slightly slower, correct on every ROM revision.
++ */
++/* INCLUDE "rom/esp32p4.rom.eco5.libgcc.ld" */
++/* Same ECO5-only caveat applies to the float routines. */
++/* INCLUDE "rom/esp32p4.rom.eco5.rvfp.ld" */
+ INCLUDE "rom/esp32p4.rom.version.ld"
+ 
+ INCLUDE "rom/additional.ld"
+diff -ruN a/esp-sync/src/raw.rs b/esp-sync/src/raw.rs
+--- a/esp-sync/src/raw.rs
++++ b/esp-sync/src/raw.rs
+@@ -44,21 +44,42 @@
+                 // while mie is cleared, then restore the previous mintthresh on exit.
+                 // Ref: esp-idf commit c27c33a83 "fix(riscv): implement a workaround for
+                 // Zcmp hardware bug".
+-                let old_mintthresh: u32;
+-                unsafe {
+-                    core::arch::asm!(
+-                        "li   t0, 0xff",
+-                        "csrrw {0}, 0x347, t0",
+-                        out(reg) old_mintthresh,
+-                        out("t0") _,
+-                    );
+-                }
++                // ===== KASSIGNER ECO2 CHANGE =====
++                // The mintthresh workaround above targets v3.2/ECO7 silicon.
++                // CSR 0x347 is a CLIC register; on ECO2 it appears not to be
++                // implemented, so `csrrw 0x347` traps and the lock never
++                // returns. That single fault explains every hang seen so far:
++                // critical_section::with() before init(), and
++                // system::disable_peripherals()'s NonReentrantMutex.
++                //
++                // Set ESP_HAL_KASSIGNER_SKIP_MINTTHRESH=0 at build time to
++                // restore upstream behaviour.
++                let skip_mintthresh = option_env!("ESP_HAL_KASSIGNER_SKIP_MINTTHRESH") != Some("0");
++
++                let old_mintthresh: u32 = if skip_mintthresh {
++                    0
++                } else {
++                    let v: u32;
++                    unsafe {
++                        core::arch::asm!(
++                            "li   t0, 0xff",
++                            "csrrw {0}, 0x347, t0",
++                            out(reg) v,
++                            out("t0") _,
++                        );
++                    }
++                    v
++                };
+                 let mut mstatus = 0u32;
+                 unsafe {
+                     core::arch::asm!("csrrci {0}, mstatus, 8", inout(reg) mstatus);
+                 }
+                 let mie_bit = mstatus & 0b1000;
+-                let token = mie_bit | ((old_mintthresh & 0xff) << 8);
++                // Bit 16 records whether mintthresh was actually touched, so
++                // exit() knows not to write CSR 0x347 back.
++                let token = mie_bit
++                    | ((old_mintthresh & 0xff) << 8)
++                    | if skip_mintthresh { 1 << 16 } else { 0 };
+             }
+             riscv => {
+                 let mut mstatus = 0u32;
+@@ -103,12 +124,15 @@
+                     }
+                 }
+                 // Restore mintthresh AFTER re-enabling mie (P4 Zcmp workaround, see enter()).
+-                let old_mintthresh = (token >> 8) & 0xff;
+-                unsafe {
+-                    core::arch::asm!(
+-                        "csrw 0x347, {0}",
+-                        in(reg) old_mintthresh,
+-                    );
++                // KASSIGNER: bit 16 means enter() skipped the CSR entirely.
++                if (token & (1 << 16)) == 0 {
++                    let old_mintthresh = (token >> 8) & 0xff;
++                    unsafe {
++                        core::arch::asm!(
++                            "csrw 0x347, {0}",
++                            in(reg) old_mintthresh,
++                        );
++                    }
+                 }
+ 
+                 // The delay between the moment we unmask the interrupt threshold register
+diff -ruN a/esp-hal/src/clock/mod.rs b/esp-hal/src/clock/mod.rs
+--- a/esp-hal/src/clock/mod.rs
++++ b/esp-hal/src/clock/mod.rs
+@@ -115,7 +115,9 @@
+             esp32c2 => Self::_120MHz,
+             any(esp32c3, esp32c6, esp32c61) => Self::_160MHz,
+             esp32h2 => Self::_96MHz,
+-            esp32p4 => Self::_400MHz,
++            // KASSIGNER ECO2: this fork serves revisions below v3.0 only,
++            // whose maximum is 360 MHz; 400 is v3's.
++            esp32p4 => Self::_360MHz,
+             esp32s31 => Self::_320MHz,
+             _ => Self::_240MHz,
+         }
+diff -ruN a/esp-hal/src/soc/esp32p4/clocks.rs b/esp-hal/src/soc/esp32p4/clocks.rs
+--- a/esp-hal/src/soc/esp32p4/clocks.rs
++++ b/esp-hal/src/soc/esp32p4/clocks.rs
+@@ -38,6 +38,11 @@
+     /// CPLL -> CPU_ROOT -> CPU/1, APB divider /4 = 100 MHz
+     _400MHz = 400,
+ 
++    /// KASSIGNER ECO2: 360 MHz CPU clock, the maximum below chip revision
++    /// v3.0, configured as ESP-IDF configures it there: CPLL 360, CPU/1,
++    /// MEM 180, SYS 180, APB 90 (`rtc_clk_cpu_freq_to_cpll_mhz`).
++    _360MHz = 360,
++
+     /// 200 MHz CPU clock (low power)
+     /// CPLL -> CPU_ROOT -> CPU/2, APB /2 = 100 MHz
+     _200MHz = 200,
+@@ -67,7 +72,25 @@
+         timg_calibration_clock: None,
+     };
+ 
+-    // TODO: 360 MHz preset
++    // KASSIGNER ECO2: 360 MHz CPU, 90 MHz APB. ESP-IDF's table for chip
++    // revisions below v3.0, the only CPLL frequency it uses there; its v3
++    // path is what raises the CPLL to 400.
++    const PRESET_360: ClockConfig = ClockConfig {
++        cpu_root_clk: Some(CpuRootClkConfig::Cpll),
++        cpll_clk: Some(CpllClkConfig::_360),
++        mpll_clk: Some(MpllClkConfig::_500),
++        cpu_clk: Some(CpuClkConfig::new(0)), // /1 = 360 MHz
++        mem_clk: Some(MemClkConfig::new(1)), // /2 = 180 MHz
++        sys_clk: Some(SysClkConfig::new(0)), // /1 = 180 MHz
++        apb_clk: Some(ApbClkConfig::new(1)), // /2 = 90 MHz
++        iomux_function_clock: Some(IomuxFunctionClockConfig::new(
++            IomuxFunctionClockSource::PllF80m,
++            0,
++        )),
++        lp_fast_clk: Some(LpFastClkConfig::RcFast),
++        lp_slow_clk: Some(LpSlowClkConfig::RcSlow),
++        timg_calibration_clock: None,
++    };
+ 
+     const PRESET_200: ClockConfig = ClockConfig {
+         cpu_root_clk: Some(CpuRootClkConfig::Cpll),
+@@ -108,6 +131,7 @@
+     fn from(value: CpuClock) -> ClockConfig {
+         match value {
+             CpuClock::_400MHz => CpuClock::PRESET_400,
++            CpuClock::_360MHz => CpuClock::PRESET_360,
+             CpuClock::_200MHz => CpuClock::PRESET_200,
+             CpuClock::_100MHz => CpuClock::PRESET_100,
+         }
+@@ -124,6 +148,7 @@
+     pub(crate) fn try_get_preset(self) -> Option<CpuClock> {
+         match self {
+             v if v == CpuClock::PRESET_400 => Some(CpuClock::_400MHz),
++            v if v == CpuClock::PRESET_360 => Some(CpuClock::_360MHz),
+             v if v == CpuClock::PRESET_200 => Some(CpuClock::_200MHz),
+             v if v == CpuClock::PRESET_100 => Some(CpuClock::_100MHz),
+             _ => None,
