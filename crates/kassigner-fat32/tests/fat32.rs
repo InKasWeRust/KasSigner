@@ -2686,3 +2686,142 @@ fn a_volume_longer_than_its_partition_is_not_mounted() {
         }
     }
 }
+
+/// A card with a GPT: a protective table in sector 0, a header in sector 1,
+/// its entries from sector 2, and `volume` copied in at `at`. `partitions`
+/// are the entries' first and last sectors, the last one counted in.
+fn gpt_card(volume: &mut RamCard, at: u32, partitions: &[(u64, u64)], protected: bool) -> RamCard {
+    let sectors = volume.blocks();
+    let mut card = ram((at + sectors + 4096) as usize);
+    let mut sector = [0u8; BLOCK_SIZE];
+    for s in 0..sectors {
+        volume.read(s, &mut sector).expect("read");
+        card.write(at + s, &sector).expect("write");
+    }
+    let mut mbr = [0u8; BLOCK_SIZE];
+    if protected {
+        mbr[446 + 4] = 0xEE;
+        mbr[446 + 8..446 + 12].copy_from_slice(&1u32.to_le_bytes());
+        mbr[446 + 12..446 + 16].copy_from_slice(&u32::MAX.to_le_bytes());
+    }
+    mbr[510] = 0x55;
+    mbr[511] = 0xAA;
+    card.write(0, &mbr).expect("mbr");
+    let mut header = [0u8; BLOCK_SIZE];
+    header[..8].copy_from_slice(b"EFI PART");
+    header[72..80].copy_from_slice(&2u64.to_le_bytes());
+    header[80..84].copy_from_slice(&128u32.to_le_bytes());
+    header[84..88].copy_from_slice(&128u32.to_le_bytes());
+    card.write(1, &header).expect("header");
+    let mut entries = [0u8; BLOCK_SIZE];
+    for (i, (first, last)) in partitions.iter().enumerate() {
+        let base = i * 128;
+        entries[base] = 0xA2;
+        entries[base + 32..base + 40].copy_from_slice(&first.to_le_bytes());
+        entries[base + 40..base + 48].copy_from_slice(&last.to_le_bytes());
+    }
+    card.write(2, &entries).expect("entries");
+    card
+}
+
+/// A formatted volume of `sectors`, and the size its boot sector claims.
+fn volume_of(sectors: u32) -> (RamCard, u32) {
+    let mut volume = ram(sectors as usize);
+    do_format_fat32(&mut volume).expect("format");
+    let mut boot = [0u8; BLOCK_SIZE];
+    volume.read(0, &mut boot).expect("read");
+    let size = u32::from_le_bytes(boot[32..36].try_into().unwrap());
+    (volume, size)
+}
+
+/// On a GPT card the table has the last word: a volume longer than its
+/// partition is not mounted, though a probe finds it and it ends on the
+/// card, because its last clusters would be in the partition after. As
+/// long as its partition, or shorter, it mounts.
+#[test]
+fn a_volume_longer_than_its_gpt_partition_is_not_mounted() {
+    const AT: u32 = 2048;
+    let (mut volume, size) = volume_of(70_000);
+    let at = u64::from(AT);
+    for (length, mounts) in [(size - 1, false), (size, true), (size + 100, true)] {
+        let last = at + u64::from(length) - 1;
+        // A second partition straight after, as a card with two has.
+        let mut card = gpt_card(
+            &mut volume,
+            AT,
+            &[(at, last), (last + 1, last + 1000)],
+            true,
+        );
+        let mounted = mount_fat32(&mut card);
+        if mounts {
+            assert_eq!(mounted.map(|i| i.fsinfo_sector), Ok(AT + 1), "{length}");
+        } else {
+            assert_eq!(
+                mounted.err(),
+                Some(Fat32Error::Format("Volume past its partition")),
+                "{length}"
+            );
+        }
+    }
+}
+
+/// A boot sector a probe finds on a GPT card, where the table lists no
+/// partition starting there, is not a volume to write into: it is inside
+/// another partition, or in none.
+#[test]
+fn a_volume_no_gpt_partition_starts_at_is_not_mounted() {
+    const AT: u32 = 2048;
+    let (mut volume, size) = volume_of(70_000);
+    let at = u64::from(AT);
+    for partitions in [
+        // Inside a partition that starts before it.
+        vec![(at - 6, at + u64::from(size))],
+        // In none.
+        vec![(at + 100_000, at + 200_000)],
+        vec![],
+    ] {
+        let mut card = gpt_card(&mut volume, AT, &partitions, true);
+        assert_eq!(
+            mount_fat32(&mut card).err(),
+            Some(Fat32Error::Format("Volume in no partition")),
+            "{partitions:?}"
+        );
+    }
+}
+
+/// The partition a volume is in need not be the table's first.
+#[test]
+fn a_volume_in_a_later_gpt_partition_mounts() {
+    const AT: u32 = 8192;
+    let (mut volume, size) = volume_of(70_000);
+    let at = u64::from(AT);
+    let mut card = gpt_card(
+        &mut volume,
+        AT,
+        &[(40, 2047), (2048, 8191), (at, at + u64::from(size) - 1)],
+        true,
+    );
+    assert_eq!(mount_fat32(&mut card).map(|i| i.fsinfo_sector), Ok(AT + 1));
+}
+
+/// A GPT header an older format left behind, with no protective table in
+/// front of it, is not a GPT: the card mounts as it did, by the probes and
+/// the card's own size.
+#[test]
+fn a_gpt_header_with_no_protective_table_is_not_a_gpt() {
+    const AT: u32 = 2048;
+    let (mut volume, _) = volume_of(70_000);
+    let mut card = gpt_card(&mut volume, AT, &[], false);
+    assert_eq!(mount_fat32(&mut card).map(|i| i.fsinfo_sector), Ok(AT + 1));
+}
+
+/// A protective table with no GPT header behind it leaves the probes as
+/// they were.
+#[test]
+fn a_protective_table_with_no_gpt_header_leaves_the_probes() {
+    const AT: u32 = 2048;
+    let (mut volume, _) = volume_of(70_000);
+    let mut card = gpt_card(&mut volume, AT, &[], true);
+    card.write(1, &[0u8; BLOCK_SIZE]).expect("no header");
+    assert_eq!(mount_fat32(&mut card).map(|i| i.fsinfo_sector), Ok(AT + 1));
+}

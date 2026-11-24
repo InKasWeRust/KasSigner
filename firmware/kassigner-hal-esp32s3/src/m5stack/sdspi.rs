@@ -167,7 +167,8 @@ pub enum SdError {
     /// The card refused a written block: its data response, low five bits
     /// `0x0B` for a bad CRC.
     WriteRejected(u8),
-    /// The card stayed busy past `BUSY_US` after a written block.
+    /// The card stayed busy past `BUSY_US` after a written block, or past
+    /// `STOP_US` after a multi-block read was stopped.
     BusyTimeout,
     /// A block number too large for a byte-addressed card.
     Address,
@@ -766,7 +767,8 @@ pub(crate) fn write_block(card: Kind, block: u32, buf: &[u8; 512]) -> Result<(),
 ///
 /// # Errors
 ///
-/// As [`read_block`].
+/// As [`read_block`], and `BusyTimeout` if the card stays busy after the
+/// stop command.
 pub(crate) fn read_blocks(card: Kind, block: u32, out: &mut [u8]) -> Result<(), SdError> {
     if out.len() == 512 {
         let one: &mut [u8; 512] = out.try_into().map_err(|_| SdError::Address)?;
@@ -795,18 +797,26 @@ pub(crate) fn read_blocks(card: Kind, block: u32, out: &mut [u8]) -> Result<(), 
     }
 
     command(CMD12, 0);
-    // The stuff byte, then the busy period.
+    // The stuff byte, then the busy period. A card still busy at the limit
+    // has not stopped: the blocks are in hand and checked, but the card is
+    // not in a state to take the next command, and the read says so.
     transfer(0xFF);
     let deadline = Deadline::after(&SysTimer, STOP_US);
+    let mut stopped = true;
     while transfer(0xFF) == 0x00 {
         if deadline.expired(&SysTimer) {
+            stopped = false;
             break;
         }
     }
 
     gpio_set(PIN_SD_CS);
     transfer(0xFF);
-    Ok(())
+    if stopped {
+        Ok(())
+    } else {
+        Err(SdError::BusyTimeout)
+    }
 }
 
 /// Write consecutive blocks from `data`, whose length is a whole number of

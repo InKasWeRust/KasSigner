@@ -92,7 +92,8 @@ pub trait Capture {
     fn clear(&mut self);
 
     /// End a finished frame and lend it, once [`Capture::is_done`] returned
-    /// true. `None` if there is no frame to lend.
+    /// true. `None` if there is no frame to lend, as after a transfer that
+    /// reported an error: such a frame may be only partly written.
     fn finish(&mut self) -> Option<&[u8]>;
 }
 
@@ -178,6 +179,9 @@ impl<C: Capture, I: I2c, T: Timer> Camera for M5Camera<C, I, T> {
                         expected: FRAME_BYTES,
                         got: f.len(),
                     }),
+                    // A frame whose transfer failed is not lent: one missed
+                    // frame to the caller, and the next call waits for the
+                    // capture after it.
                     None => Err(Error::Io),
                 };
             }

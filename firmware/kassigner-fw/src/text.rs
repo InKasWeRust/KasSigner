@@ -83,6 +83,11 @@ impl<const N: usize> Typed<N> {
         self.len == 0
     }
 
+    /// The most it holds.
+    pub const fn most(&self) -> usize {
+        N
+    }
+
     /// Where the cursor is: the bytes before it.
     pub fn cursor(&self) -> usize {
         self.cursor

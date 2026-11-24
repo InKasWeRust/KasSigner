@@ -332,8 +332,12 @@ impl<'b, const N: usize> Flow<'b, N> {
                     page: 0,
                 }
             }
-            // New Seed: the unit's own sources.
-            menu::Target::Item(0) if id == MenuId::SeedTools => return self.start_seed(),
+            // New Seed: the count first, then the unit's own sources.
+            menu::Target::Item(0) if id == MenuId::SeedTools => {
+                self.state = State::WordCount {
+                    action: CountFor::NewSeed,
+                }
+            }
             // Import Words: the count first.
             menu::Target::Item(2) if id == MenuId::SeedTools => {
                 self.state = State::WordCount {

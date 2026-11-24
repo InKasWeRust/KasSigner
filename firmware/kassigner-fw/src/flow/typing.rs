@@ -77,6 +77,8 @@ pub enum WordsFor {
 /// Which Seed Tools row the 12-or-24 screen is choosing for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CountFor {
+    /// New Seed: the count picks the seed's length, before its capture.
+    NewSeed,
     /// A tool that types words.
     Words(WordsFor),
     /// Dice Seed: the count picks how many rolls.
@@ -89,6 +91,7 @@ impl CountFor {
     /// The count screen's title, the Seed Tools row's name.
     pub const fn title(self) -> &'static str {
         match self {
+            CountFor::NewSeed => "NEW SEED",
             CountFor::Words(WordsFor::Import) => "IMPORT WORDS",
             CountFor::Words(WordsFor::LastWord) => "CALC LAST WORD",
             CountFor::Dice => "DICE SEED",
@@ -108,16 +111,15 @@ impl WordsFor {
 }
 
 impl Typing {
-    /// Which keys type for it, with `len` characters typed.
-    pub const fn mode(self, len: usize) -> keyboard::Mode {
+    /// Which keys type for it, its line `full` or not
+    /// ([`Flow::typed_full`](super::Flow::typed_full)).
+    pub const fn mode(self, full: bool) -> keyboard::Mode {
         match self {
-            Typing::FileName | Typing::KpubFileName | Typing::SigFileName => keyboard::Mode::Name {
-                full: len >= NAME_MAX,
-            },
-            Typing::RawKey => keyboard::Mode::Hex {
-                full: len >= RAW_KEY_HEX,
-            },
-            _ => keyboard::Mode::Text,
+            Typing::FileName | Typing::KpubFileName | Typing::SigFileName => {
+                keyboard::Mode::Name { full }
+            }
+            Typing::RawKey => keyboard::Mode::Hex { full },
+            _ => keyboard::Mode::Text { full },
         }
     }
 

@@ -55,7 +55,8 @@ pub enum Refusal {
     /// rather than counted seen over a black panel with CONFIRM still live.
     /// The flow could not build it, which no request reaches (`Unshown` and
     /// the session's checks keep every page buildable), or the panel did not
-    /// take it ([`Event::NotDrawn`]).
+    /// take it ([`Event::NotDrawn`]). A message's page or SIGN MESSAGE? the
+    /// panel did not take refuses the message under the same words.
     NotDrawn,
     /// The reply could not be planned or written.
     NotSigned(reply::Error),
@@ -296,6 +297,7 @@ pub(super) fn not_reviewable(e: session::Error) -> &'static str {
         session::Error::Review(R::StorageMass { .. }) => refusal::STORAGE_MASS,
         session::Error::Consensus(TxRuleError::UnknownTxVersion(_)) => refusal::TX_VERSION,
         session::Error::Consensus(TxRuleError::AuthInputOutOfBounds(..)) => refusal::COVENANT_INPUT,
+        session::Error::NoOutputs => refusal::NO_OUTPUTS,
         session::Error::Consensus(TxRuleError::TxOutZero(_)) => refusal::ZERO_OUTPUT,
         session::Error::Consensus(TxRuleError::TxDuplicateInputs) => refusal::DUPLICATE_INPUT,
         session::Error::Consensus(

@@ -6,7 +6,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! A rusty-kaspa bundle through a unit: [`kassigner_sdk::bundle`] over
-//! owned values. An envelope is passed as its bytes.
+//! owned values. An envelope is passed as its bytes, and one past
+//! [`MAX_ENVELOPE`] is refused before anything is made for it.
 
 use kassigner_kaspa::bip32_public::PUBLIC_KEY_SIZE;
 use kassigner_kaspa::pskb::signature::{signers, Derivation, PartialSig};
@@ -130,6 +131,34 @@ impl Prepared {
     }
 }
 
+/// The longest envelope a bundle call takes, 1 MiB.
+///
+/// The rooms below grow with the envelope, about six times its length for
+/// [`prepare_bundle`], so without a bound a file passed by mistake, or one
+/// sent by a stranger, would have an app reserve six times whatever it is
+/// fed before a byte of it is read. rusty-kaspa sets no length for a
+/// bundle; this is the SDK's.
+///
+/// Measured on the SDK's profile: 32 inputs of a 3-key group paying 8
+/// outputs come to 74,430 bytes; a further key adds 424 an input, a
+/// signature 422, and a byte of script four (hex in the document, the
+/// document hex in the envelope). Five keys and five signatures on every
+/// input, with every script, redeem script and the payload at the
+/// profile's longest, come to about 370 KB, so 1 MiB refuses no bundle a
+/// unit could sign.
+pub const MAX_ENVELOPE: usize = 1 << 20;
+
+/// `envelope` held to [`MAX_ENVELOPE`], before any room is made for it.
+fn within(envelope: &[u8]) -> Result<(), Fault> {
+    if envelope.len() > MAX_ENVELOPE {
+        return Err(Fault(format!(
+            "TooLong {{ len: {}, limit: {MAX_ENVELOPE} }}",
+            envelope.len()
+        )));
+    }
+    Ok(())
+}
+
 /// Everything a bundle is worked in, for one envelope of `len` bytes.
 struct Room<'a> {
     doc: Vec<u8>,
@@ -179,13 +208,15 @@ macro_rules! scratch {
 ///
 /// # Errors
 ///
-/// The SDK's [`BundleError`](kassigner_sdk::bundle::BundleError):
+/// `TooLong { len, limit }` past [`MAX_ENVELOPE`], before anything else;
+/// the SDK's [`BundleError`](kassigner_sdk::bundle::BundleError):
 /// `Envelope(..)` and `Read(..)` for what is not a bundle, `Read(..)` too
 /// for more inputs or outputs than the profile allows,
 /// `NotOneTransaction { count }`, `Check(..)`, `Transaction(..)`,
 /// `Multisig(..)`, `Redeem { input }`, `Hint { input }` for a hint it
 /// refuses or an input the bundle lacks; the rest as that enum says.
 pub fn prepare_bundle(bundle: &[u8], hints: &Hints, profile: &Profile) -> Result<Prepared, Fault> {
+    within(bundle)?;
     let p = profile.inner();
     let mut room = Room::new(bundle.len(), p);
     let mut scratch = scratch!(room);
@@ -239,8 +270,10 @@ pub fn prepare_bundle(bundle: &[u8], hints: &Hints, profile: &Profile) -> Result
 ///
 /// # Errors
 ///
-/// `NotTheRequest`; `Check(BadSignature { input })` for a member that does
-/// not verify or is by a key the script does not name; the rest as the SDK's
+/// `TooLong { len, limit }` for either envelope past [`MAX_ENVELOPE`],
+/// before anything else; `NotTheRequest`; `Check(BadSignature { input })`
+/// for a member that does not verify or is by a key the script does not
+/// name; the rest as the SDK's
 /// [`BundleError`](kassigner_sdk::bundle::BundleError) says.
 pub fn read_bundle(request: &[u8], reply: &[u8], profile: &Profile) -> Result<Checked, Fault> {
     read(Some(request), reply, profile)
@@ -258,6 +291,8 @@ pub fn read_signed_bundle(signed: &[u8], profile: &Profile) -> Result<Checked, F
 
 /// [`read_bundle`], or [`read_signed_bundle`] with no request.
 fn read(request: Option<&[u8]>, reply: &[u8], profile: &Profile) -> Result<Checked, Fault> {
+    request.map_or(Ok(()), within)?;
+    within(reply)?;
     let p = profile.inner();
     let mut req = Room::new(request.unwrap_or(reply).len(), p);
     let mut rep = Room::new(reply.len(), p);
@@ -306,6 +341,8 @@ pub fn merge_signed_bundles(copies: &[&[u8]], profile: &Profile) -> Result<Vec<u
 
 /// [`merge_bundles`], or [`merge_signed_bundles`] with no request.
 fn merge(request: Option<&[u8]>, replies: &[&[u8]], profile: &Profile) -> Result<Vec<u8>, Fault> {
+    request.map_or(Ok(()), within)?;
+    replies.iter().try_for_each(|r| within(r))?;
     let p = profile.inner();
     let base = request.or(replies.first().copied()).unwrap_or(&[]);
     let longest = replies
@@ -393,6 +430,8 @@ fn finalize(
     rates: &Rates,
     profile: &Profile,
 ) -> Result<Finalized, Fault> {
+    request.map_or(Ok(()), within)?;
+    within(reply)?;
     let p = profile.inner();
     let members = p.max_inputs * p.max_sigs_per_input;
     let base = request.unwrap_or(reply);
@@ -450,11 +489,13 @@ fn finalize(
 ///
 /// # Errors
 ///
+/// `TooLong { len, limit }` past [`MAX_ENVELOPE`], before anything else;
 /// `Envelope(..)` and `Read(..)` for what is not a bundle,
 /// `NotOneTransaction { count }`; the bundle editor's `EditError`, such as
 /// `Malformed { input, field }`, for an input's `partialSigs` it cannot
 /// read.
 pub fn bundle_summary(envelope: &[u8], profile: &Profile) -> Result<Summary, Fault> {
+    within(envelope)?;
     let mut room = Room::new(envelope.len(), profile.inner());
     let (held, tx) = bundle::transaction_of(
         envelope,

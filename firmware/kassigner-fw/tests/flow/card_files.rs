@@ -19,6 +19,162 @@
 
 use super::*;
 
+/// **A card alone never opens the funds.** A seed with a passphrase is
+/// asked ENCRYPT FILE? after its backup's name, as a seed with none is not
+/// (the test after this one goes from the name straight to the password).
+/// Yes is the password, held to the policy as ever. No is warned of first:
+/// CANCEL and a SAVE lifted early go back to ENCRYPT FILE?, and SAVE held
+/// for its time seals the seed under no password. The file is sealed all
+/// the same and opens under the empty password, to the same words, and
+/// under no other.
+#[test]
+fn a_seed_with_a_passphrase_may_be_saved_with_no_password() {
+    use kassigner_crypto::backup::open_slot;
+    use kassigner_fw::card::{Job, Outcome};
+    use kassigner_fw::ui::backup;
+
+    let mut m = Memory::new();
+    let mut f: Flow<'_, 6> = booted(&mut m, &[]);
+    // The seed, opened behind a passphrase typed twice.
+    f.step(scan(), &mut Live);
+    let digits = seedqr();
+    f.step(Event::Code(&digits), &mut Live);
+    f.touch(answer(dialog::Target::Accept));
+    for _ in 0..2 {
+        for &c in b"kas" {
+            f.step(key(0, keyboard::Key::Char(c)), &mut Live);
+        }
+        f.step(key(0, keyboard::Key::Ok), &mut Live);
+    }
+    opened(&mut f);
+
+    f.step(home_button(), &mut Live);
+    f.step(card(2), &mut Live);
+    f.step(item(&menu::TOOLS, 1), &mut Live);
+    f.step(
+        tap_in(backup::zone(SCALE, backup::Target::Export).unwrap()),
+        &mut Live,
+    );
+    f.step(item(&menu::EXPORT, 0), &mut Live);
+    f.step(item(&menu::SEED_BACKUP, 2), &mut Live);
+    assert_eq!(f.state(), State::BackupWarning);
+    f.step(
+        tap_in(backup::zone(SCALE, backup::Target::Understand).unwrap()),
+        &mut Live,
+    );
+    f.step(Event::Card(Outcome::NextName(3)), &mut Live);
+    f.step(key(0, keyboard::Key::Ok), &mut Live);
+
+    // The name is free: ENCRYPT FILE?, not the password.
+    let out = f.step(Event::Card(Outcome::Exists(false)), &mut Live);
+    assert_eq!(out.screen, Screen::KpubEncrypt);
+
+    // Yes: the password, and no weak one. Back out, and the name again.
+    f.touch(answer(dialog::Target::Cancel));
+    assert_eq!(
+        f.state(),
+        State::BackupPassword {
+            page: 0,
+            again: false
+        }
+    );
+    type_on(&mut f, b"weak");
+    press(&mut f, keyboard::Key::Ok);
+    assert!(
+        matches!(f.state(), State::BackupPassword { again: false, .. }),
+        "a typed password is held to the policy"
+    );
+    f.step(back_button(), &mut Live);
+    f.step(item(&menu::SEED_BACKUP, 2), &mut Live);
+    f.step(
+        tap_in(backup::zone(SCALE, backup::Target::Understand).unwrap()),
+        &mut Live,
+    );
+    f.step(Event::Card(Outcome::NextName(3)), &mut Live);
+    f.step(key(0, keyboard::Key::Ok), &mut Live);
+    f.step(Event::Card(Outcome::Exists(false)), &mut Live);
+    assert_eq!(f.state(), State::KpubEncrypt);
+
+    // No: the warning. CANCEL goes back to ENCRYPT FILE?.
+    let no_password = |armed, held_since| State::BackupNoPassword { armed, held_since };
+    let out = f.touch(answer(dialog::Target::Accept));
+    assert_eq!(out.screen, Screen::BackupNoPassword { hold: None });
+    assert_eq!(out.command, None, "nothing written yet");
+    f.touch(answer(dialog::Target::Cancel));
+    assert_eq!(f.state(), State::KpubEncrypt);
+
+    // SAVE armed, lifted at half the time: nothing saved, ENCRYPT FILE?.
+    let Event::Tap { x, y } = answer(dialog::Target::Accept) else {
+        unreachable!()
+    };
+    f.touch(answer(dialog::Target::Accept));
+    let out = f.touch(answer(dialog::Target::Accept));
+    assert_eq!(out.screen, Screen::BackupNoPassword { hold: Some(0) });
+    assert_eq!(f.state(), no_password(true, None));
+    let t = 20_000_000;
+    f.step(Event::Tick { now_us: t }, &mut Live);
+    f.step(Event::Press { x, y }, &mut Live);
+    let out = f.step(
+        Event::Tick {
+            now_us: t + HOLD_US / 2,
+        },
+        &mut Live,
+    );
+    assert_eq!(out.screen, Screen::BackupNoPassword { hold: Some(50) });
+    let out = f.step(answer(dialog::Target::Accept), &mut Live);
+    assert_eq!(out.command, None);
+    assert_eq!(f.state(), State::KpubEncrypt, "released at half the time");
+
+    // Held for the time: sealed under no password, then written.
+    f.touch(answer(dialog::Target::Accept));
+    f.touch(answer(dialog::Target::Accept));
+    let t = 40_000_000;
+    f.step(Event::Tick { now_us: t }, &mut Live);
+    f.step(Event::Press { x, y }, &mut Live);
+    let out = f.step(
+        Event::Tick {
+            now_us: t + HOLD_US,
+        },
+        &mut Live,
+    );
+    assert!(matches!(out.screen, Screen::BackupSealing { done: 0, .. }));
+    let mut ticks = 0;
+    let out = loop {
+        ticks += 1;
+        let out = f.step(
+            Event::Tick {
+                now_us: t + HOLD_US,
+            },
+            &mut Live,
+        );
+        if !matches!(out.screen, Screen::BackupSealing { .. }) {
+            break out;
+        }
+        assert!(ticks < 40, "sealed in its batches");
+    };
+    assert_eq!(out.command, Some(Command::Card(Job::Write)));
+    let file = {
+        let r = f.card_request();
+        r.file[..r.len].to_vec()
+    };
+
+    // Sealed: a container, the words not readable in it; the empty password
+    // opens it to the same words, and another does not.
+    assert!(kassigner_protocol::container::parse(&file).is_ok());
+    let opened = open_slot(&file, b"", b"kas", None).expect("opens under no password");
+    let Slot::Mnemonic { mnemonic, .. } = &opened else {
+        panic!("a seed backup")
+    };
+    let mut plain = [0u8; kassigner_crypto::backup::SEED_PLAINTEXT_MAX];
+    let n = kassigner_crypto::backup::seed_plaintext(mnemonic, &mut plain);
+    assert!(
+        !file.windows(n).any(|w| w == &plain[..n]),
+        "the words are not readable in the file"
+    );
+    assert_eq!(mnemonic.len(), digits.len() / 4, "the same words");
+    assert!(open_slot(&file, b"Piggy-Bank-2026", b"kas", None).is_err());
+}
+
 /// Backup to SD, step by step: the warning; the next free name, kept or
 /// changed; an existing name asked about; a weak password refused, a good
 /// one typed twice, a mismatch starting both again; the seed sealed, words
@@ -127,6 +283,21 @@ fn a_seed_is_backed_up_to_the_card_and_the_file_opens_again() {
         State::BackupPassword { again: false, .. }
     ));
     for _ in 0..5 {
+        f.step(key(f_page(&f), keyboard::Key::Delete), &mut Live);
+    }
+
+    // At its limit the line says so in the strength's place, and takes no
+    // more: a password cut short without a word is not the one meant.
+    type_in(&mut f, &[b'a'; 64]);
+    assert!(f.typed_full());
+    assert_eq!(
+        f.keyboard_note(),
+        Some(keyboard::Note::Count { used: 64, of: 64 })
+    );
+    f.step(key(f_page(&f), keyboard::Key::Char(b'a')), &mut Live);
+    f.step(key(f_page(&f), keyboard::Key::Space), &mut Live);
+    assert_eq!(f.typed().0.len(), 64);
+    for _ in 0..64 {
         f.step(key(f_page(&f), keyboard::Key::Delete), &mut Live);
     }
 

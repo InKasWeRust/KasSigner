@@ -49,9 +49,10 @@ pub(super) fn draw_logo<L: Display>(lcd: &mut L) {
 /// secret or typed (letters, words, keys, hints, rolls) comes from the
 /// flow, never from `screen`, which a `diag` build prints.
 ///
-/// Returns false for a review page or CONFIRM SEND? that did not go on
-/// the panel whole, which the flow must be told (`Event::NotDrawn`); any
-/// other screen's failure leaves nothing the flow could count as seen.
+/// Returns false for a review page or CONFIRM SEND?, or a message's page
+/// or SIGN MESSAGE?, that did not go on the panel whole, which the flow
+/// must be told (`Event::NotDrawn`); any other screen's failure leaves
+/// nothing the flow could count as seen.
 ///
 /// Never inlined: the band, 15 KB on the P4, is on this frame's stack
 /// and gone when it returns; inlined into `run`, it would take that
@@ -178,11 +179,21 @@ pub(super) fn draw<L: Display>(
                 address::draw_ask(b, scale, KIT, &dialog::import_key(), text)
             });
         }
+        // SIGN MESSAGE? and a message's pages are to a message what CONFIRM
+        // SEND? and a review's pages are to a transaction: one the panel
+        // did not take is told back (`Event::NotDrawn`, in `apply`) and the
+        // panel cleared, not left with SIGN live over part of a page or the
+        // page before.
         Screen::MessageConfirm => {
             let text = flow.address_text();
-            let _ = render_with(lcd, whole, BACKGROUND, &mut band, kept.as_mut(), |b| {
+            let drawn = render_with(lcd, whole, BACKGROUND, &mut band, kept.as_mut(), |b| {
                 address::draw_ask(b, scale, KIT, &dialog::sign_with(), text)
             });
+            if drawn.is_err() {
+                out!("sign message? not drawn: {:?}", drawn);
+                let _ = lcd.clear(BLACK);
+                return false;
+            }
         }
         Screen::MessagePreview {
             page,
@@ -191,9 +202,14 @@ pub(super) fn draw<L: Display>(
             live,
         } => {
             let text = flow.message_text();
-            let _ = render_with(lcd, whole, BACKGROUND, &mut band, kept.as_mut(), |b| {
+            let drawn = render_with(lcd, whole, BACKGROUND, &mut band, kept.as_mut(), |b| {
                 address::draw_message(b, scale, KIT, text, (*page, *pages), (*signed, *live))
             });
+            if drawn.is_err() {
+                out!("message {}/{} not drawn: {:?}", page + 1, pages, drawn);
+                let _ = lcd.clear(BLACK);
+                return false;
+            }
         }
         Screen::MessageCheck { valid } => {
             let text = flow.address_text();
@@ -351,8 +367,11 @@ pub(super) fn draw<L: Display>(
                 sd_card::draw(b, scale, KIT, *status, None)
             });
         }
-        Screen::CardFormat { hold } => {
-            let d = dialog::format(*hold);
+        Screen::CardFormat { hold } | Screen::BackupNoPassword { hold } => {
+            let d = match screen {
+                Screen::CardFormat { .. } => dialog::format(*hold),
+                _ => dialog::no_password(*hold),
+            };
             // While the hold fills, only its button.
             let area = match (fresh, dialog::zone(scale, dialog::Target::Accept)) {
                 (false, Some(z)) => rect(z),
@@ -368,7 +387,7 @@ pub(super) fn draw<L: Display>(
                 text,
                 cursor,
                 note: flow.keyboard_note(),
-                mode: typing.mode(text.len()),
+                mode: typing.mode(flow.typed_full()),
                 word: None,
             };
             let _ = render_with(lcd, whole, BACKGROUND, &mut band, kept.as_mut(), |b| {

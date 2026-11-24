@@ -31,7 +31,7 @@ use aes_gcm::{Aes256Gcm, Nonce};
 use argon2::{Algorithm, Argon2, Params, Version};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use kassigner_protocol::container::{
     parse, write_header, Container, ContainerError, Kdf, Layout, Purpose, NONCE_SIZE, SALT_SIZE,
@@ -214,8 +214,7 @@ pub enum SealKdf<'m> {
 /// `memory` is the Argon2id working memory, ignored by PBKDF2 and wiped
 /// before returning: password-derived state, in PSRAM nothing else scrubs.
 ///
-/// The returned key is a secret, unwrapped because a caller reusing it has
-/// to hold it anyway. Wipe it.
+/// The returned key is a secret; it wipes itself when dropped.
 ///
 /// # Errors
 ///
@@ -226,21 +225,21 @@ pub fn derive_key(
     password: &[u8],
     purpose: Purpose,
     memory: Option<&mut [Argon2Block]>,
-) -> Result<[u8; KEY_SIZE], OpenError> {
-    let mut key = [0u8; KEY_SIZE];
+) -> Result<Zeroizing<[u8; KEY_SIZE]>, OpenError> {
+    let mut key = Zeroizing::new([0u8; KEY_SIZE]);
     match params {
         KdfParams::Pbkdf2Sha256 { salt } => {
             let mut kdf_salt = [0u8; SALT_SIZE + 1];
             kdf_salt[..SALT_SIZE].copy_from_slice(salt);
             kdf_salt[SALT_SIZE] = purpose as u8;
-            pbkdf2::pbkdf2::<Hmac<Sha256>>(password, &kdf_salt, PBKDF2_ITERATIONS, &mut key)
+            pbkdf2::pbkdf2::<Hmac<Sha256>>(password, &kdf_salt, PBKDF2_ITERATIONS, &mut key[..])
                 .expect("KEY_SIZE is a valid PBKDF2 output length");
             kdf_salt.zeroize();
         }
         // The oldest layout: a fixed salt, and no purpose byte, as the format
         // has no field for one.
         KdfParams::Pbkdf2Sha256Fixed => {
-            pbkdf2::pbkdf2::<Hmac<Sha256>>(password, FIXED_SALT, PBKDF2_ITERATIONS, &mut key)
+            pbkdf2::pbkdf2::<Hmac<Sha256>>(password, FIXED_SALT, PBKDF2_ITERATIONS, &mut key[..])
                 .expect("KEY_SIZE is a valid PBKDF2 output length");
         }
         KdfParams::Argon2id { salt } => {
@@ -260,7 +259,7 @@ pub fn derive_key(
             )
             .expect("the Argon2id constants are valid parameters");
             let r = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon)
-                .hash_password_into_with_memory(password, &kdf_salt, &mut key, &mut *blocks);
+                .hash_password_into_with_memory(password, &kdf_salt, &mut key[..], &mut *blocks);
             // Wiped whatever happened: password-derived state in the caller's
             // memory.
             for b in blocks.iter_mut() {
@@ -295,10 +294,8 @@ pub fn open(
     if out.len() < c.len {
         return Err(OpenError::BufferTooSmall { needed: c.len });
     }
-    let mut key = derive_key(KdfParams::of(&c)?, password, c.purpose, memory)?;
-    let r = open_with_key(&c, &key, out);
-    key.zeroize();
-    r
+    let key = derive_key(KdfParams::of(&c)?, password, c.purpose, memory)?;
+    open_with_key(&c, &key, out)
 }
 
 /// Open a container with a key already derived for its salt and purpose
@@ -406,6 +403,27 @@ pub fn seal(
     out: &mut [u8],
 ) -> Result<usize, OpenError> {
     policy(purpose, password).map_err(OpenError::WeakPassword)?;
+    seal_past_policy(purpose, plaintext, password, salt, nonce, kdf, out)
+}
+
+/// [`seal`] past [`policy`], for [`crate::backup`] alone: a seed's backup
+/// holds its password to a rule of its own, which lets a seed that has a
+/// passphrase be sealed under no password
+/// ([`crate::backup::passphrase_guards`]). Nothing else may skip the policy,
+/// so this does not leave the crate.
+///
+/// # Errors
+///
+/// As [`seal`] but `WeakPassword`.
+pub(crate) fn seal_past_policy(
+    purpose: Purpose,
+    plaintext: &[u8],
+    password: &[u8],
+    salt: &[u8; SALT_SIZE],
+    nonce: &[u8; NONCE_SIZE],
+    kdf: SealKdf<'_>,
+    out: &mut [u8],
+) -> Result<usize, OpenError> {
     fresh(salt, nonce)?;
     // Before the derivation, seconds of PBKDF2 or 16 MiB of Argon2id, so a
     // file that will not fit costs nothing.
@@ -414,7 +432,7 @@ pub fn seal(
         SealKdf::Pbkdf2Sha256 => (KdfParams::Pbkdf2Sha256 { salt }, None),
         SealKdf::Argon2id(memory) => (KdfParams::Argon2id { salt }, Some(memory)),
     };
-    let key = SealingKey(derive_key(params, password, purpose, memory)?);
+    let key = SealingKey(*derive_key(params, password, purpose, memory)?);
     seal_with_key(purpose, plaintext, &key, params.id(), salt, nonce, out)
 }
 
@@ -424,6 +442,10 @@ pub fn seal(
 /// secret is sealed, so no caller can skip it: in [`seal`] and
 /// [`Pbkdf2Steps::sealing`], whose [`SealingKey`] is all
 /// [`seal_with_key`] takes.
+///
+/// One seal answers to another rule: a seed's backup, in [`crate::backup`],
+/// takes no password at all when the seed has a passphrase, and this policy
+/// for any password it does take.
 ///
 /// # Errors
 ///
@@ -435,10 +457,11 @@ pub fn policy(purpose: Purpose, password: &[u8]) -> Result<(), Weakness> {
     password::check(password).map(|_| ())
 }
 
-/// A key to seal with. Outside this crate only [`seal`] and
-/// [`Pbkdf2Steps::sealing`] make one, from a password [`policy`] accepted,
-/// so whatever [`seal_with_key`] writes is under such a password. Wiped on
-/// drop.
+/// A key to seal with. Outside this crate only [`seal`],
+/// [`Pbkdf2Steps::sealing`] and [`crate::backup::sealing_steps`] make one:
+/// the first two from a password [`policy`] accepted, the last from one a
+/// backup's own rule accepted. So whatever [`seal_with_key`] writes is under
+/// such a password. Wiped on drop.
 pub struct SealingKey([u8; KEY_SIZE]);
 
 impl Drop for SealingKey {
@@ -504,6 +527,19 @@ impl Pbkdf2Steps {
         Ok(steps)
     }
 
+    /// [`Pbkdf2Steps::sealing`] past [`policy`], for
+    /// [`crate::backup::sealing_steps`] alone, which has held the password
+    /// to a backup's own rule.
+    pub(crate) fn sealing_past_policy(
+        password: &[u8],
+        salt: &[u8; SALT_SIZE],
+        purpose: Purpose,
+    ) -> Self {
+        let mut steps = Self::new(password, salt, purpose);
+        steps.sealing = true;
+        steps
+    }
+
     /// [`Pbkdf2Steps::sealing`] for a stego backup, which the policy never
     /// refuses: its descriptor under `salt` and [`Purpose::Stego`].
     pub(crate) fn stego(descriptor: &[u8], salt: &[u8; SALT_SIZE]) -> Self {
@@ -564,9 +600,10 @@ impl Pbkdf2Steps {
         (self.done, PBKDF2_ITERATIONS)
     }
 
-    /// The key, once every round is done. A secret: wipe it.
-    pub fn key(&self) -> Option<[u8; KEY_SIZE]> {
-        (self.done == PBKDF2_ITERATIONS).then_some(self.sum)
+    /// The key, once every round is done. A secret; it wipes itself when
+    /// dropped.
+    pub fn key(&self) -> Option<Zeroizing<[u8; KEY_SIZE]>> {
+        (self.done == PBKDF2_ITERATIONS).then(|| Zeroizing::new(self.sum))
     }
 
     /// The key to seal with, once every round is done, for steps made by

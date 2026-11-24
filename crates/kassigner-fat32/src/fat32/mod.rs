@@ -389,9 +389,13 @@ pub fn to_83_name(filename: &[u8]) -> [u8; 11] {
 /// Mount FAT32: read BPB, return Fat32Info. Call inside a board's card session.
 /// Handles superfloppy (BPB at sector 0), MBR with FAT32 partition, and
 /// cards reformatted by macOS/Windows (which may add a partition table).
+/// Under either table, MBR or GPT, a volume larger than its partition is
+/// refused.
 pub fn mount_fat32<D: BlockDevice>(dev: &mut D) -> Result<Fat32Info, Fat32Error> {
     let mut sector = [0u8; 512];
     dev.read(0, &mut sector)?;
+    // Read before the sector is reused: whether a GPT stands behind it.
+    let guarded = protective(&sector);
 
     // Strategy 1: Sector 0 is a BPB (superfloppy) — jump byte + 0x55AA
     if (sector[0] == 0xEB || sector[0] == 0xE9) && sector[510] == 0x55 && sector[511] == 0xAA {
@@ -429,6 +433,10 @@ pub fn mount_fat32<D: BlockDevice>(dev: &mut D) -> Result<Fat32Info, Fat32Error>
 
     // Strategy 3: Maybe sector 0 is a protective MBR (GPT) or unknown layout.
     // Try the usual partition starts, and sector 1.
+    //
+    // On a GPT card the table has the last word, as the MBR has above: the
+    // volume a probe finds must be a partition of it and end inside it, or
+    // its last clusters would be over whatever follows.
     for &probe_lba in &[2048u32, 8192, 32768, 1] {
         if dev.read(probe_lba, &mut sector).is_ok()
             && (sector[0] == 0xEB || sector[0] == 0xE9)
@@ -436,6 +444,19 @@ pub fn mount_fat32<D: BlockDevice>(dev: &mut D) -> Result<Fat32Info, Fat32Error>
             && sector[511] == 0xAA
         {
             if let Ok(info) = Fat32Info::from_boot_sector(&sector) {
+                if guarded {
+                    match gpt_partition(dev, probe_lba)? {
+                        Gpt::Absent => {}
+                        Gpt::Unlisted => {
+                            return Err(Fat32Error::Format("Volume in no partition"));
+                        }
+                        Gpt::Sectors(sectors) => {
+                            if u64::from(info.total_sectors) > sectors {
+                                return Err(Fat32Error::Format("Volume past its partition"));
+                            }
+                        }
+                    }
+                }
                 return on_the_card(dev, probe_lba, info)?.moved_to(probe_lba);
             }
         }
@@ -464,6 +485,87 @@ fn on_the_card<D: BlockDevice>(
 // ═══════════════════════════════════════════════════════════════
 // MBR / Partition Table
 // ═══════════════════════════════════════════════════════════════
+
+/// Whether sector 0 is the table that stands in front of a GPT: one with a
+/// partition of type `0xEE`. A GPT header left behind by an older format,
+/// with no such table, is not a GPT.
+fn protective(mbr: &[u8; 512]) -> bool {
+    mbr[510] == 0x55 && mbr[511] == 0xAA && (0..4).any(|i| mbr[446 + i * 16 + 4] == 0xEE)
+}
+
+/// What a card's GPT says of a volume found at `lba`.
+enum Gpt {
+    /// Sector 1 holds no GPT header: the card has none.
+    Absent,
+    /// A GPT, and none of its partitions starts at `lba`.
+    Unlisted,
+    /// The partition starting at `lba` has this many sectors.
+    Sectors(u64),
+}
+
+/// Entries of a GPT read at most: the size a table has unless made larger
+/// on purpose, and thirty-two sectors of a card.
+const GPT_ENTRIES_MAX: u32 = 128;
+
+/// Look `lba` up in the card's GPT: the header in sector 1, then its
+/// partition entries until one starts there.
+///
+/// The header's checksums are not verified: a header that reads wrong
+/// lists no partition at `lba`, and the volume is refused either way.
+///
+/// # Errors
+///
+/// A read that failed for another reason than its sector being past the
+/// card: a card pulled out is not a card with no partition.
+fn gpt_partition<D: BlockDevice>(dev: &mut D, lba: u32) -> Result<Gpt, Fat32Error> {
+    let mut sector = [0u8; 512];
+    match dev.read(1, &mut sector) {
+        Ok(()) => {}
+        Err(block::Error::OutOfRange { .. }) => return Ok(Gpt::Absent),
+        Err(e) => return Err(e.into()),
+    }
+    if &sector[..8] != b"EFI PART" {
+        return Ok(Gpt::Absent);
+    }
+    let word =
+        |s: &[u8; 512], at: usize| u32::from_le_bytes([s[at], s[at + 1], s[at + 2], s[at + 3]]);
+    let long = |s: &[u8; 512], at: usize| u64::from(word(s, at)) | u64::from(word(s, at + 4)) << 32;
+    let first_entry = long(&sector, 72);
+    let entries = word(&sector, 80).min(GPT_ENTRIES_MAX);
+    // 128 bytes by the specification, or a power of two above it; a whole
+    // number to a sector, so none straddles two.
+    let size = word(&sector, 84) as usize;
+    if !matches!(size, 128 | 256 | 512) {
+        return Ok(Gpt::Unlisted);
+    }
+    let Ok(first_entry) = u32::try_from(first_entry) else {
+        return Ok(Gpt::Unlisted);
+    };
+    let per_sector = (512 / size) as u32;
+    for index in 0..entries {
+        let within = (index % per_sector) as usize * size;
+        if within == 0 {
+            let Some(at) = first_entry.checked_add(index / per_sector) else {
+                return Ok(Gpt::Unlisted);
+            };
+            match dev.read(at, &mut sector) {
+                Ok(()) => {}
+                Err(block::Error::OutOfRange { .. }) => return Ok(Gpt::Unlisted),
+                Err(e) => return Err(e.into()),
+            }
+        }
+        // An entry never used has no type.
+        if sector[within..within + 16].iter().all(|&b| b == 0) {
+            continue;
+        }
+        let first = long(&sector, within + 32);
+        let last = long(&sector, within + 40);
+        if first == u64::from(lba) && last >= first {
+            return Ok(Gpt::Sectors(last - first + 1));
+        }
+    }
+    Ok(Gpt::Unlisted)
+}
 
 /// Find the first FAT32 partition in an MBR: its first sector and how many
 /// sectors it has, the entry's two fields. `(0, 0)` for a sector 0 that is

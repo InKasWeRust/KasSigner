@@ -180,7 +180,7 @@ fn every_target_is_where_it_is_drawn_and_apart() {
             check(
                 size,
                 &zones,
-                |x, y| keyboard::target(scale, page, keyboard::Mode::Text, x, y),
+                |x, y| keyboard::target(scale, page, keyboard::Mode::Text { full: false }, x, y),
                 |_, _| false,
             );
         }

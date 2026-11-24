@@ -10,6 +10,8 @@
 #
 # It runs by hand (Actions, "Run workflow") and on a version tag, not on
 # every push: the build is long, and `crates.yml` already builds the code.
+# On a tag it first waits for `crates.yml` to pass on the tagged commit, and
+# builds nothing if it did not.
 #
 # It publishes nothing and holds no key. The hash list and the line to sign
 # go on the run's summary page and into its log; the files are gone with
@@ -34,14 +36,89 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A tag is built only from a commit `crates.yml` passed. That workflow runs
+  # on a push to `main`, so the tagged commit has a run there; it is waited
+  # for while it runs, and the release stops if it failed, was cancelled
+  # (a newer push overtook it: re-run it), or never ran. Only the run's
+  # state is read, through GitHub's API with this run's own token, allowed
+  # to read Actions and nothing else. The commit comes from the runner's
+  # environment, never pasted into the script.
+  ci:
+    name: crates.yml passed on the tagged commit
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 160
+    permissions:
+      actions: read
+    steps:
+      - name: Wait for crates.yml
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The newest run a push started on the commit: its state, its
+          # verdict once done (`-` before), and its page.
+          ask() {
+            gh run list --repo "$GITHUB_REPOSITORY" --workflow crates.yml \
+              --event push --commit "$GITHUB_SHA" --limit 1 \
+              --json status,conclusion,url \
+              --jq '.[0] // {} | [(.status // "none"),
+                (if (.conclusion // "") == "" then "-" else .conclusion end),
+                (.url // "-")] | join(" ")'
+          }
+          start="$(date +%s)"
+          while :; do
+            answer="$(ask)"
+            read -r status conclusion url <<< "$answer"
+            waited=$(( $(date +%s) - start ))
+            if [ "$status" = completed ]; then
+              if [ "$conclusion" = success ]; then
+                echo "crates.yml passed on $GITHUB_SHA: $url"
+                exit 0
+              fi
+              echo "::error::crates.yml ended $conclusion on $GITHUB_SHA ($url): a release is built only from a commit it passed"
+              exit 1
+            fi
+            # A run is listed within seconds of its push; ten minutes with
+            # none means the commit never reached `main`.
+            if [ "$status" = none ] && [ "$waited" -ge 600 ]; then
+              echo "::error::crates.yml never ran on $GITHUB_SHA: it runs on a push to main, so push the commit there before tagging it"
+              exit 1
+            fi
+            if [ "$waited" -ge 9000 ]; then
+              echo "::error::crates.yml still $status on $GITHUB_SHA after 150 minutes ($url)"
+              exit 1
+            fi
+            echo "crates.yml is $status on $GITHUB_SHA; asked again in a minute"
+            sleep 60
+          done
+
   build:
     name: the release build, on x86 Linux
-    runs-on: ubuntu-latest
+    # After `ci` on a tag. A run by hand skips `ci` and builds all the same.
+    needs: ci
+    if: ${{ !cancelled() && (needs.ci.result == 'success' || needs.ci.result == 'skipped') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
+      # A tag names a version, and the files are named for the one in the
+      # root `Cargo.toml`: the two must be the same, or a tag pushed on a
+      # tree whose version was not raised builds the old version's files
+      # under the new one's name. Asked before the long build, and only of a
+      # tag: a run by hand builds whatever its branch holds. The tag's name
+      # comes from the runner's environment, never pasted into the script.
+      - name: The tag is the version
+        if: github.ref_type == 'tag'
+        run: |
+          version="$(sh release/version.sh)"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, but Cargo.toml says $version: the tag for it is v$version"
+            exit 1
+          fi
+          echo "tag $GITHUB_REF_NAME is version $version"
       # Room for the build. The toolchain and ESP-IDF's image, which the
       # bootloaders are built in, unpack at the same time and do not fit in
       # what the runner leaves free: the first run here stopped on "No space

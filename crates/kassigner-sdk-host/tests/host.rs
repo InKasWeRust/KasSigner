@@ -337,6 +337,32 @@ fn codes_round_trip_through_the_reader_and_the_decoder() {
     );
 }
 
+/// **A picture is drawn at any module size an app passes**, the largest
+/// included, and a matrix an app filled short draws its missing modules
+/// light: neither panics.
+#[test]
+fn a_picture_takes_any_size_and_any_matrix() {
+    use kassigner_sdk_host::transport::Matrix;
+    let p = profile();
+    let c = message_codes("hello, unit", &p).unwrap();
+    let m = c.matrix(0).unwrap();
+    let side = (u64::from(m.size) + 8) * u64::from(u32::MAX);
+    let svg = c.svg(0, u32::MAX).unwrap();
+    assert!(svg.starts_with(&format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{side}\""
+    )));
+    assert!(svg.ends_with("</svg>"));
+    assert!(m.svg(0).ends_with("</svg>"));
+
+    let short = Matrix {
+        size: 21,
+        modules: vec![1; 10],
+    };
+    assert!(short.dark(0, 0) && short.dark(9, 0));
+    assert!(!short.dark(10, 0) && !short.dark(20, 20) && !short.dark(21, 0));
+    assert_eq!(short.svg(1).matches('M').count(), 10);
+}
+
 /// **A text's codes and the unit's rule for a text.**
 #[test]
 fn a_text_is_planned_as_the_sdk_plans_it() {
@@ -361,6 +387,62 @@ fn a_text_is_planned_as_the_sdk_plans_it() {
             message_codes(text, &p).unwrap_err(),
             Fault("TrailingWhitespace".to_string())
         );
+    }
+}
+
+/// **An envelope past the longest a bundle call takes is refused by name**
+/// in every call, before anything is read of it; one at the limit is read
+/// and refused for what it is.
+#[test]
+fn a_bundle_past_the_limit_is_refused_first() {
+    use kassigner_sdk_host::bundle::{
+        bundle_summary, finalize_bundle, finalize_signed_bundle, merge_bundles,
+        merge_signed_bundles, read_bundle, read_signed_bundle, MAX_ENVELOPE,
+    };
+    let p = profile();
+    let rates = Rates::mainnet();
+    let req = vector("pskb_send.request");
+    let mut long = b"PSKB".to_vec();
+    long.resize(MAX_ENVELOPE + 1, b'0');
+    let too_long = Fault(format!(
+        "TooLong {{ len: {}, limit: {MAX_ENVELOPE} }}",
+        MAX_ENVELOPE + 1
+    ));
+    let none = Hints::new();
+    assert_eq!(prepare_bundle(&long, &none, &p).unwrap_err(), too_long);
+    assert_eq!(read_bundle(&req, &long, &p).unwrap_err(), too_long);
+    assert_eq!(read_bundle(&long, &req, &p).unwrap_err(), too_long);
+    assert_eq!(read_signed_bundle(&long, &p).unwrap_err(), too_long);
+    assert_eq!(
+        merge_bundles(&req, &[&req, &long], &p).unwrap_err(),
+        too_long
+    );
+    assert_eq!(merge_bundles(&long, &[&req], &p).unwrap_err(), too_long);
+    assert_eq!(
+        merge_signed_bundles(&[&req, &long], &p).unwrap_err(),
+        too_long
+    );
+    assert_eq!(
+        finalize_bundle(&req, &long, false, &rates, &p).unwrap_err(),
+        too_long
+    );
+    assert_eq!(
+        finalize_bundle(&long, &req, false, &rates, &p).unwrap_err(),
+        too_long
+    );
+    assert_eq!(
+        finalize_signed_bundle(&long, false, &rates, &p).unwrap_err(),
+        too_long
+    );
+    assert_eq!(bundle_summary(&long, &p).unwrap_err(), too_long);
+
+    long.truncate(MAX_ENVELOPE);
+    for e in [
+        prepare_bundle(&long, &none, &p).unwrap_err(),
+        read_signed_bundle(&long, &p).unwrap_err(),
+        bundle_summary(&long, &p).unwrap_err(),
+    ] {
+        assert!(!e.0.starts_with("TooLong"), "{e}");
     }
 }
 
@@ -1310,12 +1392,14 @@ fn a_card_goes_through_the_host_layer() {
 /// `partialSigs`, must be refused, not read as two signatures. Upstream keeps
 /// `partialSigs` as a map by key, so only a crafted or foreign bundle does
 /// this; the reader refuses it with the reason the writer gives for the same
-/// thing.
+/// thing. The key written again with its other parity byte, `02` for `03` or
+/// back, is the same Schnorr key (its x), and is refused the same.
 #[test]
 fn a_reply_with_one_key_signed_twice_is_refused() {
     use kassigner_sdk_host::bundle::read_bundle;
 
-    fn duplicate_first_partial_sig(reply: &[u8]) -> Vec<u8> {
+    // `parity` flips the copy's first key byte, `02` and `03`.
+    fn duplicate_first_partial_sig(reply: &[u8], parity: bool) -> Vec<u8> {
         assert_eq!(&reply[..4], b"PSKB", "a PSKB envelope");
         let nibble = |c: u8| match c {
             b'0'..=b'9' => c - b'0',
@@ -1333,7 +1417,17 @@ fn a_reply_with_one_key_signed_twice_is_refused() {
         // The one member runs to the first "}}": the inner schnorr object's
         // close, then the map's. Keep the first brace, drop the second.
         let end = start + json[start..].find("}}").unwrap() + 1;
-        let member = &json[start..end];
+        let member = json[start..end].to_string();
+        let member = if parity {
+            let flipped = match &member[..3] {
+                "\"02" => "\"03",
+                "\"03" => "\"02",
+                other => panic!("a compressed key: {other}"),
+            };
+            format!("{flipped}{}", &member[3..])
+        } else {
+            member
+        };
         let crafted = format!("{},{}{}", &json[..end], member, &json[end..]);
         let mut out = b"PSKB".to_vec();
         out.extend_from_slice(hex(crafted.as_bytes()).as_bytes());
@@ -1348,10 +1442,16 @@ fn a_reply_with_one_key_signed_twice_is_refused() {
     let read = read_bundle(&request, &honest, &p).unwrap();
     assert_eq!((read.signatures, read.complete), (1, false));
 
-    // The same member written a second time: refused, and not read as two.
-    let crafted = duplicate_first_partial_sig(&honest);
-    let err = read_bundle(&request, &crafted, &p).unwrap_err();
-    assert!(format!("{err:?}").contains("SameKeyTwice"), "{err:?}");
+    // The same member written a second time, as it was or under its key's
+    // other parity: refused, and not read as two.
+    for parity in [false, true] {
+        let crafted = duplicate_first_partial_sig(&honest, parity);
+        let err = read_bundle(&request, &crafted, &p).unwrap_err();
+        assert!(
+            format!("{err:?}").contains("SameKeyTwice"),
+            "{parity}: {err:?}"
+        );
+    }
 }
 
 /// **A request that spends one coin twice is refused**, in the three forms a

@@ -83,6 +83,10 @@ pub enum Error {
     /// which has no address to show, or one whose script is none of the
     /// standard forms. Refused before a review.
     NonStandard(NonStandardError),
+    /// The transaction has no outputs, so everything its inputs hold would
+    /// go to the fee ([`check::TransactionError::NoOutputs`]). Refused before
+    /// a review.
+    NoOutputs,
 }
 
 impl From<review::Error> for Error {
@@ -138,14 +142,15 @@ impl<'a> Session<'a> {
     ///
     /// # Errors
     ///
-    /// `Consensus` for an output worth nothing, amounts above Kaspa's
-    /// supply, an outpoint spent twice, outputs worth more than the inputs, a
-    /// version or a field consensus does not allow, or a covenant binding
-    /// naming an input the transaction does not have; `NonStandard` for an
-    /// output a node's mempool refuses; and whatever [`Review::new`] refuses:
-    /// more pages than a review can hold, or fields it cannot show. Checked
-    /// in a node's order: the transaction by itself, the mempool's rules,
-    /// then what needs the inputs' spent outputs.
+    /// `NoOutputs` for a transaction with none; `Consensus` for an output
+    /// worth nothing, amounts above Kaspa's supply, an outpoint spent twice,
+    /// outputs worth more than the inputs, a version or a field consensus
+    /// does not allow, or a covenant binding naming an input the transaction
+    /// does not have; `NonStandard` for an output a node's mempool refuses;
+    /// and whatever [`Review::new`] refuses: more pages than a review can
+    /// hold, or fields it cannot show. Checked in a node's order: the
+    /// transaction by itself, the mempool's rules, then what needs the
+    /// inputs' spent outputs.
     pub fn new(tx: Transaction<'a>) -> Result<Self, Error> {
         Self::with_cards(tx, |_| None)
     }
@@ -186,6 +191,7 @@ impl<'a> Session<'a> {
         check::transaction(&tx).map_err(|e| match e {
             TransactionError::Consensus(r) => Error::Consensus(r),
             TransactionError::NonStandard(r) => Error::NonStandard(r),
+            TransactionError::NoOutputs => Error::NoOutputs,
         })?;
         // Then what needs the coins: every binding against them, all of
         // upstream's `CovenantsContext::from_tx`, which a node runs after the

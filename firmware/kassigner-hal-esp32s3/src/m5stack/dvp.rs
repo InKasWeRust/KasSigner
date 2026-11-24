@@ -134,7 +134,7 @@ pub struct EspDvp {
     /// The other buffer, outside any transfer: free, or holding the frame
     /// last handed out while the next one is captured into its partner.
     spare: Option<DmaRxBuf>,
-    /// Frames whose DMA reported an error.
+    /// Frames whose DMA reported an error, none of them lent.
     dma_errors: u32,
 }
 
@@ -226,7 +226,18 @@ impl Capture for EspDvp {
         if let Some(transfer) = self.busy.take() {
             let (result, cam, landed) = transfer.wait();
             if result.is_err() {
+                // The engine stopped at a bad descriptor: the buffer may be
+                // only partly written, the rest still the frame it held
+                // before. It is not lent, as the Waveshare keeps no frame
+                // that came up short. The next frame goes into it at once;
+                // the spare keeps the frame last lent, which is not lent
+                // again.
                 self.dma_errors += 1;
+                match cam.receive(landed) {
+                    Ok(transfer) => self.busy = Some(transfer),
+                    Err((_, cam, landed)) => self.idle = Some((cam, landed)),
+                }
+                return None;
             }
             // The next frame into the other buffer at once, and this one
             // handed out from `spare`. Without a second buffer, or if the

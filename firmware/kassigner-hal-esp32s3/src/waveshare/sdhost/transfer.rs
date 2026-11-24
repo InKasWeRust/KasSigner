@@ -42,7 +42,29 @@ fn transfer_bytes(count: u32) -> Option<u32> {
     count.checked_mul(512)
 }
 
-/// Read a single 512-byte block.
+/// Whether the controller says the data transfer is over, asked once more
+/// after a poll ran out of time: the limit can fall between the last word
+/// and the controller's word that it was the last.
+///
+/// # Safety
+///
+/// Reads and clears SDHOST's raw interrupt status, as its callers do.
+unsafe fn over_at_last(timeout: &'static str, error: &'static str) -> Result<(), &'static str> {
+    let rint = reg_read(SDHOST_RINTSTS);
+    if rint & INT_ALL_ERRORS != 0 {
+        reg_write(SDHOST_RINTSTS, rint);
+        return Err(error);
+    }
+    if rint & INT_DTO == 0 {
+        return Err(timeout);
+    }
+    reg_write(SDHOST_RINTSTS, INT_DTO);
+    Ok(())
+}
+
+/// Read a single 512-byte block. Done only when every byte came and the
+/// controller says the transfer is over; a poll that runs out of time is an
+/// error.
 pub fn sd_read_block(card_type: Kind, block: u32, buf: &mut [u8; 512]) -> Result<(), &'static str> {
     let addr = block_addr(card_type, block)?;
 
@@ -95,6 +117,7 @@ pub fn sd_read_block(card_type: Kind, block: u32, buf: &mut [u8; 512]) -> Result
 
         // Read 512 bytes from FIFO (128 x 32-bit words)
         let mut bytes_read = 0usize;
+        let mut over = false;
 
         let mut deadline = Deadline::after(&SysTimer, DATA_US);
         while !deadline.expired(&SysTimer) {
@@ -138,6 +161,7 @@ pub fn sd_read_block(card_type: Kind, block: u32, buf: &mut [u8; 512]) -> Result
                     return Err("Read error");
                 }
                 reg_write(SDHOST_RINTSTS, INT_DTO);
+                over = true;
                 break;
             }
 
@@ -159,6 +183,11 @@ pub fn sd_read_block(card_type: Kind, block: u32, buf: &mut [u8; 512]) -> Result
         if bytes_read < 512 {
             log!("[SDHOST] Read incomplete: {} bytes", bytes_read);
             return Err("Read incomplete");
+        }
+        // Every byte, and no word that they were all: the block's CRC is
+        // the controller's to check, and it has not said.
+        if !over {
+            over_at_last("Read timeout", "Read error")?;
         }
     }
     Ok(())
@@ -238,7 +267,8 @@ fn sd_write_block(card_type: Kind, block: u32, buf: &[u8; 512]) -> Result<(), &'
 // Multi-block I/O
 // ═══════════════════════════════════════════════════════════════
 
-/// Multi-block read: CMD18 + auto CMD12 stop.
+/// Multi-block read: CMD18 + auto CMD12 stop. Done only when every byte came
+/// and the controller says the transfer is over, as [`sd_read_block`].
 pub fn fast_read_multi_block(
     card_type: Kind,
     block: u32,
@@ -303,6 +333,7 @@ pub fn fast_read_multi_block(
         // Read all data from FIFO, the time limit from the last word moved.
         let mut bytes_read = 0usize;
         let total = total_bytes as usize;
+        let mut over = false;
 
         let mut deadline = Deadline::after(&SysTimer, DATA_US);
         while !deadline.expired(&SysTimer) {
@@ -351,12 +382,17 @@ pub fn fast_read_multi_block(
                     return Err("Multi-read error");
                 }
                 reg_write(SDHOST_RINTSTS, INT_DTO);
+                over = true;
                 break;
             }
         }
 
         if bytes_read < total {
             return Err("Multi-read incomplete");
+        }
+        // As in `sd_read_block`.
+        if !over {
+            over_at_last("Multi-read timeout", "Multi-read error")?;
         }
     }
     Ok(())

@@ -492,7 +492,7 @@ fn a_double_tap_answers_neither_question() {
     let mut f: Flow<'_, 6> = booted(&mut mem, &[]);
     raw_key_keyboard(&mut f);
     type_hex(&mut f, &hex);
-    let mode = Typing::RawKey.mode(hex.len());
+    let mode = Typing::RawKey.mode(f.typed_full());
     let ok = keyboard::zone_in(
         SCALE,
         keyboard::HEX_PAGE,

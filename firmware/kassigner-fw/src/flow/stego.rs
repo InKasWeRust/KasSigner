@@ -308,7 +308,7 @@ impl<'b, const N: usize> Flow<'b, N> {
         let Event::Tap { x, y } = event else {
             return None;
         };
-        let key = match keyboard::target(self.scale, page, keyboard::Mode::Text, x, y)? {
+        let key = match keyboard::target(self.scale, page, self.text_keys(), x, y)? {
             keyboard::Target::Nav(Nav::Home) => {
                 self.typed.clear();
                 self.forget_stego();
@@ -323,7 +323,7 @@ impl<'b, const N: usize> Flow<'b, N> {
             keyboard::Target::Chip(_) => return None,
             keyboard::Target::Key(key) => key,
         };
-        let room = self.typed.len() < HINT_MAX;
+        let room = !self.typed_full();
         match key {
             keyboard::Key::Char(c) if room && stego_wire::descriptor_char(c) => {
                 self.typed.insert(c);
@@ -597,7 +597,7 @@ impl<'b, const N: usize> Flow<'b, N> {
         let Event::Tap { x, y } = event else {
             return None;
         };
-        let key = match keyboard::target(self.scale, page, keyboard::Mode::Text, x, y)? {
+        let key = match keyboard::target(self.scale, page, self.text_keys(), x, y)? {
             keyboard::Target::Nav(Nav::Home) => {
                 self.typed.clear();
                 self.forget_descriptor();
@@ -615,7 +615,7 @@ impl<'b, const N: usize> Flow<'b, N> {
             keyboard::Target::Chip(_) => return None,
             keyboard::Target::Key(key) => key,
         };
-        let room = self.typed.len() < stego_wire::DESCRIPTOR_WRITE_MAX;
+        let room = !self.typed_full();
         match key {
             keyboard::Key::Char(c) if room && stego_wire::descriptor_char(c) => {
                 self.typed.insert(c);
@@ -711,7 +711,7 @@ impl<'b, const N: usize> Flow<'b, N> {
         let Event::Tap { x, y } = event else {
             return None;
         };
-        let key = match keyboard::target(self.scale, page, keyboard::Mode::Text, x, y)? {
+        let key = match keyboard::target(self.scale, page, self.text_keys(), x, y)? {
             keyboard::Target::Nav(Nav::Home) => {
                 self.forget_stego();
                 self.state = State::Home;
@@ -906,7 +906,7 @@ impl<'b, const N: usize> Flow<'b, N> {
             return None;
         };
         let (done, _) = steps.step(SEAL_ROUNDS);
-        let Some(mut key) = steps.key() else {
+        let Some(key) = steps.key() else {
             self.state = State::StegoOpening { done };
             return None;
         };
@@ -924,7 +924,7 @@ impl<'b, const N: usize> Flow<'b, N> {
                 },
                 Err(_) => Err(stego_seal::StegoError::Malformed),
             };
-            wipe::wipe(&mut key);
+            drop(key);
             wipe::wipe(&mut rebuilt);
             self.derivation_over();
             if let Ok(h) = opened {
@@ -952,7 +952,7 @@ impl<'b, const N: usize> Flow<'b, N> {
         };
         // A v1.0.7 payload with a hint after its seed.
         let hint_apart = matches!(&unpacked, Ok(u) if u.shape != Shape::V3 && u.hint.is_some());
-        wipe::wipe(&mut key);
+        drop(key);
         wipe::wipe(&mut rebuilt);
         self.derivation_over();
         match opened {

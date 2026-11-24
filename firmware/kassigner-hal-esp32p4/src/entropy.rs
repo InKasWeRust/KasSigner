@@ -110,6 +110,10 @@ const SAR1_INITIAL_CODE_HIGH: u8 = 0x1; // bits [3:0]
 /// `I2C_SAR_ADC_DTEST_VDD_GRP1` `[3:0]` and `I2C_SAR_ADC_ENT_VDD_GRP1` b4,
 /// from `regi2c_saradc.h`: one register.
 const SAR_VDD_GRP1: u8 = 0x9;
+/// The two fields of [`SAR_VDD_GRP1`] step 7 writes, DTEST `[3:0]` and ENT
+/// b4, and what they read once it took: DTEST 0, ENT 1.
+const SAR_INIT_FIELDS: u8 = 0x1F;
+const SAR_INIT_ON: u8 = 0x10;
 /// `I2C_SAR_ADC_INIT_CODE_VAL` from bootloader_random_esp32p4.c.
 const CALIBRATION: u32 = 2166;
 
@@ -126,13 +130,17 @@ pub enum Error {
     NotRunning,
     /// Calibration read back a different value than was written.
     CalibrationMismatch(u16),
+    /// Step 7's register read back other than written, the generator's
+    /// enable bit clear or its test field set: the whole register.
+    SarInitMismatch(u8),
 }
 
 /// Bring the SAR ADC entropy source up and CONFIRM it took. Idempotent.
 ///
 /// `Err` if a REGI2C write or the read-back fails, the trigger is not
-/// running, or the calibration reads back wrong, so an enable that did
-/// nothing is never taken for one that worked.
+/// running, the calibration reads back wrong, or step 7's register does
+/// not read back enabled, so an enable that did nothing is never taken for
+/// one that worked.
 pub fn enable(delay: &Delay) -> Result<(), Error> {
     // 1-4, in `soc::clocks` with the other HP_SYS_CLKRST bits.
     clocks::enable_adc(delay);
@@ -211,6 +219,13 @@ pub fn enable(delay: &Delay) -> Result<(), Error> {
     }
     if cal != EXPECTED_CALIBRATION {
         return Err(Error::CalibrationMismatch(cal));
+    }
+    // Step 7's register, read back as step 8's are: its writes go through
+    // the same analog master and can fail as silently, and its enable bit
+    // is the one that turns the source on.
+    let sar = regi2c::read(I2C_SAR_ADC, SAR_VDD_GRP1).map_err(Error::RegI2c)?;
+    if sar & SAR_INIT_FIELDS != SAR_INIT_ON {
+        return Err(Error::SarInitMismatch(sar));
     }
     Ok(())
 }

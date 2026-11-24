@@ -2660,7 +2660,16 @@ fn prepare_refuses_what_the_unit_refuses() {
     assert_ne!(unmade, bound);
     // A case: what is broken, the bundle's document, and the rule refusing it.
     type Case = (&'static str, String, fn(&TransactionError) -> bool);
-    let cases: [Case; 7] = [
+    // No outputs at all: everything the input holds would go to the fee.
+    let none = format!(
+        "{}\"outputs\":[]}}]",
+        &doc[..doc.find("\"outputs\":[").unwrap()]
+    )
+    .replacen("\"outputCount\":2", "\"outputCount\":0", 1);
+    let cases: [Case; 8] = [
+        ("no outputs", none, |e| {
+            matches!(e, TransactionError::NoOutputs)
+        }),
         (
             "an output worth nothing",
             edit("\"amount\":100000000", "\"amount\":0"),
@@ -2742,6 +2751,7 @@ fn prepare_refuses_what_the_unit_refuses() {
         let unit = match Session::new(tx) {
             Err(kassigner_fw::session::Error::Consensus(r)) => TransactionError::Consensus(r),
             Err(kassigner_fw::session::Error::NonStandard(r)) => TransactionError::NonStandard(r),
+            Err(kassigner_fw::session::Error::NoOutputs) => TransactionError::NoOutputs,
             other => panic!("{what}: the unit gave {:?}", other.err()),
         };
         assert!(rule(&unit), "{what}: the unit refused {unit:?}");

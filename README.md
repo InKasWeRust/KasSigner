@@ -129,8 +129,8 @@ and signs mainnet only.
 ESP32 chips, made by Espressif, run millions of everyday devices. These three
 boards add a touch screen, an SD card slot and a camera, which is all a signer
 needs. One firmware runs on all of them, so units of different kinds sign
-together, multisig included. A P4 board with a v3.x chip is not supported: the
-firmware stops at boot on it.
+together, multisig included. A P4 board with a v3.x chip is not supported yet:
+the firmware stops at boot on it.
 
 ## Where it comes from
 
@@ -150,13 +150,14 @@ board on the ESP32-P4, and an SDK so any Kaspa wallet can work with a unit.
 | Build and set up my own unit | [docs/INSTALL.md](docs/INSTALL.md) |
 | Lock my unit with my own key | [docs/LOCKING.md](docs/LOCKING.md) |
 | Print a case for the Waveshare ESP32-S3 board | [hardware/case-waveshare](hardware/case-waveshare/README.md) |
-| Use it day to day | The User Manual |
-| Use it with a phone wallet today | [KaPay](https://home.kachat.app/), the wallet of the KaChat suite: add the unit's kpub to its Cold Storage |
+| Use it day to day | The User Manual, in the files of every [release](https://github.com/InKasWeRust/KasSigner/releases) |
+| Use it with a phone wallet today | [KaChat](https://home.kachat.app/): add the unit's kpub to its wallet's Cold Storage |
 | Try a unit before my wallet supports it | [kassigner.org](https://kassigner.org), the project's test tool. The copy hosted there cannot send; to use it in full, run your own copy from [its repository](https://github.com/InKasWeRust/kassigner-test-tools) |
 | Print cards to write my seed on | [docs/KasSigner_Seed_Cards.pdf](docs/KasSigner_Seed_Cards.pdf) |
 | Hide my seed in a photo | [docs/STEGANOGRAPHY.md](docs/STEGANOGRAPHY.md) |
 | Add KasSigner to my wallet | [crates/kassigner-sdk](crates/kassigner-sdk/README.md) |
 | Check how it protects me | [SECURITY.md](SECURITY.md) |
+| See how the unit's randomness was measured | [docs/ENTROPY.md](docs/ENTROPY.md) |
 | Rebuild a release and compare | [REPRODUCIBLE.md](REPRODUCIBLE.md) |
 | Build from source or contribute | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | See what changed | [CHANGELOG.md](CHANGELOG.md) |
@@ -175,9 +176,9 @@ server. It holds no seed and can never reach the key crate.
 | JavaScript, TypeScript | [`kassigner-sdk-wasm`](crates/kassigner-sdk/README.md#packages) |
 | Swift, Kotlin, Python | [`kassigner-sdk-ffi`](crates/kassigner-sdk/README.md#packages) |
 
-**KaPay**, the wallet of the [KaChat](https://home.kachat.app/) suite (Android,
-and iOS in beta), works with KasSigner: its Cold Storage watches the unit's
-kpub and sends through the unit.
+[**KaChat**](https://home.kachat.app/), on iPhone, iPad, Android and in the
+browser, works with KasSigner: the Cold Storage of its wallet, where KaPay now
+lives, watches the unit's kpub and sends through the unit.
 
 ## Inside the repository
 

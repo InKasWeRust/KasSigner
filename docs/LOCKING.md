@@ -75,30 +75,30 @@ Time needed: about 30 minutes the first time.
 - Optional: an offline storage device, to keep a copy of the key.
 - A charged unit (M5) or a steady USB port (Waveshare). Power must not drop
   during step 8.
-- Three files from the KasSigner 1.1.0 release (next section).
+- Three files from the KasSigner 1.1.1 release (next section).
 
 ## The release files
 
-Everything comes from one page, the KasSigner 1.1.0 release:
+Everything comes from one page, the KasSigner 1.1.1 release:
 
-**https://github.com/InKasWeRust/KasSigner/releases/tag/v1.1.0**
+**https://github.com/InKasWeRust/KasSigner/releases/tag/v1.1.1**
 
 Scroll down to **Assets**. The release holds these files:
 
 | File | What it is | Needed to lock? |
 | --- | --- | --- |
-| `kassigner-1.1.0-esp32s3-secure-bootloader.bin` | The Secure Boot bootloader for the two S3 units, unsigned | **yes**, M5 and Waveshare |
-| `kassigner-1.1.0-partition-table.bin` | The flash layout for the two S3 units | **yes**, M5 and Waveshare |
-| `kassigner-1.1.0-m5stack.bin` | The firmware for the M5Stack CoreS3 | **yes**, M5 only |
-| `kassigner-1.1.0-waveshare.bin` | The firmware for the Waveshare ESP32-S3-Touch-LCD-2 | **yes**, Waveshare only |
-| `kassigner-1.1.0-m5stack-full.bin` | Everything in one file, for a first install on a new M5 | no |
-| `kassigner-1.1.0-waveshare-full.bin` | The same for the Waveshare | no |
-| `kassigner-1.1.0-esp32p4-secure-bootloader.bin` | The Secure Boot bootloader for the P4, unsigned | **yes**, P4 only |
-| `kassigner-1.1.0-partition-table-p4-secure.bin` | The flash layout for a locked P4 | **yes**, P4 only |
-| `kassigner-1.1.0-p4.bin` | The firmware for the P4 | **yes**, P4 only |
-| `kassigner-1.1.0-p4-full.bin` | Everything in one file, for a first install on a new P4 | no |
+| `kassigner-1.1.1-esp32s3-secure-bootloader.bin` | The Secure Boot bootloader for the two S3 units, unsigned | **yes**, M5 and Waveshare |
+| `kassigner-1.1.1-partition-table.bin` | The flash layout for the two S3 units | **yes**, M5 and Waveshare |
+| `kassigner-1.1.1-m5stack.bin` | The firmware for the M5Stack CoreS3 | **yes**, M5 only |
+| `kassigner-1.1.1-waveshare.bin` | The firmware for the Waveshare ESP32-S3-Touch-LCD-2 | **yes**, Waveshare only |
+| `kassigner-1.1.1-m5stack-full.bin` | Everything in one file, for a first install on a new M5 | no |
+| `kassigner-1.1.1-waveshare-full.bin` | The same for the Waveshare | no |
+| `kassigner-1.1.1-esp32p4-secure-bootloader.bin` | The Secure Boot bootloader for the P4, unsigned | **yes**, P4 only |
+| `kassigner-1.1.1-partition-table-p4-secure.bin` | The flash layout for a locked P4 | **yes**, P4 only |
+| `kassigner-1.1.1-p4.bin` | The firmware for the P4 | **yes**, P4 only |
+| `kassigner-1.1.1-p4-full.bin` | Everything in one file, for a first install on a new P4 | no |
 | `SHA256SUMS` | The list of every file's SHA-256 | to check the downloads |
-| `KasSg110.txt` | That list's signature, made on a KasSigner | to check the list |
+| `KasSg111.txt` | That list's signature, made on a KasSigner | to check the list |
 | `COPYING`, `THIRD_PARTY_NOTICES` | The licenses | no |
 
 **Download three files**: the bootloader, the partition table, and the
@@ -106,9 +106,9 @@ firmware for your unit.
 
 | Your unit | The three files |
 | --- | --- |
-| M5Stack CoreS3 | `kassigner-1.1.0-esp32s3-secure-bootloader.bin`, `kassigner-1.1.0-partition-table.bin`, `kassigner-1.1.0-m5stack.bin` |
-| Waveshare ESP32-S3-Touch-LCD-2 | `kassigner-1.1.0-esp32s3-secure-bootloader.bin`, `kassigner-1.1.0-partition-table.bin`, `kassigner-1.1.0-waveshare.bin` |
-| Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5 | `kassigner-1.1.0-esp32p4-secure-bootloader.bin`, `kassigner-1.1.0-partition-table-p4-secure.bin`, `kassigner-1.1.0-p4.bin` |
+| M5Stack CoreS3 | `kassigner-1.1.1-esp32s3-secure-bootloader.bin`, `kassigner-1.1.1-partition-table.bin`, `kassigner-1.1.1-m5stack.bin` |
+| Waveshare ESP32-S3-Touch-LCD-2 | `kassigner-1.1.1-esp32s3-secure-bootloader.bin`, `kassigner-1.1.1-partition-table.bin`, `kassigner-1.1.1-waveshare.bin` |
+| Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5 | `kassigner-1.1.1-esp32p4-secure-bootloader.bin`, `kassigner-1.1.1-partition-table-p4-secure.bin`, `kassigner-1.1.1-p4.bin` |
 
 The P4's bootloader and partition table are **not** the S3's. Each chip
 takes only its own.
@@ -118,7 +118,7 @@ Mind the names: the firmware you need is the one **without** `-full`. The
 here.
 
 **Check them before you use them.** Download `SHA256SUMS` and
-`KasSg110.txt` too, and follow [INSTALL.md](INSTALL.md) step 1: it shows
+`KasSg111.txt` too, and follow [INSTALL.md](INSTALL.md) step 1: it shows
 how to check the list's signature and each file's SHA-256 against the list.
 Do not sign a file you have not checked.
 
@@ -273,20 +273,20 @@ locked with it.
 M5Stack CoreS3 and Waveshare ESP32-S3-Touch-LCD-2:
 
 ```
-python -m espsecure sign_data --version 2 --keyfile my-kassigner-key.pem --output bootloader-signed.bin kassigner-1.1.0-esp32s3-secure-bootloader.bin
+python -m espsecure sign_data --version 2 --keyfile my-kassigner-key.pem --output bootloader-signed.bin kassigner-1.1.1-esp32s3-secure-bootloader.bin
 ```
 
 Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5:
 
 ```
-python -m espsecure sign_data --version 2 --keyfile my-kassigner-key.pem --output bootloader-signed.bin kassigner-1.1.0-esp32p4-secure-bootloader.bin
+python -m espsecure sign_data --version 2 --keyfile my-kassigner-key.pem --output bootloader-signed.bin kassigner-1.1.1-esp32p4-secure-bootloader.bin
 ```
 
 **You should see** lines like these:
 
 ```
 1 signing key(s) found.
-Signed 24576 bytes of data from kassigner-1.1.0-esp32s3-secure-bootloader.bin. Signature sector now has 1 signature blocks.
+Signed 24576 bytes of data from kassigner-1.1.1-esp32s3-secure-bootloader.bin. Signature sector now has 1 signature blocks.
 ```
 
 The number of bytes may differ. A line about "Padding data contents" may
@@ -297,19 +297,19 @@ come first. Both are normal.
 M5Stack CoreS3:
 
 ```
-python -m espsecure sign_data --version 2 --keyfile my-kassigner-key.pem --output firmware-signed.bin kassigner-1.1.0-m5stack.bin
+python -m espsecure sign_data --version 2 --keyfile my-kassigner-key.pem --output firmware-signed.bin kassigner-1.1.1-m5stack.bin
 ```
 
 Waveshare ESP32-S3-Touch-LCD-2:
 
 ```
-python -m espsecure sign_data --version 2 --keyfile my-kassigner-key.pem --output firmware-signed.bin kassigner-1.1.0-waveshare.bin
+python -m espsecure sign_data --version 2 --keyfile my-kassigner-key.pem --output firmware-signed.bin kassigner-1.1.1-waveshare.bin
 ```
 
 Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5:
 
 ```
-python -m espsecure sign_data --version 2 --keyfile my-kassigner-key.pem --output firmware-signed.bin kassigner-1.1.0-p4.bin
+python -m espsecure sign_data --version 2 --keyfile my-kassigner-key.pem --output firmware-signed.bin kassigner-1.1.1-p4.bin
 ```
 
 **You should see** `1 signing key(s) found.` and a `Signed … bytes` line.
@@ -431,13 +431,13 @@ do not remove it.
 M5Stack CoreS3 and Waveshare ESP32-S3-Touch-LCD-2:
 
 ```
-python -m esptool --chip esp32s3 --after no_reset write_flash 0x0 bootloader-signed.bin 0x8000 kassigner-1.1.0-partition-table.bin 0x10000 firmware-signed.bin
+python -m esptool --chip esp32s3 --after no_reset write_flash 0x0 bootloader-signed.bin 0x8000 kassigner-1.1.1-partition-table.bin 0x10000 firmware-signed.bin
 ```
 
 Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5:
 
 ```
-python -m esptool --chip esp32p4 --no-stub --after no_reset write_flash 0x2000 bootloader-signed.bin 0xC000 kassigner-1.1.0-partition-table-p4-secure.bin 0x10000 firmware-signed.bin
+python -m esptool --chip esp32p4 --no-stub --after no_reset write_flash 0x2000 bootloader-signed.bin 0xC000 kassigner-1.1.1-partition-table-p4-secure.bin 0x10000 firmware-signed.bin
 ```
 
 The three numbers (`0x0`, `0x8000`, `0x10000`, or the P4's `0x2000`,
@@ -490,8 +490,8 @@ That is it: the unit is locked with your key.
 
 **10a. On the unit.** The hash on the verification screen shows the first 8
 and the last 8 characters of the firmware's SHA-256. Compare them with the
-line for your unit's firmware file (`kassigner-1.1.0-m5stack.bin`,
-`kassigner-1.1.0-waveshare.bin` or `kassigner-1.1.0-p4.bin`) in the
+line for your unit's firmware file (`kassigner-1.1.1-m5stack.bin`,
+`kassigner-1.1.1-waveshare.bin` or `kassigner-1.1.1-p4.bin`) in the
 release's `SHA256SUMS`. They must match. Signing does not change this hash.
 
 **10b. From the computer.** M5 and Waveshare S3: put the unit in download
@@ -522,6 +522,13 @@ each line means:
 | `Secure Boot Key1 is Revoked`, `Secure Boot Key2 is Revoked` | The two spare places for a key are closed. No other key can ever be added. |
 | `Flash Encryption: Disabled` | As intended. KasSigner does not use it. |
 | `JTAG: Permanently Disabled` | The chip's debug port is closed. |
+
+**Is that fingerprint your key's?** The tool cannot show it once the chip is
+locked. The unit itself is the proof: at every start the chip checks the
+bootloader you signed against the recorded fingerprint, and starts only if
+they match, so a unit that reaches **Verified OK** holds your key's. And
+step 7, before you began, showed `Secure Boot: Disabled`: no other key was
+there.
 
 The tool's last line is `Hard resetting via RTS pin...`: it restarts the
 unit, which starts normally again. If yours does not, press its reset
@@ -570,13 +577,13 @@ state it is in:
 To write all three files again to a **locked** unit, M5 or Waveshare S3:
 
 ```
-python -m esptool --chip esp32s3 --no-stub write_flash 0x0 bootloader-signed.bin 0x8000 kassigner-1.1.0-partition-table.bin 0x10000 firmware-signed.bin
+python -m esptool --chip esp32s3 --no-stub write_flash 0x0 bootloader-signed.bin 0x8000 kassigner-1.1.1-partition-table.bin 0x10000 firmware-signed.bin
 ```
 
 P4:
 
 ```
-python -m esptool --chip esp32p4 --no-stub write_flash 0x2000 bootloader-signed.bin 0xC000 kassigner-1.1.0-partition-table-p4-secure.bin 0x10000 firmware-signed.bin
+python -m esptool --chip esp32p4 --no-stub write_flash 0x2000 bootloader-signed.bin 0xC000 kassigner-1.1.1-partition-table-p4-secure.bin 0x10000 firmware-signed.bin
 ```
 
 then press reset. A locked unit always comes back with files signed by its

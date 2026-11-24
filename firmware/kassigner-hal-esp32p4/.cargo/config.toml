@@ -26,3 +26,5 @@ ESP_HAL_CONFIG_MIN_CHIP_REVISION = "0"
 p4-hwtest = "run --release --example p4_hwtest --features unstable --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
 p4-unit = "run --release --example p4_unit --features unstable --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
 p4-entropy = "run --release --example p4_entropy --features unstable --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
+# Built, not run: a locked unit takes the image signed, through esptool.
+p4-capture-build = "build --release --example p4_capture --features unstable --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"

@@ -136,15 +136,17 @@ hash as an unlocked one.
    Message, with the release address. The unit refuses a text ending in a
    line break, which is why `SIGN.TXT` has none.
 4. The unit saves the signed message unencrypted, under the name given to it
-   there: `KasSg` and the version's digits without its dots, `KasSg110.txt`
-   for 1.1.0. It is published beside `SHA256SUMS` under that name.
+   there: `KasSg` and the version's digits without its dots, `KasSg111.txt`
+   for 1.1.1. It is published beside `SHA256SUMS` under that name.
 
 ## The same build in CI
 
 The `release` workflow runs this Docker build on GitHub's x86 Linux, by hand
-or when a `v*` tag is pushed. It checks every file against the list and
-prints `SHA256SUMS` and the `SIGN.TXT` line on the run's summary page, to
-compare with a build made elsewhere. It publishes nothing.
+or when a `v*` tag is pushed. On a tag it first waits for `crates.yml` to pass
+on the tagged commit, and stops if the tag is not the tree's version. It
+checks every file against the list and prints `SHA256SUMS` and the `SIGN.TXT`
+line on the run's summary page, to compare with a build made elsewhere. It
+publishes nothing.
 
 ## Notes
 

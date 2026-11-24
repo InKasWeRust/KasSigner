@@ -292,9 +292,20 @@ pub fn bring_up(
     //
     // Black before any light: a reset clears neither the panel's memory nor
     // its picture, so the backlight comes on only once it is cleared.
-    lcd.init(&delay);
+    //
+    // A panel that refuses its init or its clear stops the boot dark, as the
+    // S3 units stop at their panel's init: lit, it could show the last run's
+    // picture, perhaps a SeedQR, and it has nothing to say the refusal on.
+    // The panel is kept, not dropped, so its pins hold the backlight off.
+    if lcd.init(&delay).is_err() {
+        core::mem::forget(lcd);
+        return Err(Error::Peripheral("ST7796").into());
+    }
     let mut panel = Panel::new(lcd);
-    let _ = panel.clear(0x0000);
+    if panel.clear(0x0000).is_err() {
+        core::mem::forget(panel);
+        return Err(Error::Peripheral("ST7796").into());
+    }
     crate::backlight::init();
     let _ = panel.set_backlight(Backlight::Level(DEFAULT_BRIGHTNESS));
 

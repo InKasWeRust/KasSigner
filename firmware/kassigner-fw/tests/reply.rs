@@ -278,8 +278,9 @@ fn sigs_on(bytes: &[u8], i: usize) -> Vec<(u8, u8, Vec<u8>)> {
 }
 
 /// A reply is read back and verified before it leaves; a flipped signature
-/// byte, a payload that is no KSPT, a reply with no signature, and another
-/// transaction are each refused.
+/// byte, a sighash type other than `ALL` on a signature that verifies, a
+/// body changed where no signature looks, a payload that is no KSPT, a reply
+/// with no signature, and another transaction are each refused.
 #[test]
 fn a_reply_is_read_back_and_verified_against_the_request() {
     let me = key(1);
@@ -314,6 +315,38 @@ fn a_reply_is_read_back_and_verified_against_the_request() {
             })
         );
 
+        // The record's sighash byte, just before its signature: the
+        // signature still verifies over `ALL`'s hash, but says another type.
+        assert_eq!(sigs_on(&out, 0)[0].1, 0x01, "written as ALL");
+        assert_eq!(out[sig_at - 1], 0x01, "the record's sighash byte");
+        for other in [0x00, 0x02, 0x03, 0x81] {
+            let mut bad = out.clone();
+            bad[sig_at - 1] = other;
+            assert_eq!(sigs_on(&bad, 0)[0].1, other);
+            assert_eq!(
+                reply::verify_kspt(&bad, s.transaction(), &P),
+                Err(reply::Unverified::SighashNotAll { input: 0 }),
+                "{other:#04x}"
+            );
+        }
+
+        // The body changed where no signature looks: a byte of the key the
+        // output pays. The signature still verifies over the reviewed
+        // transaction's hash, so only the body says it is another payment.
+        let paid = kspt::parse(&out, &P)
+            .expect("reply parses")
+            .outputs()
+            .next()
+            .expect("an output")
+            .spk;
+        let key_at = paid.as_ptr() as usize - out.as_ptr() as usize + 1;
+        let mut bad = out.clone();
+        bad[key_at] ^= 0x01;
+        assert_eq!(
+            reply::verify_kspt(&bad, s.transaction(), &P),
+            Err(reply::Unverified::NotTheTransaction)
+        );
+
         // Not a KSPT at all.
         assert_eq!(
             reply::verify_kspt(b"nope", s.transaction(), &P),
@@ -328,7 +361,7 @@ fn a_reply_is_read_back_and_verified_against_the_request() {
     });
 
     // The same reply against a transaction that pays a different amount:
-    // the hash moves, and the signature no longer covers it.
+    // not its body, refused before the signature is read.
     let other = request(
         &[In {
             amount: 100_000 * KAS,
@@ -341,10 +374,7 @@ fn a_reply_is_read_back_and_verified_against_the_request() {
     with_kspt(&other, true, |s, _| {
         assert_eq!(
             reply::verify_kspt(&out, s.transaction(), &P),
-            Err(reply::Unverified::Fails {
-                input: 0,
-                position: 0
-            })
+            Err(reply::Unverified::NotTheTransaction)
         );
     });
 }
@@ -1429,6 +1459,39 @@ fn a_hint_names_the_multisig_key_and_a_wrong_one_is_ignored() {
         .resolve(v0(&spk), &redeem, path_of_hint(right))
         .unwrap()
         .is_none());
+}
+
+/// A hint's branch is a cosigner's place among the script's keys, as
+/// rusty-kaspa sets it, so one at or past their count names no address of
+/// the group: it counts as no hint, and the input is not ours even when the
+/// script holds the key it names. At the last branch below the count it
+/// signs.
+#[test]
+fn a_hint_past_the_key_count_is_no_hint() {
+    let (a, b, c) = (hd(1), hd(2), hd(3));
+    let path = |cosigner| Path::Multisig {
+        cosigner,
+        chain: 0,
+        index: 4,
+    };
+    let ring = Keyring::new(&b).unwrap();
+    for (branch, ours) in [(2, true), (3, false), (1 << 20, false)] {
+        // A 2-of-3 whose third key is this wallet's at `branch`.
+        let xs = [
+            a.signing_key(path(0)).unwrap().x_only(),
+            c.signing_key(path(1)).unwrap().x_only(),
+            b.signing_key(path(branch)).unwrap().x_only(),
+        ];
+        let mut redeem = vec![0u8; 256];
+        let n = redeem_script(2, &xs, &mut redeem).unwrap();
+        redeem.truncate(n);
+        let spk = p2sh(&redeem);
+        let found = ring.resolve(v0(&spk), &redeem, Some(path(branch))).unwrap();
+        assert_eq!(found.is_some(), ours, "branch {branch}");
+        if let Some(m) = found {
+            assert_eq!(m.position, 2);
+        }
+    }
 }
 
 /// A KSPT hint reaches the reply: a 45' multisig input is signed at the

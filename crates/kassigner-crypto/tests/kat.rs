@@ -134,7 +134,7 @@ fn the_v107_card_key_is_its_password_s() {
     let c = parse(file).expect("the corpus card parses");
     let params = KdfParams::of(&c).expect("its derivation");
     let key = derive_key(params, b"abc", c.purpose, None).expect("PBKDF2 needs no memory");
-    assert_eq!(key, kat::V107_CARD_KEY);
+    assert_eq!(*key, kat::V107_CARD_KEY);
 }
 
 /// The set a device runs, as one number.

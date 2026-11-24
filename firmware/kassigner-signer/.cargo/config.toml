@@ -68,6 +68,10 @@ ws-stackprobe = "run --release --features waveshare,stackprobe --target xtensa-e
 m5-wdtprobe = "run --release --features m5stack,wdtprobe --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
 ws-wdtprobe = "run --release --features waveshare,wdtprobe --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
 p4-wdtprobe = "run --release --features p4,wdtprobe --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
+m5-touchcap = "run --release --features m5stack,touchcap --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+ws-touchcap = "run --release --features waveshare,touchcap --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"
+p4-touchcap = "run --release --features p4,touchcap --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
+p4-touchcap-build = "build --release --features p4,touchcap --target riscv32imafc-unknown-none-elf -Z build-std=core,alloc"
 # The UI probe, one example for the three units: the brand screens drawn a
 # band at a time, with what each took and the memory drawing them uses.
 m5-ui = "run --release --example ui_probe --features m5stack --target xtensa-esp32s3-none-elf -Z build-std=core,alloc"

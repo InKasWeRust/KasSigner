@@ -56,6 +56,12 @@ required-features = ["unstable"]
 name = "p4_entropy"
 required-features = ["unstable"]
 
+# The camera and the touch screen written out raw, for measuring what a
+# seed's two sources are worth on this board, as the S3 units' captures do.
+[[example]]
+name = "p4_capture"
+required-features = ["unstable"]
+
 # The examples' console and app descriptor, dev-only so no dependent crate
 # gets them. esp-println must be `uart`: the default probes USB_SERIAL_JTAG,
 # and this board's native USB port does not enumerate.

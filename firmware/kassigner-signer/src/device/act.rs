@@ -102,9 +102,10 @@ pub(super) fn deliver<L, C, D, T>(
 
 /// Apply one step's answer: the command now, the screen if it changed.
 ///
-/// A review page or CONFIRM SEND? the panel did not take is told to the
-/// flow at once and its refusal drawn: told later, a tap could land on a
-/// page counted seen, or on CONFIRM, that the panel does not show.
+/// A review page or CONFIRM SEND? the panel did not take, or a message's
+/// page or SIGN MESSAGE?, is told to the flow at once and its refusal
+/// drawn: told later, a tap could land on a page counted seen, or on
+/// CONFIRM or SIGN, that the panel does not show.
 pub(super) fn apply<L, C, D, T>(
     out: Output,
     unit: &mut unit::Unit<L, C, D, T>,
@@ -230,9 +231,15 @@ where
             }
         }
         Some(Command::CloseConsole) => {
-            out!("console closing: a provisioned unit goes quiet from here");
-            CONSOLE_OPEN.store(false, Ordering::Relaxed);
-            Port.close();
+            // The touch capture writes its reads out on the console, a
+            // provisioned unit's too.
+            if cfg!(feature = "touchcap") {
+                out!("touchcap: the console stays open");
+            } else {
+                out!("console closing: a provisioned unit goes quiet from here");
+                CONSOLE_OPEN.store(false, Ordering::Relaxed);
+                Port.close();
+            }
         }
         Some(Command::Backlight(level)) => {
             if let Err(e) = unit.lcd.set_backlight(Backlight::Level(level)) {

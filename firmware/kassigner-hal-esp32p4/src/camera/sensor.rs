@@ -26,8 +26,30 @@ pub struct Ov5647;
 /// Why sensor configuration failed.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Error {
-    /// This many writes of the mode table were not ACKed.
+    /// This many writes of the reset and the mode table were not ACKed.
     ModeTableIncomplete(u32),
+    /// This many writes switching the stream on or off were not ACKed.
+    StreamSwitch(u32),
+}
+
+/// Write `table`, counting the writes the sensor did not ACK.
+fn write_all(bus: &mut Bus<'_>, table: &[(u16, u8)]) -> u32 {
+    let mut failures = 0u32;
+    for (r, v) in table {
+        if !i2c::write16(bus, ADDR, *r, *v) {
+            failures += 1;
+        }
+    }
+    failures
+}
+
+/// `Ok` when nothing failed, else `error` with the count.
+fn counted(failures: u32, error: fn(u32) -> Error) -> Result<(), Error> {
+    if failures == 0 {
+        Ok(())
+    } else {
+        Err(error(failures))
+    }
 }
 
 impl Ov5647 {
@@ -47,43 +69,37 @@ impl Ov5647 {
     /// the D-PHY leaves reset.
     ///
     /// # Errors
-    /// `ModeTableIncomplete(n)` if `n` of those writes were not ACKed; the
-    /// sensor's mode is then undefined until a reset.
+    /// `ModeTableIncomplete(n)` if `n` of those writes, the reset's
+    /// included, were not ACKed; the sensor's mode is then undefined until
+    /// a reset. Linux's driver holds the software reset to its ACK too: it
+    /// writes it in its mode tables and stops at the first write refused.
     pub fn configure(bus: &mut Bus<'_>, delay: &Delay) -> Result<(), Error> {
-        i2c::write16(bus, ADDR, ov5647::RESET_REGS[0].0, ov5647::RESET_REGS[0].1);
-        i2c::write16(bus, ADDR, ov5647::RESET_REGS[1].0, ov5647::RESET_REGS[1].1);
+        // Sleep and software reset, then the clock lane once it is back.
+        let mut failures = write_all(bus, &ov5647::RESET_REGS[..2]);
         delay.delay_millis(10);
-        i2c::write16(bus, ADDR, ov5647::RESET_REGS[2].0, ov5647::RESET_REGS[2].1);
-
-        let mut failures = 0u32;
-        for (r, v) in ov5647::MODE_480X480_RAW8
-            .iter()
-            .chain(ov5647::BOOT_DEFAULTS)
-        {
-            if !i2c::write16(bus, ADDR, *r, *v) {
-                failures += 1;
-            }
-        }
+        failures += write_all(bus, &ov5647::RESET_REGS[2..]);
+        failures += write_all(bus, ov5647::MODE_480X480_RAW8);
+        failures += write_all(bus, ov5647::BOOT_DEFAULTS);
         delay.delay_millis(10);
-        if failures == 0 {
-            Ok(())
-        } else {
-            Err(Error::ModeTableIncomplete(failures))
-        }
+        counted(failures, Error::ModeTableIncomplete)
     }
 
     /// Start streaming, once the D-PHY is up.
-    pub fn stream_on(bus: &mut Bus<'_>) {
-        for (r, v) in ov5647::STREAM_ON {
-            i2c::write16(bus, ADDR, *r, *v);
-        }
+    ///
+    /// # Errors
+    /// `StreamSwitch(n)` if `n` of its writes were not ACKed: the sensor
+    /// may not be streaming.
+    pub fn stream_on(bus: &mut Bus<'_>) -> Result<(), Error> {
+        counted(write_all(bus, ov5647::STREAM_ON), Error::StreamSwitch)
     }
 
     /// Stop streaming and enter software standby.
-    pub fn stream_off(bus: &mut Bus<'_>) {
-        for (r, v) in ov5647::STREAM_OFF {
-            i2c::write16(bus, ADDR, *r, *v);
-        }
+    ///
+    /// # Errors
+    /// `StreamSwitch(n)` if `n` of its writes were not ACKed: the sensor
+    /// may still be streaming.
+    pub fn stream_off(bus: &mut Bus<'_>) -> Result<(), Error> {
+        counted(write_all(bus, ov5647::STREAM_OFF), Error::StreamSwitch)
     }
 
     /// Current exposure in lines and gain out of 1023; gain at 1023 means
@@ -98,23 +114,5 @@ impl Ov5647 {
             (((e2 & 0x0F) << 12) | (e1 << 4) | (e0 >> 4)),
             (g1 << 8) | g0,
         ))
-    }
-
-    /// Pin exposure and gain, bypassing the AEC. `lines` past VTS
-    /// (0x380e/0x380f, 984 here) buy nothing unless VTS, and so the frame
-    /// time, grows.
-    pub fn set_manual_exposure(bus: &mut Bus<'_>, lines: u32, gain: u32) {
-        let e = lines << 4; // units of 1/16 line
-        i2c::write16(bus, ADDR, reg::AEC_MANUAL, 0x03); // AGC + AEC manual
-        i2c::write16(bus, ADDR, reg::EXPOSURE_HI, ((e >> 16) & 0x0f) as u8);
-        i2c::write16(bus, ADDR, reg::EXPOSURE_HI + 1, ((e >> 8) & 0xff) as u8);
-        i2c::write16(bus, ADDR, reg::EXPOSURE_HI + 2, (e & 0xff) as u8);
-        i2c::write16(bus, ADDR, reg::GAIN_HI, ((gain >> 8) & 0x03) as u8);
-        i2c::write16(bus, ADDR, reg::GAIN_HI + 1, (gain & 0xff) as u8);
-    }
-
-    /// Hand control back to the auto-exposure loop.
-    pub fn set_auto_exposure(bus: &mut Bus<'_>) {
-        i2c::write16(bus, ADDR, reg::AEC_MANUAL, 0x00);
     }
 }

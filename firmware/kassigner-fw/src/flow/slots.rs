@@ -19,8 +19,12 @@
 use super::*;
 
 impl<'b, const N: usize> Flow<'b, N> {
-    /// Start making a seed from every source the unit has.
-    pub(super) fn start_seed(&mut self) -> Option<Command> {
+    /// Start making a seed of `words` from every source the unit has. The
+    /// capture is the same for both lengths: at least
+    /// [`limits::SEED_MIN_BITS`] go into the pool either way, and twelve
+    /// words keep half of its hash.
+    pub(super) fn start_seed(&mut self, words: Words) -> Option<Command> {
+        self.words = words;
         let mut have = [Source::Camera; 4];
         let mut n = 0;
         for s in self.sources.iter().flatten() {
@@ -280,7 +284,7 @@ impl<'b, const N: usize> Flow<'b, N> {
         let Event::Tap { x, y } = event else {
             return None;
         };
-        let target = keyboard::target(self.scale, page, keyboard::Mode::Text, x, y)?;
+        let target = keyboard::target(self.scale, page, self.text_keys(), x, y)?;
         if let keyboard::Target::Key(_) = target {
             self.mismatch = false;
         }

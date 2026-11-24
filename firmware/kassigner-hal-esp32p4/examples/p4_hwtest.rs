@@ -271,10 +271,12 @@ mod app {
 
         // ---- display --------------------------------------------------------
         r.section("display");
-        lcd.init(&delay);
+        // Every send answers for itself, so the stage passes only if the bus
+        // took all of it.
+        let mut sent = lcd.init(&delay);
         // Black before the light, as the unit does: the panel may still hold
         // the last screen, perhaps a SeedQR.
-        lcd.clear();
+        sent = sent.and(lcd.clear());
         lcd.backlight(true);
         let bands = [
             colour::RED,
@@ -286,16 +288,17 @@ mod app {
         ];
         let bh = LCD_H / 6;
         for (i, c) in bands.iter().enumerate() {
-            lcd.fill_rect(0, bh * i as u16, LCD_W, bh, *c);
+            sent = sent.and(lcd.fill_rect(0, bh * i as u16, LCD_W, bh, *c));
         }
         puts("  bands: RED GREEN BLUE WHITE BLACK YELLOW\r\n");
-        r.check("display init completed", true);
+        r.check("display init completed", sent.is_ok());
         delay.delay_millis(2000);
 
         // ---- camera ---------------------------------------------------------
         r.section("camera");
         // Raw pointer, never `&mut`: the DMA writes this buffer.
-        let mut cam = Camera::new(core::ptr::addr_of_mut!(FB));
+        // SAFETY: `FB` lives for the program, and nothing else here uses it.
+        let mut cam = unsafe { Camera::new(core::ptr::addr_of_mut!(FB)) };
         match cam.power_up(&delay) {
             Ok(()) => {
                 r.check("MIPI D-PHY LDO enabled", true);
@@ -379,8 +382,10 @@ mod app {
                 // ---- camera -> display ---------------------------------------
                 r.section("camera -> display");
                 let (gw, gh) = f.green_dims();
-                lcd.clear();
-                lcd.blit_grey(0, 0, gw as u16, gh as u16, |x, y| f.green_at(x, y));
+                let sent = lcd.clear().and_then(|()| {
+                    lcd.blit_grey(0, 0, gw as u16, gh as u16, |x, y| f.green_at(x, y))
+                });
+                r.check("the bus took the image", sent.is_ok());
                 rendered = true;
 
                 // ---- text via embedded-graphics ------------------------------
@@ -453,6 +458,7 @@ mod app {
                 Err(entropy::Error::RegI2c(_)) => "REGI2C write failed or timed out",
                 Err(entropy::Error::NotRunning) => "ADC trigger not running",
                 Err(entropy::Error::CalibrationMismatch(_)) => "calibration readback mismatch",
+                Err(entropy::Error::SarInitMismatch(_)) => "SAR enable register readback mismatch",
                 Ok(()) => "",
             });
             puts("\r\n");
@@ -472,7 +478,7 @@ mod app {
                 } else {
                     colour::MAGENTA
                 };
-                lcd.fill_rect(pt.x.saturating_sub(4), pt.y.saturating_sub(4), 9, 9, c);
+                let _ = lcd.fill_rect(pt.x.saturating_sub(4), pt.y.saturating_sub(4), 9, 9, c);
                 hits += 1;
             }
             delay.delay_millis(100);

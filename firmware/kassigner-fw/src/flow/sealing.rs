@@ -48,7 +48,7 @@ impl<'b, const N: usize> Flow<'b, N> {
         let Event::Tap { x, y } = event else {
             return None;
         };
-        let full = self.typed.len() >= NAME_MAX;
+        let full = self.typed_full();
         match keyboard::target(self.scale, page, keyboard::Mode::Name { full }, x, y)? {
             keyboard::Target::Nav(_) => self.leave_saving(),
             // No suggestions off a word's keyboard.
@@ -189,7 +189,7 @@ impl<'b, const N: usize> Flow<'b, N> {
         let Event::Tap { x, y } = event else {
             return None;
         };
-        match keyboard::target(self.scale, page, keyboard::Mode::Text, x, y)? {
+        match keyboard::target(self.scale, page, self.text_keys(), x, y)? {
             keyboard::Target::Nav(_) => {
                 self.drop_old_file();
                 self.leave_saving();
@@ -255,12 +255,12 @@ impl<'b, const N: usize> Flow<'b, N> {
         let checked = match (self.steps.as_mut(), self.buffers.kdf.as_deref_mut()) {
             (Some(steps), _) => {
                 let (now, _) = steps.step(SEAL_ROUNDS);
-                let Some(mut key) = steps.key() else {
+                let Some(key) = steps.key() else {
                     self.state = State::OverwriteOpening { done: now };
                     return None;
                 };
                 let r = check_with_key(file, &key);
-                wipe::wipe(&mut key);
+                drop(key);
                 r
             }
             (None, Some(memory)) if done > 0 => {
@@ -273,9 +273,9 @@ impl<'b, const N: usize> Flow<'b, N> {
                         Some(memory),
                     )
                 });
-                key.and_then(|mut key| {
+                key.and_then(|key| {
                     let r = check_with_key(file, &key);
-                    wipe::wipe(&mut key);
+                    drop(key);
                     r
                 })
             }
@@ -335,7 +335,7 @@ impl<'b, const N: usize> Flow<'b, N> {
         let Event::Tap { x, y } = event else {
             return None;
         };
-        let target = keyboard::target(self.scale, page, keyboard::Mode::Text, x, y)?;
+        let target = keyboard::target(self.scale, page, self.text_keys(), x, y)?;
         if let keyboard::Target::Key(_) = target {
             self.mismatch = false;
         }
@@ -404,13 +404,13 @@ impl<'b, const N: usize> Flow<'b, N> {
                 self.state = State::BackupSealing { done: ARGON2_HELD };
                 return None;
             }
-            let Ok(purpose) = purpose_of(slot) else {
-                return self.seal_failed(Refusal::NoPhrase);
-            };
-            // The keyboard took no password the policy refuses; the steps
-            // check it again where the key is made.
-            let Ok(steps) = Pbkdf2Steps::sealing(self.first.as_bytes(), &self.salt, purpose) else {
-                return self.seal_failed(Refusal::NotSaved);
+            // The keyboard took no password the policy refuses, and none
+            // at all only for a seed with a passphrase; the steps hold it to
+            // that rule again where the key is made.
+            let steps = match sealing_steps(slot, self.first.as_bytes(), &self.salt) {
+                Ok(steps) => steps,
+                Err(BackupError::NotBackedUp) => return self.seal_failed(Refusal::NoPhrase),
+                Err(_) => return self.seal_failed(Refusal::NotSaved),
             };
             self.steps = Some(steps);
             self.state = State::BackupSealing { done: 1 };
@@ -599,9 +599,13 @@ impl<'b, const N: usize> Flow<'b, N> {
     }
 
     /// The name is settled: a backup's password next, ENCRYPT FILE? for the
-    /// rest.
+    /// rest. A backup of a seed with a passphrase is asked ENCRYPT FILE? too:
+    /// the passphrase stands where the password would, if its owner so
+    /// chooses. With no passphrase the password is not a choice, so that a
+    /// card alone never opens the funds.
     pub(super) fn named(&mut self) -> Option<Command> {
         match self.saving {
+            Saving::Backup if self.backup_guarded() => self.state = State::KpubEncrypt,
             Saving::Backup => self.start_password(),
             Saving::Kpub(_) => self.state = State::KpubEncrypt,
             Saving::Signature
@@ -612,6 +616,45 @@ impl<'b, const N: usize> Flow<'b, N> {
             | Saving::Card => self.state = State::KpubEncrypt,
             // Never named: the photo is written over itself.
             Saving::Stego => {}
+        }
+        None
+    }
+
+    /// Whether the seed in use has a passphrase, which may stand where its
+    /// backup's password would ([`passphrase_guards`]).
+    fn backup_guarded(&self) -> bool {
+        self.slots
+            .active()
+            .is_some_and(|(_, slot)| passphrase_guards(slot))
+    }
+
+    /// The warning before a backup is saved with no password, asked as a
+    /// format is: a tap on SAVE arms it, a finger held for [`HOLD_US`] seals
+    /// the seed under the empty password, and lifting or sliding off first
+    /// cancels. CANCEL and Back return to ENCRYPT FILE?, to choose Yes; Home
+    /// lets go a card held for its save.
+    pub(super) fn on_backup_no_password(
+        &mut self,
+        event: Event<'_>,
+        armed: bool,
+        held_since: Option<u64>,
+    ) -> Option<Command> {
+        let at = |armed, held_since| State::BackupNoPassword { armed, held_since };
+        match self.hold(event, armed, held_since) {
+            Hold::Nothing => {}
+            Hold::Cancel => self.state = State::KpubEncrypt,
+            Hold::Home => self.leave_card(State::Home),
+            Hold::Arm => self.state = at(true, None),
+            Hold::Down => self.state = at(armed, Some(self.now_us)),
+            Hold::Done => {
+                // No password: the empty one, which the crypto crate takes
+                // for a seed with a passphrase and for no other.
+                self.typed.clear();
+                self.first.clear();
+                self.mismatch = false;
+                self.steps = None;
+                self.state = State::BackupSealing { done: 0 };
+            }
         }
         None
     }
@@ -627,15 +670,50 @@ impl<'b, const N: usize> Flow<'b, N> {
         };
     }
 
+    /// The most characters the keyboard's line takes on this screen: the one
+    /// number behind the count shown, the keys that dim at it and the taps
+    /// that stop there. Where a screen names none, what its text holds.
+    fn typed_most(&self) -> usize {
+        match self.state {
+            State::BackupName { .. } => NAME_MAX,
+            State::RawKey => RAW_KEY_HEX,
+            State::StegoDescriptor { .. } => stego_wire::DESCRIPTOR_WRITE_MAX,
+            State::StegoHintType { .. } => HINT_MAX,
+            State::StegoKey { .. } | State::StegoOldKey { .. } => self.desc.most(),
+            _ => self.typed.most(),
+        }
+    }
+
+    /// Whether the keyboard's line is at its limit: it takes no character
+    /// more, and its keys say so.
+    pub fn typed_full(&self) -> bool {
+        self.typed().0.len() >= self.typed_most()
+    }
+
+    /// The text keyboard's keys as they stand: every one, or none that
+    /// types once the line is full.
+    pub(super) fn text_keys(&self) -> keyboard::Mode {
+        keyboard::Mode::Text {
+            full: self.typed_full(),
+        }
+    }
+
     /// What the keyboard's line says beside the text: a password's strength,
     /// to type it or a passphrase again, or no match; or a count of
-    /// characters typed.
+    /// characters typed against the most the line takes.
+    ///
+    /// Every line a person types has a limit, and none stops in silence: a
+    /// passphrase cut short without a word, typed the same way twice, opens
+    /// a wallet other than the one its owner wrote down. So the count shows
+    /// wherever the place is free, and takes the place of a word (a
+    /// password's strength, "Again") once the line is full.
     pub fn keyboard_note(&self) -> Option<keyboard::Note> {
+        let full = self.typed_full();
         match self.state {
             State::BackupPassword { again: false, .. } if self.mismatch => {
                 Some(keyboard::Note::NoMatch)
             }
-            State::BackupPassword { again: false, .. } => {
+            State::BackupPassword { again: false, .. } if !full => {
                 Some(match password::check(self.typed.as_bytes()) {
                     Err(password::Weakness::TooShort { .. }) => keyboard::Note::TooShort,
                     Err(_) => keyboard::Note::Weak,
@@ -644,28 +722,23 @@ impl<'b, const N: usize> Flow<'b, N> {
                     Ok(password::Strength::Strong) => keyboard::Note::Strong,
                 })
             }
-            State::BackupPassword { again: true, .. } => Some(keyboard::Note::Again),
+            State::BackupPassword { again: true, .. } if !full => Some(keyboard::Note::Again),
             State::Passphrase { .. } if self.mismatch => Some(keyboard::Note::NoMatch),
-            State::PassphraseAgain { .. } => Some(keyboard::Note::Again),
-            State::BackupName { .. } => Some(keyboard::Note::Count {
-                used: u8::try_from(self.typed.len()).unwrap_or(u8::MAX),
-                of: NAME_MAX as u8,
-            }),
-            State::RawKey => Some(keyboard::Note::Count {
-                used: u8::try_from(self.typed.len()).unwrap_or(u8::MAX),
-                of: RAW_KEY_HEX as u8,
-            }),
-            State::StegoDescriptor { .. } => Some(keyboard::Note::Count {
-                used: u8::try_from(self.typed.len()).unwrap_or(u8::MAX),
-                of: stego_wire::DESCRIPTOR_WRITE_MAX as u8,
-            }),
-            State::StegoHintType { .. } => Some(keyboard::Note::Count {
-                used: u8::try_from(self.typed.len()).unwrap_or(u8::MAX),
-                of: HINT_MAX as u8,
-            }),
-            State::StegoKey { .. } | State::StegoOldKey { .. } => Some(keyboard::Note::Count {
-                used: u8::try_from(self.desc.len()).unwrap_or(u8::MAX),
-                of: stego_wire::DESCRIPTOR_READ_MAX as u8,
+            State::PassphraseAgain { .. } if !full => Some(keyboard::Note::Again),
+            State::Passphrase { .. }
+            | State::PassphraseAgain { .. }
+            | State::BackupPassword { .. }
+            | State::RestorePassword { .. }
+            | State::OverwritePassword { .. }
+            | State::MessageType { .. }
+            | State::BackupName { .. }
+            | State::RawKey
+            | State::StegoDescriptor { .. }
+            | State::StegoHintType { .. }
+            | State::StegoKey { .. }
+            | State::StegoOldKey { .. } => Some(keyboard::Note::Count {
+                used: u8::try_from(self.typed().0.len()).unwrap_or(u8::MAX),
+                of: u8::try_from(self.typed_most()).unwrap_or(u8::MAX),
             }),
             _ => None,
         }

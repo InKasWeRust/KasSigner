@@ -280,6 +280,9 @@ impl<'b, const N: usize> Flow<'b, N> {
             },
             State::KpubExported => Screen::KpubExported,
             State::KpubEncrypt => Screen::KpubEncrypt,
+            State::BackupNoPassword { armed, held_since } => Screen::BackupNoPassword {
+                hold: self.held(armed, held_since),
+            },
             State::KpubScanned => Screen::KpubScanned,
             State::CreateMultisig { m, n } => Screen::CreateMultisig { m, n },
             State::AddKey => {

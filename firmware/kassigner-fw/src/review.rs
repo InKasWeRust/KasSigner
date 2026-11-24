@@ -108,6 +108,9 @@ pub enum Page<'a> {
     Card { first: usize, count: usize },
 }
 
+/// [`Page::Covenant`]'s `outputs` is a `u32`, one bit an output.
+const _: () = assert!(crate::limits::MAX_OUTPUTS <= u32::BITS as usize);
+
 /// Why a review could not be built.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {

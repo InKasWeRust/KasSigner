@@ -261,7 +261,6 @@ pub(crate) fn flow<'b, const N: usize>(memory: &'b mut Memory, sources: &[Source
             // one would slow them all.
             stack: Stack::below(Mark::here(), 64 * 1024),
             sources,
-            words: Words::Twelve,
             settings: &menu::SETTINGS,
             backlight: 128,
             volume: 18,
@@ -806,14 +805,37 @@ pub(crate) fn restore_type_password<const N: usize>(
     f.step(key(page, keyboard::Key::Ok), &mut Live);
 }
 
-/// Seed Tools' New Seed, from the home grid.
+/// Seed Tools' New Seed, from the home grid, for twelve words.
 pub(crate) fn new_seed<const N: usize>(
     f: &mut Flow<'_, N>,
     rng: &mut impl Entropy,
 ) -> Option<Command> {
+    new_seed_of(f, rng, 12)
+}
+
+/// Seed Tools' New Seed, from the home grid: its count screen, then `words`
+/// on it.
+pub(crate) fn new_seed_of<const N: usize>(
+    f: &mut Flow<'_, N>,
+    rng: &mut impl Entropy,
+    words: u8,
+) -> Option<Command> {
+    use kassigner_fw::ui::words::{count_zone, Target};
     f.step(card(2), rng);
     f.step(item(&menu::TOOLS, 0), rng);
-    f.step(item(&menu::SEED_TOOLS, 0), rng).command
+    f.step(item(&menu::SEED_TOOLS, 0), rng);
+    assert_eq!(
+        f.state(),
+        State::WordCount {
+            action: kassigner_fw::flow::CountFor::NewSeed
+        },
+        "the count before the capture"
+    );
+    f.step(
+        tap_in(count_zone(SCALE, Target::Words(words)).unwrap()),
+        rng,
+    )
+    .command
 }
 
 /// A live camera delta for the seed: 512 bytes, as a unit's sample is, of
@@ -977,7 +999,7 @@ pub(crate) fn raw_key_keyboard<const N: usize>(f: &mut Flow<'_, N>) -> kassigner
 /// A tap on `key` of the hex keyboard, as it stands.
 pub(crate) fn hex_key<const N: usize>(f: &Flow<'_, N>, key: keyboard::Key) -> Event<'static> {
     use kassigner_fw::flow::Typing;
-    let mode = Typing::RawKey.mode(f.typed().0.len());
+    let mode = Typing::RawKey.mode(f.typed_full());
     tap_in(keyboard::zone_in(SCALE, keyboard::HEX_PAGE, mode, keyboard::Target::Key(key)).unwrap())
 }
 

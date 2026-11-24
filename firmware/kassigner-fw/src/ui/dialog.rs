@@ -248,6 +248,30 @@ pub const fn format(hold: Option<u8>) -> Dialog<'static> {
     }
 }
 
+/// A seed with a passphrase, its backup about to be saved with no password
+/// (ENCRYPT FILE?'s No): what then protects it, and what does not. The file
+/// holds the words, which with no passphrase open a wallet too, so the last
+/// line says the words alone are exposed. Asked as a format is, SAVE held:
+/// the one save a card's finder could read.
+pub const fn no_password(hold: Option<u8>) -> Dialog<'static> {
+    Dialog {
+        title: "WARNING",
+        title_ink: ORANGE,
+        rule: RED_BUTTON,
+        lines: [
+            ("NO PASSWORD ON THIS FILE", ORANGE),
+            ("Only your passphrase", TEXT_DIM),
+            ("protects this backup.", TEXT_DIM),
+            ("The words alone are exposed.", TEXT_DIM),
+        ],
+        cancel: "CANCEL",
+        accept: "SAVE",
+        accept_face: RED_BUTTON,
+        hold,
+        choice: false,
+    }
+}
+
 /// A backup's file name is on the card already: overwrite it, or not.
 /// `name` is as the screen shows it, `NAME.KAS`.
 pub const fn overwrite(name: &str) -> Dialog<'_> {
@@ -382,12 +406,13 @@ pub const fn address_exported() -> Dialog<'static> {
     d
 }
 
-/// A seed has been shown: its encrypted backup to the card, or the code
-/// again.
+/// A seed has been shown: its backup to the card, or the code again. Not
+/// called encrypted: a seed with a passphrase may be saved with no password
+/// ([`no_password`]).
 pub const fn seed_exported() -> Dialog<'static> {
     let mut d = ask(
         "SEED EXPORTED",
-        ["Seed exported.", "Save an encrypted backup"],
+        ["Seed exported.", "Save a backup to the card"],
         ["", ""],
         ("Save to SD", "Back to QR"),
     );

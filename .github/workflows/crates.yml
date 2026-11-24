@@ -22,8 +22,11 @@
 # command resolves.
 #
 # Outside actions are pinned to a commit, their version beside it: a tag
-# can be moved, a commit cannot. The token is read-only and no checkout
-# keeps it; a run a newer push has overtaken is cancelled.
+# can be moved, a commit cannot. Those running on Node.js are on releases
+# for Node 24. The Linux runner is named by its Ubuntu, not `latest`, so a
+# new image is taken on purpose; the Mac's is left to GitHub. The token is
+# read-only and no checkout keeps it; a run a newer push has overtaken is
+# cancelled.
 #
 # A pull request runs once: a push starts a run only on `main`, where a
 # merged change lands, and a branch is checked by its pull request.
@@ -44,10 +47,10 @@ concurrency:
 jobs:
   chain:
     name: fmt, tests, clippy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
@@ -66,10 +69,10 @@ jobs:
 
   fuzz:
     name: every reader of outside bytes, fuzzed
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
@@ -84,10 +87,10 @@ jobs:
 
   i686:
     name: the readers of outside bytes on a 32-bit target
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
@@ -115,11 +118,11 @@ jobs:
           -- --include-ignored
 
   wasm:
-    name: kassigner-sdk-wasm, the browser package
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    name: kassigner-sdk-wasm, the browser package, and the SDK's archives
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
@@ -153,18 +156,39 @@ jobs:
         run: sh crates/kassigner-sdk-wasm/build.sh watch
       - name: The watch-only package's host tests
         run: cargo test --locked -p kassigner-sdk-wasm --no-default-features
+      # The two archives a release carries, packed by the release's own
+      # script, then used as whoever downloads them has them: unpacked into
+      # an empty folder, held to their list of files, and run from there.
+      # Every check above runs on the folders the build leaves; this is the
+      # one that sees what the packing did. The browser packages here; the
+      # bindings in the `ffi` job, which has the library and, on the Mac,
+      # Swift, and takes the same two files from this job.
+      - name: Pack the SDK's archives
+        run: SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" sh release/sdk.sh "$RUNNER_TEMP/sdk"
+      - name: The browser packages, from their archive
+        run: sh release/sdk-check.sh "$RUNNER_TEMP/sdk" web
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: sdk-archives
+          path: ${{ runner.temp }}/sdk/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
 
   ffi:
     name: kassigner-sdk-ffi, the native library and its bindings (${{ matrix.os }})
     # Both check the Python binding and, on a JVM, the Kotlin one; the Mac
     # also compiles and runs the Swift one, with its own Swift.
+    # After `wasm`, whose archives the last step here unpacks. One failing
+    # does not stop the other.
+    needs: wasm
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
@@ -190,13 +214,31 @@ jobs:
           sh crates/kassigner-sdk-ffi/build.sh | tee "$RUNNER_TEMP/ffi.log"
           grep -q 'through Python: the round holds' "$RUNNER_TEMP/ffi.log"
           grep -q 'through Kotlin: the round holds' "$RUNNER_TEMP/ffi.log"
+      # The bindings as the archive carries them, against the library built
+      # above: an app has the archive's files and its own build of the
+      # library, and nothing else. A binding the script skipped for want of
+      # its compiler is a failure here, as above; the Swift one is asked for
+      # on the Mac.
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: sdk-archives
+          path: ${{ runner.temp }}/sdk
+      - name: The bindings, from their archive
+        shell: bash
+        run: |
+          sh release/sdk-check.sh "$RUNNER_TEMP/sdk" bindings | tee "$RUNNER_TEMP/sdk-check.log"
+          grep -q "the archive's Python binding: checked" "$RUNNER_TEMP/sdk-check.log"
+          grep -q "the archive's Kotlin binding: checked" "$RUNNER_TEMP/sdk-check.log"
+          if [ "$(uname)" = Darwin ]; then
+            grep -q "the archive's Swift binding: checked" "$RUNNER_TEMP/sdk-check.log"
+          fi
 
   notices:
     name: the SDK packages' and the firmware's third-party notices, current
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
@@ -212,13 +254,13 @@ jobs:
 
   vendor:
     name: vendor/rqrr
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
       run:
         working-directory: vendor/rqrr
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       # 1.85.0, not stable or the workspace's version
@@ -242,10 +284,10 @@ jobs:
       # No fmt step: the chain job checks it through kassigner-qr.
 
   no_std:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
@@ -279,10 +321,10 @@ jobs:
 
   p4:
     name: the P4 signer, built as the release builds it
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       # The release's compiler, not the other jobs': esp-rs's Rust 1.95.0.0
@@ -332,10 +374,10 @@ jobs:
       fail-fast: false
       matrix:
         board: [m5stack, waveshare]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       # As the P4 job: the release's compiler, read from `release/Dockerfile`
@@ -376,10 +418,10 @@ jobs:
 
   deny:
     name: dependencies, against advisories, licences and sources
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@035fceb3c12fb0c6a9461b52775e16473133e591 # 1.95.0
@@ -398,10 +440,10 @@ jobs:
 
   scripts:
     name: the workflow and the shell scripts, linted
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       # Every shell script the repository holds; ShellCheck comes with the

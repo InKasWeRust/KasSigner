@@ -171,7 +171,7 @@ fn the_stepped_derivation_seals_and_opens_the_same_bytes() {
 #[test]
 fn a_backups_descriptor_is_checked_by_its_tag() {
     use kassigner_crypto::container::{Pbkdf2Steps, KEY_SIZE};
-    let key_for = |file: &[u8], descriptor: &[u8]| -> [u8; KEY_SIZE] {
+    let key_for = |file: &[u8], descriptor: &[u8]| -> zeroize::Zeroizing<[u8; KEY_SIZE]> {
         let (salt, purpose) = stego::kdf_of(file).unwrap();
         let mut steps = Pbkdf2Steps::new(descriptor, &salt, purpose);
         while steps.key().is_none() {

@@ -145,8 +145,13 @@ impl P4Camera {
     /// The pipeline's own, naming the block that refused.
     pub fn bring_up(bus: &'static SharedBus, delay: Delay) -> Result<Self, PipeError> {
         allocate()?;
-        // The pipeline owns the frame from here; the unit is brought up once.
-        let pipe = pipe::Camera::new(fb());
+        // The pipeline captures into the frame from here; the unit is brought
+        // up once.
+        // SAFETY: `allocate` took the frame from the heap and never frees it,
+        // so it outlives the `'static` pipeline, and only raw pointers reach
+        // it. `zero`, `raw` and `frame_buffer` touch it between captures, and
+        // `clear_for_panic` stops the transfer before it wipes.
+        let pipe = unsafe { pipe::Camera::new(fb()) };
         pipe.power_up(&delay)?;
         {
             let mut b = bus.borrow_mut();
@@ -227,7 +232,11 @@ impl Camera for P4Camera {
         }
         match power {
             Power::Off => {
-                self.pipe.stop(&mut self.bus.borrow_mut());
+                let standby = self.pipe.stop(&mut self.bus.borrow_mut());
+                // Off whatever the sensor answered: the DMA and the bridge
+                // are stopped, so nothing it sends reaches memory.
+                self.power = power;
+                standby.map_err(|_| Error::Io)
             }
             Power::On => {
                 // The CSI host, bridge and ISP from reset: restarted from
@@ -238,10 +247,10 @@ impl Camera for P4Camera {
                 self.pipe
                     .start(&mut self.bus.borrow_mut(), &self.delay)
                     .map_err(|_| Error::Io)?;
+                self.power = power;
+                Ok(())
             }
         }
-        self.power = power;
-        Ok(())
     }
 
     fn power(&self) -> Power {
@@ -392,8 +401,8 @@ impl Tune for Tuner {
             0 => self.set10(GAIN_CEILING, value),
             3 => self.set(&MAX_BANDS, value.clamp(1, 0x3F)),
             6 => {
-                // Sixteenths of a line, as `Ov5647::set_manual_exposure`
-                // writes them.
+                // Sixteenths of a line, the unit of the sensor's exposure
+                // registers.
                 let e = (u32::from(value.min(EXPO_MAX)) * 4) << 4;
                 self.set(&[reg::EXPOSURE_HI], ((e >> 16) & 0x0F) as u8)?;
                 self.set(&[reg::EXPOSURE_HI + 1], ((e >> 8) & 0xFF) as u8)?;

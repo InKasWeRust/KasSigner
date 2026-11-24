@@ -887,6 +887,91 @@ fn a_seed_shows_its_master_fingerprint() {
     assert_ne!(with_passphrase.fingerprint(), w.fingerprint());
 }
 
+/// **A card alone never opens the funds.** A seed with a passphrase may be
+/// sealed under no password: the file is sealed all the same, its words not
+/// readable in it, and opens under the empty password and no other. A seed
+/// with no passphrase, and a key with none to have, is refused the same; so
+/// is a weak password typed for a seed that has a passphrase, since only the
+/// empty one is the choice of none. The steps hold the same rule and seal
+/// the same file.
+#[test]
+fn a_seed_goes_without_a_password_only_behind_its_passphrase() {
+    use kassigner_crypto::backup::{passphrase_guards, seal_slot_with_key, sealing_steps};
+    use kassigner_crypto::container::PBKDF2_ITERATIONS;
+
+    let (salt, nonce) = ([7u8; 16], [9u8; 12]);
+    let guarded = Slot::mnemonic(mnemonic(3), b"secret").unwrap();
+    let bare = Slot::mnemonic(mnemonic(3), b"").unwrap();
+    let raw = Slot::RawKey(RawKey::new(&[7; 32]).unwrap());
+    assert!(passphrase_guards(&guarded));
+    assert!(!passphrase_guards(&bare));
+    assert!(!passphrase_guards(&raw));
+    assert!(!passphrase_guards(&Slot::Empty));
+
+    let none_typed = Some(BackupError::WeakPassword(Weakness::TooShort {
+        have: 0,
+        min: kassigner_crypto::password::MIN_LEN,
+    }));
+    let seal = |slot: &Slot, password: &[u8], file: &mut [u8; SEED_FILE_MAX]| {
+        seal_slot(slot, password, &salt, &nonce, SealKdf::Pbkdf2Sha256, file)
+    };
+
+    // No passphrase: no password is refused, before anything is written.
+    let mut file = [0u8; SEED_FILE_MAX];
+    assert_eq!(seal(&bare, b"", &mut file).err(), none_typed);
+    assert_eq!(seal(&raw, b"", &mut file).err(), none_typed);
+    assert!(file.iter().all(|&b| b == 0), "nothing written");
+    assert_eq!(sealing_steps(&bare, b"", &salt).err(), none_typed);
+    assert_eq!(
+        sealing_steps(&raw, b"", &salt).err(),
+        Some(BackupError::NotBackedUp)
+    );
+
+    // A passphrase, and a password typed all the same: held to the policy.
+    assert!(matches!(
+        seal(&guarded, b"short", &mut file),
+        Err(BackupError::WeakPassword(Weakness::TooShort {
+            have: 5,
+            ..
+        }))
+    ));
+    assert!(matches!(
+        sealing_steps(&guarded, b"short", &salt),
+        Err(BackupError::WeakPassword(_))
+    ));
+    assert!(file.iter().all(|&b| b == 0), "nothing written");
+
+    // A passphrase and no password: sealed, the words not in the file.
+    let n = seal(&guarded, b"", &mut file).expect("no password, behind a passphrase");
+    let mut plain = [0u8; SEED_PLAINTEXT_MAX];
+    let Slot::Mnemonic { mnemonic, .. } = &guarded else {
+        unreachable!()
+    };
+    let words = seed_plaintext(mnemonic, &mut plain);
+    assert!(
+        !file[..n].windows(words).any(|w| w == &plain[..words]),
+        "sealed: the words are not readable in the file"
+    );
+    // The empty password opens it, as it opens v1.0.7's; another does not.
+    let back = open_slot(&file[..n], b"", b"secret", None).expect("opens under no password");
+    let mut slots: Slots<SLOTS> = Slots::new();
+    let a = slots.store(guarded.clone()).unwrap();
+    let b = slots.store(back).unwrap();
+    assert_eq!(a, b, "the same words, once the passphrase is typed again");
+    assert!(matches!(
+        open_slot(&file[..n], CARD_PASSWORD, b"secret", None),
+        Err(BackupError::Container(_))
+    ));
+
+    // In steps: the same rule, the same file.
+    let mut steps = sealing_steps(&guarded, b"", &salt).expect("the same rule");
+    steps.step(PBKDF2_ITERATIONS);
+    let key = steps.sealing_key().expect("every round done");
+    let mut stepped = [0u8; SEED_FILE_MAX];
+    let m = seal_slot_with_key(&guarded, &key, &salt, &nonce, &mut stepped).unwrap();
+    assert_eq!(file[..n], stepped[..m], "the same file");
+}
+
 /// The stepped PBKDF2 is PBKDF2: in batches of any size its key is the one
 /// `derive_key` gives, and a seed sealed with it is the file `seal_slot`
 /// writes for the same salt and nonce, which opens. Unfinished, it gives no

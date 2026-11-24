@@ -22,6 +22,13 @@
 //! - A mnemonic: the word indices, two little-endian bytes each, under
 //!   purpose `Seed`. The BIP39 passphrase is typed again, not stored, so a
 //!   card and its password are not the whole wallet.
+//!
+//!   **A card alone never opens the funds**: a seed is sealed under a
+//!   password the policy accepts, or, when it has a passphrase, under no
+//!   password if its owner so chooses ([`passphrase_guards`]). Such a file
+//!   is sealed all the same, its words never readable text on the card, and
+//!   opens under the empty password as v1.0.7's password-less backups do;
+//!   what it protects is only what lies behind the passphrase.
 //! - An xprv: its `kprv...` text under purpose `Xprv`. A unit opens these
 //!   but does not write them; sealing stays for tests.
 //! - A raw key is not backed up (purpose `Raw` holds a stego hint).
@@ -31,7 +38,8 @@ use zeroize::Zeroize;
 use crate::bip32::{ExtendedPrivateKey, PrivatePrefix, XPRV_TEXT_MAX};
 use crate::bip39::{self, Bip39Error, Mnemonic, WORDS_24};
 use crate::container::{
-    open, open_with_key, seal, seal_with_key, Argon2Block, OpenError, SealKdf, SealingKey, KEY_SIZE,
+    open, open_with_key, seal_past_policy, seal_with_key, Argon2Block, OpenError, Pbkdf2Steps,
+    SealKdf, SealingKey, KEY_SIZE,
 };
 use crate::password::{self, Weakness};
 use crate::slot::{Slot, SlotError};
@@ -122,10 +130,52 @@ pub fn mnemonic_from_plaintext(bytes: &[u8]) -> Result<Mnemonic, BackupError> {
     m.map_err(|_| BackupError::Malformed)
 }
 
+/// Whether a slot's own passphrase stands where its backup's password
+/// would: a mnemonic with a passphrase that is not empty. Its backup may then
+/// be sealed under no password, since the words on a card open nothing its
+/// owner put behind the passphrase. A seed with none, an xprv (which already
+/// holds its passphrase's wallet) and a raw key have no such guard.
+pub const fn passphrase_guards(slot: &Slot) -> bool {
+    matches!(slot, Slot::Mnemonic { passphrase, .. } if !passphrase.is_empty())
+}
+
+/// The rule a backup's password is held to: none at all for a slot its
+/// passphrase guards, else [`crate::password`]'s policy. A password typed
+/// for a guarded slot is held to the policy too: only the empty one is the
+/// choice of none.
+fn held(slot: &Slot, password: &[u8]) -> Result<(), BackupError> {
+    if password.is_empty() && passphrase_guards(slot) {
+        return Ok(());
+    }
+    password::check(password)
+        .map(|_| ())
+        .map_err(BackupError::WeakPassword)
+}
+
+/// The first round of a slot's sealing key under PBKDF2, derived in steps:
+/// [`Pbkdf2Steps::sealing`] under the slot's purpose, the password held to a
+/// backup's rule rather than the policy alone, as [`seal_slot`] holds it.
+///
+/// # Errors
+///
+/// `NotBackedUp` for a raw-key or empty slot; `WeakPassword`.
+pub fn sealing_steps(
+    slot: &Slot,
+    password: &[u8],
+    salt: &[u8; SALT_SIZE],
+) -> Result<Pbkdf2Steps, BackupError> {
+    let purpose = purpose_of(slot)?;
+    held(slot, password)?;
+    Ok(Pbkdf2Steps::sealing_past_policy(password, salt, purpose))
+}
+
 /// Seal a slot into a backup file. Returns bytes written.
 ///
 /// `salt` and `nonce` must be fresh. `kdf` is the board's: Argon2id where
 /// it has the memory, PBKDF2 for a card another board must read.
+///
+/// The password is held to a backup's rule: [`crate::password`]'s policy,
+/// or none at all for a slot its passphrase guards ([`passphrase_guards`]).
 ///
 /// # Errors
 ///
@@ -141,10 +191,10 @@ pub fn seal_slot(
     kdf: SealKdf<'_>,
     out: &mut [u8],
 ) -> Result<usize, BackupError> {
-    password::check(password).map_err(BackupError::WeakPassword)?;
+    held(slot, password)?;
     let mut plain = [0u8; XPRV_TEXT_MAX];
     let (purpose, n) = plaintext(slot, &mut plain)?;
-    let r = seal(purpose, &plain[..n], password, salt, nonce, kdf, out);
+    let r = seal_past_policy(purpose, &plain[..n], password, salt, nonce, kdf, out);
     plain.zeroize();
     Ok(r?)
 }
@@ -179,7 +229,7 @@ fn plaintext(
 }
 
 /// The purpose a slot is sealed under, for deriving its key in steps
-/// ([`crate::container::Pbkdf2Steps::sealing`]).
+/// ([`sealing_steps`]).
 ///
 /// # Errors
 ///
@@ -193,9 +243,9 @@ pub fn purpose_of(slot: &Slot) -> Result<Purpose, BackupError> {
 }
 
 /// [`seal_slot`] under PBKDF2 with the key derived in steps by
-/// [`crate::container::Pbkdf2Steps::sealing`]. Only that makes a
-/// [`SealingKey`], after holding the password to the policy, so this cannot
-/// seal under a password `seal_slot` refuses. The key must match the salt
+/// [`sealing_steps`], which holds the password to the rule `seal_slot`
+/// does, so this cannot seal under a password `seal_slot` refuses when the
+/// steps were made for this slot. The key must match the salt
 /// and the slot's purpose, or the file opens under no password.
 ///
 /// # Errors

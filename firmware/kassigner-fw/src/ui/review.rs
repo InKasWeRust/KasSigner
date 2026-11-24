@@ -65,12 +65,16 @@ pub struct Totals {
 }
 
 /// What TX REVIEW and CONFIRM SEND? say under the totals: the inputs and
-/// outputs counted, and a multisig spend's M and N.
+/// outputs counted, and a multisig spend's M and N, or, `unchecked`, that no
+/// group is held to check the spend against ([`unchecked_line`]). Both
+/// screens say the same: the warning is on the last one before the
+/// signature too, and stands whether the inputs share one M of N or not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Counted {
     pub inputs: usize,
     pub outputs: usize,
     pub group: Option<(usize, usize)>,
+    pub unchecked: bool,
 }
 
 /// Whether an output is the seed's own, and where.
@@ -91,9 +95,10 @@ pub enum Change {
 /// What a review page shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shown<'a> {
-    /// TX REVIEW; `group`, a multisig spend's M and N; `unchecked` when no
-    /// group is held to check its inputs and change against, which the line
-    /// under the counts then says ([`UNCHECKED`]).
+    /// TX REVIEW; `group`, a multisig spend's M and N, none when its inputs
+    /// share none; `unchecked` when no group is held to check its inputs and
+    /// change against, which the line under the counts then says
+    /// ([`unchecked_line`]), with the M of N or without.
     Summary {
         totals: Totals,
         inputs: usize,
@@ -259,19 +264,13 @@ pub fn draw(
         } => {
             header(band, scale, kit, "TX REVIEW");
             rows(band, scale, kit, &totals, (76, 0));
-            // The M of N in the group's orange, or, with no group held, in
-            // the one line that says so.
             let counted = Counted {
                 inputs,
                 outputs,
-                group: group.filter(|_| !unchecked),
+                group,
+                unchecked,
             };
             notes(band, scale, kit, &counted, (170, GROUP_BASE));
-            if let (true, Some(shape)) = (unchecked, group) {
-                let mut line = [0u8; UNCHECKED_MAX];
-                let said = unchecked_line(shape, &mut line);
-                band.text_centered(kit.body, scale.x(160), scale.y(GROUP_BASE), WARN, said);
-            }
         }
         Shown::Output {
             number,
@@ -525,20 +524,27 @@ pub fn draw_confirm(
 /// TX REVIEW's M-of-N line's baseline, in design rows.
 const GROUP_BASE: i32 = 196;
 
-/// What follows the M of N on TX REVIEW when no group is held: nothing the
-/// unit holds says whose the inputs are, so no output is marked CHANGE.
-pub const UNCHECKED: &str = ". No Descriptor: change unchecked";
+/// What TX REVIEW and CONFIRM SEND? say of a multisig spend when no group
+/// is held: nothing the unit holds says whose the inputs are, so no output
+/// is marked CHANGE.
+pub const UNCHECKED: &str = "No Descriptor: change unchecked";
 
-/// Room for [`unchecked_line`]: two numbers of up to three digits, " of "
-/// and [`UNCHECKED`].
-const UNCHECKED_MAX: usize = 3 + 4 + 3 + UNCHECKED.len();
+/// Room for [`unchecked_line`]: two numbers of up to three digits, " of ",
+/// ". " and [`UNCHECKED`].
+const UNCHECKED_MAX: usize = 3 + 4 + 3 + 2 + UNCHECKED.len();
 
-/// TX REVIEW's line for a multisig spend with no group held: `M of N`, then
-/// [`UNCHECKED`].
-pub fn unchecked_line((m, n): (usize, usize), out: &mut [u8]) -> &str {
-    let mut k = Part::Number(m).write(out, 0);
-    k = Part::Text(" of ").write(out, k);
-    k = Part::Number(n).write(out, k);
+/// The line for a multisig spend with no group held: `M of N. ` where the
+/// inputs share one, then [`UNCHECKED`]. Inputs of more than one shape (a
+/// single key's beside a multisig's, or two thresholds) share no M of N,
+/// and the warning stands without it: it is what must not go unsaid.
+pub fn unchecked_line(shape: Option<(usize, usize)>, out: &mut [u8]) -> &str {
+    let mut k = 0;
+    if let Some((m, n)) = shape {
+        k = Part::Number(m).write(out, k);
+        k = Part::Text(" of ").write(out, k);
+        k = Part::Number(n).write(out, k);
+        k = Part::Text(". ").write(out, k);
+    }
     k = Part::Text(UNCHECKED).write(out, k);
     core::str::from_utf8(&out[..k]).unwrap_or("")
 }
@@ -549,8 +555,10 @@ const CONFIRM_TOP: i32 = 72;
 const CONFIRM_COUNTS: i32 = 155;
 const CONFIRM_GROUP: i32 = 176;
 
-/// Under the totals: the counts in gray and a group's M of N in orange, at
-/// design rows `(counts, group)`.
+/// Under the totals: the counts in gray and, at design rows
+/// `(counts, group)`, a group's M of N in orange, or in the warning's colour
+/// that no group is held ([`unchecked_line`]). Never the orange M of N for
+/// a spend no group was checked against: that is a checked group's look.
 fn notes(
     band: &mut Band<'_>,
     scale: Scale,
@@ -561,7 +569,11 @@ fn notes(
     let mut line = [0u8; 48];
     let said = counts(counted.inputs, counted.outputs, &mut line);
     band.text_centered(kit.body, scale.x(160), scale.y(counts_y), TEXT_DIM, said);
-    if let Some((m, n)) = counted.group {
+    if counted.unchecked {
+        let mut line = [0u8; UNCHECKED_MAX];
+        let said = unchecked_line(counted.group, &mut line);
+        band.text_centered(kit.body, scale.x(160), scale.y(group_y), WARN, said);
+    } else if let Some((m, n)) = counted.group {
         let mut note = [0u8; 24];
         let mut k = Part::Number(m).write(&mut note, 0);
         k = Part::Text("-of-").write(&mut note, k);

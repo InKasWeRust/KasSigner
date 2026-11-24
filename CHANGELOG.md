@@ -25,6 +25,32 @@ Every notable change to KasSigner is recorded here. The format follows
 The history of v1.0.0 to v1.0.7 is on the
 [`v1.0.x` branch](https://github.com/InKasWeRust/KasSigner/blob/v1.0.x/CHANGELOG.md).
 
+## [1.1.1]: 2026-11-24
+
+### Changed
+
+- **A transaction with no outputs is refused** before review: it would give all
+  it spends to the fee. The SDK's `prepare` refuses it too.
+- **A seed backup with no password** is offered only for a seed opened with a
+  passphrase, past a warning.
+- **New Seed asks 12 or 24 words** before its capture. Twenty-four keep all
+  256 bits gathered; twelve keep half, as before.
+
+Also: the password meter's words, a count beside typed lines, the No
+Descriptor warning on more screens, stricter checks on the seed's sources, the
+SDK's 1 MiB limit on bundles, and releases built only from a commit CI passed.
+
+### Fixed
+
+- **A passphrase longer than 64 characters** stopped there without a word,
+  opening another wallet.
+- **A KSPT reply** is checked whole against the transaction reviewed, and a
+  signature with a hash type other than ALL is refused.
+- **One key in a PSKB written under both parities** counted as two signers.
+
+Also: a message the screen did not draw, the M5's camera, the P4's panel and
+camera, SD cards, a multisig path hint, and the SDK's QR picture.
+
 ## [1.1.0]: 2026-11-16
 
 A fresh start. Every line is new: KasSigner is rebuilt as fifteen Rust crates
@@ -111,4 +137,5 @@ wallet can use.
   which ended in v1.0.5, are not recognised: move their funds with an earlier
   release first.
 
+[1.1.1]: https://github.com/InKasWeRust/KasSigner/releases/tag/v1.1.1
 [1.1.0]: https://github.com/InKasWeRust/KasSigner/releases/tag/v1.1.0

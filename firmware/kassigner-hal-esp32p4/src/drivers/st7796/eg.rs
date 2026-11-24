@@ -26,7 +26,7 @@
 //! Colours are packed by `cmds::rgb565`, so the byte order is decided in
 //! one place.
 
-use super::{cmds, Display};
+use super::{cmds, Display, NotDrawn};
 use crate::board::{LCD_H, LCD_W};
 use embedded_graphics::{
     pixelcolor::{Rgb565, RgbColor},
@@ -47,7 +47,7 @@ impl OriginDimensions for Display<'_> {
 
 impl DrawTarget for Display<'_> {
     type Color = Rgb565;
-    type Error = core::convert::Infallible;
+    type Error = NotDrawn;
 
     fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
     where
@@ -58,8 +58,8 @@ impl DrawTarget for Display<'_> {
                 continue;
             }
             let (x, y) = (p.x as u16, p.y as u16);
-            self.window(x, y, x, y);
-            self.stream(core::iter::once(pack(c)));
+            self.window(x, y, x, y)?;
+            self.stream(core::iter::once(pack(c)))?;
         }
         Ok(())
     }
@@ -82,9 +82,8 @@ impl DrawTarget for Display<'_> {
         let x1 = x0 + area.size.width as u16 - 1;
         let y1 = y0 + area.size.height as u16 - 1;
         let n = (area.size.width * area.size.height) as usize;
-        self.window(x0, y0, x1, y1);
-        self.stream(colors.into_iter().take(n).map(pack));
-        Ok(())
+        self.window(x0, y0, x1, y1)?;
+        self.stream(colors.into_iter().take(n).map(pack))
     }
 
     fn fill_solid(&mut self, area: &Rectangle, color: Self::Color) -> Result<(), Self::Error> {
@@ -98,12 +97,10 @@ impl DrawTarget for Display<'_> {
             a.size.width as u16,
             a.size.height as u16,
             pack(color),
-        );
-        Ok(())
+        )
     }
 
     fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
-        self.fill(pack(color));
-        Ok(())
+        self.fill(pack(color))
     }
 }

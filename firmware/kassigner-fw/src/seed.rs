@@ -62,11 +62,12 @@
 //! A credit says what a live source is worth, not whether it produces
 //! anything: the M5's camera in a dark room returned a quarter of a megabyte
 //! of one value while running normally. So every sample is judged first: a
-//! repeat of the source's previous sample, a camera chunk with too few
-//! distinct values or changed bytes, an IMU chunk with a frozen axis (even
-//! with the other two alive), and a touch at the same place as the last (a
-//! finger held still) are not absorbed or credited, and each is reported so
-//! a screen can say why the count is not moving.
+//! repeat of any of the source's last [`REPEAT_WINDOW`] samples (the last
+//! one, for dice), a camera chunk with too few distinct values or changed
+//! bytes, an IMU chunk with a frozen axis (even with the other two alive),
+//! and a touch at the same place as the last (a finger held still) are not
+//! absorbed or credited, and each is reported so a screen can say why the
+//! count is not moving.
 //!
 //! # Dice are not one of the device's sources
 //!
@@ -142,12 +143,23 @@ impl Source {
 
 const SOURCES: usize = 5;
 
+/// Samples a source's next one is held against, newest first: one matching
+/// any of them is a repeat. A cycle is caught as well as a sample stuck:
+/// the M5's camera takes turns between two buffers, and if they stopped
+/// being written its samples would take turns too, each new against the
+/// one before it. Eight is more than any unit's frame buffers.
+///
+/// Dice look one roll back only: a die has six faces, and a caller adding
+/// a roll at a time would lose most of its rolls to a longer look.
+pub const REPEAT_WINDOW: usize = 8;
+
 /// What became of a sample.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verdict {
     /// Absorbed. `bits` is what it earned, `total` the running count.
     Credited { bits: u32, total: u32 },
-    /// Identical to the previous sample from this source. Not absorbed.
+    /// Identical to one of the last [`REPEAT_WINDOW`] samples from this
+    /// source, the last one for dice. Not absorbed.
     Repeat,
     /// Failed its liveness gate. Not absorbed.
     Dead,
@@ -218,10 +230,12 @@ pub struct Collector {
     per_source: [u32; SOURCES],
     required: [bool; SOURCES],
     share: u32,
-    /// A fingerprint of the last sample absorbed per source, for the repeat
-    /// check. Sixty-four bits: a collision only leaves a fresh sample
-    /// uncounted, one time in 2^64.
-    last: [Option<u64>; SOURCES],
+    /// Fingerprints of the last samples absorbed per source, newest first,
+    /// and how many of each are held, for the repeat check. Sixty-four
+    /// bits: a collision only leaves a fresh sample uncounted, one time in
+    /// 2^64 for each fingerprint it is held against.
+    last: [[u64; REPEAT_WINDOW]; SOURCES],
+    held: [usize; SOURCES],
     last_touch: Option<(u16, u16)>,
     /// Moving touches absorbed, for the per-event credit.
     touches: u32,
@@ -230,6 +244,7 @@ pub struct Collector {
 impl Drop for Collector {
     fn drop(&mut self) {
         self.last.zeroize();
+        self.held.zeroize();
         // `None` alone writes the tag and leaves the place behind it.
         if let Some((x, y)) = self.last_touch.as_mut() {
             x.zeroize();
@@ -274,7 +289,8 @@ impl Collector {
             per_source: [0; SOURCES],
             required,
             share: limits::SEED_MIN_BITS.div_ceil(n.max(1)),
-            last: [None; SOURCES],
+            last: [[0; REPEAT_WINDOW]; SOURCES],
+            held: [0; SOURCES],
             last_touch: None,
             touches: 0,
         }
@@ -408,7 +424,8 @@ impl Collector {
         Ok(self.absorb(Source::Dice, rolls, bits))
     }
 
-    /// Absorb a sample that passed its gate, unless it repeats the last one.
+    /// Absorb a sample that passed its gate, unless it repeats one of the
+    /// last its source gave ([`REPEAT_WINDOW`]).
     ///
     /// Credit stops at the source's share; the bytes are absorbed either
     /// way. A source past its share goes on feeding the hash, which costs
@@ -417,11 +434,18 @@ impl Collector {
     /// from the fastest source.
     fn absorb(&mut self, source: Source, bytes: &[u8], bits: u32) -> Verdict {
         let print = fingerprint(bytes);
-        let slot = &mut self.last[source.index()];
-        if *slot == Some(print) {
+        let s = source.index();
+        let look = if matches!(source, Source::Dice) {
+            1
+        } else {
+            REPEAT_WINDOW
+        };
+        if self.last[s][..self.held[s].min(look)].contains(&print) {
             return Verdict::Repeat;
         }
-        *slot = Some(print);
+        self.last[s].copy_within(..REPEAT_WINDOW - 1, 1);
+        self.last[s][0] = print;
+        self.held[s] = (self.held[s] + 1).min(REPEAT_WINDOW);
         self.pool.absorb(source.tag(), bytes);
         let per = &mut self.per_source[source.index()];
         let bits = bits.min(self.share.saturating_sub(*per));
@@ -515,7 +539,7 @@ fn imu_alive(samples: &[u8]) -> bool {
 }
 
 /// FNV-1a over a sample, for the repeat check: not a cryptographic hash, and
-/// only deciding whether two consecutive samples from a source match.
+/// only deciding whether a sample matches one of its source's last few.
 fn fingerprint(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for &b in bytes {

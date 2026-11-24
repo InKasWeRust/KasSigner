@@ -88,7 +88,8 @@ pub enum Event<'e> {
     /// failed partway. Sent at once, before anything else is stepped. On a
     /// review page or CONFIRM SEND? the review is refused
     /// ([`Refusal::NotDrawn`]) and the page not counted seen, rather than
-    /// left live behind a panel that does not show it; elsewhere, ignored.
+    /// left live behind a panel that does not show it; on a message's page
+    /// or SIGN MESSAGE? the message is, the same way; elsewhere, ignored.
     NotDrawn,
 }
 

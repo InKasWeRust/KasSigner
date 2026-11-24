@@ -37,7 +37,7 @@ screen.
   its camera connector. The other two boards have theirs built in.
 - **The right P4 chip: revision 1.3 only.** The P4 firmware is built for chip
   revision 1.3 and checks for it at boot. A board with a v3.x chip is not
-  supported: the firmware stops at boot and the unit does not start.
+  supported yet: the firmware stops at boot and the unit does not start.
 - **A microSD card**, for backups and for moving files to and from your
   wallet.
 - **A USB data cable** and a computer, for flashing only.
@@ -54,14 +54,14 @@ screen.
 From the [release page](https://github.com/InKasWeRust/KasSigner/releases),
 take your board's `-full.bin`, `SHA256SUMS` and the signed message,
 `KasSg<digits>.txt`: the digits are the version's without its dots, so
-`KasSg110.txt` for 1.1.0. Then four checks, each proving one thing:
+`KasSg111.txt` for 1.1.1. Then four checks, each proving one thing:
 
 | Check | Proves |
 | --- | --- |
 | The signed message is valid, and its address is the release address | The line came from the project |
 | The SHA-256 of `SHA256SUMS` is the hash in that line | The list is the one that was signed |
 | Each file you downloaded matches its line in `SHA256SUMS` | The files are the ones in the list |
-| After flashing, the hash on the unit's screen matches the list | The unit runs exactly that file |
+| After flashing, the hash on the unit's screen matches the list | Your flash took. The firmware reports its own hash, so this holds for a unit you flashed yourself |
 
 ### The signed message
 
@@ -162,13 +162,14 @@ Or with the system's own command:
 | Linux | `ls /dev/ttyACM* /dev/ttyUSB*` | `/dev/ttyACM0` |
 | Windows, in PowerShell | `[System.IO.Ports.SerialPort]::GetPortNames()` | `COM3` |
 
-If espflash cannot connect, put the board in download mode first: unplug it,
-hold its boot button, plug it in, release.
+If espflash cannot connect, put the board in download mode first: switch it
+off and unplug it, hold its BOOT button, plug it in, release. Unplugging alone
+does not switch off the M5 or the P4, which have batteries.
 
 ## 3. First boot: check what the unit runs
 
-When the write ends the unit restarts; unplug it and plug it in again if it
-does not. At every boot it runs its self-tests and shows its verification
+When the write ends the unit restarts; if it does not, press its reset button
+once, briefly. At every boot it runs its self-tests and shows its verification
 screen for three seconds:
 
 | Line | A new unit shows |
@@ -180,8 +181,10 @@ screen for three seconds:
 
 The unit computes that hash from its own flash at every boot. Compare it with
 the line of the app image, `kassigner-<version>-<board>.bin`, in
-`SHA256SUMS`: not the `-full.bin` line. If the two agree, the unit runs the
-firmware in the signed list.
+`SHA256SUMS`: not the `-full.bin` line. If the two agree, the firmware you
+flashed is the one in the signed list. The firmware reports this hash itself,
+so it vouches for a flash you made yourself, not for a unit others have had
+([SECURITY.md](../SECURITY.md)).
 
 Settings, About shows the same screen again at any time.
 

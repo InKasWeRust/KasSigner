@@ -459,6 +459,25 @@ fn a_bundle_paying_more_than_it_spends_is_refused() {
     assert!(matches!(f.state(), State::Refused(_)), "{:?}", f.state());
 }
 
+/// **A bundle with no outputs is refused before review**, as a KSPT is:
+/// everything its inputs hold would go to the fee. Consensus allows one; no
+/// wallet makes one for a payment.
+#[test]
+fn a_bundle_with_no_outputs_is_refused_before_review() {
+    let mut m = Memory::new();
+    let mut f: Flow<'_, 1> = seeded(&mut m);
+    f.step(scan(), &mut Live);
+    let spk = p2pk(&x_only(&wallet()));
+    let req = bundle_request(100_000 * KAS, &spk, &[]);
+    deliver(&mut f, &req);
+    let State::Refused(why) = f.state() else {
+        panic!("{:?}", f.state())
+    };
+    assert_eq!(why.words(), ("Cannot review", "It has no outputs"));
+    assert!(f.page(|_| ()).is_none(), "no review");
+    assert!(f.reply().is_empty());
+}
+
 /// **A bundle is wiped when its request goes.** Declined: its decoded
 /// document and scripts are zero. Signed and let go: the reply, its
 /// generated members and its bundle read back too.

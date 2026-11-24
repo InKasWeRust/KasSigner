@@ -1967,13 +1967,13 @@ SOFTWARE.
 Mozilla Public License 2.0 (MPL-2.0)
 
 Used by:
-  - kassigner-jpeg 1.1.0 <https://github.com/InKasWeRust/KasSigner>
-  - kassigner-kaspa 1.1.0 <https://github.com/InKasWeRust/KasSigner>
-  - kassigner-protocol 1.1.0 <https://github.com/InKasWeRust/KasSigner>
-  - kassigner-qr 1.1.0 <https://github.com/InKasWeRust/KasSigner>
-  - kassigner-sdk 1.1.0 <https://github.com/InKasWeRust/KasSigner>
-  - kassigner-sdk-ffi 1.1.0 <https://github.com/InKasWeRust/KasSigner>
-  - kassigner-sdk-host 1.1.0 <https://github.com/InKasWeRust/KasSigner>
+  - kassigner-jpeg 1.1.1 <https://github.com/InKasWeRust/KasSigner>
+  - kassigner-kaspa 1.1.1 <https://github.com/InKasWeRust/KasSigner>
+  - kassigner-protocol 1.1.1 <https://github.com/InKasWeRust/KasSigner>
+  - kassigner-qr 1.1.1 <https://github.com/InKasWeRust/KasSigner>
+  - kassigner-sdk 1.1.1 <https://github.com/InKasWeRust/KasSigner>
+  - kassigner-sdk-ffi 1.1.1 <https://github.com/InKasWeRust/KasSigner>
+  - kassigner-sdk-host 1.1.1 <https://github.com/InKasWeRust/KasSigner>
 
 Mozilla Public License Version 2.0
 ==================================

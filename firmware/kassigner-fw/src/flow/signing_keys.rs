@@ -106,7 +106,7 @@ impl<'b, const N: usize> Flow<'b, N> {
         let Event::Tap { x, y } = event else {
             return None;
         };
-        let mode = Typing::RawKey.mode(self.typed.len());
+        let mode = Typing::RawKey.mode(self.typed_full());
         let key = match keyboard::target(self.scale, keyboard::HEX_PAGE, mode, x, y)? {
             keyboard::Target::Nav(nav) => {
                 self.typed.clear();

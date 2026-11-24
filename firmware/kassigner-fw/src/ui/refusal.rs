@@ -45,6 +45,8 @@ pub const GAS: &str = "Gas is not zero";
 pub const STORAGE_MASS: &str = "Over the storage mass limit";
 pub const ABOVE_SUPPLY: &str = "Above Kaspa's total supply";
 pub const ZERO_OUTPUT: &str = "An output of zero KAS";
+/// A transaction with no outputs: everything its inputs hold to the fee.
+pub const NO_OUTPUTS: &str = "It has no outputs";
 /// Two inputs spending the same UTXO, which consensus refuses.
 pub const DUPLICATE_INPUT: &str = "A UTXO is spent twice";
 /// A field consensus does not allow on its version.

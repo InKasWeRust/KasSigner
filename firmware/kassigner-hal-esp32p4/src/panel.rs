@@ -53,15 +53,15 @@ impl Display for Panel {
     fn blit(&mut self, rect: Rect, pixels: &[u16]) -> Result<(), Error> {
         self.check(rect, Some(pixels))?;
         self.lcd
-            .push_pixels(rect.x, rect.y, rect.width, rect.height, pixels);
-        Ok(())
+            .push_pixels(rect.x, rect.y, rect.width, rect.height, pixels)
+            .map_err(|_| Error::Io)
     }
 
     fn fill(&mut self, rect: Rect, color: u16) -> Result<(), Error> {
         self.check(rect, None)?;
         self.lcd
-            .fill_rect(rect.x, rect.y, rect.width, rect.height, color);
-        Ok(())
+            .fill_rect(rect.x, rect.y, rect.width, rect.height, color)
+            .map_err(|_| Error::Io)
     }
 
     /// Through the LED PWM controller on GPIO28: see [`crate::backlight`].

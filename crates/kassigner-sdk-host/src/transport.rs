@@ -132,18 +132,28 @@ pub struct Matrix {
 }
 
 impl Matrix {
-    /// Whether the module at column `x`, row `y` is dark; light outside.
+    /// Whether the module at column `x`, row `y` is dark; light outside,
+    /// and light past the end of `modules` should it hold fewer than
+    /// `size * size`: the fields are an app's to set.
     pub fn dark(&self, x: u8, y: u8) -> bool {
         x < self.size
             && y < self.size
-            && self.modules[usize::from(y) * usize::from(self.size) + usize::from(x)] == 1
+            && self
+                .modules
+                .get(usize::from(y) * usize::from(self.size) + usize::from(x))
+                == Some(&1)
     }
 
     /// The matrix as an SVG document, `module` pixels a module with a
     /// quiet zone of four modules, dark on light.
+    ///
+    /// Any `module` an app passes is drawn: the sizes are worked out in 64
+    /// bits, where 255 modules and the quiet zone times the largest
+    /// `module` stay under 2^41.
     pub fn svg(&self, module: u32) -> String {
-        const QUIET: u32 = 4;
-        let side = (u32::from(self.size) + 2 * QUIET) * module;
+        const QUIET: u64 = 4;
+        let module = u64::from(module);
+        let side = (u64::from(self.size) + 2 * QUIET) * module;
         let mut s = format!(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{side}\" height=\"{side}\" \
              viewBox=\"0 0 {side} {side}\" shape-rendering=\"crispEdges\">\
@@ -152,8 +162,8 @@ impl Matrix {
         for y in 0..self.size {
             for x in 0..self.size {
                 if self.dark(x, y) {
-                    let px = (u32::from(x) + QUIET) * module;
-                    let py = (u32::from(y) + QUIET) * module;
+                    let px = (u64::from(x) + QUIET) * module;
+                    let py = (u64::from(y) + QUIET) * module;
                     s.push_str(&format!("M{px} {py}h{module}v{module}h-{module}z"));
                 }
             }

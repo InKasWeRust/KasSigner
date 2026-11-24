@@ -51,8 +51,7 @@
 //! unit's or not: a transaction with an input that can never be spent can
 //! never be accepted.
 
-use kassigner_kaspa::bip32_public::PUBLIC_KEY_SIZE;
-use kassigner_kaspa::bip340;
+use kassigner_kaspa::bip340::{self, PUBLIC_KEY_SIZE as X_ONLY_SIZE};
 use kassigner_kaspa::constants::MAX_TX_IN_SEQUENCE_NUM;
 use kassigner_kaspa::pskb::signature::{presence, signers, EditError};
 use kassigner_kaspa::pskb::transaction::{build, fill, input_extras, ReadError};
@@ -292,6 +291,10 @@ pub enum TransactionError {
     /// A node's mempool policy: an output under a script version consensus
     /// does not run, or in none of the standard forms.
     NonStandard(NonStandardError),
+    /// No outputs, so everything the inputs hold goes to the fee. Consensus
+    /// allows it (upstream checks only a maximum), but no wallet makes one
+    /// for a payment, and a unit signs none.
+    NoOutputs,
 }
 
 /// `tx` held to the rules on a whole transaction, in a node's order, as a
@@ -301,7 +304,12 @@ pub enum TransactionError {
 ///
 /// The first rule broken, as [`TransactionError`] says.
 pub fn transaction(tx: &Transaction<'_>) -> Result<u64, TransactionError> {
-    use TransactionError::{Consensus, NonStandard};
+    use TransactionError::{Consensus, NoOutputs, NonStandard};
+    // A unit's own rule, where upstream counts the outputs, before their
+    // values.
+    if tx.outputs.is_empty() {
+        return Err(NoOutputs);
+    }
     tx.check_output_value_ranges().map_err(Consensus)?;
     // Upstream's next rule, before the version. On the review a duplicate's
     // amount would count twice in the inputs and the fee.
@@ -406,19 +414,24 @@ pub fn pskb_signatures(
         return Ok(());
     }
     // No key may sign one input twice. A point written in two encodings
-    // (compressed, full or hybrid, either hex case) decodes to one key, so a
-    // reply cannot pass one signature off as two; a repeat is refused with
+    // (compressed, full or hybrid, either hex case) decodes to one key, and
+    // a Schnorr key is its x alone, as the signature is verified against
+    // below and a script position is matched ([`pskb_signers`]): a point
+    // and its negation, `02` and `03` before the same x, are one signer. So
+    // a reply cannot pass one signature off as two; a repeat is refused with
     // the same reason the writer gives ([`EditError::SameKeyTwice`]).
-    let mut seen = [[0u8; PUBLIC_KEY_SIZE]; MAX_MULTISIG_KEYS];
+    let mut seen = [[0u8; X_ONLY_SIZE]; MAX_MULTISIG_KEYS];
     let mut count = 0usize;
     let mut repeated = false;
     signers(bundle, 0, i, |key| {
-        if seen[..count].contains(&key) {
+        let mut x = [0u8; X_ONLY_SIZE];
+        x.copy_from_slice(&key[1..]);
+        if seen[..count].contains(&x) {
             repeated = true;
             false
         } else {
             if count < seen.len() {
-                seen[count] = key;
+                seen[count] = x;
                 count += 1;
             }
             true
@@ -482,6 +495,10 @@ pub struct Signers {
     /// Signatures the transaction needs.
     pub required: usize,
 }
+
+/// The key positions a count marks are a `u32`, one bit a position of a
+/// multisig's keys.
+const _: () = assert!(kassigner_kaspa::multisig::MAX_KEYS <= u32::BITS as usize);
 
 /// The count, an input at a time.
 #[derive(Default)]
@@ -588,16 +605,23 @@ pub enum Unverified {
     Fails { input: usize, position: u8 },
     /// The reply parsed but carries no signature at all.
     Nothing,
-    /// A reply does not read as the transaction that was reviewed: a
-    /// bundle's, or a KSPT's with another count of inputs or outputs.
+    /// A signature says a sighash type other than `ALL`, the only one a unit
+    /// signs: what a companion would put in the spend, and a node would
+    /// refuse, though the signature itself verifies over `ALL`'s hash.
+    SighashNotAll { input: usize },
+    /// A reply does not read as the transaction that was reviewed, field
+    /// for field: a bundle's, or a KSPT's.
     NotTheTransaction,
     /// A bundle reply holds fewer of the unit's signatures than it wrote.
     Missing { wrote: usize, found: usize },
 }
 
-/// Read a KSPT reply back and verify every signature on it, the unit's and
-/// any cosigner's, against the key its position names and the hash of the
-/// transaction the reply was written for. Returns how many verified.
+/// Read a KSPT reply back, its transaction held to `tx` field for field as
+/// a bundle's is ([`same_transaction`]), and verify every signature on it,
+/// the unit's and any cosigner's, against the key its position names and
+/// the hash of the transaction the reply was written for, its sighash type
+/// held to `ALL` as an imported signature's is ([`kspt_signatures`]).
+/// Returns how many verified.
 ///
 /// # Errors
 ///
@@ -633,10 +657,12 @@ pub fn verify_kspt_v107(
 }
 
 fn verify_parsed(parsed: &kspt::Kspt<'_>, tx: &Transaction<'_>) -> Result<usize, Unverified> {
-    // A reply of other counts is not this transaction. Checked here, not
-    // left to callers: with fewer inputs the loop below would leave the
-    // missing ones unread.
-    if parsed.num_inputs != tx.inputs.len() || parsed.num_outputs != tx.outputs.len() {
+    // The reply's own transaction is the reviewed one, before a signature is
+    // read: the signatures are verified over `tx`'s hashes, which say
+    // nothing of the body the reply carries, so another body would go out
+    // under them. Checked here, not left to callers, counts included: with
+    // fewer inputs the loop below would leave the missing ones unread.
+    if !kspt::transaction::matches(parsed, tx) {
         return Err(Unverified::NotTheTransaction);
     }
     let mut verified = 0usize;
@@ -645,6 +671,11 @@ fn verify_parsed(parsed: &kspt::Kspt<'_>, tx: &Transaction<'_>) -> Result<usize,
         let digest =
             schnorr_signature_hash(tx, i, SIG_HASH_ALL).ok_or(Unverified::NotTheTransaction)?;
         for sig in input.signatures() {
+            // The byte is not in the hash the signature covers: read on its
+            // own, as `kspt_signatures` reads it.
+            if sig.sighash_type != SIG_HASH_ALL.to_u8() {
+                return Err(Unverified::SighashNotAll { input: i });
+            }
             let key = key_at(script_of(&input), input.redeem, sig.pubkey_pos).ok_or(
                 Unverified::NoKeyAt {
                     input: i,

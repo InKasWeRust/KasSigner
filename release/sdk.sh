@@ -38,7 +38,10 @@
 #
 # The container has no Node.js, Python, Swift or Kotlin, so the packages
 # are built here and not run: each `build.sh` says so and goes on. CI runs
-# all four bindings over the vectors on every push (`crates.yml`).
+# all four bindings over the vectors on every push (`crates.yml`), and
+# then packs these two archives and runs them again as unpacked
+# (`release/sdk-check.sh`), which a release's own two files can be put
+# through as well, on a machine that has those tools.
 #
 # Nothing may depend on the time, the folder or the user. Both `build.sh`
 # write fixed names for the folders the compiler would otherwise record;

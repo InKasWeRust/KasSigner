@@ -61,9 +61,9 @@ attacker has to get through all of them.
 | Image hash on screen | At every boot the unit hashes its own firmware and shows the hash, to compare with the release's signed list ([REPRODUCIBLE.md](REPRODUCIBLE.md)). The hash is the firmware's own report: it confirms a flash you made yourself, and says nothing for firmware someone else wrote. |
 | Full review | Every output, amount and fee is shown before you sign. An output is labelled CHANGE or YOURS only when the unit works out the address itself. A request it cannot show or sign in full is refused on arrival. |
 | Checked twice | The request's bytes are checked against the ones reviewed, at confirm and at signing. Each reply is read back, and every signature verified, before it is shown. |
-| Rust, no OS | 100% Rust, `no_std`, on bare metal. `unsafe` lives only in the two board crates, each block with a `// SAFETY:` comment that a lint requires; every other crate a unit runs forbids it. Overflow checks stay on in release builds. |
-| Fresh seeds | Every entropy source the unit has must give its share, each credited well under what was measured for it. The chip's own generator is mixed in and counted as nothing. |
-| Encrypted backups | AES-256-GCM, with a fresh salt and nonce for every file. The key comes from PBKDF2-HMAC-SHA256 with 100,000 rounds on the S3 units, and from Argon2id with 16 MiB and 4 passes on the P4. The unit refuses a weak password, and the backup is only as strong as the password you choose; the BIP39 passphrase, never stored anywhere, is the last protection of your funds. |
+| Rust, no OS | 100% Rust, `no_std`, on bare metal. `unsafe` lives only in the two board crates, each block with a `// SAFETY:` comment that a lint requires; every other crate of ours a unit runs forbids it, the vendored QR decoder included. Overflow checks stay on in release builds. |
+| Fresh seeds | Every entropy source the unit has must give its share, each credited well under what was measured for it. The chip's own generator is mixed in and counted as nothing ([docs/ENTROPY.md](docs/ENTROPY.md)). |
+| Encrypted backups | AES-256-GCM, with a fresh salt and nonce for every file. The key comes from PBKDF2-HMAC-SHA256, 100,000 rounds, on the S3 units, and from Argon2id, 16 MiB and 4 passes, on the P4. A weak password is refused. Only a seed opened with a passphrase may be saved with no password, past a warning: that file opens for anyone holding the card, and the passphrase alone protects the funds. |
 | Hidden backups | A sealed seed can hide inside an ordinary JPEG photo ([docs/STEGANOGRAPHY.md](docs/STEGANOGRAPHY.md)). |
 | BIP39 passphrase | Never stored, on the unit or in any backup it writes. Someone with your words and not the passphrase opens a different wallet. |
 
@@ -79,6 +79,13 @@ computer or phone. A phishing copy can show one address and put another in the
 request; malware can change a transaction in memory. The unit shows what is in
 the transaction data, not what the wallet claims. Check the addresses and the
 amounts on the unit's screen, every time.
+
+What the request says about the coins being spent, each coin's amount and
+covenant id, is a node's word, and the unit cannot check it against the chain.
+Its signature covers the amount of each coin it signs, so a false one there
+makes a transaction the network refuses. The amounts of coins someone else
+signs, and with them the fee, and every covenant id are taken on the request's
+word.
 
 ## What it does not protect against
 

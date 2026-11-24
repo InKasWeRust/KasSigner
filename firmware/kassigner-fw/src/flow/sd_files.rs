@@ -145,7 +145,7 @@ impl<'b, const N: usize> Flow<'b, N> {
         let Event::Tap { x, y } = event else {
             return None;
         };
-        match keyboard::target(self.scale, page, keyboard::Mode::Text, x, y)? {
+        match keyboard::target(self.scale, page, self.text_keys(), x, y)? {
             keyboard::Target::Nav(_) => {
                 self.typed.clear();
                 self.state = State::RestoreList { page: 0 };
@@ -230,12 +230,12 @@ impl<'b, const N: usize> Flow<'b, N> {
         let opened = match (self.steps.as_mut(), self.buffers.kdf.as_deref_mut()) {
             (Some(steps), _) => {
                 let (now, _) = steps.step(SEAL_ROUNDS);
-                let Some(mut key) = steps.key() else {
+                let Some(key) = steps.key() else {
                     self.state = State::RestoreOpening { done: now };
                     return None;
                 };
                 let r = open_slot_with_key(file, &key, b"");
-                wipe::wipe(&mut key);
+                drop(key);
                 r
             }
             (None, Some(memory)) if done > 0 => {
@@ -334,14 +334,14 @@ impl<'b, const N: usize> Flow<'b, N> {
         let opened = match (self.steps.as_mut(), self.buffers.kdf.as_deref_mut()) {
             (Some(steps), _) => {
                 let (now, _) = steps.step(SEAL_ROUNDS);
-                let Some(mut key) = steps.key() else {
+                let Some(key) = steps.key() else {
                     self.state = State::RestoreOpening { done: now };
                     return None;
                 };
                 let r = parse(file)
                     .map_err(OpenError::Framing)
                     .and_then(|c| open_with_key(&c, &key, &mut plain));
-                wipe::wipe(&mut key);
+                drop(key);
                 r
             }
             (None, Some(memory)) if done > 0 => {
@@ -480,14 +480,14 @@ impl<'b, const N: usize> Flow<'b, N> {
         let opened = match (self.steps.as_mut(), self.buffers.kdf.as_deref_mut()) {
             (Some(steps), _) => {
                 let (now, _) = steps.step(SEAL_ROUNDS);
-                let Some(mut key) = steps.key() else {
+                let Some(key) = steps.key() else {
                     self.state = State::RestoreOpening { done: now };
                     return None;
                 };
                 let r = parse(file)
                     .map_err(OpenError::Framing)
                     .and_then(|c| open_with_key(&c, &key, &mut text));
-                wipe::wipe(&mut key);
+                drop(key);
                 r
             }
             (None, Some(memory)) if done > 0 => {
@@ -636,14 +636,14 @@ impl<'b, const N: usize> Flow<'b, N> {
         let opened = match (self.steps.as_mut(), self.buffers.kdf.as_deref_mut()) {
             (Some(steps), _) => {
                 let (now, _) = steps.step(SEAL_ROUNDS);
-                let Some(mut key) = steps.key() else {
+                let Some(key) = steps.key() else {
                     self.state = State::RestoreOpening { done: now };
                     return None;
                 };
                 let r = parse(file)
                     .map_err(OpenError::Framing)
                     .and_then(|c| open_with_key(&c, &key, &mut text));
-                wipe::wipe(&mut key);
+                drop(key);
                 r
             }
             (None, Some(memory)) if done > 0 => {
@@ -971,10 +971,10 @@ impl<'b, const N: usize> Flow<'b, N> {
         self.derivation_over();
         self.first.clear();
         let opened = match key {
-            Ok(mut key) => {
+            Ok(key) => {
                 wipe::begin_depth(self.stack);
                 let opened = self.open_text(&key);
-                wipe::wipe(&mut key);
+                drop(key);
                 wipe::scrub_flow();
                 opened
             }
@@ -1106,14 +1106,14 @@ impl<'b, const N: usize> Flow<'b, N> {
         let opened = match (self.steps.as_mut(), self.buffers.kdf.as_deref_mut()) {
             (Some(steps), _) => {
                 let (now, _) = steps.step(SEAL_ROUNDS);
-                let Some(mut key) = steps.key() else {
+                let Some(key) = steps.key() else {
                     self.state = State::RestoreOpening { done: now };
                     return None;
                 };
                 let r = parse(file)
                     .map_err(OpenError::Framing)
                     .and_then(|c| open_with_key(&c, &key, self.buffers.reply));
-                wipe::wipe(&mut key);
+                drop(key);
                 r
             }
             (None, Some(memory)) if done > 0 => open(

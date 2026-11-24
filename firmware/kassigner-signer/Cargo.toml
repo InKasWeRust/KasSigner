@@ -109,6 +109,11 @@ stackprobe = ["kassigner-fw/stack-probe", "kassigner-hal-esp32s3?/stack-probe"]
 # why and clears the stack and PSRAM. `m5-wdtprobe`, `ws-wdtprobe`,
 # `p4-wdtprobe`; never shipped.
 wdtprobe = []
+# The touch capture: the seed screen's reads of a finger kept and written
+# out raw, for measuring them as a seed gets them. The reads are not handed
+# to the seed, so that screen never makes one. `m5-touchcap`, `ws-touchcap`,
+# `p4-touchcap` and, for a locked P4, `p4-touchcap-build`; never shipped.
+touchcap = []
 
 # The decode probe's frame, in internal RAM without `unsafe`: examples only,
 # and only on a unit. Already in the lock through the board crates.

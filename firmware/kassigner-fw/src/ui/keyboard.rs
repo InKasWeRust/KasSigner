@@ -64,8 +64,11 @@ pub enum Target {
 /// Which keys type, by what is being typed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
-    /// Any printable character, and Space.
-    Text,
+    /// Any printable character, and Space, and neither once `full`: a
+    /// line at its limit says so on its keys, as a file name's does, since a
+    /// tap that types nothing unseen makes a passphrase other than the one
+    /// meant.
+    Text { full: bool },
     /// A file name: letters and digits, and none once `full`.
     Name { full: bool },
     /// A BIP39 word on the compact grid, lower-case letters only. Left moves
@@ -86,7 +89,8 @@ impl Mode {
     /// Whether `key` does anything in this mode.
     pub const fn takes(self, key: Key) -> bool {
         match (self, key) {
-            (Mode::Text, _) => true,
+            (Mode::Text { full }, Key::Char(_) | Key::Space) => !full,
+            (Mode::Text { .. }, _) => true,
             (Mode::Name { full }, Key::Char(c)) => !full && c.is_ascii_alphanumeric(),
             (Mode::Name { .. }, Key::Space) => false,
             (Mode::Name { .. }, _) => true,
@@ -114,8 +118,12 @@ impl Mode {
     }
 }
 
-/// What the line shows at its right: a password's strength, a prompt, or a
+/// What the line shows at its right: a password's rating, a prompt, or a
 /// file name's count. A password is taken only from Fair up.
+///
+/// The rating's words say what was counted, a password's length and its
+/// kinds of character, and no more: nothing here tells words from random
+/// characters, so none of them calls a password good or strong.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Note {
     /// Under twelve characters.
@@ -129,7 +137,7 @@ pub enum Note {
     Again,
     /// The second did not match the first; both start again.
     NoMatch,
-    /// A file name's length and its limit.
+    /// The line's length and its limit.
     Count {
         used: u8,
         of: u8,
@@ -143,8 +151,8 @@ impl Note {
             Note::TooShort => ("Too short", DANGER),
             Note::Weak => ("Weak", DANGER),
             Note::Fair => ("Fair", ORANGE),
-            Note::Good => ("Good", TEAL),
-            Note::Strong => ("Strong", TEAL),
+            Note::Good => ("Long", TEAL),
+            Note::Strong => ("Very long", TEAL),
             Note::Again => ("Again", TEXT_DIM),
             Note::NoMatch => ("No match", DANGER),
             Note::Count { used, of } => {
@@ -293,7 +301,7 @@ const fn chip(i: u8) -> (i32, i32, i32, i32) {
 
 /// Where a target counts on `page` of the full grid, if it is on it.
 pub fn zone(scale: Scale, page: u8, target: Target) -> Option<Zone> {
-    zone_in(scale, page, Mode::Text, target)
+    zone_in(scale, page, Mode::Text { full: false }, target)
 }
 
 /// Where a target counts on `page` in `mode`'s grid, if it is on it.

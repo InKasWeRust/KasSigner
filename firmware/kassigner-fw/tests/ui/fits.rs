@@ -450,20 +450,25 @@ fn the_fee_turns_red_over_one_kas() {
     assert_eq!(review::fee_ink(u64::MAX), RED);
 }
 
-/// TX REVIEW's line for a multisig spend with no group held says its M of N
-/// and that the change is unchecked, and fits within 300 design pixels on
+/// The line for a multisig spend with no group held says its M of N and
+/// that the change is unchecked; for inputs that share no M of N it says
+/// the warning alone, never nothing. It fits within 300 design pixels on
 /// both panels at a group's widest numbers.
 #[test]
 fn the_unchecked_line_fits() {
     let mut out = [0u8; 48];
     assert_eq!(
-        review::unchecked_line((2, 3), &mut out),
+        review::unchecked_line(Some((2, 3)), &mut out),
         "2 of 3. No Descriptor: change unchecked"
+    );
+    assert_eq!(
+        review::unchecked_line(None, &mut out),
+        "No Descriptor: change unchecked"
     );
     for size in SIZES {
         let (scale, kit) = (Scale::for_panel(size), kit(size));
         let mut out = [0u8; 48];
-        let line = review::unchecked_line((5, 5), &mut out);
+        let line = review::unchecked_line(Some((5, 5)), &mut out);
         assert!(
             kit.body.width(line) <= scale.len(300),
             "{line:?} at {size:?}"

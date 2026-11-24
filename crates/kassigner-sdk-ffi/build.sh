@@ -115,16 +115,25 @@ if [ -z "$TARGET" ]; then
     fi
     # The Kotlin binding on a JVM, as an Android app loads it through JNA:
     # one jar of the binding and the check with Kotlin's runtime in it, the
-    # dynamic library found beside the bindings.
-    if command -v kotlinc >/dev/null 2>&1 && command -v java >/dev/null 2>&1 && [ -f "${JNA_JAR:-}" ]; then
+    # dynamic library found beside the bindings. A `java` that runs, not one
+    # that is only found: a Mac with no Java still has `/usr/bin/java`, a
+    # placeholder that says to install one and fails.
+    if command -v kotlinc >/dev/null 2>&1 && java -version >/dev/null 2>&1 && [ -f "${JNA_JAR:-}" ]; then
         mkdir -p "$OUT/kotlin-check"
         kotlinc -nowarn -cp "$JNA_JAR" -include-runtime \
             "$OUT/org/kassigner/sdk/kassigner_sdk.kt" "$HERE/check/check.kt" \
             -d "$OUT/kotlin-check/check.jar"
-        java -cp "$OUT/kotlin-check/check.jar:$JNA_JAR" -Djna.library.path="$OUT" \
+        # JNA loads the library, which a newer Java warns of and a later one
+        # will refuse unless allowed. An older Java refuses the flag itself,
+        # so it is given only to a Java that takes it.
+        native=""
+        if java --enable-native-access=ALL-UNNAMED -version >/dev/null 2>&1; then
+            native="--enable-native-access=ALL-UNNAMED"
+        fi
+        java $native -cp "$OUT/kotlin-check/check.jar:$JNA_JAR" -Djna.library.path="$OUT" \
             CheckKt "$ROOT/spec/vectors/v110/sdk"
     else
-        echo "kotlinc, java or JNA_JAR not found: the Kotlin binding is not compiled (JNA_JAR=<path>/jna.jar)"
+        echo "kotlinc, a java that runs, or JNA_JAR not found: the Kotlin binding is not compiled (JNA_JAR=<path>/jna.jar)"
     fi
 fi
 # Finder's `.DS_Store` is no part of the build: it is neither checked nor
@@ -138,7 +147,9 @@ fi
 RUST_BUILT_IN=/Users/runner/work/rust/rust/
 for dir in "$CARGO_DIR" "$RUSTUP_DIR" "$ROOT" "${HOME%/}/"; do
     [ "$dir" = / ] && continue
-    found="$(cd "$OUT" && find . -type f -not -path "./swift-check/*" -not -path "./kotlin-check/*" -not -name .DS_Store -exec env LC_ALL=C grep -l -F -e "$dir" {} + || true)"
+    # `|| true` for grep finding nothing; a failed `cd` still stops the
+    # script.
+    found="$(cd "$OUT" && { find . -type f -not -path "./swift-check/*" -not -path "./kotlin-check/*" -not -name .DS_Store -exec env LC_ALL=C grep -l -F -e "$dir" {} + || true; })"
     [ -n "$found" ] || continue
     named="$(echo "$found" | while IFS= read -r file; do
         (cd "$OUT" && LC_ALL=C tr -c '[:print:]' '\n' < "$file" |

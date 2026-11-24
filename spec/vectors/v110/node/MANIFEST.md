@@ -20,10 +20,10 @@
 
 A node's wRPC as the SDK speaks it, for the tests of layers that cannot
 link a node: `kassigner-sdk-host`'s, the browser package's `check/check.mjs`
-and the native binding's `check/check.py`. Each call is in both of the
-node's encodings: `.borsh`, a binary frame on the `--rpclisten-borsh` port;
-`.json`, a text frame on the `--rpclisten-json` port. Every request carries
-id 7, and every reply answers it.
+and the native bindings' `check/check.py` and `check/check.swift`. Each
+call is in both of the node's encodings: `.borsh`, a binary frame on the
+`--rpclisten-borsh` port; `.json`, a text frame on the `--rpclisten-json`
+port. Every request carries id 7, and every reply answers it.
 
 ## Where they come from
 

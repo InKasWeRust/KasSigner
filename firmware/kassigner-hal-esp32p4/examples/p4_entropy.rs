@@ -153,13 +153,14 @@ mod app {
         puts("\r\n  ");
         if landed {
             puts(">> enable() took: the ADC is triggering and the REGI2C\r\n");
-            puts("     calibration read back correctly.\r\n");
+            puts("     calibration and enable register read back correctly.\r\n");
         } else {
             puts(">> enable() DID NOT take: ");
             puts(match en {
                 Err(entropy::Error::RegI2c(_)) => "REGI2C write failed or timed out.\r\n     The analog master writes are not landing. That is the\r\n     step most likely to be broken.",
                 Err(entropy::Error::NotRunning) => "the ADC trigger is not running.\r\n     Check the clock and reset steps.",
                 Err(entropy::Error::CalibrationMismatch(_)) => "calibration read back a different value.",
+                Err(entropy::Error::SarInitMismatch(_)) => "the SAR's enable register read back a different value.",
                 Ok(()) => "",
             });
             puts("\r\n");

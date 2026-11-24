@@ -41,7 +41,7 @@ impl<'b, const N: usize> Flow<'b, N> {
         let Event::Tap { x, y } = event else {
             return None;
         };
-        let key = match keyboard::target(self.scale, page, keyboard::Mode::Text, x, y)? {
+        let key = match keyboard::target(self.scale, page, self.text_keys(), x, y)? {
             keyboard::Target::Nav(nav) => {
                 self.typed.clear();
                 self.state = match nav {
@@ -402,8 +402,13 @@ impl<'b, const N: usize> Flow<'b, N> {
     }
 
     /// The text, a page at a time; SIGN goes to the signing address. Back
-    /// returns to `msg_from`, dropping the text.
+    /// returns to `msg_from`, dropping the text. A page the panel did not
+    /// take refuses the message ([`Event::NotDrawn`]).
     pub(super) fn on_message_preview(&mut self, event: Event<'_>, page: usize) -> Option<Command> {
+        if let Event::NotDrawn = event {
+            self.message_not_drawn();
+            return None;
+        }
         let Event::Tap { x, y } = event else {
             return None;
         };
@@ -461,12 +466,17 @@ impl<'b, const N: usize> Flow<'b, N> {
     /// SIGN MESSAGE?: SIGN signs on the next tick
     /// ([`State::MessageSigning`]); Cancel or Back returns to the Address
     /// screen, or for a raw key to the text. A touch in its first
-    /// [`SETTLE_US`] does nothing.
+    /// [`SETTLE_US`] does nothing. Not taken by the panel, it refuses the
+    /// message ([`Event::NotDrawn`]).
     pub(super) fn on_message_confirm(
         &mut self,
         event: Event<'_>,
         pressed_at: Option<(u16, u16)>,
     ) -> Option<Command> {
+        if let Event::NotDrawn = event {
+            self.message_not_drawn();
+            return None;
+        }
         let Event::Tap { x, y } = event else {
             return None;
         };
@@ -560,6 +570,16 @@ impl<'b, const N: usize> Flow<'b, N> {
         )?;
         self.record_len = n;
         Some(n)
+    }
+
+    /// A page of the message, or SIGN MESSAGE?, that the panel did not take:
+    /// the message is dropped and refused, as a transaction is whose review
+    /// page was not drawn. We sign what we see: a page counted read, or SIGN
+    /// live, behind a panel that does not show it would sign what was not
+    /// seen.
+    fn message_not_drawn(&mut self) {
+        self.leave_message(State::Home);
+        self.refuse(Refusal::NotDrawn);
     }
 
     /// Out of Sign Message, to `next`: the text and the signature dropped.

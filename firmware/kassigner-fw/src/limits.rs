@@ -99,8 +99,8 @@ pub const SEED_MIN_BITS: u32 = 256;
 /// light, 0.013 with a bright bulb in view (the t-tuple estimate: runs of
 /// unchanged bytes where light saturates). One bit per 160 bytes, about
 /// 0.006 a byte, is half the worst; a covered lens is the gates' job. The
-/// same rate on all three units until the Waveshare and the P4 are measured
-/// the same way.
+/// same rate on all three units: the Waveshare's worst is 0.310 a byte and
+/// the P4's 0.781, both with the lens covered.
 ///
 /// A seed's 512-byte camera sample earns 3 bits: 128 bits in about 43
 /// passes, some 5 seconds, collected while the touch share (about 20
@@ -113,9 +113,11 @@ pub const CAMERA_BYTES_PER_BIT: u32 = 160;
 pub const IMU_BYTES_PER_BIT: u32 = 2;
 
 /// Touch: events credited per bit. An event is a finger's position and the
-/// time since the last, counted only when the position changed. Measured at
-/// 2.80 bits an event on the M5 and 1.08 at worst on the Waveshare (slower
-/// poll); half a bit an event is under both.
+/// time since the pass before, counted only when the position changed.
+/// Measured on the seed screen itself: the timing, which is the loop's own
+/// jitter, is 5.00 bits an event at worst on the M5, 3.69 on the Waveshare
+/// and 4.67 on the P4; a slow finger's position alone is as low as 0.19 on
+/// the M5, under the credit, and the timing carries that case.
 pub const TOUCH_EVENTS_PER_BIT: u32 = 2;
 
 /// Dice, if a caller mixes rolls in: bits credited per roll, the floor of

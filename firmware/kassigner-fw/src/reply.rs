@@ -277,6 +277,9 @@ pub struct Plan {
     pub second: u32,
 }
 
+/// [`Plan::second`] is a `u32`, one bit an input.
+const _: () = assert!(crate::limits::MAX_INPUTS <= u32::BITS as usize);
+
 /// What [`Plan::group`] and [`Plan::second`] say, gathered an input at a
 /// time.
 #[derive(Clone, Copy)]

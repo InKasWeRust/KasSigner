@@ -178,7 +178,7 @@ impl<'b, const N: usize> Flow<'b, N> {
                     inputs,
                     outputs,
                     group: self.group_shown(),
-                    unchecked: self.review_inputs == Some(Inputs::Unchecked),
+                    unchecked: self.unchecked(),
                 },
                 Page::Output {
                     index,
@@ -320,12 +320,19 @@ impl<'b, const N: usize> Flow<'b, N> {
                     inputs,
                     outputs,
                     group: self.group_shown(),
+                    unchecked: self.unchecked(),
                 },
             )),
             _ => None,
         })
         .ok()
         .flatten()
+    }
+
+    /// Whether the request spends a multisig with no group held to check
+    /// it against, which TX REVIEW and CONFIRM SEND? both say.
+    fn unchecked(&self) -> bool {
+        self.review_inputs == Some(Inputs::Unchecked)
     }
 
     /// The M of N the request's inputs spend; none for a single key's.

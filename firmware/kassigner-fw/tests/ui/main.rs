@@ -154,7 +154,7 @@ fn unbacked_seeds() -> [Seed; 5] {
 
 /// What the ERROR screen can say: each refusal's words, and the review's
 /// and the reply's with each reason.
-const REFUSALS: [(&str, refusal::Words); 77] = [
+const REFUSALS: [(&str, refusal::Words); 78] = [
     (
         "refused_card_early",
         (refusal::CARD_LOCKED, refusal::CARD_EARLY),
@@ -281,6 +281,10 @@ const REFUSALS: [(&str, refusal::Words); 77] = [
     (
         "refused_zero_output",
         (refusal::NOT_REVIEWABLE, refusal::ZERO_OUTPUT),
+    ),
+    (
+        "refused_no_outputs",
+        (refusal::NOT_REVIEWABLE, refusal::NO_OUTPUTS),
     ),
     (
         "refused_duplicate_input",
@@ -535,11 +539,26 @@ fn screens(size: Size) -> Vec<(&'static str, Painter)> {
         inputs: 1,
         outputs: 2,
         group: None,
+        unchecked: false,
     };
     const GROUP: review::Counted = review::Counted {
         inputs: 2,
         outputs: 2,
         group: Some((2, 3)),
+        unchecked: false,
+    };
+    // No group held: the warning, with the M of N the inputs share.
+    const UNCHECKED: review::Counted = review::Counted {
+        unchecked: true,
+        ..GROUP
+    };
+    // Inputs that share no M of N, a single key's beside a multisig's: the
+    // warning all the same.
+    const MIXED: review::Counted = review::Counted {
+        inputs: 3,
+        outputs: 2,
+        group: None,
+        unchecked: true,
     };
     // The most a request is let through with, and the largest group.
     const WIDEST: review::Counted = review::Counted {
@@ -549,13 +568,14 @@ fn screens(size: Size) -> Vec<(&'static str, Painter)> {
             kassigner_fw::limits::MAX_MULTISIG_KEYS,
             kassigner_fw::limits::MAX_MULTISIG_KEYS,
         )),
+        unchecked: false,
     };
     let totals = review::Totals {
         out: 499_000_000,
         spent: 500_000_000,
         fee: 1_000_000,
     };
-    let pages: [(&'static str, review::Shown<'static>, usize); 18] = [
+    let pages: [(&'static str, review::Shown<'static>, usize); 19] = [
         // A covenant an input's UTXO is bound to, continued in an output.
         (
             "review_covenant_continued",
@@ -668,6 +688,18 @@ fn screens(size: Size) -> Vec<(&'static str, Painter)> {
             },
             0,
         ),
+        // Inputs that share no M of N, no group held: the warning alone.
+        (
+            "review_summary_mixed",
+            review::Shown::Summary {
+                totals,
+                inputs: 3,
+                outputs: 2,
+                group: None,
+                unchecked: true,
+            },
+            0,
+        ),
         // The group's own change: a script's address, and CHANGE.
         (
             "review_output_group_change",
@@ -769,6 +801,14 @@ fn screens(size: Size) -> Vec<(&'static str, Painter)> {
     out.push((
         "review_confirm_group",
         Box::new(move |b: &mut Band<'_>| review::draw_confirm(b, scale, kit, &totals, &GROUP)),
+    ));
+    out.push((
+        "review_confirm_unchecked",
+        Box::new(move |b: &mut Band<'_>| review::draw_confirm(b, scale, kit, &totals, &UNCHECKED)),
+    ));
+    out.push((
+        "review_confirm_mixed",
+        Box::new(move |b: &mut Band<'_>| review::draw_confirm(b, scale, kit, &totals, &MIXED)),
     ));
     out.push((
         "signing",
@@ -1072,6 +1112,19 @@ fn screens(size: Size) -> Vec<(&'static str, Painter)> {
             dialog::draw(b, scale, kit, &dialog::format(Some(40)), None)
         }),
     ));
+    // A seed's backup with no password: the warning, its SAVE half held.
+    out.push((
+        "backup_no_password",
+        Box::new(move |b: &mut Band<'_>| {
+            dialog::draw(b, scale, kit, &dialog::no_password(None), None)
+        }),
+    ));
+    out.push((
+        "backup_no_password_held",
+        Box::new(move |b: &mut Band<'_>| {
+            dialog::draw(b, scale, kit, &dialog::no_password(Some(50)), None)
+        }),
+    ));
     out.push((
         "sd_busy",
         Box::new(move |b: &mut Band<'_>| sd_card::busy(b, scale, kit, Job::Format)),
@@ -1127,7 +1180,7 @@ fn screens(size: Size) -> Vec<(&'static str, Painter)> {
                     text,
                     cursor: 30,
                     note: None,
-                    mode: keyboard::Mode::Text,
+                    mode: keyboard::Mode::Text { full: false },
                     word: None,
                 };
                 keyboard::draw(b, scale, kit, "PASSPHRASE", page, line)
@@ -1141,7 +1194,22 @@ fn screens(size: Size) -> Vec<(&'static str, Painter)> {
                 text: "",
                 cursor: 0,
                 note: None,
-                mode: keyboard::Mode::Text,
+                mode: keyboard::Mode::Text { full: false },
+                word: None,
+            };
+            keyboard::draw(b, scale, kit, "PASSPHRASE", 0, line)
+        }),
+    ));
+    // At its limit: the count in the limit's colour, the keys that type dim.
+    out.push((
+        "keyboard_full",
+        Box::new(move |b: &mut Band<'_>| {
+            let text = "Correct horse battery staple, and then some more of the same, 64";
+            let line = keyboard::Line {
+                text,
+                cursor: text.len(),
+                note: Some(keyboard::Note::Count { used: 64, of: 64 }),
+                mode: keyboard::Mode::Text { full: true },
                 word: None,
             };
             keyboard::draw(b, scale, kit, "PASSPHRASE", 0, line)
@@ -1181,7 +1249,7 @@ fn screens(size: Size) -> Vec<(&'static str, Painter)> {
                 text,
                 cursor: text.len(),
                 note: Some(keyboard::Note::Good),
-                mode: keyboard::Mode::Text,
+                mode: keyboard::Mode::Text { full: false },
                 word: None,
             };
             keyboard::draw(b, scale, kit, "PASSWORD", 1, line)
@@ -1203,7 +1271,7 @@ fn screens(size: Size) -> Vec<(&'static str, Painter)> {
                 text: "",
                 cursor: 0,
                 note: None,
-                mode: keyboard::Mode::Text,
+                mode: keyboard::Mode::Text { full: false },
                 word: None,
             };
             let title = kassigner_fw::flow::Typing::DeletePassword.title();
@@ -1217,7 +1285,7 @@ fn screens(size: Size) -> Vec<(&'static str, Painter)> {
                 text: "",
                 cursor: 0,
                 note: None,
-                mode: keyboard::Mode::Text,
+                mode: keyboard::Mode::Text { full: false },
                 word: None,
             };
             let title = kassigner_fw::flow::Typing::OverwritePassword.title();

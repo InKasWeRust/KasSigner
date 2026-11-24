@@ -142,6 +142,50 @@ fn a_long_message_is_signed_only_once_read() {
     assert_eq!(out.screen, Screen::MessageCheck { valid: Some(true) });
 }
 
+/// A message's page or SIGN MESSAGE? the panel did not take
+/// (`Event::NotDrawn`) refuses the message, as a transaction's review is
+/// refused: the text dropped, nothing signed, and a tap where SIGN was
+/// signs nothing. On SIGN WITH, which asks for no consent, it does nothing.
+#[test]
+fn a_message_screen_the_panel_did_not_take_refuses_the_message() {
+    use kassigner_fw::ui::address as screen;
+    let on = |t| tap_in(screen::zone(SCALE, false, true, t).expect("on the screen"));
+    for at in ["preview", "sign with", "confirm"] {
+        let mut mem = Memory::new();
+        let mut f: Flow<'_, 6> = seeded(&mut mem);
+        sign_message(&mut f, 0);
+        type_message(&mut f, "Hello Kaspa!");
+        assert_eq!(f.state(), State::MessagePreview { page: 0 });
+        if at != "preview" {
+            f.step(on(screen::Target::Index), &mut Live);
+            assert!(matches!(f.state(), State::Address), "{at}");
+        }
+        if at == "sign with" {
+            let before = f.state();
+            f.step(Event::NotDrawn, &mut Live);
+            assert_eq!(f.state(), before, "no consent is asked here");
+            assert_eq!(f.message_text(), "Hello Kaspa!");
+            continue;
+        }
+        if at == "confirm" {
+            f.step(on(screen::Target::Address), &mut Live);
+            assert_eq!(f.state(), State::MessageConfirm);
+        }
+
+        let out = f.step(Event::NotDrawn, &mut Live);
+        assert_eq!(out.screen, Screen::Refused(Refusal::NotDrawn), "{at}");
+        assert_eq!(out.command, None, "{at}");
+        assert_eq!(f.message_text(), "", "{at}: the text dropped");
+        // Where SIGN was, on either screen: nothing.
+        f.touch(on(screen::Target::Index));
+        f.touch(answer(dialog::Target::Accept));
+        assert_eq!(f.state(), State::Refused(Refusal::NotDrawn), "{at}");
+        assert_eq!(f.signature_text(), "", "{at}: nothing signed");
+        f.step(Event::Tick { now_us: 1 << 40 }, &mut Live);
+        assert_eq!(f.state(), State::Home, "{at}");
+    }
+}
+
 /// A typed message is signed rusty-kaspa's way: SIGN opens SIGN WITH, a tap
 /// on the address asks, and SIGN signs the personal message hash with that
 /// key and the unit's auxiliary bytes. Signature, address and codes read

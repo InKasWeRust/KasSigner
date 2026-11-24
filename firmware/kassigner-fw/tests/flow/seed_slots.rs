@@ -399,7 +399,11 @@ fn a_loaded_seed_takes_its_passphrase_from_the_keyboard() {
 
     // Typed twice the same: stored with it, and both wiped.
     type_ab1(&mut f);
-    assert_eq!(f.keyboard_note(), None, "a key takes No match away");
+    assert_eq!(
+        f.keyboard_note(),
+        Some(keyboard::Note::Count { used: 4, of: 64 }),
+        "a key takes No match away, for the count"
+    );
     f.step(key(2, keyboard::Key::Ok), &mut Live);
     type_ab1(&mut f);
     assert_eq!(f.typed(), ("aB 1", 3));
@@ -428,6 +432,68 @@ fn a_loaded_seed_takes_its_passphrase_from_the_keyboard() {
         assert_eq!(f.typed(), ("", 0));
         assert!(!f.holds_secret(), "the first entry wiped too");
     }
+}
+
+/// A passphrase stops at 64 characters and says so: its count beside the
+/// line from the start, and at the limit the keys that type dead, on both
+/// keyboards. One cut short without a word, typed the same way twice, would
+/// open a wallet other than the one its owner wrote down. Delete makes room.
+#[test]
+fn a_passphrase_at_its_limit_says_so_and_takes_no_more() {
+    let count = |used| Some(keyboard::Note::Count { used, of: 64 });
+    let q = || key(0, keyboard::Key::Char(b'q'));
+    let mut m = Memory::new();
+    let mut f: Flow<'_, 6> = booted(&mut m, &[]);
+    f.step(scan(), &mut Live);
+    let digits = seedqr();
+    f.step(Event::Code(&digits), &mut Live);
+    f.touch(answer(dialog::Target::Accept));
+    assert_eq!(f.state(), State::Passphrase { page: 0 });
+    assert_eq!(f.keyboard_note(), count(0));
+    assert!(!f.typed_full());
+
+    for again in [false, true] {
+        for _ in 0..63 {
+            f.step(q(), &mut Live);
+        }
+        assert!(!f.typed_full(), "one short of the limit");
+        let before = f.step(q(), &mut Live).screen;
+        assert_eq!(f.typed().0.len(), 64);
+        assert!(f.typed_full());
+        assert_eq!(f.keyboard_note(), count(64), "the count, not Again");
+
+        // A 65th character and a space: nothing typed, nothing drawn anew.
+        for dead in [q(), key(0, keyboard::Key::Space)] {
+            let out = f.step(dead, &mut Live);
+            assert_eq!(f.typed().0.len(), 64);
+            assert_eq!(out.screen, before, "the same screen");
+        }
+
+        // Delete makes room for one, and no more.
+        f.step(key(0, keyboard::Key::Delete), &mut Live);
+        assert_eq!(
+            f.keyboard_note(),
+            if again {
+                Some(keyboard::Note::Again)
+            } else {
+                count(63)
+            }
+        );
+        f.step(q(), &mut Live);
+        f.step(q(), &mut Live);
+        assert_eq!(f.typed().0.len(), 64);
+
+        // OK still counts on a full line.
+        f.step(key(0, keyboard::Key::Ok), &mut Live);
+        if !again {
+            assert_eq!(f.state(), State::PassphraseAgain { page: 0 });
+            assert_eq!(f.keyboard_note(), Some(keyboard::Note::Again));
+        }
+    }
+    assert!(
+        matches!(f.state(), State::Opening { .. }),
+        "64 and 64 match"
+    );
 }
 
 /// 512-byte camera samples needed for `bits` at the credited rate: 43 for
@@ -543,9 +609,81 @@ fn generating_can_be_cancelled() {
         "back where it was started"
     );
     assert_eq!(out.command, Some(Command::SamplesOff));
-    // Starting again starts from nothing.
-    let out = f.step(item(&menu::SEED_TOOLS, 0), &mut Live);
+    // Starting again starts from nothing, its count asked again.
+    f.step(item(&menu::SEED_TOOLS, 0), &mut Live);
+    let out = f.step(
+        tap_in(
+            kassigner_fw::ui::words::count_zone(SCALE, kassigner_fw::ui::words::Target::Words(12))
+                .unwrap(),
+        ),
+        &mut Live,
+    );
     assert!(matches!(out.screen, Screen::Generating { credited: 0, .. }));
+}
+
+/// New Seed asks 12 or 24 words before its capture; Back there returns to
+/// Seed Tools with nothing started.
+#[test]
+fn new_seed_asks_its_count_first() {
+    use kassigner_fw::flow::CountFor;
+    let mut m = Memory::new();
+    let mut f: Flow<'_, 1> = booted(&mut m, &[Source::Camera]);
+    f.step(card(2), &mut Live);
+    f.step(item(&menu::TOOLS, 0), &mut Live);
+    let out = f.step(item(&menu::SEED_TOOLS, 0), &mut Live);
+    assert_eq!(
+        out.screen,
+        Screen::WordCount {
+            action: CountFor::NewSeed
+        }
+    );
+    assert_eq!(out.command, None, "no capture before the count");
+    assert_eq!(CountFor::NewSeed.title(), "NEW SEED");
+    f.step(back_button(), &mut Live);
+    assert_eq!(
+        f.state(),
+        State::Menu {
+            menu: MenuId::SeedTools,
+            page: 0
+        }
+    );
+}
+
+/// The same capture makes either length: 24 words keep the pool's whole
+/// hash, 12 its first half, so a 12-word seed's entropy is the first 16
+/// bytes of the 24-word one's made from the same samples.
+#[test]
+fn twenty_four_words_keep_the_whole_hash() {
+    fn made(words: u8) -> Vec<u8> {
+        let mut m = Memory::new();
+        let mut f: Flow<'_, 1> = booted(&mut m, &[Source::Camera]);
+        assert_eq!(
+            new_seed_of(&mut f, &mut Live, words),
+            Some(Command::SamplesOn)
+        );
+        assert_eq!(f.state(), State::Generating);
+        for salt in 0..camera_samples_for(kassigner_fw::limits::SEED_MIN_BITS) {
+            let s = camera_sample(salt);
+            f.step(Event::CameraSample(&s), &mut Live);
+        }
+        let mut shown = Vec::new();
+        for i in 0..words {
+            assert_eq!(f.state(), State::ShowWords { pos: i });
+            shown.push(f.shown_word().expect("a word"));
+            f.step(on_choice(0), &mut Live);
+        }
+        assert_eq!(f.state(), State::BackupAsk { by: Check::Words });
+        let phrase = bip39::from_words(shown.iter().copied()).expect("a phrase");
+        assert_eq!(phrase.len(), usize::from(words));
+        let mut entropy = [0u8; 32];
+        let n = phrase.entropy(&mut entropy).expect("its entropy");
+        entropy[..n].to_vec()
+    }
+    let twelve = made(12);
+    let twenty_four = made(24);
+    assert_eq!(twelve.len(), 16);
+    assert_eq!(twenty_four.len(), 32);
+    assert_eq!(twelve[..], twenty_four[..16]);
 }
 
 /// A 32-byte code shaped as a v1.0.7 set's last frame is held until its

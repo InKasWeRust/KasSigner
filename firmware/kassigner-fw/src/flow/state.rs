@@ -267,8 +267,16 @@ pub enum State {
     KpubQr { frame: u8 },
     /// KPUB EXPORTED: save to the card, or show again.
     KpubExported,
-    /// ENCRYPT FILE? for the kpub to be written.
+    /// ENCRYPT FILE? for the file to be written: a kpub, and every save
+    /// after it; a seed's backup too, when the seed has a passphrase.
     KpubEncrypt,
+    /// A seed's backup about to be saved with no password, ENCRYPT FILE?'s
+    /// No: the warning, asked as a format is, armed by SAVE and then held
+    /// for [`HOLD_US`].
+    BackupNoPassword {
+        armed: bool,
+        held_since: Option<u64>,
+    },
     /// KPUB SCANNED: a kpub read by the camera.
     KpubScanned,
     /// CREATE MULTISIG: `m` signatures required of `n` keys, set with "-"
@@ -424,7 +432,7 @@ pub(super) const fn seed_tools(tool: CountFor) -> State {
     State::Menu {
         menu: MenuId::SeedTools,
         page: match tool {
-            CountFor::Words(WordsFor::Import) | CountFor::Dice => 0,
+            CountFor::NewSeed | CountFor::Words(WordsFor::Import) | CountFor::Dice => 0,
             CountFor::Words(WordsFor::LastWord) | CountFor::Bip85 => 1,
         },
     }

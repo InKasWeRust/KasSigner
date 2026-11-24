@@ -93,6 +93,8 @@ pub enum Error {
     SensorModeTable(sensor::Error),
     /// D-PHY test-interface readback returned zero.
     PhyNotResponding,
+    /// The sensor did not ACK every write switching its stream.
+    SensorStream(sensor::Error),
     /// ISP never saw a frame header.
     NoFrameHeader,
     /// DMA did not complete in time.
@@ -192,13 +194,14 @@ impl Frame<'_> {
     }
 }
 
-/// The camera: owns the frame buffer and sequences bring-up. The buffer is
-/// a raw pointer, since a `&mut` would tell the compiler nothing else
-/// writes it, and the DMA does.
+/// The camera: captures into the frame buffer and sequences bring-up. The
+/// buffer is a raw pointer, since a `&mut` would tell the compiler nothing
+/// else writes it, and the DMA does.
 ///
 /// ```ignore
 /// static mut FB: camera::FrameBuffer = camera::FrameBuffer::new();
-/// let mut cam = Camera::new(core::ptr::addr_of_mut!(FB));
+/// // SAFETY: `FB` lives for the program, and nothing else uses it.
+/// let mut cam = unsafe { Camera::new(core::ptr::addr_of_mut!(FB)) };
 /// cam.power_up(&delay)?;                     // AFTER psram init, if any
 /// cam.configure_sensor(&mut bus, &delay)?;
 /// cam.start(&mut bus, &delay)?;
@@ -211,10 +214,18 @@ pub struct Camera<'fb> {
 }
 
 impl<'fb> Camera<'fb> {
-    /// Take the frame buffer for the camera's life. `fb` must outlive
-    /// `'fb`, be touched by no Rust code but this `Camera`, and never come
-    /// from a `&mut` (`addr_of_mut!` on a `static mut`, or a heap block).
-    pub fn new(fb: *mut FrameBuffer) -> Self {
+    /// Take the frame buffer for the camera's life.
+    ///
+    /// # Safety
+    ///
+    /// `fb` points at a `FrameBuffer` that stays valid for `'fb`. The DMA
+    /// writes it during each capture (`capture`, `capture_with`,
+    /// `capture_until`); meanwhile no other code may touch it and no
+    /// reference to it may be alive, since a reference tells the compiler
+    /// nothing else writes it. So take `fb` with `addr_of_mut!` on a
+    /// `static mut`, or from a heap block, never through a `&mut`. Between
+    /// captures, other code may read or wipe it through its own pointer.
+    pub unsafe fn new(fb: *mut FrameBuffer) -> Self {
         Self {
             fb,
             cfg: Config::default(),
@@ -274,7 +285,7 @@ impl<'fb> Camera<'fb> {
         if dphy::phy_read(0x44) == 0 {
             return Err(Error::PhyNotResponding);
         }
-        Ov5647::stream_on(bus);
+        Ov5647::stream_on(bus).map_err(Error::SensorStream)?;
         bridge::enable();
         delay.delay_millis(AEC_SETTLE_MS);
         Ok(())
@@ -352,9 +363,13 @@ impl<'fb> Camera<'fb> {
     }
 
     /// Stop the DMA, the bridge, and put the sensor to sleep.
-    pub fn stop(&self, bus: &mut Bus<'_>) {
+    ///
+    /// # Errors
+    /// `SensorStream` if the sensor did not ACK its standby. The DMA and the
+    /// bridge are stopped all the same, so nothing it sends reaches memory.
+    pub fn stop(&self, bus: &mut Bus<'_>) -> Result<(), Error> {
         let _ = dma::stop();
         bridge::disable();
-        Ov5647::stream_off(bus);
+        Ov5647::stream_off(bus).map_err(Error::SensorStream)
     }
 }

@@ -118,8 +118,9 @@ Some things will not be merged, however well they are done:
   the two disagree, rusty-kaspa is right.
 - `unsafe` lives only in `kassigner-hal-esp32s3` and `kassigner-hal-esp32p4`,
   as little as possible, each block with a `// SAFETY:` comment saying why it
-  is sound. Every other crate a unit runs forbids it; the two SDK binding
-  crates deny it, as their binding macros generate it. When the flow needs
+  is sound. Every other crate of ours a unit runs forbids it, the vendored QR
+  decoder included; the two SDK binding crates deny it, as their binding
+  macros generate it. When the flow needs
   what only `unsafe` gives, `kassigner-hal` defines a safe trait, each board
   implements it, and the logic lives once in `kassigner-fw`.
 - A type that holds a secret wipes itself when dropped. A secret leaves the

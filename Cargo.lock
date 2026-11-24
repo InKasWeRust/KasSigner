@@ -3955,7 +3955,7 @@ dependencies = [
 
 [[package]]
 name = "kassigner-crypto"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -3974,11 +3974,11 @@ dependencies = [
 
 [[package]]
 name = "kassigner-fat32"
-version = "1.1.0"
+version = "1.1.1"
 
 [[package]]
 name = "kassigner-fw"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "aes-gcm",
  "fontdue",
@@ -3995,7 +3995,7 @@ dependencies = [
 
 [[package]]
 name = "kassigner-hal"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "sha2 0.11.0",
  "zeroize",
@@ -4003,7 +4003,7 @@ dependencies = [
 
 [[package]]
 name = "kassigner-hal-esp32p4"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "embedded-graphics",
  "esp-alloc",
@@ -4021,7 +4021,7 @@ dependencies = [
 
 [[package]]
 name = "kassigner-hal-esp32s3"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "embedded-graphics-core",
  "embedded-hal 1.0.0",
@@ -4041,11 +4041,11 @@ dependencies = [
 
 [[package]]
 name = "kassigner-jpeg"
-version = "1.1.0"
+version = "1.1.1"
 
 [[package]]
 name = "kassigner-kaspa"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "blake2 0.11.0",
  "blake3",
@@ -4074,7 +4074,7 @@ dependencies = [
 
 [[package]]
 name = "kassigner-protocol"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "kaspa-addresses 2.1.0 (git+https://github.com/kaspanet/rusty-kaspa?rev=01b532e8b553523216471682649693af92f0fd16)",
  "kaspa-consensus-core 2.1.0 (git+https://github.com/kaspanet/rusty-kaspa?rev=01b532e8b553523216471682649693af92f0fd16)",
@@ -4090,7 +4090,7 @@ dependencies = [
 
 [[package]]
 name = "kassigner-qr"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "qrcode",
  "rqrr",
@@ -4099,7 +4099,7 @@ dependencies = [
 
 [[package]]
 name = "kassigner-sdk"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "kassigner-kaspa",
  "kassigner-protocol",
@@ -4108,7 +4108,7 @@ dependencies = [
 
 [[package]]
 name = "kassigner-sdk-ffi"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "kassigner-sdk-host",
  "uniffi",
@@ -4116,7 +4116,7 @@ dependencies = [
 
 [[package]]
 name = "kassigner-sdk-host"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "kassigner-kaspa",
  "kassigner-protocol",
@@ -4126,7 +4126,7 @@ dependencies = [
 
 [[package]]
 name = "kassigner-sdk-wasm"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "js-sys",
  "kassigner-sdk-host",
@@ -4135,7 +4135,7 @@ dependencies = [
 
 [[package]]
 name = "kassigner-signer"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "esp-alloc",
  "esp-bootloader-esp-idf",

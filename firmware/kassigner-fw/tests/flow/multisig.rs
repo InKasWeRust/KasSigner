@@ -1975,6 +1975,7 @@ fn a_group_spend_shows_its_group_and_its_change() {
         assert_eq!(f.state(), State::Confirming);
         let (_, counted) = f.summary().expect("CONFIRM SEND?'s window");
         assert_eq!(counted.group, group);
+        assert_eq!(counted.unchecked, unchecked, "CONFIRM SEND? says it too");
         assert_eq!((counted.inputs, counted.outputs), counts);
         // Home on CONFIRM SEND? declines it; home once that is said.
         f.touch(home_button());
@@ -2097,4 +2098,79 @@ fn a_group_spend_shows_its_group_and_its_change() {
         reviewed(&mut f, corpus!("site/kspt_send_1in.bin")),
         (None, vec![NO, AT_0])
     );
+}
+
+/// **The warning that no group is held does not depend on the inputs
+/// sharing one M of N.** A bundle spending a single key's coin beside the
+/// 2-of-3's has no M of N to show; with no group held TX REVIEW and CONFIRM
+/// SEND? still say the spend is unchecked, where they once said nothing. A
+/// host that knows the seed's coins could otherwise add one to a multisig
+/// spend and so take the warning off the screen. With the group held such a
+/// request is refused, as any input that is not the group's is.
+#[test]
+fn inputs_of_two_shapes_are_still_said_unchecked() {
+    use kassigner_fw::ui::review::Shown;
+    use kassigner_kaspa::pskb::{decode_envelope, encode_envelope};
+    // A bundle's text, and its inputs' objects.
+    let text_of = |bundle: &[u8]| {
+        let mut json = vec![0u8; bundle.len()];
+        let n = decode_envelope(bundle, &mut json).unwrap();
+        String::from_utf8(json[..n].to_vec()).unwrap()
+    };
+    let inputs_of = |text: &str| {
+        let from = text.find("\"inputs\":[").expect("inputs") + "\"inputs\":[".len();
+        let to = text.find("],\"outputs\"").expect("outputs");
+        text[from..to].to_string()
+    };
+    let multisig = text_of(corpus!("site/pskb_multisig.bin"));
+    let single = inputs_of(&text_of(corpus!("site/pskb_send.bin")));
+    let its = inputs_of(&multisig);
+    let mixed = multisig
+        .replacen(&its, &format!("{its},{single}"), 1)
+        .replacen("\"inputCount\":1", "\"inputCount\":2", 1);
+    let mut req = vec![0u8; 4 + 2 * mixed.len()];
+    let n = encode_envelope(mixed.as_bytes(), &mut req).unwrap();
+    req.truncate(n);
+
+    let mut m = Memory::new();
+    let mut f: Flow<'_, 6> = booted(&mut m, &[]);
+    load(&mut f, corpus!("seedqr/abandon12.standard"));
+    f.step(home_button(), &mut Live);
+
+    // No group held: two inputs, no M of N, and the warning.
+    f.step(scan(), &mut Live);
+    deliver(&mut f, &req);
+    assert_eq!(f.state(), State::Reviewing);
+    let said = f
+        .review(|s| match *s {
+            Shown::Summary {
+                inputs,
+                group,
+                unchecked,
+                ..
+            } => (inputs, group, unchecked),
+            _ => panic!("TX REVIEW first"),
+        })
+        .unwrap();
+    assert_eq!(said, (2, None, true), "no M of N, and still unchecked");
+    while f.state() == State::Reviewing {
+        arrow(&mut f, RIGHT);
+    }
+    assert_eq!(f.state(), State::Confirming);
+    let (_, counted) = f.summary().expect("CONFIRM SEND?'s window");
+    assert_eq!((counted.group, counted.unchecked), (None, true));
+    f.touch(home_button());
+    let now_us = f.now_us() + REFUSED_US + 1;
+    f.step(Event::Tick { now_us }, &mut Live);
+    assert_eq!(f.state(), State::Home);
+
+    // The group held: an input that is not its own, refused.
+    create_group(&mut f, 2, 3);
+    for kpub in [ZOO12_KPUB45, ABANDON24_KPUB45, ABANDON12_KPUB45] {
+        scan_cosigner(&mut f, kpub.as_bytes());
+    }
+    f.step(home_button(), &mut Live);
+    f.step(scan(), &mut Live);
+    deliver(&mut f, &req);
+    assert_eq!(f.state(), State::Refused(Refusal::NotTheGroups));
 }

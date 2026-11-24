@@ -23,7 +23,6 @@
 //! was drawn produces a signature.
 
 use kassigner_crypto::bip39;
-use kassigner_crypto::seed::Words;
 use kassigner_crypto::slot::{self, Slot};
 use kassigner_crypto::wallet::Wallet;
 use kassigner_fw::card::{self, Job, Kind, Outcome};

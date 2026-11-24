@@ -283,6 +283,9 @@ pub enum Screen {
     KpubExported,
     /// ENCRYPT FILE?
     KpubEncrypt,
+    /// The warning before a seed's backup is saved with no password.
+    /// `hold` as [`Screen::Deleting`]'s.
+    BackupNoPassword { hold: Option<u8> },
     /// KPUB SCANNED.
     KpubScanned,
     /// CREATE MULTISIG: `m` of `n`.
@@ -492,6 +495,7 @@ impl Screen {
             | Screen::KpubQr { .. }
             | Screen::KpubExported
             | Screen::KpubEncrypt
+            | Screen::BackupNoPassword { .. }
             | Screen::KpubScanned
             | Screen::CreateMultisig { .. }
             | Screen::AddKey { .. }

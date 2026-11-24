@@ -58,8 +58,8 @@ pub enum BundleError {
     NotOneTransaction { count: usize },
     /// An input fails a unit's rule, a signature's check among them.
     Check(check::Error),
-    /// The whole transaction fails a consensus or mempool rule
-    /// ([`check::transaction`]).
+    /// The whole transaction fails a consensus or mempool rule, or has no
+    /// outputs ([`check::transaction`]).
     Transaction(check::TransactionError),
     /// A multisig a unit does not sign.
     Multisig(MultisigError),

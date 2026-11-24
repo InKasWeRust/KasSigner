@@ -194,7 +194,9 @@ impl<'b, const N: usize> Flow<'b, N> {
     }
 
     /// ENCRYPT FILE?: Yes asks a password; No writes the file plain; Home
-    /// lets go a card held for its save.
+    /// lets go a card held for its save. A seed's backup, asked only of a
+    /// seed with a passphrase, is never written plain: its No is warned of
+    /// first ([`State::BackupNoPassword`]) and then sealed under no password.
     pub(super) fn on_kpub_encrypt(
         &mut self,
         event: Event<'_>,
@@ -207,6 +209,12 @@ impl<'b, const N: usize> Flow<'b, N> {
             dialog::Target::Nav(Nav::Home) => self.leave_card(State::Home),
             dialog::Target::Nav(_) => self.state = self.saving_from(),
             dialog::Target::Cancel => self.start_password(),
+            dialog::Target::Accept if self.saving == Saving::Backup => {
+                self.state = State::BackupNoPassword {
+                    armed: false,
+                    held_since: None,
+                }
+            }
             dialog::Target::Accept => {
                 if self.saving == Saving::Signature {
                     // Plain: the record straight into the write's buffer.

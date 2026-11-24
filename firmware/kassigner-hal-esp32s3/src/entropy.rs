@@ -208,6 +208,11 @@ const PATT_INTERNAL_VOLTAGE: u32 = 0x00af_ffff;
 
 /// Register 7 of the SAR ADC's internal I2C block (`regi2c_saradc.h`).
 const I2C_SAR_REG7: u8 = 0x7;
+/// The five bits of register 7 that [`Rng::start`] writes, ENCAL_REF b4,
+/// ENT_RTC b3, ENT_TSENS b2 and DTEST_RTC `[1:0]`, and what they read once
+/// written: ENCAL_REF and ENT_TSENS on, the rest off.
+const SAR_REG7_FIELDS: u8 = 0x1F;
+const SAR_REG7_SET: u8 = (1 << 4) | (1 << 2);
 
 /// Set `field` (shift, mask) of `word` to `value`.
 const fn with_field(word: u32, (shift, mask): (u32, u32), value: u32) -> u32 {
@@ -228,26 +233,47 @@ unsafe fn modify(addr: u32, f: impl FnOnce(u32) -> u32) {
     }
 }
 
+/// The internal I2C block that holds the SAR ADC's analogue settings:
+/// `I2C_SAR_ADC`, host 1 (`regi2c_saradc.h`).
+#[cfg(target_arch = "xtensa")]
+const I2C_SAR_ADC: u8 = 0x69;
+#[cfg(target_arch = "xtensa")]
+const I2C_SAR_ADC_HOSTID: u8 = 1;
+
+#[cfg(target_arch = "xtensa")]
+unsafe extern "C" {
+    /// `esp_rom_regi2c_write_mask`, in the S3's mask ROM.
+    fn rom_i2c_writeReg_Mask(block: u8, host_id: u8, reg: u8, msb: u8, lsb: u8, data: u8);
+    /// `esp_rom_regi2c_read`, beside it in the mask ROM.
+    fn rom_i2c_readReg(block: u8, host_id: u8, reg: u8) -> u8;
+}
+
 /// One field of an internal-I2C analogue register, through the ROM's own
 /// routine, as esp-hal and ESP-IDF both do on this chip.
 #[cfg(target_arch = "xtensa")]
 fn regi2c_write_mask(reg: u8, msb: u8, lsb: u8, value: u8) {
-    /// The internal I2C block that holds the SAR ADC's analogue settings:
-    /// `I2C_SAR_ADC`, host 1 (`regi2c_saradc.h`).
-    const I2C_SAR_ADC: u8 = 0x69;
-    const I2C_SAR_ADC_HOSTID: u8 = 1;
-    unsafe extern "C" {
-        /// `esp_rom_regi2c_write_mask`, in the S3's mask ROM.
-        fn rom_i2c_writeReg_Mask(block: u8, host_id: u8, reg: u8, msb: u8, lsb: u8, data: u8);
-    }
     // SAFETY: a ROM routine with a fixed address in `esp32s3.rom.ld`, given
     // the SAR ADC's block, host and register from `regi2c_saradc.h`.
     unsafe { rom_i2c_writeReg_Mask(I2C_SAR_ADC, I2C_SAR_ADC_HOSTID, reg, msb, lsb, value) };
 }
 
+/// One whole internal-I2C analogue register, through the ROM's routine.
+#[cfg(target_arch = "xtensa")]
+fn regi2c_read(reg: u8) -> u8 {
+    // SAFETY: a ROM routine with a fixed address in `esp32s3.rom.ld`, given
+    // the block, host and register the writes use; a read changes nothing.
+    unsafe { rom_i2c_readReg(I2C_SAR_ADC, I2C_SAR_ADC_HOSTID, reg) }
+}
+
 /// On the host there is no analogue block to write.
 #[cfg(not(target_arch = "xtensa"))]
 fn regi2c_write_mask(_reg: u8, _msb: u8, _lsb: u8, _value: u8) {}
+
+/// On the host there is no analogue block to read.
+#[cfg(not(target_arch = "xtensa"))]
+fn regi2c_read(_reg: u8) -> u8 {
+    0
+}
 
 /// Microseconds between reads: the TRM's 500 kHz ceiling for a generator fed
 /// by the SAR ADC. Faster, a word is partly the previous one.
@@ -369,8 +395,10 @@ impl Rng {
 
     /// Whether the SAR ADC is converting for the generator, read back from
     /// the registers [`Rng::start`] wrote: out of reset, its clock on, the
-    /// converter forced up, ADC1 under the digital controller, and the
-    /// sampling timer running.
+    /// converter forced up, ADC1 under the digital controller, the sampling
+    /// timer running, and analogue register 7 choosing the voltage it
+    /// measures. That last one is written through the ROM's analogue bus,
+    /// where a write that did not land says nothing.
     ///
     /// The health tests pass on the fast clock alone, so they cannot tell a
     /// converter left idle; this can. The units fail their self-test on it
@@ -389,6 +417,7 @@ impl Rng {
                 && xpd & FORCE_XPD_SAR_MASK == FORCE_XPD_SAR_ON
                 && mux1 & SAR1_DIG_FORCE != 0
                 && ctrl2 & (TIMER_EN | TIMER_SEL) == (TIMER_EN | TIMER_SEL)
+                && regi2c_read(I2C_SAR_REG7) & SAR_REG7_FIELDS == SAR_REG7_SET
         }
     }
 

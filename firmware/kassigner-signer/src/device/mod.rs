@@ -25,7 +25,6 @@ use esp_hal::main;
 
 use esp_println::println;
 
-use kassigner_crypto::seed::Words;
 use kassigner_fw::card::{self, Job, Request};
 use kassigner_fw::cues;
 use kassigner_fw::flow::{
@@ -157,9 +156,6 @@ const SEED_SAMPLE: usize = 512;
 #[cfg(any(feature = "m5stack", feature = "waveshare"))]
 const IMU_CHUNK: usize = 192;
 
-/// How long a seed the unit makes.
-const WORDS: Words = Words::Twelve;
-
 /// Whether the console is open. Cleared on [`Command::CloseConsole`]:
 /// with the pads off, a write would sit in a FIFO nobody drains.
 static CONSOLE_OPEN: AtomicBool = AtomicBool::new(true);
@@ -198,6 +194,8 @@ mod act;
 mod board;
 mod drawing;
 mod input;
+#[cfg(feature = "touchcap")]
+mod touchcap;
 
 use act::*;
 use board::*;
@@ -533,7 +531,6 @@ fn run() -> ! {
             size: unit.lcd.size(),
             stack: main_stack,
             sources,
-            words: WORDS,
             settings: SETTINGS,
             backlight: BACKLIGHT,
             volume: VOLUME,
@@ -631,6 +628,12 @@ fn run() -> ! {
     #[cfg(any(feature = "m5stack", feature = "waveshare"))]
     let mut imu_i2c = unit.device();
     let mut last_touch_us = io.now_us;
+    // The touch capture: the seed screen's reads kept, not handed over.
+    #[cfg(feature = "touchcap")]
+    let mut touchcap = {
+        out!("touchcap: the seed screen records touches and never makes a seed");
+        touchcap::TouchCap::new()
+    };
     let mut attempt = Attempt::Fast;
     // Which touches are a finger: a tap is a confirmed finger's last
     // point once the panel reads idle (a polled controller sends no lift
@@ -778,19 +781,31 @@ fn run() -> ! {
 
         // The finger. While the seed wants samples, every point read is a
         // sample, confirmed or not.
+        #[cfg(feature = "touchcap")]
+        if !io.samples_on {
+            touchcap.reset();
+        }
         if let Ok(state) = unit.touch.read() {
             if let (Some(p), true) = (state.first(), io.samples_on) {
                 let since = unit.timer.since(last_touch_us).min(u64::from(u32::MAX)) as u32;
                 last_touch_us = io.now_us;
-                let out = flow.step(
-                    Event::TouchMoved {
-                        x: p.x,
-                        y: p.y,
-                        since_us: since,
-                    },
-                    &mut unit.rng,
-                );
-                apply(out, &mut unit, &mut flow, &mut io);
+                // The capture keeps the read where the seed would get it.
+                #[cfg(feature = "touchcap")]
+                if touchcap.take(p.x, p.y, since, io.now_us) {
+                    touchcap.dump(&mut || dog.feed());
+                }
+                #[cfg(not(feature = "touchcap"))]
+                {
+                    let out = flow.step(
+                        Event::TouchMoved {
+                            x: p.x,
+                            y: p.y,
+                            since_us: since,
+                        },
+                        &mut unit.rng,
+                    );
+                    apply(out, &mut unit, &mut flow, &mut io);
+                }
             }
             // Reports counted; a confirmed touch that ends is a tap.
             if state.first().is_some() {

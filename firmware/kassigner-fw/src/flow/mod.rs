@@ -86,8 +86,8 @@ use core::mem::{discriminant, Discriminant};
 
 use crate::kpub::{RAW_LEN as KPUB_RAW_LEN, RAW_MARK as KPUB_RAW_MARK};
 use kassigner_crypto::backup::{
-    backup_kdf, open_slot, open_slot_with_key, purpose_of, seal_slot, seal_slot_with_key,
-    BackupError, BackupKdf, FILE_MAX,
+    backup_kdf, open_slot, open_slot_with_key, passphrase_guards, seal_slot, seal_slot_with_key,
+    sealing_steps, BackupError, BackupKdf, FILE_MAX,
 };
 use kassigner_crypto::bip39::Mnemonic;
 use kassigner_crypto::container::OpenError;
@@ -691,8 +691,6 @@ pub struct Config<'c> {
     pub stack: wipe::Stack,
     /// The entropy sources this unit has. At most four are kept.
     pub sources: &'c [Source],
-    /// The word count of the seeds it makes.
-    pub words: Words,
     /// The unit's settings menu.
     pub settings: &'static menu::Menu,
     /// The backlight's level as the board brought it up, 0 to 255.
@@ -716,6 +714,8 @@ pub struct Flow<'b, const N: usize> {
     scale: Scale,
     settings: &'static menu::Menu,
     stack: wipe::Stack,
+    /// The word count of the seed New Seed is making, chosen on its count
+    /// screen.
     words: Words,
     /// What boot found, for the verification screen and About.
     check: brand::Check,
@@ -1168,7 +1168,7 @@ impl<'b, const N: usize> Flow<'b, N> {
             scale: Scale::for_panel(config.size),
             settings: config.settings,
             stack: config.stack,
-            words: config.words,
+            words: Words::Twelve,
             check: brand::Check {
                 verdict: Verdict::Blank,
                 image_read: false,
@@ -1617,6 +1617,9 @@ impl<'b, const N: usize> Flow<'b, N> {
             State::KpubQr { frame } => self.on_kpub_qr(event, frame),
             State::KpubExported => self.on_kpub_exported(event, pressed_at),
             State::KpubEncrypt => self.on_kpub_encrypt(event, pressed_at),
+            State::BackupNoPassword { armed, held_since } => {
+                self.on_backup_no_password(event, armed, held_since)
+            }
             State::KpubScanned => self.on_kpub_scanned(event, pressed_at),
             State::CreateMultisig { m, n } => self.on_create_multisig(event, m, n),
             State::AddKey => self.on_add_key(event),

@@ -26,7 +26,7 @@ body:
     attributes:
       label: Version and hash
       description: On a unit, as its boot screen shows them. For the SDK, the version or the commit.
-      placeholder: "v1.1.0, Hash: xxxxxxxx...yyyyyyyy"
+      placeholder: "v1.1.1, Hash: xxxxxxxx...yyyyyyyy"
 
   - type: textarea
     id: steps

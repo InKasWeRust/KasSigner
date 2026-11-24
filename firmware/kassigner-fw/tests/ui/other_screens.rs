@@ -259,7 +259,7 @@ fn a_file_name_keyboard_takes_only_what_a_name_can_hold() {
         assert_eq!(hit(full, 0, key), Some(Target::Key(key)), "{key:?}");
     }
     assert_eq!(
-        hit(Mode::Text, 2, Key::Char(b'!')),
+        hit(Mode::Text { full: false }, 2, Key::Char(b'!')),
         Some(Target::Key(Key::Char(b'!')))
     );
     let mut out = [0u8; 8];

@@ -23,7 +23,9 @@
 
 use kassigner_crypto::seed::Words;
 use kassigner_fw::limits;
-use kassigner_fw::seed::{self, Collector, Encoding, Error, ReadError, Source, Verdict};
+use kassigner_fw::seed::{
+    self, Collector, Encoding, Error, ReadError, Source, Verdict, REPEAT_WINDOW,
+};
 use kassigner_hal::entropy::{self, Entropy};
 
 /// A source that works.
@@ -133,6 +135,58 @@ fn a_live_camera_chunk_is_credited_once() {
     assert_eq!(c.absorb_camera(&noise(4, camera_bytes(128))).bits(), 128);
     assert!(c.is_enough());
     assert_eq!(c.remaining(), 0);
+}
+
+/// A camera whose two buffers stop being written gives samples that take
+/// turns, X-Y then Y-X: each differs from the one before, and each is
+/// refused as a repeat of the one before that.
+#[test]
+fn a_camera_taking_turns_is_refused() {
+    let mut c = open_collector();
+    let x_less_y = noise(5, camera_bytes(32));
+    let y_less_x: Vec<u8> = x_less_y.iter().map(|b| b.wrapping_neg()).collect();
+    assert_eq!(c.absorb_camera(&x_less_y).bits(), 32);
+    assert_eq!(c.absorb_camera(&y_less_x).bits(), 32);
+    for _ in 0..4 {
+        assert_eq!(c.absorb_camera(&x_less_y), Verdict::Repeat);
+        assert_eq!(c.absorb_camera(&y_less_x), Verdict::Repeat);
+    }
+    assert_eq!(c.credited_from(Source::Camera), 64);
+}
+
+/// A sample is held against the last `REPEAT_WINDOW` from its source: one
+/// that many back is a repeat, one further back is credited again.
+#[test]
+fn the_repeat_check_looks_a_window_back() {
+    let mut c = open_collector();
+    let samples: Vec<Vec<u8>> = (0..=REPEAT_WINDOW as u32)
+        .map(|i| noise(100 + i, camera_bytes(8)))
+        .collect();
+    for s in &samples[..REPEAT_WINDOW] {
+        assert_eq!(c.absorb_camera(s).bits(), 8);
+    }
+    assert_eq!(
+        c.absorb_camera(&samples[0]),
+        Verdict::Repeat,
+        "a window back"
+    );
+    assert_eq!(c.absorb_camera(&samples[REPEAT_WINDOW]).bits(), 8);
+    assert_eq!(c.absorb_camera(&samples[0]).bits(), 8, "past the window");
+}
+
+/// Dice look one roll back only: a die has six faces, so a caller adding a
+/// roll at a time keeps every roll but one equal to the roll just before.
+#[test]
+fn dice_look_one_roll_back() {
+    let mut c = open_collector();
+    for roll in [b"1", b"2", b"1", b"2"] {
+        assert_eq!(
+            c.absorb_dice(roll).unwrap().bits(),
+            limits::DICE_BITS_PER_ROLL
+        );
+    }
+    assert_eq!(c.absorb_dice(b"2"), Ok(Verdict::Repeat));
+    assert_eq!(c.credited(), 4 * limits::DICE_BITS_PER_ROLL);
 }
 
 /// What the camera gate refuses: a short chunk, a dark sensor, one value.

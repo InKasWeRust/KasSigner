@@ -49,11 +49,14 @@
 //!
 //! A multisig redeem is matched through a `45'` hint alone, no bank and no
 //! search: its keys are `45'` cosigner keys, which neither holds, and a
-//! `45'` multisig carries its hint by rule. A multisig over `44'` keys, as
-//! v1.0.5 built, is not recognised (its coins are swept with v1.0.7 or
-//! older), so a `44'` path is no hint for one. A raw key has no `45'` tree,
-//! and a `45'` address takes a child of every cosigner's kpub, so a raw-key
-//! wallet signs no multisig.
+//! `45'` multisig carries its hint by rule. The hint's branch is a
+//! cosigner's place among the script's keys, below their count, as
+//! rusty-kaspa sets it; one at or past their count names no address of the
+//! group and counts as no hint, as a chain past change does. A multisig
+//! over `44'` keys, as v1.0.5 built, is not recognised (its coins are swept
+//! with v1.0.7 or older), so a `44'` path is no hint for one. A raw key has
+//! no `45'` tree, and a `45'` address takes a child of every cosigner's
+//! kpub, so a raw-key wallet signs no multisig.
 //!
 //! # KCC-3
 //!
@@ -1027,9 +1030,9 @@ impl<W: Borrow<Wallet>> Keyring<W> {
 
     /// A multisig's key: the one its `45'` hint names, at its position in the
     /// redeem. No bank and no search: neither holds cosigner keys. With a
-    /// `44'` hint (a v1.0.5 multisig's key), or for a raw key, which has no
-    /// `45'` tree, the input is not ours. The hint is checked before any key
-    /// is derived.
+    /// `44'` hint (a v1.0.5 multisig's key), a hint whose branch is not below
+    /// the script's key count, or for a raw key, which has no `45'` tree, the
+    /// input is not ours. The hint is checked before any key is derived.
     ///
     /// # Errors
     ///
@@ -1038,14 +1041,22 @@ impl<W: Borrow<Wallet>> Keyring<W> {
         if !matches!(self.wallet.borrow(), Wallet::Hd { .. }) {
             return Ok(None);
         }
-        let Some(path @ Path::Multisig { .. }) = hint else {
+        let Some(path @ Path::Multisig { cosigner, .. }) = hint else {
             return Ok(None);
         };
+        let shape = multisig_shape(redeem).map(|ms| (ms.required, ms.total));
+        // The branch is a cosigner's place among the keys, as rusty-kaspa
+        // sets it (`wallet/core/src/wallet/mod.rs`, `min_cosigner_index`):
+        // one at or past their count is no address of this group.
+        if let Some((_, total)) = shape {
+            if cosigner >= u32::from(total) {
+                return Ok(None);
+            }
+        }
         let Some(key) = self.hinted(Some(path))? else {
             return Ok(None);
         };
         let x = key.x_only();
-        let shape = multisig_shape(redeem).map(|ms| (ms.required, ms.total));
         Ok(keys_of(redeem).position(|k| k == x).map(|p| Match {
             key,
             position: p as u8,

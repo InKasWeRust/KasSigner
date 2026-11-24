@@ -121,7 +121,7 @@ esp-riscv-rt           = { path = "firmware/kassigner-hal-esp32p4/esp-hal-fork/e
 [workspace.package]
 # The release's version, for every crate: the signer's image, the SDK (which
 # reports it) and the libraries both are built from.
-version = "1.1.0"
+version = "1.1.1"
 rust-version = "1.95"
 
 # The device image's profile (cargo honours profiles only here).

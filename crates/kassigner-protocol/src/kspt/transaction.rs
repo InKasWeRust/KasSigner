@@ -18,7 +18,7 @@
 //! Nothing here judges a transaction: that is for a signer's review and a
 //! person, who would not see refusals made here.
 
-use super::{Kspt, Record};
+use super::{Input, Kspt, Output, Record};
 use kassigner_kaspa::tx::{
     CovenantBinding, Outpoint, ScriptPublicKey, Transaction, TransactionInput, TransactionOutput,
     UtxoEntry,
@@ -76,28 +76,7 @@ pub fn fill<'a>(
                 found: ni + 1,
             });
         }
-        inputs[ni] = TransactionInput {
-            previous_outpoint: Outpoint {
-                transaction_id: i.prev_tx_id,
-                index: i.prev_index,
-            },
-            sequence: i.sequence,
-            sig_op_count: i.sig_op_count,
-            // Not carried by KSPT; zero, as upstream's own extraction uses.
-            // It never enters the signature hash, at any version
-            // (`consensus/core/src/hashing/sighash.rs`). From version 1 it
-            // counts toward mass, the coordinator's arithmetic.
-            compute_budget: 0,
-            // Empty: a signature cannot commit to itself.
-            signature_script: &[],
-            utxo_entry: UtxoEntry {
-                amount: i.amount,
-                script_public_key: ScriptPublicKey {
-                    version: i.spk_version,
-                    script: i.spk,
-                },
-            },
-        };
+        inputs[ni] = input_of(&i);
         ni += 1;
     }
     if ni != kspt.num_inputs {
@@ -115,16 +94,9 @@ pub fn fill<'a>(
                 found: no + 1,
             });
         }
-        outputs[no] = TransactionOutput {
-            value: o.value,
-            script_public_key: ScriptPublicKey {
-                version: o.spk_version,
-                script: o.spk,
-            },
-            // The inline form, on legacy shapes only; records are merged
-            // below.
-            covenant: o.covenant,
-        };
+        // The inline binding, on legacy shapes only; records are merged
+        // below.
+        outputs[no] = output_of(&o);
         no += 1;
     }
     if no != kspt.num_outputs {
@@ -138,28 +110,116 @@ pub fn fill<'a>(
     // reading only the inline form would hide from the review a binding the
     // signature commits to. None replaces another: the parser refuses a
     // record for an output already bound, inline or by a record.
-    for r in kspt.records() {
-        if let Record::Covenant {
-            output_index,
-            authorizing_input,
-            covenant_id,
-        } = r
-        {
-            let idx = output_index as usize;
-            if idx >= no {
-                return Err(Error::CovenantForMissingOutput {
-                    output: idx,
-                    outputs: no,
-                });
-            }
-            outputs[idx].covenant = Some(CovenantBinding {
-                authorizing_input,
-                covenant_id: *covenant_id,
+    for (idx, binding) in bindings(kspt) {
+        if idx >= no {
+            return Err(Error::CovenantForMissingOutput {
+                output: idx,
+                outputs: no,
             });
         }
+        outputs[idx].covenant = Some(binding);
     }
 
     Ok((ni, no))
+}
+
+/// An input as the transaction holds it: what [`fill`] writes, and what
+/// [`matches`] compares.
+fn input_of<'a>(i: &Input<'a>) -> TransactionInput<'a> {
+    TransactionInput {
+        previous_outpoint: Outpoint {
+            transaction_id: i.prev_tx_id,
+            index: i.prev_index,
+        },
+        sequence: i.sequence,
+        sig_op_count: i.sig_op_count,
+        // Not carried by KSPT; zero, as upstream's own extraction uses.
+        // It never enters the signature hash, at any version
+        // (`consensus/core/src/hashing/sighash.rs`). From version 1 it
+        // counts toward mass, the coordinator's arithmetic.
+        compute_budget: 0,
+        // Empty: a signature cannot commit to itself.
+        signature_script: &[],
+        utxo_entry: UtxoEntry {
+            amount: i.amount,
+            script_public_key: ScriptPublicKey {
+                version: i.spk_version,
+                script: i.spk,
+            },
+        },
+    }
+}
+
+/// An output as the transaction holds it, with its inline binding only:
+/// the records' are the caller's to merge ([`bindings`]).
+fn output_of<'a>(o: &Output<'a>) -> TransactionOutput<'a> {
+    TransactionOutput {
+        value: o.value,
+        script_public_key: ScriptPublicKey {
+            version: o.spk_version,
+            script: o.spk,
+        },
+        covenant: o.covenant,
+    }
+}
+
+/// The bindings a payload sends as `0x43` records, each with the output it
+/// names, which may not exist.
+fn bindings<'k>(kspt: &'k Kspt<'_>) -> impl Iterator<Item = (usize, CovenantBinding)> + 'k {
+    kspt.records().filter_map(|r| match r {
+        Record::Covenant {
+            output_index,
+            authorizing_input,
+            covenant_id,
+        } => Some((
+            usize::from(output_index),
+            CovenantBinding {
+                authorizing_input,
+                covenant_id: *covenant_id,
+            },
+        )),
+        _ => None,
+    })
+}
+
+/// Whether `kspt` is `tx`: field for field the transaction [`fill`] and
+/// [`build`] would make of it, read in place with no arrays. A payload
+/// [`fill`] refuses, by its counts or a record naming no output, is not.
+///
+/// What a reply's read-back holds the reply to, as the PSKB one holds a
+/// bundle ([`crate::check::same_transaction`]): its signatures are verified
+/// over the reviewed transaction's hashes, which say nothing of the body
+/// it carries.
+pub fn matches(kspt: &Kspt<'_>, tx: &Transaction<'_>) -> bool {
+    if kspt.tx_version != tx.version
+        || kspt.lock_time != tx.lock_time
+        || kspt.subnetwork_id != tx.subnetwork_id
+        || kspt.gas != tx.gas
+        || kspt.payload != tx.payload
+        || kspt.num_inputs != tx.inputs.len()
+        || kspt.num_outputs != tx.outputs.len()
+    {
+        return false;
+    }
+    let mut ni = 0usize;
+    for i in kspt.inputs() {
+        if tx.inputs.get(ni) != Some(&input_of(&i)) {
+            return false;
+        }
+        ni += 1;
+    }
+    let mut no = 0usize;
+    for o in kspt.outputs() {
+        let mut out = output_of(&o);
+        if let Some((_, binding)) = bindings(kspt).find(|(idx, _)| *idx == no) {
+            out.covenant = Some(binding);
+        }
+        if tx.outputs.get(no) != Some(&out) {
+            return false;
+        }
+        no += 1;
+    }
+    ni == tx.inputs.len() && no == tx.outputs.len() && bindings(kspt).all(|(idx, _)| idx < no)
 }
 
 /// Each input's coin's covenant id, from the payload's `0x49` records:

@@ -633,7 +633,7 @@ fn oldest(plain: &[u8], password: &[u8]) -> Vec<u8> {
     file.extend_from_slice(&(plain.len() as u16).to_le_bytes());
     file.extend_from_slice(&nonce);
     let mut body = plain.to_vec();
-    let tag = Aes256Gcm::new(&key.into())
+    let tag = Aes256Gcm::new(&(*key).into())
         .encrypt_inout_detached(&Nonce::from(nonce), &file[..6], body.as_mut_slice().into())
         .unwrap();
     file.extend_from_slice(&body);

@@ -28,6 +28,15 @@ impl<'b, const N: usize> Flow<'b, N> {
             word_screens::Target::Nav(Nav::Home) => self.leave_words(State::Home),
             word_screens::Target::Words(n) => {
                 let next = match action {
+                    // New Seed: its capture starts at once, for that many
+                    // words.
+                    CountFor::NewSeed => {
+                        return self.start_seed(if n == 24 {
+                            Words::TwentyFour
+                        } else {
+                            Words::Twelve
+                        });
+                    }
                     CountFor::Words(action) => State::Words { action },
                     CountFor::Dice => State::Dice,
                     CountFor::Bip85 => State::Bip85,
